@@ -1,0 +1,293 @@
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+
+import 'trading_models.dart';
+
+/// 当日委托 Tab：委托列表（标的、方向、委托价/量、已成交、状态、时间、撤单）
+/// 数据先 mock，接口就绪后替换为 API
+class OrdersTab extends StatefulWidget {
+  const OrdersTab({super.key, required this.teacherId});
+
+  final String teacherId;
+
+  @override
+  State<OrdersTab> createState() => _OrdersTabState();
+}
+
+class _OrdersTabState extends State<OrdersTab> {
+  static const Color _accent = Color(0xFFD4AF37);
+  static const Color _muted = Color(0xFF6C6F77);
+  static const Color _surface = Color(0xFF1A1C21);
+
+  late List<Order> _orders;
+
+  @override
+  void initState() {
+    super.initState();
+    _orders = _mockTodayOrders();
+  }
+
+  List<Order> _mockTodayOrders() {
+    final now = DateTime.now();
+    return [
+      Order(
+        id: 'ord-1',
+        symbol: 'AAPL',
+        symbolName: '苹果',
+        side: OrderSide.buy,
+        type: OrderType.limit,
+        price: 178.50,
+        quantity: 100,
+        filledQuantity: 0,
+        status: OrderStatus.pending,
+        createdAt: now.subtract(const Duration(minutes: 5)),
+        updatedAt: null,
+      ),
+      Order(
+        id: 'ord-2',
+        symbol: 'TSLA',
+        symbolName: '特斯拉',
+        side: OrderSide.sell,
+        type: OrderType.limit,
+        price: 245.00,
+        quantity: 50,
+        filledQuantity: 20,
+        status: OrderStatus.partial,
+        createdAt: now.subtract(const Duration(minutes: 30)),
+        updatedAt: now.subtract(const Duration(minutes: 10)),
+      ),
+      Order(
+        id: 'ord-3',
+        symbol: 'NVDA',
+        symbolName: '英伟达',
+        side: OrderSide.buy,
+        type: OrderType.market,
+        price: 0,
+        quantity: 30,
+        filledQuantity: 30,
+        status: OrderStatus.filled,
+        createdAt: now.subtract(const Duration(hours: 1)),
+        updatedAt: now.subtract(const Duration(hours: 1)),
+      ),
+    ];
+  }
+
+  Future<void> _cancelOrder(Order order) async {
+    if (!order.canCancel) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('确认撤单'),
+        content: Text('确定要撤销 ${order.symbol} 的${order.isBuy ? "买入" : "卖出"}委托吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('确认撤单'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() {
+      _orders = _orders
+          .map((o) => o.id == order.id
+              ? Order(
+                  id: o.id,
+                  symbol: o.symbol,
+                  symbolName: o.symbolName,
+                  side: o.side,
+                  type: o.type,
+                  price: o.price,
+                  quantity: o.quantity,
+                  filledQuantity: o.filledQuantity,
+                  status: OrderStatus.cancelled,
+                  createdAt: o.createdAt,
+                  updatedAt: DateTime.now(),
+                )
+              : o)
+          .toList();
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('已撤单（模拟）')),
+    );
+  }
+
+  String _statusText(OrderStatus s) {
+    switch (s) {
+      case OrderStatus.pending:
+        return '待成交';
+      case OrderStatus.partial:
+        return '部分成交';
+      case OrderStatus.filled:
+        return '已成交';
+      case OrderStatus.cancelled:
+        return '已撤单';
+      case OrderStatus.rejected:
+        return '已拒绝';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Row(
+            children: [
+              Icon(Icons.pending_actions, color: _accent, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                '当日委托',
+                style: TextStyle(
+                  color: _accent,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 16,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                '（模拟数据）',
+                style: TextStyle(fontSize: 12, color: _muted),
+              ),
+            ],
+          ),
+        ),
+        if (_orders.isEmpty)
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 48),
+            alignment: Alignment.center,
+            child: Text(
+              '暂无当日委托',
+              style: TextStyle(color: _muted, fontSize: 14),
+            ),
+          )
+        else
+          ..._orders.map((o) => _OrderCard(
+                order: o,
+                statusText: _statusText(o.status),
+                onCancel: o.canCancel ? () => _cancelOrder(o) : null,
+              )),
+      ],
+    );
+  }
+}
+
+class _OrderCard extends StatelessWidget {
+  const _OrderCard({
+    required this.order,
+    required this.statusText,
+    this.onCancel,
+  });
+
+  final Order order;
+  final String statusText;
+  final VoidCallback? onCancel;
+
+  static const Color _muted = Color(0xFF6C6F77);
+  static const Color _surface = Color(0xFF1A1C21);
+
+  @override
+  Widget build(BuildContext context) {
+    final timeFmt = DateFormat('HH:mm');
+    final isBuy = order.isBuy;
+    final isEndState = order.status == OrderStatus.filled || order.status == OrderStatus.cancelled;
+    return Opacity(
+      opacity: isEndState ? 0.65 : 1,
+      child: Card(
+        margin: const EdgeInsets.only(bottom: 12),
+        color: _surface,
+        child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text(
+                  order.symbol,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 16,
+                  ),
+                ),
+                if (order.symbolName != null) ...[
+                  const SizedBox(width: 6),
+                  Text(
+                    order.symbolName!,
+                    style: const TextStyle(color: _muted, fontSize: 13),
+                  ),
+                ],
+                const Spacer(),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: isBuy
+                        ? Colors.green.withValues(alpha: 0.2)
+                        : Colors.red.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    isBuy ? '买入' : '卖出',
+                    style: TextStyle(
+                      color: isBuy ? Colors.green : Colors.red,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                _labelValue('委托价', order.type == OrderType.market ? '市价' : order.price.toStringAsFixed(2)),
+                const SizedBox(width: 16),
+                _labelValue('数量', order.quantity.toStringAsFixed(0)),
+                const SizedBox(width: 16),
+                _labelValue('已成交', order.filledQuantity.toStringAsFixed(0)),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Text(
+                  statusText,
+                  style: TextStyle(color: _muted, fontSize: 13),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  timeFmt.format(order.createdAt),
+                  style: TextStyle(color: _muted, fontSize: 13),
+                ),
+                const Spacer(),
+                if (onCancel != null)
+                  TextButton(
+                    onPressed: onCancel,
+                    child: const Text('撤单'),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    ),
+    );
+  }
+
+  Widget _labelValue(String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(color: _muted, fontSize: 11)),
+        const SizedBox(height: 2),
+        Text(value, style: const TextStyle(fontSize: 13)),
+      ],
+    );
+  }
+}

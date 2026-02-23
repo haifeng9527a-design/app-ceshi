@@ -1,0 +1,19 @@
+{
+  "name": "teacher_hub",
+  "version": "1.0.0",
+  "description": "这是一个用于“交易员个人主页 + 学员浏览 + 排行榜 + 文章/行程”的多端应用框架。当前提供 **Flutter 单代码库** 的初始骨架，后续可扩展为移动端、桌面端与 Web 端。",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "firebase-admin": "^13.6.1"
+  }
+}

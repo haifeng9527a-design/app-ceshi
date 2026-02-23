@@ -1,0 +1,502 @@
+﻿--------- beginning of system
+02-15 09:48:59.380  1828  3653 I WindowManager: Checking 0 opening apps (frozen=false timeout=false)...
+02-15 09:48:59.380  1828  3653 I WindowManager: Checking 0 opening apps (frozen=false timeout=false)...
+02-15 09:48:59.380  1828  3653 I WindowManager: send SET_LAUNCHER_VISIBLE_IN_FINGER_BOOST visible: true,delay:0, handle:true, userId:0, callingPid: 1828
+02-15 09:48:59.380  1828  3653 D WindowManager: setActivityVisibleInFingerBoostInner fit:true record:ActivityRecord{91fdc3 u0 com.huawei.android.launcher/.unihome.UniHomeLauncher t4515} isInWallpaperEffect:false, callingPid: 1828
+02-15 09:48:59.380  1828  3653 I HwWindowManagerServiceEx: closing apps count = 1
+02-15 09:48:59.380  1828  3653 D HwWindowManagerServiceEx: is app exit to launcher info: transit = 0, app = AppWindowToken{ccec6be token=Token{dca7979 ActivityRecord{91fdc3 u0 com.huawei.android.launcher/.unihome.UniHomeLauncher t4515}}}, window = Window{649a3a8 u0 com.huawei.android.launcher/com.huawei.android.launcher.unihome.UniHomeLauncher}, mClosingApps = {AppWindowToken{ccec6be token=Token{dca7979 ActivityRecord{91fdc3 u0 com.huawei.android.launcher/.unihome.UniHomeLauncher t4515}}}}, topOpeningApp = null, mExitIconBitmap = null, mExitIconHeight = -1, mExitIconWidth = -1
+02-15 09:48:59.380  1828  3653 E WindowManager: icon is null!!
+02-15 09:48:59.380  1828  3653 D HwAppTransitionImpl: windowAnimations = 0 dose not come from system, not to override it.
+02-15 09:48:59.380  1828  3653 V WindowManager: commitVisibility: AppWindowToken{ccec6be token=Token{dca7979 ActivityRecord{91fdc3 u0 com.huawei.android.launcher/.unihome.UniHomeLauncher t4515}}}: hidden=true hiddenRequested=true
+02-15 09:48:59.380  1828  3653 I WindowManager: Animation done in AppWindowToken{ccec6be token=Token{dca7979 ActivityRecord{91fdc3 u0 com.huawei.android.launcher/.unihome.UniHomeLauncher t4515}}} isHidden:true hiddenRequested:true
+02-15 09:48:59.381  1828  3653 I WindowManager: New wallpaper target: null prevTarget: Window{3f522ca u0 com.huawei.intelligent.Workspace}
+--------- beginning of main
+02-15 09:48:59.382  2541  2541 D ImageWallpaper: wallpaper visibility changes to: false
+02-15 09:48:59.383  1828  3653 I RecentsAnimation: Recent animation finished
+02-15 09:48:59.383 11858 11858 W HwLauncher: TouchInteractionService onPreInputEvent, motion is not FLAG_WINDOW_IS_EXCLUDE_TRANSFER_EVENT
+02-15 09:48:59.385  1828  1845 I chatty  : uid=1000(system) Binder:1828_2 expire 1 line
+02-15 09:48:59.387 11858 11858 D BaseIconCache: Looper.myLooper():Looper (main, tid 1) {281c5d},mBgLooper:Looper (launcher-loader, tid 3945) {6a699d2}
+02-15 09:48:59.388  1828  1853 I WindowManager: performshow Window{649a3a8 u0 com.huawei.android.launcher/com.huawei.android.launcher.unihome.UniHomeLauncher} tok.waitingToShow=false isTransitionSet=false parentHidden=false vis=0 tok.hidden=true hasSurface=true policyVis=true destroying=false animating=false
+02-15 09:48:59.389 11858 11858 D BaseIconCache: Looper.myLooper():Looper (main, tid 1) {281c5d},mBgLooper:Looper (launcher-loader, tid 3945) {6a699d2}
+02-15 09:48:59.389 11858 11858 I HwLauncher: CalenderDynamicUpdater setHasUpdateSuccess, success: true
+02-15 09:48:59.390  1828  3646 D HwConnectivityServiceEx: set 10034 wlan0 value false
+02-15 09:48:59.389 11858 11858 I HwLauncher: CalenderDynamicUpdater setHasUpdateSuccess, success: true
+02-15 09:48:59.392   762  3811 I APM_AudioPolicyManager: getOutputsForDevices, openOutputs size is 2, outputs size is 2
+02-15 09:48:59.392 17861 19597 V AudioManager: getStreamVolume streamType: 3 volume: 7
+02-15 09:48:59.395 19443 19443 I flutter : [閫氱煡] 瑙掓爣 updateBadgeCount(count=0) 宸叉墽琛?
+02-15 09:48:59.396  1828  2342 D HwActivityManagerServiceEx: notifyAppToTop pid:11858, enable:0
+02-15 09:48:59.399  1828  1853 I WindowManager: performshow Window{649a3a8 u0 com.huawei.android.launcher/com.huawei.android.launcher.unihome.UniHomeLauncher} tok.waitingToShow=false isTransitionSet=false parentHidden=false vis=0 tok.hidden=true hasSurface=true policyVis=true destroying=false animating=false
+02-15 09:48:59.399  1828  1852 V ActivityTaskManager: Activity idle: null
+02-15 09:48:59.400 11858 11858 I RmeSchedManager: init Rme, version is: v1.0
+02-15 09:48:59.400  1828  1852 I WindowManager: handle SET_LAUNCHER_VISIBLE_IN_FINGER_BOOST visible:true handle:trueuserId:0, currentUserId:0
+02-15 09:48:59.400  1828  1852 D WindowManager: setLauncherVisibleInFingerBoost record=ActivityRecord{91fdc3 u0 com.huawei.android.launcher/.unihome.UniHomeLauncher t4515}
+02-15 09:48:59.400  1828  1852 I WindowManager: setLauncherVisible setAlpha to 1.0
+02-15 09:48:59.400  1828  1852 D WindowManager: setLauncherVisible wallpaperScale=false
+02-15 09:48:59.401  1828  1852 D WindowManager: WS setWallpaperScale return, wallpaper no need to recover
+02-15 09:48:59.401 21930 21930 I HiSuggestion_22.0.6.304_AppUseLevelView: calculateLength: width = 460, usefulWidth=439
+02-15 09:48:59.401  1828  1852 V ActivityTaskManager: Activity idle: null
+02-15 09:48:59.402   762  3811 I APM_AudioPolicyManager: getOutputsForDevices, openOutputs size is 2, outputs size is 2
+02-15 09:48:59.402 17861 19596 V AudioManager: getStreamVolume streamType: 3 volume: 7
+02-15 09:48:59.404   766  1285 W BufferQueueProducer: [com.huawei.android.launcher/com.huawei.android.launcher.unihome.UniHomeLauncher#0]:1390: disconnect: not connected (req=1)
+02-15 09:48:59.404 11858 20801 W libEGL  : EGLNativeWindowType 0x73ac01ed50 disconnect failed
+02-15 09:48:59.409  1828  3646 I WindowManager: performshow Window{649a3a8 u0 com.huawei.android.launcher/com.huawei.android.launcher.unihome.UniHomeLauncher} tok.waitingToShow=false isTransitionSet=false parentHidden=false vis=8 tok.hidden=true hasSurface=true policyVis=true destroying=true animating=false
+02-15 09:48:59.410 17861 22132 V AudioManager: isWiredHeadsetOn...
+02-15 09:48:59.411  1828  1853 I WindowManager: performshow Window{649a3a8 u0 com.huawei.android.launcher/com.huawei.android.launcher.unihome.UniHomeLauncher} tok.waitingToShow=false isTransitionSet=false parentHidden=false vis=8 tok.hidden=true hasSurface=true policyVis=true destroying=true animating=false
+02-15 09:48:59.412 11858 15432 D ZrHung.AppEyeUiProbe: restart watching
+02-15 09:48:59.413 11858 11858 I HwLauncher: Model loadWidgetsAfterUserUnlockIfNeeded, sLoadWidgetOnResume is false!
+02-15 09:48:59.419   697  1095 W /system/bin/netd: A binder object at 0x72c421a700 is being transacted on, however, this object is in the same process as its proxy. Transacting with this binder is expensive compared to just calling the corresponding functionality in the same process.
+02-15 09:48:59.420   697  1095 I PreDnsController: CanPreDnsQuery,persist.sys.predns is false!
+02-15 09:48:59.420   697  1095 W /system/bin/netd: A binder object at 0x72c421a700 is being transacted on, however, this object is in the same process as its proxy. Transacting with this binder is expensive compared to just calling the corresponding functionality in the same process.
+02-15 09:48:59.420   697  1095 I PreDnsController: CanPreDnsQuery,persist.sys.predns is false!
+02-15 09:48:59.422   762  3811 D AudioPolicyService: getUidState(10066) cacheIter->second.first, return cacheIter->second.second(7)
+02-15 09:48:59.422  1828  2384 I chatty  : uid=1000(system) tworkPolicy.uid expire 1 line
+02-15 09:48:59.422   762  3811 D AudioPolicyService: getUidState(10028) !cacheIter->second.first, return PROCESS_STATE_UNKNOWN
+02-15 09:48:59.422   762  3811 D AudioPolicyService: getUidState(10028) cacheIter->second.first, return cacheIter->second.second(-1)
+02-15 09:48:59.423 11858 11858 W HwLauncher: StateManager Launcher in state:NormalState{cb108b5 ordinal = 0,mContainerType = 1,mIsOverviewUi = false}, mConfig.mCurrentAnimationSet == null
+02-15 09:48:59.423 11858 11858 I HwLauncher: Launcher Icon:96 Widget:4 Folder:10 Icon in folder:94, in drawer:0
+02-15 09:48:59.425   697  1095 W /system/bin/netd: A binder object at 0x72c421a700 is being transacted on, however, this object is in the same process as its proxy. Transacting with this binder is expensive compared to just calling the corresponding functionality in the same process.
+02-15 09:48:59.425   697  1095 I PreDnsController: CanPreDnsQuery,persist.sys.predns is false!
+02-15 09:48:59.427   697  1095 W /system/bin/netd: A binder object at 0x72c421a700 is being transacted on, however, this object is in the same process as its proxy. Transacting with this binder is expensive compared to just calling the corresponding functionality in the same process.
+02-15 09:48:59.427   697  1095 I PreDnsController: CanPreDnsQuery,persist.sys.predns is false!
+02-15 09:48:59.428  1828  1828 I chatty  : uid=1000 system_server expire 5 lines
+02-15 09:48:59.431 21930 21930 I HwViewRootImpl: removeInvalidNode all the node in jank list is out of time
+02-15 09:48:59.413  1828  1853 I chatty  : uid=1000(system) android.anim identical 1 line
+02-15 09:48:59.428  1828  1853 I WindowManager: performshow Window{649a3a8 u0 com.huawei.android.launcher/com.huawei.android.launcher.unihome.UniHomeLauncher} tok.waitingToShow=false isTransitionSet=false parentHidden=false vis=8 tok.hidden=true hasSurface=true policyVis=true destroying=true animating=false
+02-15 09:48:59.431  1828  3646 I WindowManager: performshow Window{649a3a8 u0 com.huawei.android.launcher/com.huawei.android.launcher.unihome.UniHomeLauncher} tok.waitingToShow=false isTransitionSet=false parentHidden=false vis=8 tok.hidden=true hasSurface=true policyVis=true destroying=true animating=false
+02-15 09:48:59.434  1418  1490 W ScreemCommon: ProcessEntry, not beta version or commercial log off
+02-15 09:48:59.435  1828  1853 I WindowManager: performshow Window{3f522ca u0 com.huawei.intelligent.Workspace} tok.waitingToShow=false isTransitionSet=false parentHidden=false vis=0 tok.hidden=true hasSurface=true policyVis=true destroying=false animating=false
+02-15 09:48:59.435  1828  1853 I WindowManager: performshow Window{649a3a8 u0 com.huawei.android.launcher/com.huawei.android.launcher.unihome.UniHomeLauncher} tok.waitingToShow=false isTransitionSet=false parentHidden=false vis=8 tok.hidden=true hasSurface=true policyVis=true destroying=true animating=false
+02-15 09:48:59.435 21930 21930 I HiBoard_22.0.6.304_LauncherOverlayService: onCreate
+02-15 09:48:59.436 21930 21930 I HiBoard_22.0.6.304_Utils: isLauncherSupportSpecificFeature: isSupport: true
+02-15 09:48:59.436 21930 21930 I HiBoard_22.0.6.304_WorkspaceManager: initServiceOnCreate mIsWindowAttached true, mIsLauncherSupportHiBoardRtl: true
+02-15 09:48:59.436 21930 21930 I HiBoard_22.0.6.304_ScreenUiUtils: getScreenWidth screenWidth = 1200
+02-15 09:48:59.437 21930 21930 I HiBoard_22.0.6.304_WorkspaceManager: getScreenWidth width = 1200, orientation = 1
+02-15 09:48:59.437 21930 21930 I HiBoard_22.0.6.304_ScreenUiUtils: getScreenHeight screenHeight = 2640
+02-15 09:48:59.437  1828  2684 I WindowManager: notifyAppStopped: AppWindowToken{ccec6be token=Token{dca7979 ActivityRecord{91fdc3 u0 com.huawei.android.launcher/.unihome.UniHomeLauncher t4515}}}
+02-15 09:48:59.437  1828  2684 E WindowManager: win=Window{649a3a8 u0 com.huawei.android.launcher/com.huawei.android.launcher.unihome.UniHomeLauncher} destroySurfaces: appStopped=true win.mWindowRemovalAllowed=false win.mRemoveOnExit=false
+02-15 09:48:59.438 21930 21930 I HiBoard_22.0.6.304_ScreenUiUtils: getScreenWidth screenWidth = 1200
+02-15 09:48:59.439 21930 21930 I HiBoard_22.0.6.304_WorkspaceManager: registerHiBoardSwitchObserver registered, ignore
+02-15 09:48:59.439 21930 21930 I HiBoard_22.0.6.304_LauncherOverlayService: onBind
+02-15 09:48:59.440   697  1095 W /system/bin/netd: A binder object at 0x72c421a700 is being transacted on, however, this object is in the same process as its proxy. Transacting with this binder is expensive compared to just calling the corresponding functionality in the same process.
+02-15 09:48:59.440   697  1095 I PreDnsController: CanPreDnsQuery,persist.sys.predns is false!
+02-15 09:48:59.441  1828  2684 V ActivityTaskManager: Activity idle: Token{dca7979 ActivityRecord{91fdc3 u0 com.huawei.android.launcher/.unihome.UniHomeLauncher t4515}}
+02-15 09:48:59.441   697  1095 W /system/bin/netd: A binder object at 0x72c421a700 is being transacted on, however, this object is in the same process as its proxy. Transacting with this binder is expensive compared to just calling the corresponding functionality in the same process.
+02-15 09:48:59.441   697  1095 I PreDnsController: CanPreDnsQuery,persist.sys.predns is false!
+02-15 09:48:59.443   697  1095 W /system/bin/netd: A binder object at 0x72c421a700 is being transacted on, however, this object is in the same process as its proxy. Transacting with this binder is expensive compared to just calling the corresponding functionality in the same process.
+02-15 09:48:59.443   697  1095 I PreDnsController: CanPreDnsQuery,persist.sys.predns is false!
+02-15 09:48:59.443  1828  2704 I chatty  : uid=1000(system) aware.service expire 1 line
+02-15 09:48:59.443  1828  1876 D ActivityManager: setPrivilegeType r: ServiceRecord{910ad28 u0 com.huawei.intelligent/.remoteservice.LauncherOverlayService}, interfaceDescriptor : com.huawei.intelligent.remoteservice.ILauncherOverlayService
+02-15 09:48:59.444  2542  8638 I KStateManager: send binder call message, called pid:21930, calling pid:[1828]
+02-15 09:48:59.444   697  1095 W /system/bin/netd: A binder object at 0x72c421a700 is being transacted on, however, this object is in the same process as its proxy. Transacting with this binder is expensive compared to just calling the corresponding functionality in the same process.
+02-15 09:48:59.444   697  1095 I PreDnsController: CanPreDnsQuery,persist.sys.predns is false!
+02-15 09:48:59.444  1828  1853 I WindowManager: performshow Window{3f522ca u0 com.huawei.intelligent.Workspace} tok.waitingToShow=false isTransitionSet=false parentHidden=false vis=0 tok.hidden=true hasSurface=true policyVis=true destroying=false animating=false
+02-15 09:48:59.447 21930 27019 I HiBoard_22.0.6.304_LauncherOverlayService: windowAttached
+02-15 09:48:59.447 21930 27019 I HiBoard_22.0.6.304_WorkspaceManager: overlayStatusChanged state 1
+02-15 09:48:59.447 21930 21930 I HiBoard_22.0.6.304_Workspace: onWindowVisibilityChanged锛? isOverlayClosed:true
+02-15 09:48:59.449   697  1095 W /system/bin/netd: A binder object at 0x72c421a700 is being transacted on, however, this object is in the same process as its proxy. Transacting with this binder is expensive compared to just calling the corresponding functionality in the same process.
+02-15 09:48:59.449   697  1095 I PreDnsController: CanPreDnsQuery,persist.sys.predns is false!
+02-15 09:48:59.453 11858 11858 E HwLauncher: NegativeScreenClientCallBack  onServiceStateChanged overlayAttached = true mServiceState = 0
+02-15 09:48:59.454   697  1095 W /system/bin/netd: A binder object at 0x72c421a700 is being transacted on, however, this object is in the same process as its proxy. Transacting with this binder is expensive compared to just calling the corresponding functionality in the same process.
+02-15 09:48:59.454   697  1095 I PreDnsController: CanPreDnsQuery,persist.sys.predns is false!
+02-15 09:48:59.454   766  1285 W BufferQueueProducer: [com.huawei.intelligent.Workspace#0]:1390: disconnect: not connected (req=1)
+02-15 09:48:59.454   697  1095 W /system/bin/netd: A binder object at 0x72c421a700 is being transacted on, however, this object is in the same process as its proxy. Transacting with this binder is expensive compared to just calling the corresponding functionality in the same process.
+02-15 09:48:59.454 21930 26085 W libEGL  : EGLNativeWindowType 0x73016c3650 disconnect failed
+02-15 09:48:59.454   697  1095 I PreDnsController: CanPreDnsQuery,persist.sys.predns is false!
+02-15 09:48:59.455  1828  3646 E WindowManager: win=Window{3f522ca u0 com.huawei.intelligent.Workspace} destroySurfaces: appStopped=true win.mWindowRemovalAllowed=false win.mRemoveOnExit=false
+02-15 09:48:59.455   697  1095 W /system/bin/netd: A binder object at 0x72c421a700 is being transacted on, however, this object is in the same process as its proxy. Transacting with this binder is expensive compared to just calling the corresponding functionality in the same process.
+02-15 09:48:59.455   697  1095 I PreDnsController: CanPreDnsQuery,persist.sys.predns is false!
+02-15 09:48:59.457   697  1095 W /system/bin/netd: A binder object at 0x72c421a700 is being transacted on, however, this object is in the same process as its proxy. Transacting with this binder is expensive compared to just calling the corresponding functionality in the same process.
+02-15 09:48:59.458   697  1095 I PreDnsController: CanPreDnsQuery,persist.sys.predns is false!
+02-15 09:48:59.458 21930 21930 I HiBoard_22.0.6.304_WorkspaceManager: handleMessage ATTACHWINDOW
+02-15 09:48:59.458 21930 21930 I HiBoard_22.0.6.304_WorkspaceManager: windowAttached mIsWindowAttached true
+02-15 09:48:59.458 21930 21930 I HiBoard_22.0.6.304_WorkspaceManager: windowAttached token is the same, no need init
+02-15 09:48:59.458   697  1095 W /system/bin/netd: A binder object at 0x72c421a700 is being transacted on, however, this object is in the same process as its proxy. Transacting with this binder is expensive compared to just calling the corresponding functionality in the same process.
+02-15 09:48:59.458   697  1095 I PreDnsController: CanPreDnsQuery,persist.sys.predns is false!
+02-15 09:48:59.458   697  1095 W DnsProxyListener: GetAddrInfoHandler::run: {127 127 127 983167 10362 0 supabase}
+02-15 09:48:59.460   697  1095 W /system/bin/netd: A binder object at 0x72c421a700 is being transacted on, however, this object is in the same process as its proxy. Transacting with this binder is expensive compared to just calling the corresponding functionality in the same process.
+02-15 09:48:59.460   697  1095 I PreDnsController: CanPreDnsQuery,persist.sys.predns is false!
+02-15 09:48:59.528  1828  3646 D HwConnectivityServiceEx: set 10151 wlan0 value false
+02-15 09:48:59.718 19443 19443 I View    : requestUnbufferedDispatch window com.example.teacher_hub/com.example.teacher_hub.MainActivity
+02-15 09:48:59.718  1828  1882 I PowerManagerService: handleSandman: wakefulness: 1,startDreaming: false
+02-15 09:48:59.802  2544  4522 I chatty  : uid=1000(system) JNITID-4522 expire 2 lines
+02-15 09:48:59.802  2544  4522 E Booster_Qoe: PreprocessModemData, IsCellularCtx false
+02-15 09:48:59.802  2544  4522 I Booster_Qoe: AdaBoostPredict rlt,index:2,NisPsSlow:0,NProba:306,rsrp(rssi):-51,rsrq(noise):-100,rtt(chload):132,buffhigh(uldelay):0,buffcomm(rtt):18
+02-15 09:48:59.802  2544  3075 I NetworkQoeProxy: calcChannelNoRx dnsData is not present
+02-15 09:48:59.803  2544  4522 I Collector: HandleRawWifiInfo: flag:0, netId:0!
+02-15 09:48:59.803  2544  3075 E BoosterUtil: convertSubIdToSlotId failed, subId:5, slotId:-1
+02-15 09:48:59.803  2544  3075 E BoosterUtil: getDefaultDataSlotId failed, invalid slotId:-1, subId:5
+02-15 09:48:59.803  2544  3075 E NrSmartCure: onNetworkQoeUpdate failed, invalid defaultDataSlotId=-1
+02-15 09:48:59.803  2544  3075 E FourNetCombinationChr: getNetworkQoeInfo failed, qoeTcpDataOpt is null
+02-15 09:48:59.803  2544  3802 I Hicom_Monitor: handleNetworkQoeReport. foregroundAppTcpRtt: 7, maxRatioChannelId: 2
+02-15 09:48:59.803  2544  3802 I Hicom_Monitor: handleNetworkQoeReport. qoeString: 10362,4,0,306,1,2,4,0,306,720600,864700,10,10,0,17,21,0
+02-15 09:48:59.803  1828  2499 I chatty  : uid=1000(system) wifipro_feature expire 6 lines
+02-15 09:48:59.808  1828  2353 I chatty  : uid=1000(system) InputDispatcher expire 4 lines
+02-15 09:48:59.809 19443 19443 I View    : requestUnbufferedDispatch window com.example.teacher_hub/com.example.teacher_hub.MainActivity
+02-15 09:48:59.817 19443 19443 V AudioManager: querySoundEffectsEnabled...
+02-15 09:48:59.818 19443 19443 I flutter : [閫氱煡] 瑙掓爣 updateBadgeCount(count=0) 宸叉墽琛?
+02-15 09:48:59.827   697 25695 I netd    : trafficSwapActiveStatsMap() <1.17ms>
+02-15 09:48:59.853  9039 11575 V AudioManager: isMusicActive...
+02-15 09:48:59.853  9044 11763 V AudioManager: isMusicActive...
+02-15 09:48:59.949    54    54 W migration/7: type=1400 audit(0.0:770466): avc: granted { setsched } for pid=54 scontext=u:r:kernel:s0 tcontext=u:r:kernel:s0 tclass=process
+02-15 09:49:00.001  2541  2541 E ndroid.systemu: No package ID ff found for ID 0xffffffff.
+02-15 09:49:00.002  2541  2541 E ndroid.systemu: No package ID ff found for ID 0xffffffff.
+02-15 09:49:00.002  2541  2541 E DateView: DateView,mCurrentTime: 1771123740002
+02-15 09:49:00.004  1828  1882 I PowerManagerService: handleSandman: wakefulness: 1,startDreaming: false
+02-15 09:49:00.009    54    54 W migration/7: type=1400 audit(0.0:770467): avc: granted { setsched } for pid=54 scontext=u:r:kernel:s0 tcontext=u:r:kernel:s0 tclass=process
+02-15 09:49:00.090  1828  2386 I chatty  : uid=1000(system) ClientModeImpl expire 2 lines
+02-15 09:49:00.209    54    54 W migration/7: type=1400 audit(0.0:770468): avc: granted { setsched } for pid=54 scontext=u:r:kernel:s0 tcontext=u:r:kernel:s0 tclass=process
+02-15 09:49:00.209    48    48 W migration/6: type=1400 audit(0.0:770469): avc: granted { setsched } for pid=48 scontext=u:r:kernel:s0 tcontext=u:r:kernel:s0 tclass=process
+02-15 09:49:00.244 19443 19443 I flutter : [閫氱煡] 瑙掓爣 updateBadgeCount(count=0) 宸叉墽琛?
+02-15 09:49:00.262  2544  4591 D LteRecoveryEngine: UnRecoverState processMessage UPDATE_PS_SLOW_VALUE
+02-15 09:49:00.412  1828  2353 I chatty  : uid=1000(system) InputDispatcher expire 6 lines
+02-15 09:49:00.413 19443 19443 I View    : requestUnbufferedDispatch window com.example.teacher_hub/com.example.teacher_hub.MainActivity
+02-15 09:49:00.413 11858 15432 D ZrHung.AppEyeUiProbe: not watching, wait.
+02-15 09:49:00.414  1828  1850 I chatty  : uid=1000(system) android.ui expire 1 line
+02-15 09:49:00.423 19443 19443 I View    : requestUnbufferedDispatch window com.example.teacher_hub/com.example.teacher_hub.MainActivity
+02-15 09:49:00.487  1828  2353 I chatty  : uid=1000(system) InputDispatcher expire 5 lines
+02-15 09:49:00.501 19443 19443 I View    : requestUnbufferedDispatch window com.example.teacher_hub/com.example.teacher_hub.MainActivity
+02-15 09:49:00.502 19443 19443 I View    : requestUnbufferedDispatch window com.example.teacher_hub/com.example.teacher_hub.MainActivity
+02-15 09:49:00.503 19443 19443 V AudioManager: querySoundEffectsEnabled...
+02-15 09:49:00.523 19443 19443 I flutter : [閫氱煡] 瑙掓爣 updateBadgeCount(count=0) 宸叉墽琛?
+02-15 09:49:00.571  1828  2385 I chatty  : uid=1000(system) WifiService expire 6 lines
+02-15 09:49:00.004  1828  1882 I chatty  : uid=1000(system) PowerManagerSer identical 1 line
+02-15 09:49:00.414  1828  1882 I PowerManagerService: handleSandman: wakefulness: 1,startDreaming: false
+02-15 09:49:00.616  1828  3646 I NetworkStats: openSessionForUsageStats, pid = 9039, pkg = com.tencent.mm
+02-15 09:49:00.617  1828  3646 I NetworkStats: openSessionInternal, pid = 9039 pkg = com.tencent.mm
+02-15 09:49:00.618  1828  3646 I NetworkStats: performPollLocked, pid = 1828
+02-15 09:49:00.618  1828  1882 I PowerManagerService: handleSandman: wakefulness: 1,startDreaming: false
+02-15 09:49:00.624   697 25695 I netd    : trafficSwapActiveStatsMap() <4.57ms>
+02-15 09:49:00.627   697 25695 I netd    : tetherGetStats() <1.67ms>
+02-15 09:49:00.630  1828  3646 I HwNetworkStatsServiceEx: hwRecordUidAndProcSnapshotLocked currentTime = 1771124111755
+02-15 09:49:00.631  1828  3646 I HwNetworkManagementService: request swap success.
+02-15 09:49:00.657  1828  3646 I HwNetworkStatsServiceEx: hwMaybeUidAndProcPersistLocked currentTime = 1771124111755
+02-15 09:49:00.658  1828  3646 I NetworkStatsCollection: getSummary, uid = 1000stats size = 2
+02-15 09:49:00.658  1828  3646 I NetworkStatsCollection: getSummary, uid = 1000stats size = 2
+02-15 09:49:00.658  1828  3646 I NetworkStatsCollection: getSummary, uid = 1000stats size = 94
+02-15 09:49:00.658  1828  3646 I NetworkStatsCollection: getSummary, uid = 1000stats size = 2
+02-15 09:49:00.658  1828  3646 I NetworkStatsCollection: getSummary, uid = 1000stats size = 2
+02-15 09:49:00.658  1828  3646 I NetworkStatsCollection: getSummary, uid = 1000stats size = 94
+02-15 09:49:00.660  1828  1882 I PowerManagerService: handleSandman: wakefulness: 1,startDreaming: false
+02-15 09:49:00.661  1828  3659 I NetworkStats: getSummaryForAllUid, uid = 10192
+02-15 09:49:00.661  1828  3659 I NetworkStatsCollection: getSummary, uid = 10192stats size = 187
+02-15 09:49:00.662  1828  3659 I NetworkStats: openSessionForUsageStats, pid = 9039, pkg = com.tencent.mm
+02-15 09:49:00.662  1828  3659 I NetworkStats: getSummaryForAllUid, uid = 10192
+02-15 09:49:00.662  1828  3659 I NetworkStatsCollection: getSummary, uid = 10192stats size = 187
+02-15 09:49:00.662  2622  3668 W HSM_BG-11.1.1.543: TrafficNotifyDelegate:Current data imsi is null, so return.
+02-15 09:49:00.832  2544  4522 E Booster_Qoe: PreprocessModemData, IsCellularCtx false
+02-15 09:49:00.832  2544  4522 I Booster_Qoe: AdaBoostPredict rlt,index:7,NisPsSlow:0,NProba:296,rsrp(rssi):-50,rsrq(noise):-100,rtt(chload):106,buffhigh(uldelay):0,buffcomm(rtt):7
+02-15 09:49:00.832  2544  4522 E Booster_Qoe: PreprocessModemData, IsCellularCtx false
+02-15 09:49:00.832  2544  4522 I Booster_Qoe: AdaBoostPredict rlt,index:2,NisPsSlow:0,NProba:296,rsrp(rssi):-50,rsrq(noise):-100,rtt(chload):106,buffhigh(uldelay):0,buffcomm(rtt):12
+02-15 09:49:00.832  2544  4522 I Collector: HandleRawWifiInfo: flag:0, netId:0!
+02-15 09:49:00.832  2544  3075 I NetworkQoeProxy: calcChannelNoRx dnsData is not present
+02-15 09:49:00.834  2544  3075 E BoosterUtil: convertSubIdToSlotId failed, subId:5, slotId:-1
+02-15 09:49:00.834  2544  3075 E BoosterUtil: getDefaultDataSlotId failed, invalid slotId:-1, subId:5
+02-15 09:49:00.834  2544  3075 E NrSmartCure: onNetworkQoeUpdate failed, invalid defaultDataSlotId=-1
+02-15 09:49:00.835  2544  3075 E FourNetCombinationChr: getNetworkQoeInfo failed, qoeTcpDataOpt is null
+02-15 09:49:00.835  2544  3802 I Hicom_Monitor: handleNetworkQoeReport. foregroundAppTcpRtt: 7, maxRatioChannelId: 2
+02-15 09:49:00.836  2544  3802 I Hicom_Monitor: handleNetworkQoeReport. qoeString: 10362,4,0,296,1,2,4,0,296,720600,864700,10,10,0,372,343,0
+02-15 09:49:00.840  1828  2499 I chatty  : uid=1000(system) wifipro_feature expire 7 lines
+02-15 09:49:01.006 19443 19443 I flutter : [閫氱煡] 瑙掓爣 updateBadgeCount(count=0) 宸叉墽琛?
+02-15 09:49:01.265  2544  4591 D LteRecoveryEngine: UnRecoverState processMessage UPDATE_PS_SLOW_VALUE
+02-15 09:49:01.530  1828  3659 D HwConnectivityServiceEx: set 10151 wlan0 value false
+02-15 09:49:01.723  1828 21053 I chatty  : uid=1000(system) are.mem.default expire 1 line
+02-15 09:49:01.725   996  1143 D         : HibSTrategy::HibStrategySwapCandidateProcessAdd packageName com.huawei.health
+02-15 09:49:01.766  2542  8638 I PGServer: getTopFrontApp. calling pkg: android
+02-15 09:49:01.849   996  5370 D AwareLog: HiberManagerService::DoReclaim ok, pid=26811, reclaimMode=hiber_anon
+02-15 09:49:01.849   996  5370 D AwareLog: GetReclaimResult:reclaimKb=5284, swapKb=5284, swapUs=42803
+02-15 09:49:01.849   996  5370 D         : HibStrategy::HibStrategySwapCandidateProcessRemove packageName is com.huawei.health
+02-15 09:49:01.849   996  5370 D AwareLog: HiberManagerService::SendMessageToHiberTask successful
+02-15 09:49:01.851   996  1143 D         : HibSTrategy::HibStrategySwapCandidateProcessAdd packageName com.ss.android.ugc.aweme
+02-15 09:49:01.852  2544  4522 E Booster_Qoe: PreprocessModemData, IsCellularCtx false
+02-15 09:49:01.852  2544  4522 I Booster_Qoe: AdaBoostPredict rlt,index:7,NisPsSlow:0,NProba:296,rsrp(rssi):-51,rsrq(noise):-100,rtt(chload):84,buffhigh(uldelay):0,buffcomm(rtt):38
+02-15 09:49:01.852  2544  4522 E Booster_Qoe: PreprocessModemData, IsCellularCtx false
+02-15 09:49:01.852  2544  4522 I Booster_Qoe: AdaBoostPredict rlt,index:2,NisPsSlow:0,NProba:296,rsrp(rssi):-51,rsrq(noise):-100,rtt(chload):84,buffhigh(uldelay):0,buffcomm(rtt):14
+02-15 09:49:01.852  2544  3075 I NetworkQoeProxy: calcChannelNoRx dnsData is not present
+02-15 09:49:01.852  2544  4522 I Collector: HandleRawWifiInfo: flag:0, netId:0!
+02-15 09:49:01.854  2544  3075 E BoosterUtil: convertSubIdToSlotId failed, subId:5, slotId:-1
+02-15 09:49:01.854  2544  3075 E BoosterUtil: getDefaultDataSlotId failed, invalid slotId:-1, subId:5
+02-15 09:49:01.854  2544  3075 E NrSmartCure: onNetworkQoeUpdate failed, invalid defaultDataSlotId=-1
+02-15 09:49:01.854  2544  3075 E FourNetCombinationChr: getNetworkQoeInfo failed, qoeTcpDataOpt is null
+02-15 09:49:01.855  2544  3802 I Hicom_Monitor: handleNetworkQoeReport. foregroundAppTcpRtt: 38, maxRatioChannelId: 2
+02-15 09:49:01.855  2544  3802 I Hicom_Monitor: handleNetworkQoeReport. qoeString: 10362,4,0,296,1,2,4,0,296,720600,960700,10,10,0,451,370,0
+02-15 09:49:01.855  1828  2499 I chatty  : uid=1000(system) wifipro_feature expire 5 lines
+02-15 09:49:01.890  2542  8638 I PGServer: getTopFrontApp. calling pkg: android
+02-15 09:49:01.934   996  5370 D AwareLog: HiberManagerService::DoReclaim ok, pid=5910, reclaimMode=hiber_anon
+02-15 09:49:01.934   996  5370 D AwareLog: GetReclaimResult:reclaimKb=300, swapKb=300, swapUs=3865
+02-15 09:49:01.934   996  5370 D         : HibStrategy::HibStrategySwapCandidateProcessRemove packageName is com.ss.android.ugc.aweme
+02-15 09:49:01.934   996  5370 D AwareLog: HiberManagerService::SendMessageToHiberTask successful
+02-15 09:49:01.970  1828 21053 I chatty  : uid=1000(system) are.mem.default expire 1 line
+02-15 09:49:02.227  2794  3206 I NcDftChip: NcChipDftEvent receive:NcChipDftEvent{Id=909009126, Length=180, Flag=0}
+02-15 09:49:02.228  2794  3206 I NcDftChip: NcChipDftEvent receive:NcChipDftEvent{Id=909009521, Length=464, Flag=0}
+02-15 09:49:02.230  2794  3203 I HotspotComponent: handleChipEvent
+02-15 09:49:02.232  2794  3203 I HotspotComponent: handleChipEvent
+02-15 09:49:02.267  2544  4591 D LteRecoveryEngine: UnRecoverState processMessage UPDATE_PS_SLOW_VALUE
+02-15 09:49:02.309  1828  1852 I chatty  : uid=1000(system) android.display expire 2 lines
+02-15 09:49:02.309  1828  2345 I chatty  : uid=1000(system) GestureNavManag expire 1 line
+02-15 09:49:02.309  1828  1882 I chatty  : uid=1000(system) PowerManagerSer expire 1 line
+02-15 09:49:02.309  2541  2541 W DisplayEventDispatcher: dispatcher 0x73b8f6b540 ~ ignoring unknown event type 0x736f6674
+02-15 09:49:02.309  1828  2497 I chatty  : uid=1000(system) emui.common expire 1 line
+02-15 09:49:02.309  5656  5656 W DisplayEventDispatcher: dispatcher 0x72efd72f60 ~ ignoring unknown event type 0x736f6674
+02-15 09:49:02.309 16394 16394 W DisplayEventDispatcher: dispatcher 0x73b8f6ddc0 ~ ignoring unknown event type 0x736f6674
+02-15 09:49:02.309  1828  1850 I chatty  : uid=1000(system) android.ui expire 1 line
+02-15 09:49:02.309  1828  1853 I chatty  : uid=1000(system) android.anim expire 1 line
+02-15 09:49:02.309 21477 21477 W DisplayEventDispatcher: dispatcher 0x73b8e2f160 ~ ignoring unknown event type 0x736f6674
+02-15 09:49:02.309 11858 11858 W DisplayEventDispatcher: dispatcher 0x73b8f6b300 ~ ignoring unknown event type 0x736f6674
+02-15 09:49:02.310 21930 21930 W DisplayEventDispatcher: dispatcher 0x730804ac60 ~ ignoring unknown event type 0x736f6674
+02-15 09:49:02.310 11859 11859 W DisplayEventDispatcher: dispatcher 0x73b8f6b360 ~ ignoring unknown event type 0x736f6674
+02-15 09:49:02.310  9044  9044 W DisplayEventDispatcher: dispatcher 0x73b8f6c200 ~ ignoring unknown event type 0x736f6674
+02-15 09:49:02.310  3968  3968 W DisplayEventDispatcher: dispatcher 0x73b8e1bb00 ~ ignoring unknown event type 0x736f6674
+02-15 09:49:02.310 26883 26883 W DisplayEventDispatcher: dispatcher 0x73b8f6b540 ~ ignoring unknown event type 0x736f6674
+02-15 09:49:02.310 19443 19443 W DisplayEventDispatcher: dispatcher 0x73b8e1bfe0 ~ ignoring unknown event type 0x736f6674
+02-15 09:49:02.310 19443 19443 W DisplayEventDispatcher: dispatcher 0x732f5a3d80 ~ ignoring unknown event type 0x736f6674
+02-15 09:49:02.311 10560 10560 W DisplayEventDispatcher: dispatcher 0x731b0cb240 ~ ignoring unknown event type 0x736f6674
+02-15 09:49:02.311 26819 26819 W DisplayEventDispatcher: dispatcher 0x73b8f6b240 ~ ignoring unknown event type 0x736f6674
+02-15 09:49:02.311 11769 11769 W DisplayEventDispatcher: dispatcher 0x733f76acc0 ~ ignoring unknown event type 0x736f6674
+02-15 09:49:02.311 28429 28429 W DisplayEventDispatcher: dispatcher 0x73b8f6bea0 ~ ignoring unknown event type 0x736f6674
+02-15 09:49:02.311 13046 13046 W DisplayEventDispatcher: dispatcher 0x73b8f6c200 ~ ignoring unknown event type 0x736f6674
+02-15 09:49:02.311 20782 20782 W DisplayEventDispatcher: dispatcher 0x73a9ca5420 ~ ignoring unknown event type 0x736f6674
+02-15 09:49:02.311 28172 28172 W DisplayEventDispatcher: dispatcher 0x73b8e1baa0 ~ ignoring unknown event type 0x736f6674
+02-15 09:49:02.311  6640  6640 W DisplayEventDispatcher: dispatcher 0x73b8f6c920 ~ ignoring unknown event type 0x736f6674
+02-15 09:49:02.312 14722 14722 W DisplayEventDispatcher: dispatcher 0x73b8e1bb00 ~ ignoring unknown event type 0x736f6674
+02-15 09:49:02.312 17861 17861 W DisplayEventDispatcher: dispatcher 0x7308933ba0 ~ ignoring unknown event type 0x736f6674
+02-15 09:49:02.312 28395 28395 W DisplayEventDispatcher: dispatcher 0x73b8f6c560 ~ ignoring unknown event type 0x736f6674
+02-15 09:49:02.400  2622  3547 E HSM_BG-11.1.1.543: SmartControlDbOpenHelper:queryInfo catch exception with SmartControlRecordTable
+02-15 09:49:02.405  2622  3547 E SQLiteDatabase: Error inserting UNIQUE constraint failed: SmartControlRecordTable.packageName, SmartControlRecordTable.callerPackageName, SmartControlRecordTable.startupResult, SmartControlRecordTable.timeOfDay (Sqlite code 2067 SQLITE_CONSTRAINT_UNIQUE), (OS error - 2:No such file or directory)
+02-15 09:49:02.431 21930 21930 E HiBoard_22.0.6.304_LauncherOverlayService: onUnbind
+02-15 09:49:02.432 21930 21930 I HiBoard_22.0.6.304_SettingsUtil: isAgreeProtocolBefore: true
+02-15 09:49:02.432 21930 21930 I HiBoard_22.0.6.304_SettingsUtil: isTotalVersionNumChanged isGetAgreeProtocolLessThanDefault:false
+02-15 09:49:02.433 21930 21930 I HiBoard_22.0.6.304_SettingsUtil: isUserProtocolAgreeState:true
+02-15 09:49:02.433 21930 21930 I HiBoard_22.0.6.304_ReportHelper: reportHiBoardBindDuration duration: 2994, onBindTime: 1771123739439, onUnbindTime: 1771123742433
+02-15 09:49:02.434 21930 21930 I HiBoard_22.0.6.304_SettingsUtil: isAgreeProtocolBefore: true
+02-15 09:49:02.434 21930 21930 I HiBoard_22.0.6.304_SettingsUtil: isUserAgreedProtocolBefore():true, !isOverSeaVersionChange():true
+02-15 09:49:02.434 21930 21930 I HiBoard_22.0.6.304_SettingsUtil: isAgreeProtocolBefore: true
+02-15 09:49:02.435 21930 21930 I FormalHASDK: HiAnalyticsInstance==> onEvent(context), TAG : report_tag, eventId: 3030
+02-15 09:49:02.435   762  5354 D AudioPolicyService: getUidState(10066) cacheIter->second.first, return cacheIter->second.second(6)
+02-15 09:49:02.436   762  5354 D AudioPolicyService: getUidState(10028) cacheIter->second.first, return cacheIter->second.second(6)
+02-15 09:49:02.436  1828  2384 I chatty  : uid=1000(system) tworkPolicy.uid expire 1 line
+02-15 09:49:02.439 21930 21930 I HiBoard_22.0.6.304_WorkspaceManager: onServiceUnbind entering
+02-15 09:49:02.439 21930 21930 I HiBoard_22.0.6.304_LauncherOverlayService: onDestroy
+02-15 09:49:02.440 21930 21930 I HiBoard_22.0.6.304_WorkspaceManager: serviceUnbind
+02-15 09:49:02.440 21930 21930 E HiBoard_22.0.6.304_IntelligentConfigManager: restartProcessWhenUnbind, restartProcessWhenUnbind is empty.
+02-15 09:49:02.442   762  5354 D AudioPolicyService: getUidState(10028) cacheIter->second.first, return cacheIter->second.second(11)
+02-15 09:49:02.443  1828  2342 I chatty  : uid=1000(system) sManagerService expire 1 line
+02-15 09:49:02.456 21930 22160 I FormalHASDK: RecordTask==> record evt size: 18, TAG: report_tag, TYPE: oper
+02-15 09:49:02.575  1828  2385 I chatty  : uid=1000(system) WifiService expire 5 lines
+02-15 09:49:02.576  1828  2385 I HuaweiWifiWatchdogStateMachine: Get speed information rx_speed = 22363 ,tx_speed = 15918 ,isSpeedOk = true ,mBestSpeedInPeriod = 37620
+02-15 09:49:02.876  2544  4522 E Booster_Qoe: PreprocessModemData, IsCellularCtx false
+02-15 09:49:02.876  2544  4522 I Booster_Qoe: AdaBoostPredict rlt,index:7,NisPsSlow:0,NProba:296,rsrp(rssi):-51,rsrq(noise):-100,rtt(chload):46,buffhigh(uldelay):0,buffcomm(rtt):21
+02-15 09:49:02.876  2544  4522 E Booster_Qoe: PreprocessModemData, IsCellularCtx false
+02-15 09:49:02.876  2544  4522 I Booster_Qoe: AdaBoostPredict rlt,index:2,NisPsSlow:0,NProba:296,rsrp(rssi):-51,rsrq(noise):-100,rtt(chload):46,buffhigh(uldelay):0,buffcomm(rtt):11
+02-15 09:49:02.876  2544  4522 I Collector: HandleRawWifiInfo: flag:0, netId:0!
+02-15 09:49:02.878  2544  3075 I NetworkQoeProxy: calcChannelNoRx dnsData is not present
+02-15 09:49:02.878  2544  3075 E BoosterUtil: convertSubIdToSlotId failed, subId:5, slotId:-1
+02-15 09:49:02.878  2544  3075 E BoosterUtil: getDefaultDataSlotId failed, invalid slotId:-1, subId:5
+02-15 09:49:02.878  2544  3075 E NrSmartCure: onNetworkQoeUpdate failed, invalid defaultDataSlotId=-1
+02-15 09:49:02.878  2544  3075 E FourNetCombinationChr: getNetworkQoeInfo failed, qoeTcpDataOpt is null
+02-15 09:49:02.879  2544  3802 I Hicom_Monitor: handleNetworkQoeReport. foregroundAppTcpRtt: 21, maxRatioChannelId: 2
+02-15 09:49:02.879  2544  3802 I Hicom_Monitor: handleNetworkQoeReport. qoeString: 10362,4,0,296,1,2,4,0,296,720600,864700,10,10,0,167,204,0
+02-15 09:49:02.879  1828  2499 I WiFi_PRO_WifiProStateMachine: APP_SERVICE_QOE_NOTIFY Qoe info 10362,4,0,296,1,2,4,0,296,720600,864700,10,10,0,167,204,0 CID 2 mMasterWifiRssi -51 mMasterCardAmbr 1048576 mSlaveCardAmbr 1048576
+02-15 09:49:02.880  1828  2499 I HwWifiProServiceProxy: ctrlHwWifiNetwork pkgName: WIFIPRO_SERVICE interfaceId: 9
+02-15 09:49:02.880  1828  2499 I WiFi_PRO_WifiProStateMachine: isWifi2WifiProcess = false, mIsNeedIgnoreQoeUpdate = false, mIsAppInBlacklist = false, mIsAppInBlacklistFullScreen = false, mIsWiFiNoInternet false, screen on = true, full screen = false, isLandscapeMode = false, mNotifyWifiLinkPoorReason = -1
+02-15 09:49:02.880  1828  2499 I WiFi_PRO_WifiProStateMachine: mChannelQoeBadCnt = 0, mAppQoeBadCnt = 0, mNetworkSlowReason = 0, mNetworkSlowChannelBadCnt = 0
+02-15 09:49:02.883  1828  2499 E WiFi_PROHumanFactorRecommend: isRichTrafficUser, invalid slotId=-1
+02-15 09:49:02.884  1828  2499 E WiFi_PROHumanFactorRecommend: isEconomicTrafficUser, invalid slotId=-1
+02-15 09:49:03.018  2622  3645 E SmartChgBase/File: file /data/user_de/0/com.huawei.systemmanager/files/smart_charge/base/mock/enable is invalid in IsFileExist
+02-15 09:49:03.018  2622  3645 E SmartChgBase/File: file /data/user_de/0/com.huawei.systemmanager/files/smart_charge/base/mock/enable is invalid in IsFileExist
+02-15 09:49:03.099  1828  2386 I WificondControl: Noise: -100, Snr: 32, Chload: 40, rssi: -51, txBitrate: 720, rxBitrate: 720, frequency: 5320, UlDelay: 0, currentTxBytes: 236709703, currentTxPackets: 914436, currentTxFailed: 0, currentRxBytes: 753970285, currentRxPackets: 892735
+02-15 09:49:03.101  1828  2386 V HwWifiServiceFactory: get AllImpl object = com.android.server.wifi.HwWifiServiceFactoryImpl@da21258
+02-15 09:49:03.270  2544  4591 D LteRecoveryEngine: UnRecoverState processMessage UPDATE_PS_SLOW_VALUE
+02-15 09:49:03.378  1828  2386 I WificondControl: Noise: -100, Snr: 32, Chload: 40, rssi: -51, txBitrate: 720, rxBitrate: 720, frequency: 5320, UlDelay: 0, currentTxBytes: 236709703, currentTxPackets: 914436, currentTxFailed: 0, currentRxBytes: 753970285, currentRxPackets: 892735
+02-15 09:49:03.382  1828  2502 D HuaweiWifiWatchdogStateMachine: nothing to do
+02-15 09:49:03.382  1828  2385 I WiFi_PRO: MSG_RETURN_AP_CURRY_RSSI rssi = -51
+02-15 09:49:03.382  1828  2502 I HuaweiWifiWatchdogStateMachine: POta txb txg rxg:0, 291, 0. Lr =0% Totpkt=291
+02-15 09:49:03.382  1828  2385 I QosMonitor: queryRtt: rttType = 3
+02-15 09:49:03.382  1828  2520 I HwDualBandManager: handle2gApStrongWifiRssiChange
+02-15 09:49:03.382  1828  2385 I HwWifiProServiceProxy: ctrlHwWifiNetwork pkgName: WIFIPRO_SERVICE interfaceId: 8
+02-15 09:49:03.383  1828  2385 I QosMonitor: postEventFromNative: msg=100,arg1=4,arg2=10
+02-15 09:49:03.383  1828  2385 I HwWifiProServiceProxy: ctrlHwWifiNetwork pkgName: WIFIPRO_SERVICE interfaceId: 8
+02-15 09:49:03.384  1828  2385 I QosMonitor: postEventFromNative: msg=100,arg1=0,arg2=10
+02-15 09:49:03.384  1828  2385 D HuaweiWifiWatchdogStateMachine: nothing to do
+02-15 09:49:03.384  1828  2385 I MQoS    : rtt=120,tcpTxPkts=4188024,tcpRxPkts=7231662
+02-15 09:49:03.384  1828  2385 I QosMonitor: resetRtt: rttType = 3
+02-15 09:49:03.384  1828  2385 I HwWifiProServiceProxy: ctrlHwWifiNetwork pkgName: WIFIPRO_SERVICE interfaceId: 8
+02-15 09:49:03.384  1828  9479 D HwConnectivityServiceEx: set 1000 wlan0 value false
+02-15 09:49:03.384  1828  9479 I MQoS    : QOS_level:0(0),DataDisable;use level-0
+02-15 09:49:03.385  1828  9479 I MQoS    : skip-low-Level:0(0),DataDisable;use level-0
+02-15 09:49:03.384  1828  2502 I HuaweiWifiWatchdogStateMachine: PTcp RTT:120, rtt pkt=112, tcp_rx=291, tcp_tx=243, tcp_reTran=0, rtRate=0
+02-15 09:49:03.385  1828  2502 I HuaweiWifiWatchdogStateMachine: start computeQosLevel tcpRtt = 120 ,rssi = -51 ,mBestSpeedInPeriod = 37620
+02-15 09:49:03.385  1828  2502 I HuaweiWifiWatchdogStateMachine: smoothConsecutiveQosResults, currentQosLevel = 3
+02-15 09:49:03.533  1828  3659 D HwConnectivityServiceEx: set 10151 wlan0 value false
+02-15 09:49:03.899   697  1095 W /system/bin/netd: A binder object at 0x72c421a700 is being transacted on, however, this object is in the same process as its proxy. Transacting with this binder is expensive compared to just calling the corresponding functionality in the same process.
+02-15 09:49:03.899   697  1095 I PreDnsController: CanPreDnsQuery,persist.sys.predns is false!
+02-15 09:49:03.905  2544  4522 E Booster_Qoe: PreprocessModemData, IsCellularCtx false
+02-15 09:49:03.905  2544  4522 I Booster_Qoe: AdaBoostPredict rlt,index:7,NisPsSlow:0,NProba:296,rsrp(rssi):-51,rsrq(noise):-100,rtt(chload):40,buffhigh(uldelay):0,buffcomm(rtt):8
+02-15 09:49:03.905  2544  4522 E Booster_Qoe: PreprocessModemData, IsCellularCtx false
+02-15 09:49:03.905  2544  4522 I Booster_Qoe: AdaBoostPredict rlt,index:2,NisPsSlow:0,NProba:296,rsrp(rssi):-51,rsrq(noise):-100,rtt(chload):40,buffhigh(uldelay):0,buffcomm(rtt):8
+02-15 09:49:03.906  2544  4522 I Collector: HandleRawWifiInfo: flag:0, netId:0!
+02-15 09:49:03.907  2544  3075 I NetworkQoeProxy: calcChannelNoRx dnsData is not present
+02-15 09:49:03.908  2544  3075 E BoosterUtil: convertSubIdToSlotId failed, subId:5, slotId:-1
+02-15 09:49:03.908  2544  3075 E BoosterUtil: getDefaultDataSlotId failed, invalid slotId:-1, subId:5
+02-15 09:49:03.908  2544  3075 E NrSmartCure: onNetworkQoeUpdate failed, invalid defaultDataSlotId=-1
+02-15 09:49:03.909  2544  3075 E FourNetCombinationChr: getNetworkQoeInfo failed, qoeTcpDataOpt is null
+02-15 09:49:03.910  2544  3802 I Hicom_Monitor: handleNetworkQoeReport. foregroundAppTcpRtt: 8, maxRatioChannelId: 2
+02-15 09:49:03.910  1828  2499 I WiFi_PRO_WifiProStateMachine: APP_SERVICE_QOE_NOTIFY Qoe info 10362,4,0,296,1,2,4,0,296,720600,720600,10,10,0,23,35,0 CID 2 mMasterWifiRssi -51 mMasterCardAmbr 1048576 mSlaveCardAmbr 1048576
+02-15 09:49:03.910  2544  3802 I Hicom_Monitor: handleNetworkQoeReport. qoeString: 10362,4,0,296,1,2,4,0,296,720600,720600,10,10,0,23,35,0
+02-15 09:49:03.910  1828  2499 I HwWifiProServiceProxy: ctrlHwWifiNetwork pkgName: WIFIPRO_SERVICE interfaceId: 9
+02-15 09:49:03.910  1828  2499 I WiFi_PRO_WifiProStateMachine: isWifi2WifiProcess = false, mIsNeedIgnoreQoeUpdate = false, mIsAppInBlacklist = false, mIsAppInBlacklistFullScreen = false, mIsWiFiNoInternet false, screen on = true, full screen = false, isLandscapeMode = false, mNotifyWifiLinkPoorReason = -1
+02-15 09:49:03.910  1828  2499 I WiFi_PRO_WifiProStateMachine: mChannelQoeBadCnt = 0, mAppQoeBadCnt = 0, mNetworkSlowReason = 0, mNetworkSlowChannelBadCnt = 0
+02-15 09:49:03.911   697 25695 I netd    : trafficSwapActiveStatsMap() <0.20ms>
+02-15 09:49:03.911  1828  1828 D HwConnectivityManagerImpl: getNetworkPolicyFlag flagStr null
+02-15 09:49:03.911  1828  2499 E WiFi_PROHumanFactorRecommend: isRichTrafficUser, invalid slotId=-1
+02-15 09:49:03.913  1828  2499 E WiFi_PROHumanFactorRecommend: isEconomicTrafficUser, invalid slotId=-1
+02-15 09:49:04.103   991  1029 I storaged: storaged_t::event: storage_info refreshed.
+02-15 09:49:04.137  1828  3646 I NetworkStats: openSessionForUsageStats, pid = 9044, pkg = com.tencent.mm
+02-15 09:49:04.140  1828  3646 I NetworkStats: getSummaryForAllUid, uid = 10192
+02-15 09:49:04.140  1828  3646 I NetworkStatsCollection: getSummary, uid = 10192stats size = 187
+02-15 09:49:04.142  1828  3646 I NetworkStats: openSessionForUsageStats, pid = 9044, pkg = com.tencent.mm
+02-15 09:49:04.143  1828  3646 I NetworkStats: getSummaryForAllUid, uid = 10192
+02-15 09:49:04.143  1828  3646 I NetworkStatsCollection: getSummary, uid = 10192stats size = 187
+02-15 09:49:04.274  2544  4591 D LteRecoveryEngine: UnRecoverState processMessage UPDATE_PS_SLOW_VALUE
+02-15 09:49:04.577  1828  2385 I TrafficMonitor: update:rxPkts:12,txPkts:14,rxBytes:2674,txBytes:3234
+02-15 09:49:04.577  1828  2385 I TrafficMonitor: gettimer:interval=2000
+02-15 09:49:04.665   994 19322 I VIDEO   : VIDEO-[ScdDelRawAfterFilter]:[2542]55 callbacks suppressed:now scd seg num is abnormal, num is 1, full flag: 0
+02-15 09:49:04.665   994 19322 I VIDEO   : VIDEO-[ScdDelRawAfterFilter]:[2542]now scd seg num is abnormal, num is 1, full flag: 0
+02-15 09:49:04.930  2544  4522 E Booster_Qoe: PreprocessModemData, IsCellularCtx false
+02-15 09:49:04.930  2544  4522 I Booster_Qoe: AdaBoostPredict rlt,index:7,NisPsSlow:0,NProba:296,rsrp(rssi):-52,rsrq(noise):-100,rtt(chload):42,buffhigh(uldelay):0,buffcomm(rtt):7
+02-15 09:49:04.931  2544  4522 E Booster_Qoe: PreprocessModemData, IsCellularCtx false
+02-15 09:49:04.931  2544  4522 I Booster_Qoe: AdaBoostPredict rlt,index:2,NisPsSlow:0,NProba:296,rsrp(rssi):-52,rsrq(noise):-100,rtt(chload):42,buffhigh(uldelay):0,buffcomm(rtt):6
+02-15 09:49:04.931  2544  4522 I Collector: HandleRawWifiInfo: flag:0, netId:0!
+02-15 09:49:04.931  2544  3075 I NetworkQoeProxy: calcChannelNoRx dnsData is not present
+02-15 09:49:04.933  2544  3075 E BoosterUtil: convertSubIdToSlotId failed, subId:5, slotId:-1
+02-15 09:49:04.933  2544  3075 E BoosterUtil: getDefaultDataSlotId failed, invalid slotId:-1, subId:5
+02-15 09:49:04.933  2544  3075 E NrSmartCure: onNetworkQoeUpdate failed, invalid defaultDataSlotId=-1
+02-15 09:49:04.934  2544  3075 E FourNetCombinationChr: getNetworkQoeInfo failed, qoeTcpDataOpt is null
+02-15 09:49:04.934  2544  3802 I Hicom_Monitor: handleNetworkQoeReport. foregroundAppTcpRtt: 7, maxRatioChannelId: 2
+02-15 09:49:04.934  2544  3802 I Hicom_Monitor: handleNetworkQoeReport. qoeString: 10362,4,0,296,1,2,4,0,296,720600,960700,10,10,0,1,1,0
+02-15 09:49:04.934  1828  2499 I WiFi_PRO_WifiProStateMachine: APP_SERVICE_QOE_NOTIFY Qoe info 10362,4,0,296,1,2,4,0,296,720600,960700,10,10,0,1,1,0 CID 2 mMasterWifiRssi -52 mMasterCardAmbr 1048576 mSlaveCardAmbr 1048576
+02-15 09:49:04.935  1828  2499 I HwWifiProServiceProxy: ctrlHwWifiNetwork pkgName: WIFIPRO_SERVICE interfaceId: 9
+02-15 09:49:04.935  1828  2499 I WiFi_PRO_WifiProStateMachine: isWifi2WifiProcess = false, mIsNeedIgnoreQoeUpdate = false, mIsAppInBlacklist = false, mIsAppInBlacklistFullScreen = false, mIsWiFiNoInternet false, screen on = true, full screen = false, isLandscapeMode = false, mNotifyWifiLinkPoorReason = -1
+02-15 09:49:04.935  1828  2499 I WiFi_PRO_WifiProStateMachine: mChannelQoeBadCnt = 0, mAppQoeBadCnt = 0, mNetworkSlowReason = 0, mNetworkSlowChannelBadCnt = 0
+02-15 09:49:04.935  1828  2499 E WiFi_PROHumanFactorRecommend: isRichTrafficUser, invalid slotId=-1
+02-15 09:49:04.936  1828  2499 E WiFi_PROHumanFactorRecommend: isEconomicTrafficUser, invalid slotId=-1
+02-15 09:49:05.165   994 19322 I VIDEO   : VIDEO-[ScdDelRawAfterFilter]:[2542]now scd seg num is abnormal, num is 1, full flag: 0
+02-15 09:49:05.198   965  1082 E bastetd : [ProxySocket    ] NotifySocketErrState# No record found by comm prop, state=196619
+02-15 09:49:05.277  2544  4591 D LteRecoveryEngine: UnRecoverState processMessage UPDATE_PS_SLOW_VALUE
+02-15 09:49:05.466 13619 13619 I DEVMGR_KillPhoneServiceManager: 1600101320|R|I|Try to kill health enter
+02-15 09:49:05.468 13619 13619 I DEVMGR_KillPhoneServiceManager: 1600101320|R|I|Try to kill health after 10 seconds
+02-15 09:49:05.537  1828  3646 D HwConnectivityServiceEx: set 10151 wlan0 value false
+02-15 09:49:05.665   994 19322 I VIDEO   : VIDEO-[ScdDelRawAfterFilter]:[2542]now scd seg num is abnormal, num is 1, full flag: 0
+02-15 09:49:05.706 17861 19671 V AudioManager: isBluetoothScoOn...
+02-15 09:49:05.706 17861 19671 V AudioManager: isBluetoothA2dpOn...
+02-15 09:49:05.706 17861 19671 I AudioSystem: getDeviceConnectionState , Connecting to the Bluetooth device
+02-15 09:49:05.706 17861 19671 I IAudioPolicyService: getDeviceConnectionState, BpAudioPolicy: Bluetooth device
+02-15 09:49:05.707   762  5354 I IAudioPolicyService: onTransact, BnAudioPolicy Binder transaction: Bluetooth device
+02-15 09:49:05.707   762  5354 I APM_AudioPolicyManager: AudioPolicyManager: Bluetooth device
+02-15 09:49:05.707 17861 19671 I AudioSystem: getDeviceConnectionState , Connecting to the Bluetooth device
+02-15 09:49:05.707 17861 19671 I IAudioPolicyService: getDeviceConnectionState, BpAudioPolicy: Bluetooth device
+02-15 09:49:05.707   762  5354 I IAudioPolicyService: onTransact, BnAudioPolicy Binder transaction: Bluetooth device
+02-15 09:49:05.707   762  5354 I APM_AudioPolicyManager: AudioPolicyManager: Bluetooth device
+02-15 09:49:05.707 17861 19671 I AudioSystem: getDeviceConnectionState , Connecting to the Bluetooth device
+02-15 09:49:05.707 17861 19671 I IAudioPolicyService: getDeviceConnectionState, BpAudioPolicy: Bluetooth device
+02-15 09:49:05.707   762  5354 I IAudioPolicyService: onTransact, BnAudioPolicy Binder transaction: Bluetooth device
+02-15 09:49:05.707   762  5354 I APM_AudioPolicyManager: AudioPolicyManager: Bluetooth device
+02-15 09:49:05.707 17861 19671 V AudioManager: isWiredHeadsetOn...
+02-15 09:49:05.709  1828  3646 D HwConnectivityServiceEx: set 10034 wlan0 value false
+02-15 09:49:05.711   762  5354 I APM_AudioPolicyManager: getOutputsForDevices, openOutputs size is 2, outputs size is 2
+02-15 09:49:05.711 17861 19671 V AudioManager: getStreamVolume streamType: 3 volume: 7
+02-15 09:49:05.711 17861 19671 V AudioManager: getStreamMaxVolume  treamType: 3
+02-15 09:49:05.713   762  5354 I APM_AudioPolicyManager: getOutputsForDevices, openOutputs size is 2, outputs size is 2
+02-15 09:49:05.714 17861 19671 V AudioManager: getStreamVolume streamType: 3 volume: 7
+02-15 09:49:05.720 17861 22169 V AudioManager: isWiredHeadsetOn...
+02-15 09:49:05.723 17861 22169 W InputMethodSubtype: list size = 2
+02-15 09:49:05.724 17861 22169 W InputMethodSubtype: list size = 1
+02-15 09:49:05.946  2544  4522 E Booster_Qoe: PreprocessModemData, IsCellularCtx false
+02-15 09:49:05.946  2544  4522 I Booster_Qoe: AdaBoostPredict rlt,index:7,NisPsSlow:0,NProba:296,rsrp(rssi):-52,rsrq(noise):-100,rtt(chload):65,buffhigh(uldelay):0,buffcomm(rtt):2
+02-15 09:49:05.946  2544  4522 E Booster_Qoe: PreprocessModemData, IsCellularCtx false
+02-15 09:49:05.946  2544  4522 I Booster_Qoe: AdaBoostPredict rlt,index:2,NisPsSlow:0,NProba:346,rsrp(rssi):-52,rsrq(noise):-100,rtt(chload):65,buffhigh(uldelay):0,buffcomm(rtt):233
+02-15 09:49:05.947  2544  3075 I NetworkQoeProxy: calcChannelNoRx dnsData is not present
+02-15 09:49:05.949  2544  3075 E BoosterUtil: convertSubIdToSlotId failed, subId:5, slotId:-1
+02-15 09:49:05.949  2544  3075 E BoosterUtil: getDefaultDataSlotId failed, invalid slotId:-1, subId:5
+02-15 09:49:05.949  2544  3075 E NrSmartCure: onNetworkQoeUpdate failed, invalid defaultDataSlotId=-1
+02-15 09:49:05.949  2544  3075 E FourNetCombinationChr: getNetworkQoeInfo failed, qoeTcpDataOpt is null
+02-15 09:49:05.950  2544  3802 I Hicom_Monitor: handleNetworkQoeReport. foregroundAppTcpRtt: 2, maxRatioChannelId: 2
+02-15 09:49:05.950  2544  3802 I Hicom_Monitor: handleNetworkQoeReport. qoeString: 10362,4,0,296,1,2,4,0,346,720600,864700,10,10,0,27,18,0
+02-15 09:49:05.950  1828  2499 I WiFi_PRO_WifiProStateMachine: APP_SERVICE_QOE_NOTIFY Qoe info 10362,4,0,296,1,2,4,0,346,720600,864700,10,10,0,27,18,0 CID 2 mMasterWifiRssi -52 mMasterCardAmbr 1048576 mSlaveCardAmbr 1048576
+02-15 09:49:05.951  1828  2499 I HwWifiProServiceProxy: ctrlHwWifiNetwork pkgName: WIFIPRO_SERVICE interfaceId: 9
+02-15 09:49:05.951  1828  2499 I WiFi_PRO_WifiProStateMachine: isWifi2WifiProcess = false, mIsNeedIgnoreQoeUpdate = false, mIsAppInBlacklist = false, mIsAppInBlacklistFullScreen = false, mIsWiFiNoInternet false, screen on = true, full screen = false, isLandscapeMode = false, mNotifyWifiLinkPoorReason = -1
+02-15 09:49:05.951  1828  2499 I WiFi_PRO_WifiProStateMachine: mChannelQoeBadCnt = 0, mAppQoeBadCnt = 0, mNetworkSlowReason = 0, mNetworkSlowChannelBadCnt = 0
+02-15 09:49:05.953  1828  2499 E WiFi_PROHumanFactorRecommend: isRichTrafficUser, invalid slotId=-1
+02-15 09:49:05.954  2544  4522 I Collector: HandleRawWifiInfo: flag:0, netId:0!
+02-15 09:49:05.955  1828  2499 E WiFi_PROHumanFactorRecommend: isEconomicTrafficUser, invalid slotId=-1
+02-15 09:49:06.109  1828  2386 I WificondControl: Noise: -100, Snr: 28, Chload: 48, rssi: -50, txBitrate: 720, rxBitrate: 864, frequency: 5320, UlDelay: 0, currentTxBytes: 236713469, currentTxPackets: 914450, currentTxFailed: 0, currentRxBytes: 753972883, currentRxPackets: 892749
+02-15 09:49:06.111  1828  2386 V HwWifiServiceFactory: get AllImpl object = com.android.server.wifi.HwWifiServiceFactoryImpl@da21258
+02-15 09:49:06.166   994 19322 I VIDEO   : VIDEO-[ScdDelRawAfterFilter]:[2542]now scd seg num is abnormal, num is 1, full flag: 0
+02-15 09:49:06.279  2544  4591 D LteRecoveryEngine: UnRecoverState processMessage UPDATE_PS_SLOW_VALUE
+02-15 09:49:06.581  1828  2385 I TrafficMonitor: update:rxPkts:4,txPkts:4,rxBytes:1319,txBytes:2133
+02-15 09:49:06.581  1828  2385 I TrafficMonitor: gettimer:interval=2000
+02-15 09:49:06.665   994 19322 I VIDEO   : VIDEO-[ScdDelRawAfterFilter]:[2542]now scd seg num is abnormal, num is 1, full flag: 0
+02-15 09:49:06.971  2544  4522 E Booster_Qoe: PreprocessModemData, IsCellularCtx false
+02-15 09:49:06.971  2544  4522 I Booster_Qoe: AdaBoostPredict rlt,index:7,NisPsSlow:0,NProba:296,rsrp(rssi):-50,rsrq(noise):-100,rtt(chload):48,buffhigh(uldelay):0,buffcomm(rtt):5
+02-15 09:49:06.971  2544  4522 E Booster_Qoe: PreprocessModemData, IsCellularCtx false
+02-15 09:49:06.971  2544  4522 I Booster_Qoe: AdaBoostPredict rlt,index:2,NisPsSlow:0,NProba:296,rsrp(rssi):-50,rsrq(noise):-100,rtt(chload):48,buffhigh(uldelay):0,buffcomm(rtt):98
+02-15 09:49:06.972  2544  4522 I Collector: HandleRawWifiInfo: flag:0, netId:0!
+02-15 09:49:06.972  2544  3075 I NetworkQoeProxy: calcChannelNoRx dnsData is not present
+02-15 09:49:06.975  2544  3075 E BoosterUtil: convertSubIdToSlotId failed, subId:5, slotId:-1
+02-15 09:49:06.975  2544  3075 E BoosterUtil: getDefaultDataSlotId failed, invalid slotId:-1, subId:5
+02-15 09:49:06.975  2544  3075 E NrSmartCure: onNetworkQoeUpdate failed, invalid defaultDataSlotId=-1
+02-15 09:49:06.976  2544  3075 E FourNetCombinationChr: getNetworkQoeInfo failed, qoeTcpDataOpt is null
+02-15 09:49:06.977  1828  2499 I WiFi_PRO_WifiProStateMachine: APP_SERVICE_QOE_NOTIFY Qoe info 10362,4,0,296,1,2,4,0,296,720600,864700,10,10,0,0,0,0 CID 2 mMasterWifiRssi -50 mMasterCardAmbr 1048576 mSlaveCardAmbr 1048576
+02-15 09:49:06.977  2544  3802 I Hicom_Monitor: handleNetworkQoeReport. foregroundAppTcpRtt: 5, maxRatioChannelId: 2
+02-15 09:49:06.978  2544  3802 I Hicom_Monitor: handleNetworkQoeReport. qoeString: 10362,4,0,296,1,2,4,0,296,720600,864700,10,10,0,0,0,0
+02-15 09:49:06.978  1828  2499 I HwWifiProServiceProxy: ctrlHwWifiNetwork pkgName: WIFIPRO_SERVICE interfaceId: 9
+02-15 09:49:06.978  1828  2499 I WiFi_PRO_WifiProStateMachine: isWifi2WifiProcess = false, mIsNeedIgnoreQoeUpdate = false, mIsAppInBlacklist = false, mIsAppInBlacklistFullScreen = false, mIsWiFiNoInternet false, screen on = true, full screen = false, isLandscapeMode = false, mNotifyWifiLinkPoorReason = -1
+02-15 09:49:06.978  1828  2499 I WiFi_PRO_WifiProStateMachine: mChannelQoeBadCnt = 0, mAppQoeBadCnt = 0, mNetworkSlowReason = 0, mNetworkSlowChannelBadCnt = 0
+02-15 09:49:06.979  1828  2499 E WiFi_PROHumanFactorRecommend: isRichTrafficUser, invalid slotId=-1
+02-15 09:49:06.981  1828  2499 E WiFi_PROHumanFactorRecommend: isEconomicTrafficUser, invalid slotId=-1
+02-15 09:49:07.128  2544  3075 I SpeedTestNotifier: is low speed scene
+02-15 09:49:07.284  2544  4591 D LteRecoveryEngine: UnRecoverState processMessage UPDATE_PS_SLOW_VALUE
+02-15 09:49:07.383  1828  2386 I WificondControl: Noise: -100, Snr: 19, Chload: 74, rssi: -50, txBitrate: 720, rxBitrate: 864, frequency: 5320, UlDelay: 0, currentTxBytes: 236715664, currentTxPackets: 914453, currentTxFailed: 0, currentRxBytes: 753974196, currentRxPackets: 892753
+02-15 09:49:07.385  1828  2502 D HuaweiWifiWatchdogStateMachine: nothing to do
+02-15 09:49:07.385  1828  2502 I HuaweiWifiWatchdogStateMachine: POta txb txg rxg:0, 17, 0. Lr =0% Totpkt=17
+02-15 09:49:07.385  1828  2385 I WiFi_PRO: MSG_RETURN_AP_CURRY_RSSI rssi = -50
+02-15 09:49:07.385  1828  2385 I QosMonitor: queryRtt: rttType = 3
+02-15 09:49:07.386  1828  2520 I HwDualBandManager: handle2gApStrongWifiRssiChange
+02-15 09:49:07.386  1828  2385 I HwWifiProServiceProxy: ctrlHwWifiNetwork pkgName: WIFIPRO_SERVICE interfaceId: 8
+02-15 09:49:07.387  1828  2385 I QosMonitor: postEventFromNative: msg=100,arg1=4,arg2=10
+02-15 09:49:07.387  1828  2385 I HwWifiProServiceProxy: ctrlHwWifiNetwork pkgName: WIFIPRO_SERVICE interfaceId: 8
+02-15 09:49:07.387  1828  2385 I QosMonitor: postEventFromNative: msg=100,arg1=0,arg2=10
+02-15 09:49:07.387  1828  2385 D HuaweiWifiWatchdogStateMachine: nothing to do
+02-15 09:49:07.388  1828  2385 I MQoS    : rtt=88,tcpTxPkts=4188036,tcpRxPkts=7231674
+02-15 09:49:07.388  1828  2385 I QosMonitor: resetRtt: rttType = 3
+02-15 09:49:07.388  1828  2385 I HwWifiProServiceProxy: ctrlHwWifiNetwork pkgName: WIFIPRO_SERVICE interfaceId: 8
+02-15 09:49:07.388  1828  9479 D HwConnectivityServiceEx: set 1000 wlan0 value false
+02-15 09:49:07.388  1828  9479 I MQoS    : QOS_level:0(0),DataDisable;use level-0
+02-15 09:49:07.389  1828  2502 I HuaweiWifiWatchdogStateMachine: PTcp RTT:88, rtt pkt=97, tcp_rx=12, tcp_tx=12, tcp_reTran=0, rtRate=0
+02-15 09:49:07.390  1828  2502 I HuaweiWifiWatchdogStateMachine: start computeQosLevel tcpRtt = 88 ,rssi = -50 ,mBestSpeedInPeriod = 0
+02-15 09:49:07.390  1828  2502 I HuaweiWifiWatchdogStateMachine: smoothConsecutiveQosResults, currentQosLevel = 3
+02-15 09:49:07.539  1828  3646 D HwConnectivityServiceEx: set 10151 wlan0 value false
+02-15 09:49:07.576  1828  2385 I TrafficMonitor: expired arrive. level:-1
+02-15 09:49:07.576  1828  2385 I TrafficMonitor: during_ms:2004,period_ms:2000
+02-15 09:49:07.576  1828  2385 I TrafficMonitor: count:372,rx_sum:4,tx_sum:4,rxBytes:1319,during_ms:2004,rx_speed:658.183632734531,tx_speed:1064.37125748503,rto:1.0
+02-15 09:49:07.576  1828  2385 I HuaweiWifiWatchdogStateMachine: Get speed information rx_speed = 658 ,tx_speed = 1064 ,isSpeedOk = false ,mBestSpeedInPeriod = 658
+02-15 09:49:07.999  2544  4522 E Booster_Qoe: PreprocessModemData, IsCellularCtx false
+02-15 09:49:07.999  2544  4522 I Booster_Qoe: AdaBoostPredict rlt,index:7,NisPsSlow:0,NProba:296,rsrp(rssi):-50,rsrq(noise):-100,rtt(chload):74,buffhigh(uldelay):0,buffcomm(rtt):2
+02-15 09:49:07.999  2544  4522 E Booster_Qoe: PreprocessModemData, IsCellularCtx false
+02-15 09:49:07.999  2544  4522 I Booster_Qoe: AdaBoostPredict rlt,index:2,NisPsSlow:0,NProba:296,rsrp(rssi):-50,rsrq(noise):-100,rtt(chload):74,buffhigh(uldelay):0,buffcomm(rtt):39
+02-15 09:49:07.999  2544  3075 I NetworkQoeProxy: calcChannelNoRx dnsData is not present
+02-15 09:49:08.003  2544  3075 E BoosterUtil: convertSubIdToSlotId failed, subId:5, slotId:-1
+02-15 09:49:08.003  2544  3075 E BoosterUtil: getDefaultDataSlotId failed, invalid slotId:-1, subId:5
+02-15 09:49:08.003  2544  3075 E NrSmartCure: onNetworkQoeUpdate failed, invalid defaultDataSlotId=-1
+02-15 09:49:08.003  2544  3075 E FourNetCombinationChr: getNetworkQoeInfo failed, qoeTcpDataOpt is null
+02-15 09:49:08.004  2544  4522 I Collector: HandleRawWifiInfo: flag:0, netId:0!
+02-15 09:49:08.004  2544  3802 I Hicom_Monitor: handleNetworkQoeReport. foregroundAppTcpRtt: 2, maxRatioChannelId: 2
+02-15 09:49:08.004  2544  3802 I Hicom_Monitor: handleNetworkQoeReport. qoeString: 10362,4,0,296,1,2,4,0,296,720600,864700,10,10,0,17,10,0
+02-15 09:49:08.004  1828  2499 I WiFi_PRO_WifiProStateMachine: APP_SERVICE_QOE_NOTIFY Qoe info 10362,4,0,296,1,2,4,0,296,720600,864700,10,10,0,17,10,0 CID 2 mMasterWifiRssi -50 mMasterCardAmbr 1048576 mSlaveCardAmbr 1048576
+02-15 09:49:08.005  1828  2499 I HwWifiProServiceProxy: ctrlHwWifiNetwork pkgName: WIFIPRO_SERVICE interfaceId: 9
+02-15 09:49:08.005  1828  2499 I WiFi_PRO_WifiProStateMachine: isWifi2WifiProcess = false, mIsNeedIgnoreQoeUpdate = false, mIsAppInBlacklist = false, mIsAppInBlacklistFullScreen = false, mIsWiFiNoInternet false, screen on = true, full screen = false, isLandscapeMode = false, mNotifyWifiLinkPoorReason = -1
+02-15 09:49:08.006  1828  2499 I WiFi_PRO_WifiProStateMachine: mChannelQoeBadCnt = 0, mAppQoeBadCnt = 0, mNetworkSlowReason = 0, mNetworkSlowChannelBadCnt = 0
+02-15 09:49:08.007  1828  2499 E WiFi_PROHumanFactorRecommend: isRichTrafficUser, invalid slotId=-1
+02-15 09:49:08.012  1828  2499 E WiFi_PROHumanFactorRecommend: isEconomicTrafficUser, invalid slotId=-1
+02-15 09:49:08.287  2544  4591 D LteRecoveryEngine: UnRecoverState processMessage UPDATE_PS_SLOW_VALUE
+02-15 09:49:08.585  1828  2385 I TrafficMonitor: update:rxPkts:4,txPkts:12,rxBytes:1319,txBytes:2613
+02-15 09:49:08.585  1828  2385 I TrafficMonitor: gettimer:interval=2000

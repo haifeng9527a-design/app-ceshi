@@ -1,0 +1,182 @@
+import 'package:flutter/material.dart';
+
+import '../../core/models.dart';
+
+class TeacherDetailPage extends StatelessWidget {
+  const TeacherDetailPage({super.key, required this.teacher});
+
+  final Teacher teacher;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(teacher.name),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          _HeaderSection(teacher: teacher),
+          const SizedBox(height: 16),
+          _SectionTitle(title: '战绩表现'),
+          _BattleStats(teacher: teacher),
+          const SizedBox(height: 16),
+          _SectionTitle(title: '个人介绍'),
+          Text(teacher.bio, style: Theme.of(context).textTheme.bodyMedium),
+          const SizedBox(height: 16),
+          _SectionTitle(title: '最新文章'),
+          ...teacher.articles.map(
+            (article) => ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(article.title),
+              subtitle: Text(article.summary),
+              trailing: Text(article.date),
+            ),
+          ),
+          const SizedBox(height: 16),
+          _SectionTitle(title: '近期行程'),
+          ...teacher.schedules.map(
+            (item) => ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(item.title),
+              subtitle: Text(item.location),
+              trailing: Text(item.date),
+            ),
+          ),
+          const SizedBox(height: 16),
+          FilledButton(
+            onPressed: () {},
+            child: const Text('关注交易员'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HeaderSection extends StatelessWidget {
+  const _HeaderSection({required this.teacher});
+
+  final Teacher teacher;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        CircleAvatar(
+          radius: 36,
+          backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+          child: Text(
+            _initial(teacher.name),
+            style: const TextStyle(fontSize: 24),
+          ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                teacher.name,
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                teacher.title,
+                style: Theme.of(context).textTheme.bodyLarge,
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: -6,
+                children: teacher.tags
+                    .map((tag) => Chip(label: Text(tag)))
+                    .toList(),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _BattleStats extends StatelessWidget {
+  const _BattleStats({required this.teacher});
+
+  final Teacher teacher;
+
+  @override
+  Widget build(BuildContext context) {
+    final total = teacher.wins + teacher.losses;
+    final winRate = total == 0 ? 0 : (teacher.wins / total * 100).round();
+    return Row(
+      children: [
+        _StatTile(label: '胜场', value: '${teacher.wins}'),
+        const SizedBox(width: 12),
+        _StatTile(label: '败场', value: '${teacher.losses}'),
+        const SizedBox(width: 12),
+        _StatTile(label: '胜率', value: '$winRate%'),
+        const SizedBox(width: 12),
+        _StatTile(label: '评分', value: '${teacher.rating}'),
+      ],
+    );
+  }
+}
+
+class _StatTile extends StatelessWidget {
+  const _StatTile({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.black12),
+        ),
+        child: Column(
+          children: [
+            Text(
+              value,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: Theme.of(context).textTheme.labelMedium,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _initial(String name) {
+  if (name.isEmpty) {
+    return '';
+  }
+  return name[0];
+}
+
+class _SectionTitle extends StatelessWidget {
+  const _SectionTitle({required this.title});
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Text(
+        title,
+        style: Theme.of(context).textTheme.titleMedium,
+      ),
+    );
+  }
+}

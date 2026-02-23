@@ -1,0 +1,15 @@
+alter table public.teacher_profiles
+add column if not exists country text,
+add column if not exists city text,
+add column if not exists years_experience int,
+add column if not exists markets text,
+add column if not exists instruments text,
+add column if not exists certifications text,
+add column if not exists license_no text,
+add column if not exists broker text,
+add column if not exists track_record text,
+add column if not exists application_ack boolean default false,
+add column if not exists id_photo_url text,
+add column if not exists license_photo_url text,
+add column if not exists certification_photo_url text,
+add column if not exists frozen_until timestamptz;

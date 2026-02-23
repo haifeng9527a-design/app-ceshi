@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "130160287801",
+    "project_id": "cesium-29c23",
+    "storage_bucket": "cesium-29c23.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:130160287801:android:8f19e3912b885b0326ade8",
+        "android_client_info": {
+          "package_name": "com.example.teacher_hub"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "130160287801-ihkompbp9macqf15ubjfolh8jtkb67oc.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.teacher_hub",
+            "certificate_hash": "a6e874a8f96cf5192a08c1b1b3984a7996f5379f"
+          }
+        },
+        {
+          "client_id": "130160287801-vj4r1e6irc8e1g6mavm88qlf2sev2m4b.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDtLh40QWY0oF1p3ka2vz9sto3OK1btkj0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "130160287801-vj4r1e6irc8e1g6mavm88qlf2sev2m4b.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

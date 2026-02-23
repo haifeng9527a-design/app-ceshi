@@ -1,0 +1,124 @@
+import 'package:firebase_auth/firebase_auth.dart';
+
+import 'supabase_bootstrap.dart';
+
+/// 当前用户限制状态（后台在 user_profiles 中配置，此处只读校验）
+class UserRestrictions {
+  UserRestrictions._();
+
+  static Map<String, dynamic>? _cachedRow;
+  static String? _cachedUserId;
+  static DateTime? _cachedAt;
+  static const _cacheDuration = Duration(seconds: 15);
+
+  static Future<Map<String, dynamic>?> getMyRestrictionRow() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || uid.isEmpty) return null;
+    if (_cachedUserId == uid && _cachedAt != null && DateTime.now().difference(_cachedAt!) < _cacheDuration) {
+      return _cachedRow;
+    }
+    try {
+      final row = await SupabaseBootstrap.client
+          .from('user_profiles')
+          .select('banned_until, frozen_until, restrict_login, restrict_send_message, restrict_add_friend, restrict_join_group, restrict_create_group')
+          .eq('user_id', uid)
+          .maybeSingle();
+      _cachedRow = row != null ? Map<String, dynamic>.from(row) : null;
+      _cachedUserId = uid;
+      _cachedAt = DateTime.now();
+      return _cachedRow;
+    } catch (_) {
+      _cachedRow = null;
+      _cachedUserId = uid;
+      _cachedAt = DateTime.now();
+      return null;
+    }
+  }
+
+  static bool _isRestricted(dynamic v) {
+    if (v == null) return false;
+    if (v == true) return true;
+    if (v == 1) return true;
+    if (v.toString().toLowerCase() == 'true') return true;
+    return false;
+  }
+
+  static void clearCache() {
+    _cachedRow = null;
+    _cachedUserId = null;
+    _cachedAt = null;
+  }
+
+  static bool _isInEffect(String? iso) {
+    if (iso == null || iso.trim().isEmpty) return false;
+    final d = DateTime.tryParse(iso);
+    return d != null && d.isAfter(DateTime.now());
+  }
+
+  static bool isBannedOrFrozen(Map<String, dynamic>? row) {
+    if (row == null) return false;
+    return _isInEffect(row['banned_until']?.toString()) || _isInEffect(row['frozen_until']?.toString());
+  }
+
+  static bool isRestrictedLogin(Map<String, dynamic>? row) {
+    if (row == null) return false;
+    if (isBannedOrFrozen(row)) return true;
+    return _isRestricted(row['restrict_login']);
+  }
+
+  static bool canSendMessage(Map<String, dynamic>? row) {
+    if (row == null) return true;
+    if (isBannedOrFrozen(row)) return false;
+    return !_isRestricted(row['restrict_send_message']);
+  }
+
+  static bool canAddFriend(Map<String, dynamic>? row) {
+    if (row == null) return true;
+    if (isBannedOrFrozen(row)) return false;
+    return !_isRestricted(row['restrict_add_friend']);
+  }
+
+  static bool canJoinGroup(Map<String, dynamic>? row) {
+    if (row == null) return true;
+    if (isBannedOrFrozen(row)) return false;
+    return !_isRestricted(row['restrict_join_group']);
+  }
+
+  static bool canCreateGroup(Map<String, dynamic>? row) {
+    if (row == null) return true;
+    if (isBannedOrFrozen(row)) return false;
+    return !_isRestricted(row['restrict_create_group']);
+  }
+
+  /// 用于 APP 展示的账号状态文案
+  static String getAccountStatusMessage(Map<String, dynamic>? row) {
+    if (row == null) return '账号状态：正常';
+    final banned = row['banned_until']?.toString();
+    final frozen = row['frozen_until']?.toString();
+    if (_isInEffect(banned)) {
+      final d = DateTime.tryParse(banned!);
+      return '账号已封禁至 ${d != null ? '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}' : '—'}';
+    }
+    if (_isInEffect(frozen)) {
+      final d = DateTime.tryParse(frozen!);
+      return '账号已冻结至 ${d != null ? '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}' : '—'}';
+    }
+    if (_isRestricted(row['restrict_login'])) return '账号状态：已限制登录';
+    if (_isRestricted(row['restrict_send_message'])) return '账号状态：已限制发消息';
+    if (_isRestricted(row['restrict_add_friend'])) return '账号状态：已禁止加好友';
+    if (_isRestricted(row['restrict_join_group'])) return '账号状态：已禁止加入群聊';
+    if (_isRestricted(row['restrict_create_group'])) return '账号状态：已禁止建群';
+    return '账号状态：正常';
+  }
+
+  /// 是否有限制（用于决定是否展示状态条）
+  static bool hasAnyRestriction(Map<String, dynamic>? row) {
+    if (row == null) return false;
+    if (isBannedOrFrozen(row)) return true;
+    return _isRestricted(row['restrict_login']) ||
+        _isRestricted(row['restrict_send_message']) ||
+        _isRestricted(row['restrict_add_friend']) ||
+        _isRestricted(row['restrict_join_group']) ||
+        _isRestricted(row['restrict_create_group']);
+  }
+}

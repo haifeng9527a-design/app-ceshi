@@ -1,0 +1,7 @@
+-- 群系统消息说明（无需执行，chat_messages 沿用现有 message_type）
+-- 使用方式：插入 message_type = 'system_join' 或 'system_leave'
+-- 列：conversation_id, sender_id, sender_name, content, message_type
+--
+-- system_join：某人加入群聊，所有人可见。content 如 "张三 加入了群聊"
+-- system_leave：某人退出群聊，仅群主和管理员在客户端过滤后可见。content 如 "李四 退出了群聊"
+-- 应用层在拉取消息后根据当前用户角色过滤 system_leave（非 owner/admin 不展示）
