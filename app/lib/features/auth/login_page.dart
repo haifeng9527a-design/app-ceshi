@@ -182,8 +182,18 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   void _showMessage(String message) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
+      SnackBar(
+        content: Text(
+          message,
+          style: const TextStyle(color: Colors.white, fontSize: 14),
+        ),
+        duration: const Duration(seconds: 4),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: const Color(0xFF5C5F68),
+        margin: const EdgeInsets.all(16),
+      ),
     );
   }
 
@@ -191,7 +201,7 @@ class _LoginPageState extends State<LoginPage> {
     if (error is FirebaseAuthException) {
       switch (error.code) {
         case 'network-request-failed':
-          return '网络连接失败，请检查网络或稍后再试';
+          return '无法连接服务器（可能是网络、防火墙或本机限制），请检查后重试或改用邮箱登录';
         case 'email-already-in-use':
           return '该邮箱已注册，请直接登录或更换邮箱';
         case 'invalid-email':
@@ -215,8 +225,19 @@ class _LoginPageState extends State<LoginPage> {
       }
     }
     final message = error.toString();
-    if (message.contains('GoogleSignInException')) {
-      return 'Google 登录失败，请检查网络或稍后再试';
+    if (message.contains('GoogleSignInException') ||
+        message.contains('google_sign_in')) {
+      return 'Google 登录失败（可能为网络、防火墙或权限），请重试或改用邮箱登录';
+    }
+    if (message.contains('keychain')) {
+      return '登录需要钥匙串权限，请用 Xcode 配置开发签名后重试，或改用邮箱登录';
+    }
+    if (message.contains('connection') ||
+        message.contains('Connection') ||
+        message.contains('network') ||
+        message.contains('Network') ||
+        message.contains('socket')) {
+      return '连接失败（可能为网络或防火墙），请检查后重试或改用邮箱登录';
     }
     return '操作失败：$message';
   }
@@ -240,8 +261,8 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   Widget build(BuildContext context) {
-    final canUseApple = defaultTargetPlatform == TargetPlatform.iOS ||
-        defaultTargetPlatform == TargetPlatform.macOS;
+    // macOS 未配置 Sign in with Apple 签名时必现 error 1000，仅 iOS 展示 Apple 登录
+    final canUseApple = defaultTargetPlatform == TargetPlatform.iOS;
 
     return Scaffold(
       appBar: AppBar(
@@ -359,6 +380,15 @@ class _LoginPageState extends State<LoginPage> {
               label: const Text('Apple 登录'),
             ),
           ],
+          if (defaultTargetPlatform == TargetPlatform.macOS)
+            const Padding(
+              padding: EdgeInsets.only(top: 10),
+              child: Text(
+                'macOS 端请使用邮箱或 Google 登录。',
+                style: TextStyle(color: Color(0xFF8A6D1D), fontSize: 12),
+                textAlign: TextAlign.center,
+              ),
+            ),
           if (kIsWeb)
             const Padding(
               padding: EdgeInsets.only(top: 8),

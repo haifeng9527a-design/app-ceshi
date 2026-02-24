@@ -3,6 +3,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'firebase_bootstrap.dart';
+
 class SupabaseBootstrap {
   static bool isReady = false;
 
@@ -24,10 +26,12 @@ class SupabaseBootstrap {
     try {
       // 使用 Firebase ID Token 作为 Supabase 请求鉴权，使 RLS 中 auth.uid() 与 Firebase UID 一致。
       // 需在 Supabase 控制台配置 Firebase 第三方登录，并为 Firebase 用户设置 role: authenticated。
+      // macOS 等平台可能未配置 Firebase，accessToken 仅在 Firebase 就绪时调用，否则返回 null 避免 [core/no-app] 崩溃。
       await Supabase.initialize(
         url: url,
         anonKey: anonKey,
         accessToken: () async {
+          if (!FirebaseBootstrap.isReady) return null;
           try {
             return await FirebaseAuth.instance.currentUser?.getIdToken() ?? null;
           } catch (_) {

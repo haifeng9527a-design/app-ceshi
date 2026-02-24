@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/firebase_bootstrap.dart';
 import '../../core/notification_service.dart';
 import '../../core/supabase_bootstrap.dart';
 import '../home/featured_teacher_page.dart';
@@ -41,9 +42,11 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     _subscribeIncomingRequests();
-    _authSubscription = FirebaseAuth.instance.authStateChanges().listen((_) {
-      _subscribeIncomingRequests();
-    });
+    if (FirebaseBootstrap.isReady) {
+      _authSubscription = FirebaseAuth.instance.authStateChanges().listen((_) {
+        _subscribeIncomingRequests();
+      });
+    }
   }
 
   @override
@@ -54,6 +57,10 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _subscribeIncomingRequests() {
+    if (!FirebaseBootstrap.isReady) {
+      if (mounted) setState(() => _pendingFriendRequestCount = 0);
+      return;
+    }
     final user = FirebaseAuth.instance.currentUser;
     final userId = user?.uid ?? '';
     _incomingRequestsSubscription?.cancel();
@@ -73,7 +80,9 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    final userId = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final userId = FirebaseBootstrap.isReady
+        ? (FirebaseAuth.instance.currentUser?.uid ?? '')
+        : '';
     final canLoadMessages =
         userId.isNotEmpty && SupabaseBootstrap.isReady;
     return Scaffold(

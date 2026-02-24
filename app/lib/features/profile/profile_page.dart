@@ -155,7 +155,9 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
     final avatar = prefs.getString('profile.avatar.$userId');
     final signature = prefs.getString('profile.signature.$userId');
     final shortId = prefs.getString('profile.shortId.$userId');
-    final firebaseAvatar = FirebaseAuth.instance.currentUser?.photoURL?.trim();
+    final firebaseAvatar = FirebaseBootstrap.isReady
+        ? FirebaseAuth.instance.currentUser?.photoURL?.trim()
+        : null;
     if (!mounted) return;
     setState(() {
       if (avatar != null && avatar.trim().isNotEmpty) {
@@ -253,8 +255,10 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
         'avatar_url': url,
         'updated_at': DateTime.now().toIso8601String(),
       });
-      await FirebaseAuth.instance.currentUser?.updatePhotoURL(url);
-      await FirebaseAuth.instance.currentUser?.reload();
+      if (FirebaseBootstrap.isReady) {
+        await FirebaseAuth.instance.currentUser?.updatePhotoURL(url);
+        await FirebaseAuth.instance.currentUser?.reload();
+      }
       if (!mounted) return;
       setState(() => _avatarUrl = url);
       await _saveCachedProfile(userId: userId, avatarUrl: url);
@@ -390,7 +394,9 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
               ),
             ),
           StreamBuilder<User?>(
-            stream: FirebaseAuth.instance.authStateChanges(),
+            stream: FirebaseBootstrap.isReady
+                ? FirebaseAuth.instance.authStateChanges()
+                : Stream.value(null),
             builder: (context, snapshot) {
               final user = snapshot.data;
               if (user == null) {
@@ -846,7 +852,9 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
               trailing: const Icon(Icons.chevron_right),
               onTap: () async {
                 final authService = AuthService();
-                final currentUser = FirebaseAuth.instance.currentUser;
+                final currentUser = FirebaseBootstrap.isReady
+                    ? FirebaseAuth.instance.currentUser
+                    : null;
                 if (currentUser == null) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('当前未登录')),

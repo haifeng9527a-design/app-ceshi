@@ -36,7 +36,14 @@ Future<void> main() async {
   }
   if (!kIsWeb) {
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
-    await NotificationService.init();
+    try {
+      await NotificationService.init();
+    } catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('[main] NotificationService.init 失败，继续启动: $e');
+        debugPrint('$st');
+      }
+    }
   }
   runApp(const TeacherHubApp());
   if (!kIsWeb) {

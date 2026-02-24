@@ -67,6 +67,10 @@ class _MessagesPageState extends State<MessagesPage> {
   Timer? _cleanupTimer;
   bool _localStateLoaded = false;
 
+  /// 仅当 Firebase 已初始化时返回当前用户，避免 macOS 等平台 [core/no-app] 崩溃
+  User? get _currentUser =>
+      FirebaseBootstrap.isReady ? FirebaseAuth.instance.currentUser : null;
+
   @override
   void initState() {
     super.initState();
@@ -75,9 +79,11 @@ class _MessagesPageState extends State<MessagesPage> {
     _subscribeRemarks();
     _subscribeFriends();
     _subscribeIncomingRequests();
-    _authSubscription = FirebaseAuth.instance.authStateChanges().listen((_) {
-      _subscribeIncomingRequests();
-    });
+    if (FirebaseBootstrap.isReady) {
+      _authSubscription = FirebaseAuth.instance.authStateChanges().listen((_) {
+        _subscribeIncomingRequests();
+      });
+    }
   }
 
   @override
@@ -93,7 +99,8 @@ class _MessagesPageState extends State<MessagesPage> {
   }
 
   void _subscribeIncomingRequests() {
-    final userId = FirebaseAuth.instance.currentUser?.uid ?? '';
+    if (!FirebaseBootstrap.isReady) return;
+    final userId = _currentUser?.uid ?? '';
     if (userId.isEmpty) return;
     _incomingRequestsSubscription?.cancel();
     _incomingRequestsSubscription = _friendsRepository
@@ -123,7 +130,7 @@ class _MessagesPageState extends State<MessagesPage> {
   }
 
   void _subscribeFriends() {
-    final userId = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final userId = _currentUser?.uid ?? '';
     if (userId.isEmpty) return;
     _friendsSubscription?.cancel();
     _friendsSubscription = _friendsRepository.watchFriends(userId: userId).listen((friends) {
@@ -148,7 +155,7 @@ class _MessagesPageState extends State<MessagesPage> {
   }
 
   Future<void> _loadLocalState() async {
-    final userId = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final userId = _currentUser?.uid ?? '';
     final pins = await _localStore.loadPinnedConversations();
     final drafts = await _localStore.loadDrafts();
     final remarks = await _localStore.loadFriendRemarks();
@@ -174,7 +181,7 @@ class _MessagesPageState extends State<MessagesPage> {
   }
 
   void _subscribeRemarks() {
-    final userId = FirebaseAuth.instance.currentUser?.uid;
+    final userId = _currentUser?.uid;
     if (userId == null || userId.isEmpty) {
       return;
     }
@@ -303,7 +310,7 @@ class _MessagesPageState extends State<MessagesPage> {
   }
 
   void _cleanupDuplicateDirectConversations(List<Conversation> items) {
-    final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final currentUserId = _currentUser?.uid ?? '';
     if (currentUserId.isEmpty) {
       return;
     }
@@ -377,7 +384,7 @@ class _MessagesPageState extends State<MessagesPage> {
 
   String _resolveConversationTitle(Conversation conversation) {
     final peerId = conversation.peerId;
-    final me = FirebaseAuth.instance.currentUser;
+    final me = _currentUser;
     final myName = (me?.displayName?.trim().isNotEmpty == true
             ? me!.displayName!.trim()
             : me?.email?.split('@').first ?? '')
@@ -483,7 +490,7 @@ class _MessagesPageState extends State<MessagesPage> {
   Widget _buildBlacklistSection() {
     return StreamBuilder<List<FriendProfile>>(
       stream: _friendsRepository.watchFriends(
-        userId: FirebaseAuth.instance.currentUser?.uid ?? '',
+        userId: _currentUser?.uid ?? '',
       ),
       builder: (context, snapshot) {
         final friends = snapshot.data ?? const <FriendProfile>[];
@@ -597,7 +604,7 @@ class _MessagesPageState extends State<MessagesPage> {
       },
     );
     if (result == null) return;
-    final current = FirebaseAuth.instance.currentUser;
+    final current = _currentUser;
     if (current == null) return;
     await _friendsRepository.saveRemark(
       userId: current.uid,
@@ -625,7 +632,7 @@ class _MessagesPageState extends State<MessagesPage> {
   Widget build(BuildContext context) {
     final firebaseReady = FirebaseBootstrap.isReady;
     final supabaseReady = SupabaseBootstrap.isReady;
-    final user = FirebaseAuth.instance.currentUser;
+    final user = _currentUser;
     final userId = user?.uid ?? '';
     return Scaffold(
       appBar: AppBar(
@@ -654,7 +661,7 @@ class _MessagesPageState extends State<MessagesPage> {
                 onTap: () {},
               ),
             )
-          else if (FirebaseAuth.instance.currentUser == null)
+          else if (_currentUser == null)
             Card(
               child: ListTile(
                 leading: const Icon(Icons.lock_outline),
@@ -670,7 +677,7 @@ class _MessagesPageState extends State<MessagesPage> {
             ),
           if (!firebaseReady ||
               !supabaseReady ||
-              FirebaseAuth.instance.currentUser == null)
+              _currentUser == null)
             const SizedBox(height: 12),
           _SectionTitle(title: '快捷入口'),
           const SizedBox(height: 10),
@@ -861,7 +868,7 @@ class _MessagesPageState extends State<MessagesPage> {
   }
 
   void _guardAuth(BuildContext context) {
-    if (FirebaseAuth.instance.currentUser == null) {
+    if (_currentUser == null) {
       Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => const LoginPage()),
       );
@@ -873,7 +880,7 @@ class _MessagesPageState extends State<MessagesPage> {
   }
 
   void _openCreateGroup(BuildContext context) {
-    if (FirebaseAuth.instance.currentUser == null) {
+    if (_currentUser == null) {
       Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => const LoginPage()),
       );
@@ -891,7 +898,7 @@ class _MessagesPageState extends State<MessagesPage> {
   }
 
   void _openSystemNotifications(BuildContext context) {
-    if (FirebaseAuth.instance.currentUser == null) {
+    if (_currentUser == null) {
       Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => const LoginPage()),
       );
@@ -903,7 +910,7 @@ class _MessagesPageState extends State<MessagesPage> {
   }
 
   void _openConversation(BuildContext context, Conversation conversation) {
-    if (FirebaseAuth.instance.currentUser == null) {
+    if (_currentUser == null) {
       Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => const LoginPage()),
       );
@@ -968,7 +975,7 @@ class _MessagesPageState extends State<MessagesPage> {
           roleLabel: roleLabel,
           draft: draft,
           pinned: _pinnedConversations.contains(conversation.id),
-          currentUserId: FirebaseAuth.instance.currentUser?.uid ?? '',
+          currentUserId: _currentUser?.uid ?? '',
           onTap: () => _openConversation(context, conversation),
           onLongPress: () => _showConversationActions(context, conversation),
         ),
@@ -1031,7 +1038,7 @@ class _MessagesPageState extends State<MessagesPage> {
   }
 
   void _openAddFriend(BuildContext context) {
-    if (FirebaseAuth.instance.currentUser == null) {
+    if (_currentUser == null) {
       Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => const LoginPage()),
       );
@@ -1046,7 +1053,7 @@ class _MessagesPageState extends State<MessagesPage> {
     BuildContext context,
     FriendRequestItem item,
   ) async {
-    final current = FirebaseAuth.instance.currentUser;
+    final current = _currentUser;
     if (current == null) {
       return;
     }
@@ -1091,7 +1098,7 @@ class _MessagesPageState extends State<MessagesPage> {
     BuildContext context,
     FriendProfile friend,
   ) async {
-    final current = FirebaseAuth.instance.currentUser;
+    final current = _currentUser;
     if (current == null) return;
     if (_startingChat) return;
     setState(() => _startingChat = true);
@@ -1137,7 +1144,7 @@ class _MessagesPageState extends State<MessagesPage> {
     BuildContext context,
     FriendProfile friend,
   ) async {
-    final current = FirebaseAuth.instance.currentUser;
+    final current = _currentUser;
     if (current == null) return;
     final result = await showDialog<bool>(
       context: context,

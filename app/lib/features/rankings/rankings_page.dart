@@ -6,8 +6,34 @@ import '../../core/supabase_bootstrap.dart';
 import '../teachers/teacher_models.dart';
 import '../teachers/teacher_public_page.dart';
 
-class RankingsPage extends StatelessWidget {
+class RankingsPage extends StatefulWidget {
   const RankingsPage({super.key});
+
+  @override
+  State<RankingsPage> createState() => _RankingsPageState();
+}
+
+class _RankingsPageState extends State<RankingsPage> {
+  /// 用于重试时重新订阅 stream
+  int _streamKey = 0;
+
+  Stream<List<TeacherProfile>> _rankingsStream() {
+    if (!SupabaseBootstrap.isReady) {
+      return Stream.value(<TeacherProfile>[]);
+    }
+    return SupabaseBootstrap.client
+        .from('teacher_profiles')
+        .stream(primaryKey: ['user_id'])
+        .map(
+          (rows) => rows
+              .where(
+                (row) =>
+                    (row['status'] as String? ?? '').toLowerCase() == 'approved',
+              )
+              .map((row) => TeacherProfile.fromMap(row))
+              .toList(),
+        );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -16,22 +42,22 @@ class RankingsPage extends StatelessWidget {
         title: const Text(''),
       ),
       body: StreamBuilder<List<TeacherProfile>>(
-        stream: SupabaseBootstrap.isReady
-            ? SupabaseBootstrap.client
-                .from('teacher_profiles')
-                .stream(primaryKey: ['user_id'])
-                .map(
-                  (rows) => rows
-                      .where(
-                        (row) =>
-                            (row['status'] as String? ?? '').toLowerCase() ==
-                            'approved',
-                      )
-                      .map((row) => TeacherProfile.fromMap(row))
-                      .toList(),
-                )
-            : Stream.value(<TeacherProfile>[]),
+        key: ValueKey<int>(_streamKey),
+        stream: _rankingsStream(),
         builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return _buildErrorAndRetry(
+              context,
+              snapshot.error,
+              onRetry: () => setState(() => _streamKey++),
+            );
+          }
+          if (snapshot.connectionState == ConnectionState.waiting &&
+              !snapshot.hasData) {
+            return const Center(
+              child: CircularProgressIndicator(color: Color(0xFFD4AF37)),
+            );
+          }
           final list = snapshot.data ?? const <TeacherProfile>[];
           final rankings = List<TeacherProfile>.from(list)
             ..sort((a, b) {
@@ -109,6 +135,44 @@ class RankingsPage extends StatelessWidget {
             },
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildErrorAndRetry(
+    BuildContext context,
+    Object? error, {
+    required VoidCallback onRetry,
+  }) {
+    final errStr = error?.toString() ?? '';
+    final msg = errStr.contains('Operation not permitted') ||
+            errStr.contains('Connection failed')
+        ? '网络连接被限制，请检查网络或在本机终端运行应用后重试'
+        : '加载排行榜失败，请重试';
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.cloud_off, size: 48, color: Colors.grey[600]),
+            const SizedBox(height: 16),
+            Text(
+              msg,
+              style: TextStyle(color: Colors.grey[400], fontSize: 14),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            TextButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh),
+              label: const Text('重试'),
+              style: TextButton.styleFrom(
+                foregroundColor: const Color(0xFFD4AF37),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

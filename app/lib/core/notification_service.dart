@@ -94,16 +94,20 @@ class NotificationService {
       debugPrint('[通知] Android 通知权限请求结果: $status');
     }
 
-    await _localNotifications.initialize(
-      settings: const InitializationSettings(
-        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
-        iOS: DarwinInitializationSettings(),
-      ),
-      onDidReceiveNotificationResponse: (response) {
-        _handleNotificationPayload(response.payload);
-      },
-    );
-    debugPrint('[通知] 本地通知插件已初始化');
+    if (!Platform.isMacOS) {
+      await _localNotifications.initialize(
+        settings: const InitializationSettings(
+          android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+          iOS: DarwinInitializationSettings(),
+        ),
+        onDidReceiveNotificationResponse: (response) {
+          _handleNotificationPayload(response.payload);
+        },
+      );
+      debugPrint('[通知] 本地通知插件已初始化');
+    } else {
+      debugPrint('[通知] macOS 暂不初始化本地通知插件，跳过');
+    }
 
     if (!kIsWeb && Platform.isAndroid) {
       final android = _localNotifications.resolvePlatformSpecificImplementation<
@@ -113,13 +117,17 @@ class NotificationService {
       debugPrint('[通知] Android 通知渠道已创建（消息 + 来电）');
     }
 
-    final fcmPerm = await FirebaseMessaging.instance.requestPermission();
-    debugPrint('[通知] FCM requestPermission 结果: $fcmPerm');
-    await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
+    try {
+      final fcmPerm = await FirebaseMessaging.instance.requestPermission();
+      debugPrint('[通知] FCM requestPermission 结果: $fcmPerm');
+      await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+    } catch (e) {
+      debugPrint('[通知] FCM 权限/配置 失败（如 macOS 可能不支持）: $e');
+    }
 
     FirebaseMessaging.onMessage.listen(
       _showLocalNotification,
@@ -131,18 +139,24 @@ class NotificationService {
     FirebaseMessaging.onMessageOpenedApp.listen((message) {
       _handleNotificationData(message.data);
     });
-    final initial = await FirebaseMessaging.instance.getInitialMessage();
-    if (initial != null) {
-      _handleNotificationData(initial.data);
+    try {
+      final initial = await FirebaseMessaging.instance.getInitialMessage();
+      if (initial != null) {
+        _handleNotificationData(initial.data);
+      }
+    } catch (e) {
+      debugPrint('[通知] FCM getInitialMessage 失败: $e');
     }
-    // 冷启动或由「来电通知」fullScreenIntent 拉起：通过本地通知的 launch 信息弹接听界面
-    final launchDetails = await _localNotifications.getNotificationAppLaunchDetails();
-    if (launchDetails != null &&
-        launchDetails.didNotificationLaunchApp &&
-        launchDetails.notificationResponse != null) {
-      final payload = launchDetails.notificationResponse!.payload;
-      if (payload != null && payload.isNotEmpty) {
-        _handleNotificationPayload(payload);
+    // 冷启动或由「来电通知」fullScreenIntent 拉起：通过本地通知的 launch 信息弹接听界面（macOS 未初始化本地通知则跳过）
+    if (!Platform.isMacOS) {
+      final launchDetails = await _localNotifications.getNotificationAppLaunchDetails();
+      if (launchDetails != null &&
+          launchDetails.didNotificationLaunchApp &&
+          launchDetails.notificationResponse != null) {
+        final payload = launchDetails.notificationResponse!.payload;
+        if (payload != null && payload.isNotEmpty) {
+          _handleNotificationPayload(payload);
+        }
       }
     }
 
@@ -713,12 +727,14 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   );
   final plugin = FlutterLocalNotificationsPlugin();
   try {
-    await plugin.initialize(
-      settings: const InitializationSettings(
-        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
-        iOS: DarwinInitializationSettings(),
-      ),
-    );
+    if (!Platform.isMacOS) {
+      await plugin.initialize(
+        settings: const InitializationSettings(
+          android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+          iOS: DarwinInitializationSettings(),
+        ),
+      );
+    }
     final android = plugin.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
     await android?.createNotificationChannel(messagesChannel);

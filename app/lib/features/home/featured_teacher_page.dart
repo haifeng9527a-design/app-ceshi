@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/firebase_bootstrap.dart';
 import '../../core/models.dart';
 import '../../core/supabase_bootstrap.dart';
 import '../strategies/strategies_page.dart';
@@ -64,7 +65,9 @@ class _FeaturedTeacherPageState extends State<FeaturedTeacherPage> {
   }
 
   Future<void> _load() async {
-    final userId = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final userId = FirebaseBootstrap.isReady
+        ? (FirebaseAuth.instance.currentUser?.uid ?? '')
+        : '';
     if (!SupabaseBootstrap.isReady) {
       setState(() {
         _loading = false;
@@ -102,9 +105,13 @@ class _FeaturedTeacherPageState extends State<FeaturedTeacherPage> {
       }
     } catch (e) {
       if (mounted) {
+        final msg = e.toString().contains('Operation not permitted') ||
+                e.toString().contains('Connection failed')
+            ? '网络连接被限制，请检查网络或在本机终端运行应用后重试'
+            : (e.toString().length > 80 ? '加载失败，请重试' : e.toString());
         setState(() {
           _loading = false;
-          _error = e.toString();
+          _error = msg;
         });
       }
     }

@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 
+import 'firebase_bootstrap.dart';
 import 'supabase_bootstrap.dart';
 
 /// 最后上线时间：在用户退出 APP（后台、关闭应用、关闭聊天窗口）时更新，
@@ -8,7 +9,7 @@ class LastOnlineService {
   /// 将当前用户的「最后上线时间」设为当前时间。
   /// 在 App 进入后台、非活跃、关闭，或用户离开聊天页时调用。
   static Future<void> updateLastOnlineNow() async {
-    if (!SupabaseBootstrap.isReady) return;
+    if (!SupabaseBootstrap.isReady || !FirebaseBootstrap.isReady) return;
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null || uid.isEmpty) return;
     try {
