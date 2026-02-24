@@ -197,32 +197,32 @@ class _HomeTabState extends State<_HomeTab> {
   Future<void> _load() async {
     setState(() => _loading = true);
     final indexSymbols = _indexList.map((e) => e.$2).toList();
-    final indexQuotes = await _market.getQuotes(indexSymbols);
-    List<PolygonGainer> gainers = [];
-    List<PolygonGainer> losers = [];
-    try {
-      gainers = await _market.getTopGainers(limit: 5);
-    } catch (_) {
-      final cached = await _market.getCachedGainersOnly(maxAge: const Duration(hours: 48));
-      if (cached != null) gainers = cached.take(5).toList();
-    }
-    try {
-      losers = await _market.getTopLosers(limit: 5);
-    } catch (_) {
-      final cached = await _market.getCachedLosersOnly(maxAge: const Duration(hours: 48));
-      if (cached != null) losers = cached.take(5).toList();
-    }
+
+    // 并行请求：指数、Gainers、Losers 同时拉取，减少等待时间
+    final indexFuture = _market.getQuotes(indexSymbols);
+    final gainersFuture = _safeGetGainers(5);
+    final losersFuture = _safeGetLosers(5);
+
+    final results = await Future.wait([indexFuture, gainersFuture, losersFuture]);
+    final indexQuotes = results[0] as Map<String, MarketQuote>;
+    final gainers = results[1] as List<PolygonGainer>;
+    final losers = results[2] as List<PolygonGainer>;
+
     final list = await _watchlist.getWatchlist();
     final take6 = list.take(6).toList();
-    final watchQuotes = take6.isEmpty ? <String, MarketQuote>{} : await _market.getQuotes(take6);
-    List<PolygonGainer> trendingStocks = [];
-    try {
-      trendingStocks = await _market.getTopGainers(limit: 10);
-    } catch (_) {
-      final cached = await _market.getCachedGainersOnly(maxAge: const Duration(hours: 48));
-      if (cached != null) trendingStocks = cached.take(10).toList();
-    }
-    final cryptoQuotes = await _market.getQuotes(_cryptoSymbols);
+
+    // 自选报价、Trending、加密货币 并行
+    final watchQuotesFuture = take6.isEmpty
+        ? Future<Map<String, MarketQuote>>.value({})
+        : _market.getQuotes(take6);
+    final trendingFuture = _safeGetGainers(10);
+    final cryptoFuture = _market.getQuotes(_cryptoSymbols);
+
+    final results2 = await Future.wait([watchQuotesFuture, trendingFuture, cryptoFuture]);
+    final watchQuotes = results2[0] as Map<String, MarketQuote>;
+    final trendingStocks = results2[1] as List<PolygonGainer>;
+    final cryptoQuotes = results2[2] as Map<String, MarketQuote>;
+
     if (!mounted) return;
     setState(() {
       _indexQuotes = indexQuotes;
@@ -234,6 +234,24 @@ class _HomeTabState extends State<_HomeTab> {
       _trendingCryptoQuotes = cryptoQuotes;
       _loading = false;
     });
+  }
+
+  Future<List<PolygonGainer>> _safeGetGainers(int limit) async {
+    try {
+      return await _market.getTopGainers(limit: limit);
+    } catch (_) {
+      final cached = await _market.getCachedGainersOnly(maxAge: const Duration(hours: 48));
+      return cached != null ? cached.take(limit).toList() : [];
+    }
+  }
+
+  Future<List<PolygonGainer>> _safeGetLosers(int limit) async {
+    try {
+      return await _market.getTopLosers(limit: limit);
+    } catch (_) {
+      final cached = await _market.getCachedLosersOnly(maxAge: const Duration(hours: 48));
+      return cached != null ? cached.take(limit).toList() : [];
+    }
   }
 
   bool _isUsStock(String symbol) {
@@ -256,6 +274,10 @@ class _HomeTabState extends State<_HomeTab> {
     }
   }
 
+  bool get _isPcLayout {
+    return MediaQuery.sizeOf(context).width >= 1100;
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading && _indexQuotes.isEmpty && _gainers.isEmpty && _watchlistSymbols.isEmpty) {
@@ -264,29 +286,92 @@ class _HomeTabState extends State<_HomeTab> {
     return RefreshIndicator(
       onRefresh: _load,
       color: const Color(0xFFD4AF37),
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
-        children: [
-          _buildSearchBar(),
-          const SizedBox(height: 12),
-          _buildSectionLabel('Major Indexes'),
-          const SizedBox(height: 6),
-          _buildMajorIndexes(),
-          const SizedBox(height: 16),
-          _buildSectionLabel('Top Movers'),
-          const SizedBox(height: 6),
-          _buildTopMoversButtons(),
-          const SizedBox(height: 4),
-          _buildGainersLosersRows(),
-          const SizedBox(height: 16),
-          _buildWatchlistSection(),
-          const SizedBox(height: 16),
-          _buildSectionLabel('Trending'),
-          const SizedBox(height: 6),
-          _buildTrendingSegmented(),
-          _buildTrendingList(),
-        ],
-      ),
+      child: _isPcLayout ? _buildPcLayout() : _buildMobileLayout(),
+    );
+  }
+
+  Widget _buildMobileLayout() {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+      children: [
+        _buildSearchBar(),
+        const SizedBox(height: 12),
+        _buildSectionLabel('Major Indexes'),
+        const SizedBox(height: 6),
+        _buildMajorIndexes(),
+        const SizedBox(height: 16),
+        _buildSectionLabel('Top Movers'),
+        const SizedBox(height: 6),
+        _buildTopMoversButtons(),
+        const SizedBox(height: 4),
+        _buildGainersLosersRows(),
+        const SizedBox(height: 16),
+        _buildWatchlistSection(),
+        const SizedBox(height: 16),
+        _buildSectionLabel('Trending'),
+        const SizedBox(height: 6),
+        _buildTrendingSegmented(),
+        _buildTrendingList(),
+      ],
+    );
+  }
+
+  /// PC 端参考 Moomoo：顶部搜索 + 指数条，下方左侧主内容 + 右侧自选
+  Widget _buildPcLayout() {
+    return CustomScrollView(
+      slivers: [
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+          sliver: SliverList(
+            delegate: SliverChildListDelegate([
+              _buildSearchBar(),
+              const SizedBox(height: 20),
+              _buildSectionLabel('主要指数'),
+              const SizedBox(height: 8),
+              _buildMajorIndexes(),
+            ]),
+          ),
+        ),
+        SliverPadding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          sliver: SliverToBoxAdapter(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _buildSectionLabel('涨跌榜'),
+                      const SizedBox(height: 8),
+                      _buildTopMoversButtons(),
+                      const SizedBox(height: 8),
+                      _buildGainersLosersRows(),
+                      const SizedBox(height: 24),
+                      _buildSectionLabel('热门'),
+                      const SizedBox(height: 8),
+                      _buildTrendingSegmented(),
+                      _buildTrendingList(),
+                      const SizedBox(height: 24),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 20),
+                SizedBox(
+                  width: 280,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _buildWatchlistSection(),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -330,8 +415,9 @@ class _HomeTabState extends State<_HomeTab> {
   }
 
   Widget _buildMajorIndexes() {
+    const cardHeight = 80.0;
     return SizedBox(
-      height: 56,
+      height: cardHeight,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: _indexList.length,
@@ -341,6 +427,7 @@ class _HomeTabState extends State<_HomeTab> {
           final symbol = _indexList[i].$2;
           final q = _indexQuotes[symbol];
           final hasError = q?.hasError ?? true;
+          final isLoading = q == null && _loading;
           final isUp = (q?.changePercent ?? 0) >= 0;
           final color = MarketColors.forUp(isUp);
           return Material(
@@ -348,10 +435,11 @@ class _HomeTabState extends State<_HomeTab> {
             borderRadius: BorderRadius.circular(8),
             child: InkWell(
               onTap: () {
-                if (hasError) {
+                if (hasError && !isLoading) {
                   _load();
                   return;
                 }
+                if (hasError) return;
                 Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => GenericChartPage(symbol: symbol, name: label)),
                 );
@@ -359,6 +447,7 @@ class _HomeTabState extends State<_HomeTab> {
               borderRadius: BorderRadius.circular(8),
               child: Container(
                 width: 100,
+                height: cardHeight,
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(8),
@@ -366,25 +455,53 @@ class _HomeTabState extends State<_HomeTab> {
                 ),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       symbol,
-                      style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 11),
+                      style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 11, decoration: TextDecoration.none),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      hasError ? '—' : (q!.price > 0 ? _formatPrice(q.price) : '—'),
-                      style: TextStyle(
-                        color: hasError ? const Color(0xFF6B6B70) : (q!.price > 0 ? color : const Color(0xFF6B6B70)),
-                        fontWeight: FontWeight.w700,
-                        fontSize: 13,
+                    const SizedBox(height: 6),
+                    if (isLoading)
+                      const SizedBox(
+                        height: 18,
+                        width: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFD4AF37)),
+                      )
+                    else
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.baseline,
+                        textBaseline: TextBaseline.alphabetic,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              hasError ? '—' : (q != null && q!.price > 0 ? _formatPrice(q!.price) : '—'),
+                              style: TextStyle(
+                                color: hasError ? const Color(0xFF6B6B70) : (q != null && q!.price > 0 ? color : const Color(0xFF6B6B70)),
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13,
+                                decoration: TextDecoration.none,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            hasError ? '' : (q != null && q.price > 0 ? '${q!.changePercent >= 0 ? '+' : ''}${q.changePercent.toStringAsFixed(2)}%' : ''),
+                            style: TextStyle(
+                              color: (q != null && q.price > 0) ? color : const Color(0xFF6B6B70),
+                              fontSize: 10,
+                              decoration: TextDecoration.none,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
                       ),
-                    ),
-                    Text(
-                      hasError ? '' : (q != null && q.price > 0 ? '${q.changePercent >= 0 ? '+' : ''}${q.changePercent.toStringAsFixed(2)}%' : ''),
-                      style: TextStyle(color: (q != null && q.price > 0) ? color : const Color(0xFF6B6B70), fontSize: 11),
-                    ),
                   ],
                 ),
               ),

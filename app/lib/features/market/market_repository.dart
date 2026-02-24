@@ -15,8 +15,8 @@ export '../trading/polygon_realtime.dart' show PolygonRealtime, PolygonRealtimeM
 class SymbolResolver {
   SymbolResolver._();
 
-  /// Polygon 常见指数需加 "I:" 前缀（如 I:SPX, I:DJI）
-  static const _polygonIndices = {'SPX', 'NDX', 'DJI', 'IXIC', 'VIX', 'HSI', 'N225'};
+  /// Polygon 常见指数需加 "I:" 前缀（如 I:SPX, I:DJI, I:RUT）
+  static const _polygonIndices = {'SPX', 'NDX', 'DJI', 'IXIC', 'VIX', 'RUT', 'HSI', 'N225'};
 
   /// 是否已知指数（走 Polygon 时用 I: 前缀，或 Twelve Data 兜底）
   static bool isIndex(String symbol) {

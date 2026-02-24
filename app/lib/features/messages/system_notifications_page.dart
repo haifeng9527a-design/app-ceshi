@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/network_error_helper.dart';
+import '../../core/pc_dashboard_theme.dart';
 import 'chat_detail_page.dart';
 import 'chat_media_cache.dart';
 import 'friend_models.dart';
@@ -105,11 +106,16 @@ class _SystemNotificationsPageState extends State<SystemNotificationsPage> {
   Widget build(BuildContext context) {
     final userId = FirebaseAuth.instance.currentUser?.uid ?? '';
     return Scaffold(
+      backgroundColor: PcDashboardTheme.surface,
       appBar: AppBar(
-        title: const Text('系统消息'),
+        title: Text('系统消息', style: PcDashboardTheme.titleMedium),
+        backgroundColor: PcDashboardTheme.surfaceVariant,
+        foregroundColor: PcDashboardTheme.text,
+        elevation: 0,
+        scrolledUnderElevation: 0,
       ),
       body: userId.isEmpty
-          ? const Center(child: Text('请先登录'))
+          ? Center(child: Text('请先登录', style: PcDashboardTheme.bodyLarge))
           : StreamBuilder<List<FriendRequestItem>>(
               stream: _friendsRepository.watchAllFriendRequestRecords(userId: userId),
               builder: (context, snapshot) {
@@ -117,31 +123,25 @@ class _SystemNotificationsPageState extends State<SystemNotificationsPage> {
                 if (items.isEmpty) {
                   return Center(
                     child: Padding(
-                      padding: const EdgeInsets.all(24),
+                      padding: const EdgeInsets.all(PcDashboardTheme.contentPadding),
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(
                             Icons.notifications_none_outlined,
                             size: 64,
-                            color: Colors.grey.shade600,
+                            color: PcDashboardTheme.textMuted,
                           ),
-                          const SizedBox(height: 16),
+                          const SizedBox(height: 20),
                           Text(
                             '好友申请、通过/拒绝记录会显示在这里',
-                            style: TextStyle(
-                              color: Colors.grey.shade400,
-                              fontSize: 16,
-                            ),
+                            style: PcDashboardTheme.bodyLarge,
                             textAlign: TextAlign.center,
                           ),
                           const SizedBox(height: 8),
                           Text(
                             '暂无系统消息',
-                            style: TextStyle(
-                              color: Colors.grey.shade600,
-                              fontSize: 14,
-                            ),
+                            style: PcDashboardTheme.bodySmall,
                           ),
                         ],
                       ),
@@ -149,7 +149,7 @@ class _SystemNotificationsPageState extends State<SystemNotificationsPage> {
                   );
                 }
                 return ListView.separated(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(PcDashboardTheme.contentPadding),
                   itemCount: items.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 12),
                   itemBuilder: (context, index) {
@@ -174,110 +174,127 @@ class _SystemNotificationsPageState extends State<SystemNotificationsPage> {
                     final initial = item.otherDisplayName.isEmpty
                         ? '用'
                         : item.otherDisplayName[0];
-                    return Card(
-                      child: ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: const Color(0xFF1A1C21),
-                          child: avatarUrl.isNotEmpty
-                              ? ClipOval(
-                                  child: CachedNetworkImage(
-                                    imageUrl: avatarUrl,
-                                    cacheManager: ChatMediaCache.instance,
-                                    width: 40,
-                                    height: 40,
-                                    fit: BoxFit.cover,
-                                    placeholder: (_, __) => Center(
-                                      child: Text(
-                                        initial,
-                                        style: const TextStyle(
-                                            color: Color(0xFFD4AF37)),
+                    return Container(
+                      decoration: PcDashboardTheme.cardDecoration(),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      child: Row(
+                        children: [
+                          CircleAvatar(
+                            radius: 24,
+                            backgroundColor: PcDashboardTheme.surfaceElevated,
+                            child: avatarUrl.isNotEmpty
+                                ? ClipOval(
+                                    child: CachedNetworkImage(
+                                      imageUrl: avatarUrl,
+                                      cacheManager: ChatMediaCache.instance,
+                                      width: 48,
+                                      height: 48,
+                                      fit: BoxFit.cover,
+                                      placeholder: (_, __) => Center(
+                                        child: Text(
+                                          initial,
+                                          style: PcDashboardTheme.titleSmall.copyWith(
+                                            color: PcDashboardTheme.accent,
+                                          ),
+                                        ),
+                                      ),
+                                      errorWidget: (_, __, ___) => Center(
+                                        child: Text(
+                                          initial,
+                                          style: PcDashboardTheme.titleSmall.copyWith(
+                                            color: PcDashboardTheme.accent,
+                                          ),
+                                        ),
                                       ),
                                     ),
-                                    errorWidget: (_, __, ___) => Center(
-                                      child: Text(
-                                        initial,
-                                        style: const TextStyle(
-                                            color: Color(0xFFD4AF37)),
-                                      ),
+                                  )
+                                : Text(
+                                    initial,
+                                    style: PcDashboardTheme.titleSmall.copyWith(
+                                      color: PcDashboardTheme.accent,
                                     ),
                                   ),
-                                )
-                              : Text(
-                                  initial,
-                                  style: const TextStyle(
-                                      color: Color(0xFFD4AF37)),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  item.otherDisplayName,
+                                  style: PcDashboardTheme.titleSmall,
                                 ),
-                        ),
-                        title: Text(item.otherDisplayName),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              idLabel,
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: Color(0xFF6C6F77),
-                              ),
-                            ),
-                            if (item.isOutgoing) ...[
-                              const SizedBox(height: 2),
-                              Text(
-                                '你请求添加 Ta 为好友',
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  color: Color(0xFF6C6F77),
-                                ),
-                              ),
-                            ],
-                            const SizedBox(height: 2),
-                            Text(
-                              statusLabel,
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: item.isPending
-                                    ? const Color(0xFFD4AF37)
-                                    : const Color(0xFF6C6F77),
-                              ),
-                            ),
-                            if (item.createdAt != null) ...[
-                              const SizedBox(height: 2),
-                              Text(
-                                _formatTime(item.createdAt),
-                                style: const TextStyle(
-                                  fontSize: 11,
-                                  color: Color(0xFF6C6F77),
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                        trailing: showActions
-                            ? Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  TextButton(
-                                    onPressed: busy
-                                        ? null
-                                        : () => _rejectRequest(item),
-                                    child: const Text('拒绝'),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  FilledButton(
-                                    onPressed: busy
-                                        ? null
-                                        : () => _acceptRequest(item, userId),
-                                    child: const Text('通过'),
+                                const SizedBox(height: 2),
+                                Text(idLabel, style: PcDashboardTheme.bodySmall),
+                                if (item.isOutgoing) ...[
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    '你请求添加 Ta 为好友',
+                                    style: PcDashboardTheme.bodySmall,
                                   ),
                                 ],
-                              )
-                            : Text(
-                                statusLabel,
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  color: Color(0xFF6C6F77),
+                                const SizedBox(height: 2),
+                                Text(
+                                  statusLabel,
+                                  style: PcDashboardTheme.bodySmall.copyWith(
+                                    color: item.isPending
+                                        ? PcDashboardTheme.accent
+                                        : PcDashboardTheme.textMuted,
+                                  ),
                                 ),
-                              ),
+                                if (item.createdAt != null) ...[
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    _formatTime(item.createdAt),
+                                    style: PcDashboardTheme.label,
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          if (showActions)
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                TextButton(
+                                  onPressed: busy
+                                      ? null
+                                      : () => _rejectRequest(item),
+                                  child: Text(
+                                    '拒绝',
+                                    style: PcDashboardTheme.titleSmall.copyWith(
+                                      color: PcDashboardTheme.textSecondary,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                FilledButton(
+                                  onPressed: busy
+                                      ? null
+                                      : () => _acceptRequest(item, userId),
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: PcDashboardTheme.accent,
+                                    foregroundColor: PcDashboardTheme.surface,
+                                  ),
+                                  child: Text(
+                                    '通过',
+                                    style: PcDashboardTheme.titleSmall.copyWith(
+                                      color: PcDashboardTheme.surface,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            )
+                          else
+                            Text(
+                              statusLabel,
+                              style: PcDashboardTheme.bodySmall,
+                            ),
+                        ],
                       ),
                     );
                   },

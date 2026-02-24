@@ -66,6 +66,8 @@ class _MessagesPageState extends State<MessagesPage> {
   List<FriendRequestItem> _cachedIncomingRequests = [];
   Timer? _cleanupTimer;
   bool _localStateLoaded = false;
+  /// PC 双栏下在右侧内嵌展示的会话（不 push 全屏）
+  Conversation? _selectedConversation;
 
   /// 仅当 Firebase 已初始化时返回当前用户，避免 macOS 等平台 [core/no-app] 崩溃
   User? get _currentUser =>
@@ -75,6 +77,9 @@ class _MessagesPageState extends State<MessagesPage> {
   void initState() {
     super.initState();
     _friendSearchController.addListener(_handleFriendQuery);
+    _conversationSearchController.addListener(() {
+      if (mounted) setState(() => _conversationSearchQuery = _conversationSearchController.text.trim());
+    });
     _loadLocalState();
     _subscribeRemarks();
     _subscribeFriends();
@@ -90,6 +95,7 @@ class _MessagesPageState extends State<MessagesPage> {
   void dispose() {
     _friendSearchController.removeListener(_handleFriendQuery);
     _friendSearchController.dispose();
+    _conversationSearchController.dispose();
     _remarkSubscription?.cancel();
     _friendsSubscription?.cancel();
     _incomingRequestsSubscription?.cancel();
@@ -628,6 +634,12 @@ class _MessagesPageState extends State<MessagesPage> {
     });
   }
 
+  final _conversationSearchController = TextEditingController();
+  String _conversationSearchQuery = '';
+
+  bool get _isPcLayout =>
+      MediaQuery.sizeOf(context).width >= 1100;
+
   @override
   Widget build(BuildContext context) {
     final firebaseReady = FirebaseBootstrap.isReady;
@@ -635,135 +647,285 @@ class _MessagesPageState extends State<MessagesPage> {
     final user = _currentUser;
     final userId = user?.uid ?? '';
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('消息'),
+      backgroundColor: const Color(0xFF0D0D0F),
+      body: SafeArea(
+        child: firebaseReady && supabaseReady && _currentUser != null && _isPcLayout && _tabIndex == 0
+            ? _buildPcTwoPaneLayout(context, userId)
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _buildChatStyleHeader(context, firebaseReady, supabaseReady),
+                  if (firebaseReady && supabaseReady && _currentUser != null) ...[
+                    _buildSearchBar(context),
+                    _buildWeChatTabs(context),
+                    Expanded(
+                      child: _buildBodyContent(context, userId, firebaseReady, supabaseReady),
+                    ),
+                  ] else
+                    Expanded(
+                      child: _buildLoginOrConfigPrompt(context, firebaseReady, supabaseReady),
+                    ),
+                ],
+              ),
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(12),
-        children: [
-          if (!firebaseReady)
-            Card(
-              child: ListTile(
-                leading: const Icon(Icons.warning_amber_outlined),
-                title: const Text('未配置 Firebase'),
-                subtitle: const Text('请先添加配置文件后再使用消息功能'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () {},
-              ),
-            )
-          else if (!supabaseReady)
-            Card(
-              child: ListTile(
-                leading: const Icon(Icons.cloud_off_outlined),
-                title: const Text('未配置 Supabase'),
-                subtitle: const Text('请配置 SUPABASE_URL / SUPABASE_ANON_KEY'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () {},
-              ),
-            )
-          else if (_currentUser == null)
-            Card(
-              child: ListTile(
-                leading: const Icon(Icons.lock_outline),
-                title: const Text('登录后使用聊天功能'),
-                subtitle: const Text('支持邮箱、Google、Apple 登录'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const LoginPage()),
-                  );
-                },
-              ),
-            ),
-          if (!firebaseReady ||
-              !supabaseReady ||
-              _currentUser == null)
-            const SizedBox(height: 12),
-          _SectionTitle(title: '快捷入口'),
-          const SizedBox(height: 10),
-          Row(
+    );
+  }
+
+  /// PC 端双栏：左侧会话列表，右侧聊天窗口（空状态或占位）
+  Widget _buildPcTwoPaneLayout(BuildContext context, String userId) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          width: 380,
+          decoration: BoxDecoration(
+            color: const Color(0xFF0D0D0F),
+            border: Border(right: BorderSide(color: const Color(0xFF2A2D34), width: 1)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
             children: [
+              _buildChatStyleHeader(context, true, true),
+              _buildSearchBar(context),
+              _buildWeChatTabs(context),
               Expanded(
-                child: _QuickAction(
-                  title: '添加好友',
-                  icon: Icons.person_add_alt_1_outlined,
-                  onTap: () => _openAddFriend(context),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _QuickAction(
-                  title: '创建群聊',
-                  icon: Icons.groups_outlined,
-                  onTap: () => _openCreateGroup(context),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _QuickAction(
-                  title: '系统消息',
-                  icon: Icons.notifications_outlined,
-                  badgeCount: _pendingFriendRequestCount,
-                  onTap: () => _openSystemNotifications(context),
-                ),
+                child: _buildBodyContent(context, userId, true, true),
               ),
             ],
           ),
-          const SizedBox(height: 14),
-          _SegmentTabs(
-            leftLabel: '最近会话',
-            rightLabel: '好友列表',
-            index: _tabIndex,
-            onChanged: (value) => setState(() => _tabIndex = value),
+        ),
+        Expanded(
+          child: Container(
+            color: const Color(0xFF111318),
+            child: _selectedConversation == null
+                ? const _ChatWindowPlaceholder()
+                : ChatDetailPage(
+                    conversation: _selectedConversation!,
+                    initialMessages: const <ChatMessage>[],
+                    onCloseForEmbed: () {
+                      if (mounted) setState(() => _selectedConversation = null);
+                    },
+                  ),
           ),
-          const SizedBox(height: 12),
-          if (_tabIndex == 0) ...[
-            StreamBuilder<List<Conversation>>(
-              stream: _repository.watchConversations(userId: userId),
-              initialData: _cachedConversations,
-              builder: (context, snapshot) {
-                final hasValidStream = snapshot.connectionState == ConnectionState.active && !snapshot.hasError;
-                final items = snapshot.data;
-                if (hasValidStream && items != null) {
-                  _cachedConversations = items;
-                  if (userId.isNotEmpty) {
-                    _localStore.saveCachedConversations(userId, items);
-                  }
-                  _scheduleConversationCleanup(items);
-                }
-                if (!_localStateLoaded) {
-                  return const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 24),
-                    child: Center(child: SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))),
-                  );
-                }
-                final sourceItems = hasValidStream && items != null ? items : _cachedConversations;
-                final friendIds = _cachedFriends.map((f) => f.userId).toSet();
-                final onlyFriends = _filterConversationsByFriends(sourceItems, friendIds);
-                final visible = _applyHiddenConversations(onlyFriends);
-                final deduped = _dedupeDirectConversations(visible);
-                final sorted = _sortConversations(deduped);
-                if (sorted.isEmpty) {
-                  return const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 20),
-                    child: Center(
-                      child: Text(
-                        '暂无会话',
-                        style: TextStyle(color: Color(0xFF6C6F77)),
-                      ),
-                    ),
-                  );
-                }
-                return Column(
-                  children: sorted
-                      .map((item) => _buildConversationItem(context, item))
-                      .toList(),
-                );
-              },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildChatStyleHeader(
+    BuildContext context,
+    bool firebaseReady,
+    bool supabaseReady,
+  ) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0D0D0F),
+        border: Border(bottom: BorderSide(color: const Color(0xFF2A2D34), width: 0.6)),
+      ),
+      child: Row(
+        children: [
+          Text(
+            '消息',
+            style: const TextStyle(
+              color: Color(0xFFE8D5A3),
+              fontWeight: FontWeight.w600,
+              fontSize: 18,
             ),
-          ] else ...[
-            _buildFriendSearchBar(),
-            StreamBuilder<List<FriendRequestItem>>(
+          ),
+          const Spacer(),
+          IconButton(
+            icon: const Icon(Icons.person_add_alt_1_outlined, size: 22),
+            color: const Color(0xFF9CA3AF),
+            onPressed: () => _openAddFriend(context),
+            tooltip: '添加好友',
+          ),
+          IconButton(
+            icon: const Icon(Icons.group_add_outlined, size: 22),
+            color: const Color(0xFF9CA3AF),
+            onPressed: () => _openCreateGroup(context),
+            tooltip: '创建群聊',
+          ),
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.notifications_outlined, size: 22),
+                color: const Color(0xFF9CA3AF),
+                onPressed: () => _openSystemNotifications(context),
+                tooltip: '系统消息',
+              ),
+              if (_pendingFriendRequestCount > 0)
+                Positioned(
+                  right: 8,
+                  top: 8,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                    constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF07C160),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      _pendingFriendRequestCount > 99 ? '99+' : '$_pendingFriendRequestCount',
+                      style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSearchBar(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+      child: TextField(
+        controller: _tabIndex == 0 ? _conversationSearchController : _friendSearchController,
+        onChanged: (_) {
+          setState(() {
+            if (_tabIndex == 0) _conversationSearchQuery = _conversationSearchController.text.trim();
+          });
+        },
+        decoration: InputDecoration(
+          hintText: _tabIndex == 0 ? '搜索会话' : '搜索好友',
+          hintStyle: const TextStyle(color: Color(0xFF6C6F77), fontSize: 14),
+          prefixIcon: const Icon(Icons.search, size: 20, color: Color(0xFF6C6F77)),
+          filled: true,
+          fillColor: const Color(0xFF1A1C21),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(20),
+            borderSide: BorderSide.none,
+          ),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          isDense: true,
+        ),
+        style: const TextStyle(color: Color(0xFFE8D5A3), fontSize: 14),
+      ),
+    );
+  }
+
+  Widget _buildWeChatTabs(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: Row(
+        children: [
+          _WeChatTab(
+            label: '最近会话',
+            selected: _tabIndex == 0,
+            onTap: () => setState(() => _tabIndex = 0),
+          ),
+          const SizedBox(width: 24),
+          _WeChatTab(
+            label: '好友列表',
+            selected: _tabIndex == 1,
+            onTap: () => setState(() => _tabIndex = 1),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLoginOrConfigPrompt(
+    BuildContext context,
+    bool firebaseReady,
+    bool supabaseReady,
+  ) {
+    return ListView(
+      padding: const EdgeInsets.all(12),
+      children: [
+        if (!firebaseReady)
+          _ConfigCard(
+            icon: Icons.warning_amber_outlined,
+            title: '未配置 Firebase',
+            subtitle: '请先添加配置文件后再使用消息功能',
+            onTap: () {},
+          )
+        else if (!supabaseReady)
+          _ConfigCard(
+            icon: Icons.cloud_off_outlined,
+            title: '未配置 Supabase',
+            subtitle: '请配置 SUPABASE_URL / SUPABASE_ANON_KEY',
+            onTap: () {},
+          )
+        else if (_currentUser == null)
+          _ConfigCard(
+            icon: Icons.lock_outline,
+            title: '登录后使用聊天功能',
+            subtitle: '支持邮箱、Google、Apple 登录',
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const LoginPage()),
+              );
+            },
+          ),
+      ],
+    );
+  }
+
+  Widget _buildBodyContent(
+    BuildContext context,
+    String userId,
+    bool firebaseReady,
+    bool supabaseReady,
+  ) {
+    if (_tabIndex == 0) {
+      return StreamBuilder<List<Conversation>>(
+        stream: _repository.watchConversations(userId: userId),
+        initialData: _cachedConversations,
+        builder: (context, snapshot) {
+          final hasValidStream = snapshot.connectionState == ConnectionState.active && !snapshot.hasError;
+          final items = snapshot.data;
+          if (hasValidStream && items != null) {
+            _cachedConversations = items;
+            if (userId.isNotEmpty) {
+              _localStore.saveCachedConversations(userId, items);
+            }
+            _scheduleConversationCleanup(items);
+          }
+          if (!_localStateLoaded) {
+            return const Center(
+              child: SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF07C160))),
+            );
+          }
+          final sourceItems = hasValidStream && items != null ? items : _cachedConversations;
+          final friendIds = _cachedFriends.map((f) => f.userId).toSet();
+          final onlyFriends = _filterConversationsByFriends(sourceItems, friendIds);
+          final visible = _applyHiddenConversations(onlyFriends);
+          final deduped = _dedupeDirectConversations(visible);
+          final sorted = _sortConversations(deduped);
+          final filtered = _conversationSearchQuery.isEmpty
+              ? sorted
+              : sorted.where((c) {
+                  final title = _resolveConversationTitle(c).toLowerCase();
+                  final msg = c.lastMessage.toLowerCase();
+                  final q = _conversationSearchQuery.toLowerCase();
+                  return title.contains(q) || msg.contains(q);
+                }).toList();
+          if (filtered.isEmpty) {
+            return Center(
+              child: Text(
+                _conversationSearchQuery.isEmpty ? '暂无会话' : '未找到匹配的会话',
+                style: const TextStyle(color: Color(0xFF6C6F77), fontSize: 14),
+              ),
+            );
+          }
+          return ListView.separated(
+            padding: const EdgeInsets.only(top: 4, bottom: 16),
+            itemCount: filtered.length,
+            separatorBuilder: (_, __) => Divider(height: 1, indent: 72, color: const Color(0xFF2A2D34).withValues(alpha: 0.6)),
+            itemBuilder: (_, i) => _buildConversationItem(context, filtered[i]),
+          );
+        },
+      );
+    }
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+      children: [
+        StreamBuilder<List<FriendRequestItem>>(
               stream: _friendsRepository.watchIncomingRequests(userId: userId),
               initialData: _cachedIncomingRequests,
               builder: (context, snapshot) {
@@ -781,8 +943,17 @@ class _MessagesPageState extends State<MessagesPage> {
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const _SectionTitle(title: '好友申请'),
-                    const SizedBox(height: 10),
+                    Padding(
+                      padding: const EdgeInsets.only(left: 4, bottom: 8),
+                      child: Text(
+                        '好友申请',
+                        style: const TextStyle(
+                          color: Color(0xFF6C6F77),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
                     ...requests.map(
                       (item) => Padding(
                         padding: const EdgeInsets.only(bottom: 0),
@@ -862,9 +1033,7 @@ class _MessagesPageState extends State<MessagesPage> {
             const SizedBox(height: 8),
             _buildBlacklistToggle(),
           ],
-        ],
-      ),
-    );
+        );
   }
 
   void _guardAuth(BuildContext context) {
@@ -914,6 +1083,10 @@ class _MessagesPageState extends State<MessagesPage> {
       Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => const LoginPage()),
       );
+      return;
+    }
+    if (_isPcLayout && _tabIndex == 0) {
+      setState(() => _selectedConversation = conversation);
       return;
     }
     Navigator.of(context).push(
@@ -1209,6 +1382,128 @@ class _MessagesPageState extends State<MessagesPage> {
   }
 }
 
+/// PC 端右侧聊天区空状态：深色背景 + 图标与文案
+class _ChatWindowPlaceholder extends StatelessWidget {
+  const _ChatWindowPlaceholder();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 80,
+            height: 80,
+            decoration: BoxDecoration(
+              color: const Color(0xFF1A1C21),
+              borderRadius: BorderRadius.circular(40),
+            ),
+            alignment: Alignment.center,
+            child: Icon(
+              Icons.chat_bubble_outline_rounded,
+              size: 40,
+              color: const Color(0xFF6C6F77),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Text(
+            '选择会话开始聊天',
+            style: TextStyle(
+              color: const Color(0xFF9CA3AF).withValues(alpha: 0.9),
+              fontSize: 15,
+              fontWeight: FontWeight.w500,
+              decoration: TextDecoration.none,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '在左侧点击任一会话即可打开',
+            style: TextStyle(
+              color: const Color(0xFF6C6F77),
+              fontSize: 13,
+              decoration: TextDecoration.none,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _WeChatTab extends StatelessWidget {
+  const _WeChatTab({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(4),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                color: selected ? const Color(0xFF07C160) : const Color(0xFF6C6F77),
+                fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                fontSize: 15,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Container(
+              height: 2,
+              width: 24,
+              decoration: BoxDecoration(
+                color: selected ? const Color(0xFF07C160) : Colors.transparent,
+                borderRadius: BorderRadius.circular(1),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ConfigCard extends StatelessWidget {
+  const _ConfigCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      color: const Color(0xFF1A1C21),
+      child: ListTile(
+        leading: Icon(icon, color: const Color(0xFFD4AF37)),
+        title: Text(title, style: const TextStyle(color: Color(0xFFE8D5A3))),
+        subtitle: Text(subtitle, style: const TextStyle(color: Color(0xFF6C6F77), fontSize: 12)),
+        trailing: const Icon(Icons.chevron_right, color: Color(0xFF6C6F77)),
+        onTap: onTap,
+      ),
+    );
+  }
+}
+
 class _SectionTitle extends StatelessWidget {
   const _SectionTitle({required this.title});
 
@@ -1494,78 +1789,104 @@ class _FriendCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final isOnline = status == '在线';
     final showAvatar = avatarUrl?.trim().isNotEmpty == true;
-    return Card(
-      child: ListTile(
-        dense: true,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-        leading: Stack(
-          children: [
-            showAvatar
-                ? ClipOval(
-                    child: CachedNetworkImage(
-                      imageUrl: avatarUrl!.trim(),
-                      cacheManager: ChatMediaCache.instance,
-                      width: 40,
-                      height: 40,
-                      fit: BoxFit.cover,
-                      placeholder: (_, __) => _messagesAvatarPlaceholder(avatarText),
-                      errorWidget: (_, __, ___) => _messagesAvatarPlaceholder(avatarText),
-                    ),
-                  )
-                : CircleAvatar(
-                    backgroundColor: const Color(0xFF1A1C21),
-                    child: Text(
-                      avatarText,
-                      style: const TextStyle(color: Color(0xFFD4AF37)),
-                    ),
-                  ),
-            Positioned(
-              right: 0,
-              bottom: 0,
-              child: Container(
-                width: 10,
-                height: 10,
-                decoration: BoxDecoration(
-                  color: isOnline ? const Color(0xFF1EC87A) : const Color(0xFF6C6F77),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: const Color(0xFF0B0C0E), width: 1.5),
-                ),
-              ),
-            ),
-          ],
-        ),
-        title: Text(name),
-        subtitle: Row(
-          children: [
-            Expanded(
-              child: Text(
-                subtitle,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 12, color: Color(0xFF6C6F77)),
-              ),
-            ),
-            if (roleLabel != null && roleLabel!.isNotEmpty) RoleBadge(roleLabel: roleLabel!),
-            if (levelLabel != null && levelLabel!.isNotEmpty) _levelTag(levelLabel!),
-            const SizedBox(width: 6),
-            Text(
-              status,
-              style: TextStyle(
-                color: isOnline ? const Color(0xFF1EC87A) : const Color(0xFF6C6F77),
-                fontSize: 12,
-              ),
-            ),
-          ],
-        ),
-        trailing: IconButton(
-          tooltip: '更多',
-          onPressed: onMore,
-          icon: const Icon(Icons.more_vert, size: 18),
-          padding: EdgeInsets.zero,
-          constraints: const BoxConstraints.tightFor(width: 28, height: 28),
-        ),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
         onTap: onTap,
         onLongPress: onLongPress,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            children: [
+              Stack(
+                children: [
+                  showAvatar
+                      ? ClipOval(
+                          child: CachedNetworkImage(
+                            imageUrl: avatarUrl!.trim(),
+                            cacheManager: ChatMediaCache.instance,
+                            width: 48,
+                            height: 48,
+                            fit: BoxFit.cover,
+                            placeholder: (_, __) => _messagesAvatarPlaceholder(avatarText),
+                            errorWidget: (_, __, ___) => _messagesAvatarPlaceholder(avatarText),
+                          ),
+                        )
+                      : CircleAvatar(
+                          radius: 24,
+                          backgroundColor: const Color(0xFF2A2D34),
+                          child: Text(
+                            avatarText,
+                            style: const TextStyle(color: Color(0xFF07C160)),
+                          ),
+                        ),
+                  Positioned(
+                    right: 0,
+                    bottom: 0,
+                    child: Container(
+                      width: 10,
+                      height: 10,
+                      decoration: BoxDecoration(
+                        color: isOnline ? const Color(0xFF07C160) : const Color(0xFF6C6F77),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: const Color(0xFF0D0D0F), width: 1.5),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      name,
+                      style: const TextStyle(
+                        color: Color(0xFFE8D5A3),
+                        fontWeight: FontWeight.w600,
+                        fontSize: 16,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            subtitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 12, color: Color(0xFF6C6F77)),
+                          ),
+                        ),
+                        if (roleLabel != null && roleLabel!.isNotEmpty) RoleBadge(roleLabel: roleLabel!),
+                        if (levelLabel != null && levelLabel!.isNotEmpty) _levelTag(levelLabel!),
+                        const SizedBox(width: 6),
+                        Text(
+                          status,
+                          style: TextStyle(
+                            color: isOnline ? const Color(0xFF07C160) : const Color(0xFF6C6F77),
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: '更多',
+                onPressed: onMore,
+                icon: const Icon(Icons.more_vert, size: 20, color: Color(0xFF6C6F77)),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1670,20 +1991,8 @@ class _ConversationCard extends StatelessWidget {
   final String? roleLabel;
   final String currentUserId;
 
-  static Widget _levelTag(String text) {
-    return Container(
-      margin: const EdgeInsets.only(left: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-      decoration: BoxDecoration(
-        color: const Color(0x1AD4AF37),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Text(
-        text,
-        style: const TextStyle(color: Color(0xFFD4AF37), fontSize: 10),
-      ),
-    );
-  }
+  static const _avatarSize = 52.0;
+  static const _green = Color(0xFF07C160);
 
   @override
   Widget build(BuildContext context) {
@@ -1700,94 +2009,132 @@ class _ConversationCard extends StatelessWidget {
     } else {
       subtitleText = conversation.lastMessage;
     }
-    return Card(
-      child: ListTile(
-        leading: showAvatar
-            ? ClipOval(
-                child: CachedNetworkImage(
-                  imageUrl: avatarUrl!.trim(),
-                  cacheManager: ChatMediaCache.instance,
-                  width: 40,
-                  height: 40,
-                  fit: BoxFit.cover,
-                  placeholder: (_, __) => _messagesAvatarPlaceholder(avatarText),
-                  errorWidget: (_, __, ___) => _messagesAvatarPlaceholder(avatarText),
-                ),
-              )
-            : CircleAvatar(
-                backgroundColor: const Color(0xFF1A1C21),
-                child: Text(
-                  avatarText,
-                  style: const TextStyle(color: Color(0xFFD4AF37)),
-                ),
-              ),
-        title: Row(
-          children: [
-            Expanded(
-              child: Text(
-                displayTitle,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            if (roleLabel != null && roleLabel!.isNotEmpty) RoleBadge(roleLabel: roleLabel!, compact: true),
-            if (levelLabel != null && levelLabel!.isNotEmpty) _levelTag(levelLabel!),
-          ],
-        ),
-        subtitle: Text(
-          subtitleText,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            color: hasDraft ? Colors.orangeAccent : null,
-          ),
-        ),
-        trailing: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (pinned) ...[
-                  const Icon(Icons.push_pin, size: 14, color: Color(0xFFD4AF37)),
-                  const SizedBox(width: 4),
-                ],
-                if (conversation.isGroup) ...[
-                  const Icon(Icons.group, size: 20, color: Color(0xFFD4AF37)),
-                  const SizedBox(width: 6),
-                ],
-                Text(
-                  conversation.lastTimeLabel,
-                  style: const TextStyle(fontSize: 12, color: Color(0xFF6C6F77)),
-                ),
-              ],
-            ),
-            if (conversation.unreadCount > 0) ...[
-              const SizedBox(height: 6),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFD4AF37),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Text(
-                  conversation.unreadCount.toString(),
-                  style: const TextStyle(color: Colors.black, fontSize: 11),
-                ),
-              ),
-            ],
-          ],
-        ),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
         onTap: onTap,
         onLongPress: onLongPress,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Stack(
+                children: [
+                  showAvatar
+                      ? ClipOval(
+                          child: CachedNetworkImage(
+                            imageUrl: avatarUrl!.trim(),
+                            cacheManager: ChatMediaCache.instance,
+                            width: _avatarSize,
+                            height: _avatarSize,
+                            fit: BoxFit.cover,
+                            placeholder: (_, __) => _messagesAvatarPlaceholder(avatarText),
+                            errorWidget: (_, __, ___) => _messagesAvatarPlaceholder(avatarText),
+                          ),
+                        )
+                      : CircleAvatar(
+                          radius: _avatarSize / 2,
+                          backgroundColor: const Color(0xFF2A2D34),
+                          child: Text(
+                            avatarText,
+                            style: const TextStyle(color: Color(0xFF07C160), fontSize: 20),
+                          ),
+                        ),
+                  if (pinned)
+                    Positioned(
+                      right: 0,
+                      bottom: 0,
+                      child: Container(
+                        padding: const EdgeInsets.all(2),
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF0D0D0F),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.push_pin, size: 12, color: Color(0xFF07C160)),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            displayTitle,
+                            style: const TextStyle(
+                              color: Color(0xFFE8D5A3),
+                              fontWeight: FontWeight.w600,
+                              fontSize: 16,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (roleLabel != null && roleLabel!.isNotEmpty)
+                          RoleBadge(roleLabel: roleLabel!, compact: true),
+                        if (levelLabel != null && levelLabel!.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 4),
+                            child: Text(
+                              levelLabel!,
+                              style: const TextStyle(fontSize: 10, color: Color(0xFF6C6F77)),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitleText,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: hasDraft ? Colors.orange.shade300 : const Color(0xFF6C6F77),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    conversation.lastTimeLabel,
+                    style: const TextStyle(fontSize: 12, color: Color(0xFF6C6F77)),
+                  ),
+                  if (conversation.unreadCount > 0) ...[
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: _green,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        conversation.unreadCount > 99 ? '99+' : '${conversation.unreadCount}',
+                        style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w500),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
 
   String _initial(String text) {
-    if (text.isEmpty) {
-      return '';
-    }
+    if (text.isEmpty) return '';
     return text[0];
   }
 }

@@ -4,6 +4,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../core/network_error_helper.dart';
+import '../../core/pc_dashboard_theme.dart';
 import '../../core/supabase_bootstrap.dart';
 import '../../core/user_restrictions.dart';
 import 'friend_models.dart';
@@ -128,11 +129,16 @@ class _AddFriendPageState extends State<AddFriendPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: PcDashboardTheme.surface,
       appBar: AppBar(
-        title: const Text('添加好友'),
+        title: Text('添加好友', style: PcDashboardTheme.titleMedium),
+        backgroundColor: PcDashboardTheme.surfaceVariant,
+        foregroundColor: PcDashboardTheme.text,
+        elevation: 0,
+        scrolledUnderElevation: 0,
       ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(PcDashboardTheme.contentPadding),
         children: [
           _SegmentTabs(
             leftLabel: '邮箱',
@@ -141,67 +147,143 @@ class _AddFriendPageState extends State<AddFriendPage> {
             index: _tabIndex,
             onChanged: (value) => setState(() => _tabIndex = value),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
           if (_tabIndex == 0) ...[
             TextField(
               controller: _emailController,
               keyboardType: TextInputType.emailAddress,
-              decoration: const InputDecoration(
-                labelText: '对方邮箱',
+              style: PcDashboardTheme.bodyLarge,
+              decoration: PcDashboardTheme.inputDecoration(
                 hintText: '请输入对方注册邮箱',
-              ),
+              ).copyWith(labelText: '对方邮箱', labelStyle: PcDashboardTheme.bodyMedium),
             ),
-            const SizedBox(height: 12),
-            FilledButton(
-              onPressed: _loading ? null : _searchEmail,
-              child: const Text('搜索'),
+            const SizedBox(height: 16),
+            _SearchButton(
+              loading: _loading,
+              onPressed: _searchEmail,
+              label: '搜索',
             ),
           ] else if (_tabIndex == 1) ...[
             TextField(
               controller: _idController,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: '账号 ID（6-9位数字）',
+              style: PcDashboardTheme.bodyLarge,
+              decoration: PcDashboardTheme.inputDecoration(
                 hintText: '请输入对方账号 ID',
-              ),
-            ),
-            const SizedBox(height: 12),
-            FilledButton(
-              onPressed: _loading ? null : _searchId,
-              child: const Text('搜索'),
-            ),
-          ] else ...[
-            FilledButton.icon(
-              onPressed: _openScanner,
-              icon: const Icon(Icons.qr_code_scanner),
-              label: const Text('扫码添加'),
+              ).copyWith(labelText: '账号 ID（6-9位数字）', labelStyle: PcDashboardTheme.bodyMedium),
             ),
             const SizedBox(height: 16),
+            _SearchButton(
+              loading: _loading,
+              onPressed: _searchId,
+              label: '搜索',
+            ),
+          ] else ...[
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _openScanner,
+                icon: const Icon(Icons.qr_code_scanner, size: 20),
+                label: const Text('扫码添加'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: PcDashboardTheme.accent,
+                  side: const BorderSide(color: PcDashboardTheme.accent),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(PcDashboardTheme.radiusMd),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
             const _MyQrCard(),
           ],
           if (_result != null) ...[
-            const SizedBox(height: 16),
-            Card(
-              child: ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: const Color(0xFF1A1C21),
-                  child: Text(
-                    _result!.displayName.isEmpty
-                        ? '用'
-                        : _result!.displayName[0],
-                    style: const TextStyle(color: Color(0xFFD4AF37)),
+            const SizedBox(height: 20),
+            Container(
+              decoration: PcDashboardTheme.cardDecoration(),
+              padding: PcDashboardTheme.cardPadding,
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 24,
+                    backgroundColor: PcDashboardTheme.surfaceElevated,
+                    child: Text(
+                      _result!.displayName.isEmpty
+                          ? '用'
+                          : _result!.displayName[0],
+                      style: PcDashboardTheme.titleMedium.copyWith(
+                        color: PcDashboardTheme.accent,
+                      ),
+                    ),
                   ),
-                ),
-                title: Text(_result!.displayName),
-                subtitle: Text(_result!.email),
-                trailing: FilledButton(
-                  onPressed: _loading ? null : _sendRequest,
-                  child: const Text('添加'),
-                ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _result!.displayName,
+                          style: PcDashboardTheme.titleSmall,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          _result!.email,
+                          style: PcDashboardTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                  FilledButton(
+                    onPressed: _loading ? null : _sendRequest,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: PcDashboardTheme.accent,
+                      foregroundColor: PcDashboardTheme.surface,
+                    ),
+                    child: const Text('添加'),
+                  ),
+                ],
               ),
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+class _SearchButton extends StatelessWidget {
+  const _SearchButton({
+    required this.loading,
+    required this.onPressed,
+    required this.label,
+  });
+
+  final bool loading;
+  final VoidCallback? onPressed;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: FilledButton(
+        onPressed: loading ? null : onPressed,
+        style: FilledButton.styleFrom(
+          backgroundColor: PcDashboardTheme.accent,
+          foregroundColor: PcDashboardTheme.surface,
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(PcDashboardTheme.radiusMd),
+          ),
+        ),
+        child: loading
+            ? const SizedBox(
+                height: 20,
+                width: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : Text(label, style: PcDashboardTheme.titleSmall.copyWith(color: PcDashboardTheme.surface)),
       ),
     );
   }
@@ -227,9 +309,9 @@ class _SegmentTabs extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: const Color(0xFF111215),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFF2A2D34)),
+        color: PcDashboardTheme.surfaceElevated,
+        borderRadius: BorderRadius.circular(PcDashboardTheme.radiusMd),
+        border: Border.all(color: PcDashboardTheme.border),
       ),
       child: Row(
         children: [
@@ -276,21 +358,22 @@ class _SegmentTab extends StatelessWidget {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 180),
       decoration: BoxDecoration(
-        color: selected ? const Color(0xFFD4AF37) : Colors.transparent,
-        borderRadius: BorderRadius.circular(12),
+        color: selected ? PcDashboardTheme.accent : Colors.transparent,
+        borderRadius: BorderRadius.circular(PcDashboardTheme.radiusSm),
       ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          child: Center(
-            child: Text(
-              label,
-              style: TextStyle(
-                color: selected ? Colors.black : const Color(0xFFD4AF37),
-                fontWeight: FontWeight.w600,
-                fontSize: 12,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(PcDashboardTheme.radiusSm),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Center(
+              child: Text(
+                label,
+                style: PcDashboardTheme.titleSmall.copyWith(
+                  color: selected ? PcDashboardTheme.surface : PcDashboardTheme.accent,
+                ),
               ),
             ),
           ),
@@ -335,45 +418,41 @@ class _MyQrCard extends StatelessWidget {
       future: _loadShortId(user.uid),
       builder: (context, snapshot) {
         final shortId = snapshot.data?.trim();
-        return Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                const Text(
-                  '我的二维码',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 12),
-                if (shortId != null && shortId.isNotEmpty)
-                  QrImageView(
-                    data: shortId,
-                    size: 180,
-                    backgroundColor: Colors.white,
-                  )
-                else
-                  Container(
-                    height: 180,
-                    width: 180,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Text(
-                      '生成中...',
-                      style: TextStyle(color: Color(0xFF6C6F77)),
-                    ),
+        return Container(
+          decoration: PcDashboardTheme.cardDecoration(),
+          padding: PcDashboardTheme.cardPadding,
+          child: Column(
+            children: [
+              Text('我的二维码', style: PcDashboardTheme.titleSmall),
+              const SizedBox(height: 16),
+              if (shortId != null && shortId.isNotEmpty)
+                QrImageView(
+                  data: shortId,
+                  size: 180,
+                  backgroundColor: Colors.white,
+                )
+              else
+                Container(
+                  height: 180,
+                  width: 180,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: PcDashboardTheme.surfaceVariant,
+                    borderRadius: BorderRadius.circular(PcDashboardTheme.radiusSm),
                   ),
-                const SizedBox(height: 8),
-                Text(
-                  shortId == null || shortId.isEmpty
-                      ? '账号ID：生成中...'
-                      : '账号ID：$shortId',
-                  style: const TextStyle(fontSize: 12, color: Color(0xFF6C6F77)),
+                  child: Text(
+                    '生成中...',
+                    style: PcDashboardTheme.bodySmall,
+                  ),
                 ),
-              ],
-            ),
+              const SizedBox(height: 12),
+              Text(
+                shortId == null || shortId.isEmpty
+                    ? '账号ID：生成中...'
+                    : '账号ID：$shortId',
+                style: PcDashboardTheme.bodySmall,
+              ),
+            ],
           ),
         );
       },
@@ -394,8 +473,13 @@ class _QrScanPageState extends State<_QrScanPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: PcDashboardTheme.surface,
       appBar: AppBar(
-        title: const Text('扫码添加'),
+        title: Text('扫码添加', style: PcDashboardTheme.titleMedium),
+        backgroundColor: PcDashboardTheme.surfaceVariant,
+        foregroundColor: PcDashboardTheme.text,
+        elevation: 0,
+        scrolledUnderElevation: 0,
       ),
       body: MobileScanner(
         onDetect: (capture) {

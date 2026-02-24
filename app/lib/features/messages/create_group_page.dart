@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/network_error_helper.dart';
+import '../../core/pc_dashboard_theme.dart';
 import '../../core/user_restrictions.dart';
 import 'chat_media_cache.dart';
 import 'friend_models.dart';
@@ -72,48 +73,48 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
   static Widget _avatarPlaceholder(String name) => Container(
         width: 44,
         height: 44,
-        color: const Color(0xFF1A1C21),
+        decoration: BoxDecoration(
+          color: PcDashboardTheme.surfaceElevated,
+          borderRadius: BorderRadius.circular(22),
+        ),
         alignment: Alignment.center,
         child: Text(
           name.isEmpty ? '?' : name[0],
-          style: const TextStyle(color: Color(0xFFD4AF37), fontSize: 18),
+          style: PcDashboardTheme.titleMedium.copyWith(color: PcDashboardTheme.accent),
         ),
       );
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: PcDashboardTheme.surface,
       appBar: AppBar(
-        title: const Text('创建群聊'),
+        title: Text('创建群聊', style: PcDashboardTheme.titleMedium),
+        backgroundColor: PcDashboardTheme.surfaceVariant,
+        foregroundColor: PcDashboardTheme.text,
+        elevation: 0,
+        scrolledUnderElevation: 0,
       ),
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(PcDashboardTheme.contentPadding),
             child: TextField(
               controller: _nameController,
-              decoration: const InputDecoration(
-                labelText: '群名称（可选）',
+              style: PcDashboardTheme.bodyLarge,
+              decoration: PcDashboardTheme.inputDecoration(
                 hintText: '不填则显示为「群聊(n人)」',
-                border: OutlineInputBorder(),
-              ),
+              ).copyWith(labelText: '群名称（可选）', labelStyle: PcDashboardTheme.bodyMedium),
             ),
           ),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: PcDashboardTheme.contentPadding),
             child: Align(
               alignment: Alignment.centerLeft,
-              child: Text(
-                '选择好友',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Color(0xFF6C6F77),
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
+              child: Text('选择好友', style: PcDashboardTheme.label),
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
           Expanded(
             child: StreamBuilder<List<FriendProfile>>(
               stream: _friendsRepository.watchFriends(
@@ -123,15 +124,15 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
                 final friends = snapshot.data ?? [];
                 final list = friends.where((f) => f.userId != FirebaseAuth.instance.currentUser?.uid).toList();
                 if (list.isEmpty) {
-                  return const Center(
+                  return Center(
                     child: Text(
                       '暂无好友，请先添加好友',
-                      style: TextStyle(color: Color(0xFF6C6F77)),
+                      style: PcDashboardTheme.bodyMedium,
                     ),
                   );
                 }
                 return ListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: PcDashboardTheme.contentPadding),
                   itemCount: list.length,
                   itemBuilder: (context, index) {
                     final friend = list[index];
@@ -139,41 +140,40 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
                         ? friend.email.split('@').first
                         : friend.displayName;
                     final checked = _selectedIds.contains(friend.userId);
-                    return Card(
-                      child: CheckboxListTile(
-                        value: checked,
-                        onChanged: (v) {
-                          setState(() {
-                            if (v == true) {
-                              _selectedIds.add(friend.userId);
-                            } else {
-                              _selectedIds.remove(friend.userId);
-                            }
-                          });
-                        },
-                        title: Text(name),
-                        subtitle: friend.shortId?.trim().isNotEmpty == true
-                            ? Text('账号ID ${friend.shortId!.trim()}')
-                            : null,
-                        secondary: friend.avatarUrl != null && friend.avatarUrl!.trim().isNotEmpty
-                            ? ClipOval(
-                                child: CachedNetworkImage(
-                                  imageUrl: friend.avatarUrl!.trim(),
-                                  cacheManager: ChatMediaCache.instance,
-                                  width: 44,
-                                  height: 44,
-                                  fit: BoxFit.cover,
-                                  placeholder: (_, __) => _avatarPlaceholder(name),
-                                  errorWidget: (_, __, ___) => _avatarPlaceholder(name),
-                                ),
-                              )
-                            : CircleAvatar(
-                                backgroundColor: const Color(0xFF1A1C21),
-                                child: Text(
-                                  name.isEmpty ? '?' : name[0],
-                                  style: const TextStyle(color: Color(0xFFD4AF37)),
-                                ),
-                              ),
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Container(
+                        decoration: PcDashboardTheme.cardDecoration(),
+                        child: CheckboxListTile(
+                          value: checked,
+                          activeColor: PcDashboardTheme.accent,
+                          onChanged: (v) {
+                            setState(() {
+                              if (v == true) {
+                                _selectedIds.add(friend.userId);
+                              } else {
+                                _selectedIds.remove(friend.userId);
+                              }
+                            });
+                          },
+                          title: Text(name, style: PcDashboardTheme.titleSmall),
+                          subtitle: friend.shortId?.trim().isNotEmpty == true
+                              ? Text('账号ID ${friend.shortId!.trim()}', style: PcDashboardTheme.bodySmall)
+                              : null,
+                          secondary: friend.avatarUrl != null && friend.avatarUrl!.trim().isNotEmpty
+                              ? ClipOval(
+                                  child: CachedNetworkImage(
+                                    imageUrl: friend.avatarUrl!.trim(),
+                                    cacheManager: ChatMediaCache.instance,
+                                    width: 44,
+                                    height: 44,
+                                    fit: BoxFit.cover,
+                                    placeholder: (_, __) => _avatarPlaceholder(name),
+                                    errorWidget: (_, __, ___) => _avatarPlaceholder(name),
+                                  ),
+                                )
+                              : _avatarPlaceholder(name),
+                        ),
                       ),
                     );
                   },
@@ -183,20 +183,31 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
           ),
           SafeArea(
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(PcDashboardTheme.contentPadding),
               child: SizedBox(
                 width: double.infinity,
                 child: FilledButton(
                   onPressed: _creating || _selectedIds.isEmpty
                       ? null
                       : _createGroup,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: PcDashboardTheme.accent,
+                    foregroundColor: PcDashboardTheme.surface,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(PcDashboardTheme.radiusMd),
+                    ),
+                  ),
                   child: _creating
                       ? const SizedBox(
                           height: 20,
                           width: 20,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : Text('创建群聊${_selectedIds.isEmpty ? '' : '(${_selectedIds.length}人)'}'),
+                      : Text(
+                          '创建群聊${_selectedIds.isEmpty ? '' : '(${_selectedIds.length}人)'}',
+                          style: PcDashboardTheme.titleSmall.copyWith(color: PcDashboardTheme.surface),
+                        ),
                 ),
               ),
             ),

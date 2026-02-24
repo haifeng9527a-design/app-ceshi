@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 
 import '../../core/firebase_bootstrap.dart';
 import '../../core/notification_service.dart';
+import '../../core/pc_dashboard_page.dart';
+import '../../core/pc_shell.dart';
 import '../../core/supabase_bootstrap.dart';
 import '../home/featured_teacher_page.dart';
 import '../messages/friends_repository.dart';
@@ -12,6 +14,7 @@ import '../messages/message_models.dart';
 import '../messages/messages_page.dart';
 import '../messages/messages_repository.dart';
 import '../market/market_page.dart';
+import '../market/watchlist_page.dart';
 import '../profile/profile_page.dart';
 import '../rankings/rankings_page.dart';
 
@@ -30,11 +33,23 @@ class _HomePageState extends State<HomePage> {
   StreamSubscription? _incomingRequestsSubscription;
   StreamSubscription? _authSubscription;
 
+  static const double _kDesktopBreakpoint = 1100;
+
   final List<Widget> _pages = const [
     RankingsPage(),
     MarketPage(),
     FeaturedTeacherPage(),
     MessagesPage(),
+    ProfilePage(),
+  ];
+
+  /// Desktop sidebar: Dashboard, Markets, Watchlist, Messages, Leaderboard, Profile
+  final List<Widget> _desktopPages = const [
+    PcDashboardPage(),
+    MarketPage(),
+    WatchlistPage(),
+    MessagesPage(),
+    RankingsPage(),
     ProfilePage(),
   ];
 
@@ -85,27 +100,55 @@ class _HomePageState extends State<HomePage> {
         : '';
     final canLoadMessages =
         userId.isNotEmpty && SupabaseBootstrap.isReady;
-    return Scaffold(
-      body: _pages[_currentIndex],
-      bottomNavigationBar: StreamBuilder<List<Conversation>>(
-        stream: canLoadMessages
-            ? _messagesRepo.watchConversations(userId: userId)
-            : Stream.value(<Conversation>[]),
-        builder: (context, snapshot) {
-          final conversations = snapshot.data ?? const <Conversation>[];
-          final chatUnread =
-              conversations.fold<int>(0, (sum, c) => sum + c.unreadCount);
-          final totalUnread = chatUnread + _pendingFriendRequestCount;
-          // 一旦有数据就同步应用图标角标（含 0，避免角标不更新或不清零）
-          if (snapshot.hasData) {
-            NotificationService.updateBadgeCount(totalUnread);
-          }
-          return NavigationBar(
-            selectedIndex: _currentIndex,
+    final width = MediaQuery.sizeOf(context).width;
+    final useDesktopLayout = width >= _kDesktopBreakpoint;
+
+    return StreamBuilder<List<Conversation>>(
+      stream: canLoadMessages
+          ? _messagesRepo.watchConversations(userId: userId)
+          : Stream.value(<Conversation>[]),
+      builder: (context, snapshot) {
+        final conversations = snapshot.data ?? const <Conversation>[];
+        final chatUnread =
+            conversations.fold<int>(0, (sum, c) => sum + c.unreadCount);
+        final totalUnread = chatUnread + _pendingFriendRequestCount;
+        if (snapshot.hasData) {
+          NotificationService.updateBadgeCount(totalUnread);
+        }
+
+        if (useDesktopLayout) {
+          final desktopIndex = _currentIndex.clamp(0, _desktopPages.length - 1);
+          final child = desktopIndex == 0
+              ? PcDashboardPage(
+                  onNavigateToSection: (index) {
+                    setState(() => _currentIndex = index);
+                  },
+                )
+              : _desktopPages[desktopIndex];
+          return PcShell(
+            currentIndex: desktopIndex,
             onDestinationSelected: (index) {
-              setState(() {
-                _currentIndex = index;
-              });
+              setState(() => _currentIndex = index);
+            },
+            unreadCount: totalUnread,
+            userAvatarUrl: FirebaseBootstrap.isReady
+                ? FirebaseAuth.instance.currentUser?.photoURL
+                : null,
+            child: child,
+          );
+        }
+
+        final mobileIndex = _currentIndex == 5
+            ? 4
+            : (_currentIndex == 4
+                ? 0
+                : _currentIndex.clamp(0, 3));
+        return Scaffold(
+          body: _pages[mobileIndex],
+          bottomNavigationBar: NavigationBar(
+            selectedIndex: mobileIndex,
+            onDestinationSelected: (index) {
+              setState(() => _currentIndex = index == 4 ? 5 : index);
             },
             destinations: [
               const NavigationDestination(
@@ -136,9 +179,9 @@ class _HomePageState extends State<HomePage> {
                 label: '我的',
               ),
             ],
-          );
-        },
-      ),
+          ),
+        );
+      },
     );
   }
 

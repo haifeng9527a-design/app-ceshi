@@ -46,10 +46,13 @@ class ChatDetailPage extends StatefulWidget {
     super.key,
     required this.conversation,
     required this.initialMessages,
+    this.onCloseForEmbed,
   });
 
   final Conversation conversation;
   final List<ChatMessage> initialMessages;
+  /// PC 端内嵌时传入，点击返回会调用此回调而非 Navigator.pop
+  final VoidCallback? onCloseForEmbed;
 
   @override
   State<ChatDetailPage> createState() => _ChatDetailPageState();
@@ -2089,6 +2092,12 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
     return Scaffold(
       resizeToAvoidBottomInset: false,
       appBar: AppBar(
+        leading: widget.onCloseForEmbed != null
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: widget.onCloseForEmbed,
+              )
+            : null,
         title: _buildAppBarTitle(),
         actions: [
           IconButton(
