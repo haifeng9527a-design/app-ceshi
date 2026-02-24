@@ -8,10 +8,13 @@ class PcSidebar extends StatefulWidget {
     super.key,
     required this.currentIndex,
     required this.onDestinationSelected,
+    this.messageUnreadCount = 0,
   });
 
   final int currentIndex;
   final ValueChanged<int> onDestinationSelected;
+  /// 消息未读数，在「消息」入口显示红点/数字角标（与顶栏通知一致）
+  final int messageUnreadCount;
 
   static const double width = 72;
 
@@ -46,11 +49,13 @@ class _PcSidebarState extends State<PcSidebar> {
               final item = PcSidebar._items[i];
               final selected = widget.currentIndex == i;
               final hover = _hovered == i;
+              final badgeCount = (i == 3) ? widget.messageUnreadCount : 0;
               return _NavItemTile(
                 icon: item.icon,
                 tooltip: item.tooltip,
                 selected: selected,
                 hover: hover,
+                badgeCount: badgeCount,
                 onTap: () => widget.onDestinationSelected(i),
                 onHover: (v) => setState(() => _hovered = v ? i : -1),
               );
@@ -94,6 +99,7 @@ class _NavItemTile extends StatelessWidget {
     required this.tooltip,
     required this.selected,
     required this.hover,
+    this.badgeCount = 0,
     required this.onTap,
     required this.onHover,
   });
@@ -102,11 +108,29 @@ class _NavItemTile extends StatelessWidget {
   final String tooltip;
   final bool selected;
   final bool hover;
+  final int badgeCount;
   final VoidCallback onTap;
   final void Function(bool) onHover;
 
   @override
   Widget build(BuildContext context) {
+    Widget iconChild = Icon(
+      icon,
+      size: 22,
+      color: selected
+          ? PcDashboardTheme.accent
+          : (hover ? PcDashboardTheme.text : PcDashboardTheme.textMuted),
+    );
+    if (badgeCount > 0) {
+      iconChild = Badge(
+        label: Text(
+          badgeCount > 99 ? '99+' : '$badgeCount',
+          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.white),
+        ),
+        backgroundColor: PcDashboardTheme.danger,
+        child: iconChild,
+      );
+    }
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Tooltip(
@@ -148,13 +172,7 @@ class _NavItemTile extends StatelessWidget {
                       borderRadius: BorderRadius.circular(PcDashboardTheme.radiusSm),
                     ),
                     alignment: Alignment.center,
-                    child: Icon(
-                      icon,
-                      size: 22,
-                      color: selected
-                          ? PcDashboardTheme.accent
-                          : (hover ? PcDashboardTheme.text : PcDashboardTheme.textMuted),
-                    ),
+                    child: iconChild,
                   ),
                 ],
               ),

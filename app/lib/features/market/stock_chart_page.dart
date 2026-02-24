@@ -5,6 +5,12 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../trading/trading_cache.dart';
+import 'chart/chart_theme.dart';
+import 'chart/indicators_panel.dart';
+import 'chart/intraday_chart.dart';
+import 'chart/stats_bar.dart';
+import 'chart/timeframe_bar.dart';
+import 'chart/top_bar.dart';
 import 'chart_viewport.dart';
 import 'chart_viewport_controller.dart';
 import 'market_colors.dart';
@@ -346,363 +352,150 @@ class _StockChartPageState extends State<StockChartPage>
     }
   }
 
-  /// TradingView 风格：图表优先，顶部仅 symbol + price + change%
-  static const double _headerHeight = 52.0;
-  static const double _tabBarHeight = 46.0;
-  static const double _chartScreenRatio = 0.70;
+  static const double _chartMinHeight = 320.0;
+  static const double _intradayChartPaddingV = 20.0;
+  /// 周期条占位：底部 padding 12 + 按钮条约 40
+  static const double _timeframeBarBlockHeight = 52.0;
+  static const double _ratioChart = 220 / 298;
+  static const double _ratioVolume = 56 / 298;
+  static const double _ratioTimeAxis = 22 / 298;
+  static const double _ratioIntradayVolume = 0.18;
 
   @override
   Widget build(BuildContext context) {
-    final screenHeight = MediaQuery.of(context).size.height;
-    final chartBlockHeight = screenHeight * _chartScreenRatio;
-    final chartContentHeight = (chartBlockHeight - _tabBarHeight).clamp(120.0, double.infinity);
-    final chartHeight = chartContentHeight * (220 / 298);
-    final volumeHeight = chartContentHeight * (56 / 298);
-    final timeAxisHeight = chartContentHeight * (22 / 298);
-
     return Scaffold(
-      backgroundColor: const Color(0xFF0B0C0E),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF0B0C0E),
-        foregroundColor: const Color(0xFFD4AF37),
-        elevation: 0,
-        titleSpacing: 0,
-        title: _buildTradingViewHeader(),
-      ),
+      backgroundColor: ChartTheme.background,
       body: Column(
         children: [
+          ChartTopBar(
+            symbol: widget.symbol,
+            currentPrice: _currentPrice,
+            change: _currentPrice != null && _prevClose != null && _prevClose! > 0
+                ? _currentPrice! - _prevClose!
+                : null,
+            changePercent: _changePercent,
+            tabIndex: _tabController.index,
+            onTabChanged: (i) => _tabController.animateTo(i),
+            onBack: () => Navigator.of(context).maybePop(),
+          ),
           if (widget.isMockData) _buildMockBanner(),
-          SizedBox(
-            height: chartBlockHeight,
-            child: Column(
-              children: [
-                TabBar(
-                  controller: _tabController,
-                  labelColor: const Color(0xFFD4AF37),
-                  unselectedLabelColor: const Color(0xFF9CA3AF),
-                  indicatorColor: const Color(0xFFD4AF37),
-                  tabAlignment: TabAlignment.center,
-                  tabs: const [
-                    Tab(text: '分时'),
-                    Tab(text: 'K线'),
-                  ],
-                ),
-                Expanded(
-                  child: _chartLoading
-                      ? const Center(child: Text('Loading...', style: TextStyle(color: Color(0xFF9CA3AF))))
-                      : _candlesIntraday.isEmpty && _candlesKLine.isEmpty
-                          ? _buildNoDataHint(null)
-                          : TabBarView(
-                              controller: _tabController,
-                              children: [
-                                _candlesIntraday.isEmpty ? _buildNoDataHint(true) : _buildLineChart(_candlesIntraday, chartHeight, timeAxisHeight),
-                                _candlesKLine.isEmpty
-                                    ? _buildNoDataHint(false)
-                                    : Stack(
-                                        children: [
-                                          ChartViewport(
-                                            controller: _klineController,
-                                            candles: _candlesKLine,
-                                            onLoadMoreHistory: _loadKLineHistory,
-                                            isLoadingMore: _klineLoadingMore,
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final availableHeight = constraints.maxHeight.clamp(_chartMinHeight, double.infinity);
+                final contentHeight = (availableHeight - _intradayChartPaddingV - _timeframeBarBlockHeight).clamp(200.0, double.infinity);
+                final chartHeight = contentHeight * _ratioChart;
+                final volumeHeight = contentHeight * _ratioVolume;
+                final timeAxisHeight = contentHeight * _ratioTimeAxis;
+                final intradayVolumeHeight = contentHeight * _ratioIntradayVolume;
+
+                return Column(
+                  children: [
+                    Expanded(
+                      child: _chartLoading
+                          ? Center(child: Text('加载中…', style: TextStyle(color: ChartTheme.textSecondary)))
+                          : _candlesIntraday.isEmpty && _candlesKLine.isEmpty
+                              ? _buildNoDataHint(null)
+                              : TabBarView(
+                                  controller: _tabController,
+                                  children: [
+                                    _candlesIntraday.isEmpty
+                                        ? _buildNoDataHint(true)
+                                        : IntradayChart(
+                                            candles: _candlesIntraday,
+                                            prevClose: _prevClose,
+                                            currentPrice: _currentPrice,
                                             chartHeight: chartHeight,
-                                            volumeHeight: volumeHeight,
                                             timeAxisHeight: timeAxisHeight,
-                                            overlayIndicator: _overlayIndicator,
-                                            subChartIndicator: _subChartIndicator,
+                                            volumeHeight: intradayVolumeHeight,
+                                            periodLabel: _chartPeriod,
                                           ),
-                                          ListenableBuilder(
-                                            listenable: _klineController,
-                                            builder: (_, __) {
-                                              final atRealtime = _klineController.isAtRealtime(_candlesKLine.length);
-                                              if (atRealtime) return const SizedBox.shrink();
-                                              return Positioned(
-                                                right: 12,
-                                                bottom: 12,
-                                                child: Material(
-                                                  color: const Color(0xFF1A1C21),
-                                                  borderRadius: BorderRadius.circular(8),
-                                                  child: InkWell(
-                                                    onTap: () {
-                                                      _klineController.goToRealtime(_candlesKLine.length);
-                                                    },
-                                                    borderRadius: BorderRadius.circular(8),
-                                                    child: Padding(
-                                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                                      child: Text(
-                                                        'Go to realtime',
-                                                        style: TextStyle(color: const Color(0xFFD4AF37), fontSize: 12, fontWeight: FontWeight.w600),
+                                    _candlesKLine.isEmpty
+                                        ? _buildNoDataHint(false)
+                                        : Stack(
+                                            children: [
+                                              ChartViewport(
+                                                controller: _klineController,
+                                                candles: _candlesKLine,
+                                                onLoadMoreHistory: _loadKLineHistory,
+                                                isLoadingMore: _klineLoadingMore,
+                                                chartHeight: chartHeight,
+                                                volumeHeight: volumeHeight,
+                                                timeAxisHeight: timeAxisHeight,
+                                                overlayIndicator: _overlayIndicator,
+                                                subChartIndicator: _subChartIndicator,
+                                              ),
+                                              ListenableBuilder(
+                                                listenable: _klineController,
+                                                builder: (_, __) {
+                                                  final atRealtime = _klineController.isAtRealtime(_candlesKLine.length);
+                                                  if (atRealtime) return const SizedBox.shrink();
+                                                  return Positioned(
+                                                    right: 12,
+                                                    bottom: 12,
+                                                    child: Material(
+                                                      color: ChartTheme.cardBackground,
+                                                      borderRadius: BorderRadius.circular(ChartTheme.radiusButton),
+                                                      child: InkWell(
+                                                        onTap: () => _klineController.goToRealtime(_candlesKLine.length),
+                                                        borderRadius: BorderRadius.circular(ChartTheme.radiusButton),
+                                                        child: Padding(
+                                                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                                          child: Text('回最新', style: TextStyle(color: ChartTheme.accentGold, fontSize: 12, fontWeight: FontWeight.w600)),
+                                                        ),
                                                       ),
                                                     ),
-                                                  ),
-                                                ),
-                                              );
-                                            },
+                                                  );
+                                                },
+                                              ),
+                                            ],
                                           ),
-                                        ],
-                                      ),
-                              ],
-                            ),
-                ),
-              ],
-            ),
-          ),
-          _buildPeriodSelector(),
-          if (_tabController.index == 1) _buildIndicatorSelector(),
-          Expanded(
-            child: _buildStatsExpansion(),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// 顶部仅：symbol（+ 可选 name）、price + change + changePercent
-  Widget _buildTradingViewHeader() {
-    final hasPrice = _currentPrice != null || _changePercent != null;
-    return Row(
-      children: [
-        Expanded(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                widget.symbol,
-                style: const TextStyle(color: Color(0xFFE8D5A3), fontSize: 16, fontWeight: FontWeight.w700),
-              ),
-            ],
-          ),
-        ),
-        if (hasPrice)
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              if (_currentPrice != null)
-                Text(
-                  _currentPrice!.toStringAsFixed(2),
-                  style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700),
-                ),
-              if (_changePercent != null) ...[
-                const SizedBox(width: 8),
-                Text(
-                  (_changePercent! >= 0 ? '+' : '') + _changePercent!.toStringAsFixed(2) + '%',
-                  style: TextStyle(
-                    color: MarketColors.forChangePercent(_changePercent!),
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ],
-          ),
-      ],
-    );
-  }
-
-  /// 可折叠 Stats 区域（默认折叠），内容为 OHLC/成交量卡片
-  bool _statsExpanded = false;
-
-  Widget _buildStatsExpansion() {
-    return SingleChildScrollView(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          InkWell(
-            onTap: () => setState(() => _statsExpanded = !_statsExpanded),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              child: Row(
-                children: [
-                  Text(
-                    'Stats',
-                    style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 14, fontWeight: FontWeight.w600),
-                  ),
-                  const SizedBox(width: 6),
-                  Icon(
-                    _statsExpanded ? Icons.expand_less : Icons.expand_more,
-                    color: const Color(0xFF9CA3AF),
-                    size: 20,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (_statsExpanded) _buildQuoteSummaryCard(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMockBanner() {
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: const Color(0xFFD4AF37).withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFD4AF37).withValues(alpha: 0.4)),
-      ),
-      child: const Row(
-        children: [
-          Icon(Icons.info_outline, size: 18, color: Color(0xFFD4AF37)),
-          SizedBox(width: 8),
-          Text('模拟数据，仅作展示', style: TextStyle(color: Color(0xFFE8D5A3), fontSize: 12)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildNoDataHint(bool? isIntraday) {
-    final label = isIntraday == false ? 'K线' : isIntraday == true ? '分时' : '图表';
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(
-              width: 28,
-              height: 28,
-              child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFD4AF37)),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              '正在拉取${label}实时数据…',
-              style: const TextStyle(color: Color(0xFFE8D5A3), fontSize: 15, fontWeight: FontWeight.w500),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '每秒更新报价，图表每10秒刷新',
-              style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 11),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildIndicatorSelector() {
-    // [label, id, isOverlay]
-    const items = [
-      ['MA', 'ma', true],
-      ['EMA', 'ema', true],
-      ['VOL', 'vol', false],
-      ['MACD', 'macd', false],
-      ['RSI', 'rsi', false],
-    ];
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: items.map((e) {
-            final label = e[0] as String;
-            final id = e[1] as String;
-            final isOverlay = e[2] as bool;
-            final selected = isOverlay
-                ? _overlayIndicator == id
-                : _subChartIndicator == id;
-            return Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: FilterChip(
-                label: Text(label),
-                selected: selected,
-                onSelected: (_) {
-                  setState(() {
-                    if (isOverlay) {
-                      _overlayIndicator = id;
-                    } else {
-                      _subChartIndicator = id;
-                    }
-                  });
-                },
-                selectedColor: const Color(0xFFD4AF37).withValues(alpha: 0.3),
-                checkmarkColor: const Color(0xFFD4AF37),
-                labelStyle: TextStyle(
-                  color: selected ? const Color(0xFFD4AF37) : const Color(0xFF9CA3AF),
-                  fontSize: 12,
-                ),
-              ),
-            );
-          }).toList(),
-        ),
-      ),
-    );
-  }
-
-  static const List<String> _periodOptions = ['1m', '5m', '15m', '1h', '1D'];
-
-  Widget _buildPeriodSelector() {
-    final isIntraday = _tabController.index == 0;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: isIntraday
-              ? _periodOptions.map((p) {
-                  final selected = _chartPeriod == p;
-                  final label = p == '1D' ? '1D' : p;
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: FilterChip(
-                      label: Text(label),
-                      selected: selected,
-                      onSelected: (_) async {
-                        if (_chartPeriod == p) return;
-                        setState(() => _chartPeriod = p);
-                        setState(() => _chartLoading = true);
-                        await _loadIntraday();
-                        if (mounted) setState(() => _chartLoading = false);
-                      },
-                      selectedColor: const Color(0xFFD4AF37).withValues(alpha: 0.3),
-                      checkmarkColor: const Color(0xFFD4AF37),
-                      labelStyle: TextStyle(
-                        color: selected ? const Color(0xFFD4AF37) : const Color(0xFF9CA3AF),
-                        fontSize: 12,
+                                  ],
+                                ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Center(
+                        child: TimeframeBar(
+                          isIntraday: _tabController.index == 0,
+                          intradayPeriod: _chartPeriod,
+                          klineTimespan: _klineTimespan,
+                          onIntradayPeriodChanged: (p) async {
+                            if (_chartPeriod == p) return;
+                            setState(() => _chartPeriod = p);
+                            setState(() => _chartLoading = true);
+                            await _loadIntraday();
+                            if (mounted) setState(() => _chartLoading = false);
+                          },
+                          onKlineTimespanChanged: (t) async {
+                            if (_klineTimespan == t) return;
+                            setState(() => _klineTimespan = t);
+                            setState(() => _chartLoading = true);
+                            await _loadKLine();
+                            if (mounted) setState(() => _chartLoading = false);
+                          },
+                        ),
                       ),
                     ),
-                  );
-                }).toList()
-              : ['5day', 'day', 'week', 'month', 'year'].map((t) {
-                  final label = t == '5day' ? '5日' : t == 'day' ? '日K' : t == 'week' ? '周K' : t == 'month' ? '月K' : '年K';
-                  final selected = _klineTimespan == t;
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: FilterChip(
-                      label: Text(label),
-                      selected: selected,
-                      onSelected: (_) async {
-                        if (_klineTimespan == t) return;
-                        setState(() => _klineTimespan = t);
-                        setState(() => _chartLoading = true);
-                        await _loadKLine();
-                        if (mounted) setState(() => _chartLoading = false);
-                      },
-                      selectedColor: const Color(0xFFD4AF37).withValues(alpha: 0.3),
-                      checkmarkColor: const Color(0xFFD4AF37),
-                      labelStyle: TextStyle(
-                        color: selected ? const Color(0xFFD4AF37) : const Color(0xFF9CA3AF),
-                        fontSize: 12,
-                      ),
-                    ),
-                  );
-                }).toList(),
-        ),
+                  ],
+                );
+              },
+            ),
+          ),
+          if (_tabController.index == 1)
+            IndicatorsPanel(
+              overlayIndicator: _overlayIndicator,
+              subChartIndicator: _subChartIndicator,
+              onOverlayChanged: (v) => setState(() => _overlayIndicator = v),
+              onSubChartChanged: (v) => setState(() => _subChartIndicator = v),
+            ),
+          _buildStatsBar(),
+        ],
       ),
     );
   }
 
-  /// OHLC 摘要卡片。数据优先级：收=实时价(WebSocket) > 分时/K线最后一根；开/高/低=分时区间或 K 线最后一根 或 当日 Snapshot/aggregates；昨收=getPreviousClose/Snapshot；量=WebSocket 累加 或 分时/K 线 或 当日 Snapshot。拿不到的字段显示 "—"（不显示 0）。
-  Widget _buildQuoteSummaryCard() {
+  Widget _buildStatsBar() {
     double? open;
     double? high;
     double? low;
@@ -723,12 +516,12 @@ class _StockChartPageState extends State<StockChartPage>
     high ??= _dayHigh;
     low ??= _dayLow;
     final displayClose = _currentPrice ?? close;
-    final change = (displayClose != null && displayClose > 0 && _prevClose != null && _prevClose! > 0)
+    final change = (displayClose != null && _prevClose != null && _prevClose! > 0)
         ? displayClose - _prevClose!
         : null;
     int? vol;
     if (_realtimeVolume > 0) vol = _realtimeVolume;
-    else if (_candlesIntraday.isNotEmpty && _candlesIntraday.any((c) => c.volume != null && (c.volume ?? 0) > 0)) {
+    else if (_candlesIntraday.isNotEmpty && _candlesIntraday.any((c) => (c.volume ?? 0) > 0)) {
       vol = _candlesIntraday.fold<int>(0, (s, c) => s + (c.volume ?? 0));
     } else if (_candlesKLine.isNotEmpty && _candlesKLine.last.volume != null && _candlesKLine.last.volume! > 0) {
       vol = _candlesKLine.last.volume;
@@ -740,281 +533,66 @@ class _StockChartPageState extends State<StockChartPage>
         ? vol * priceForTurnover
         : null;
     final prev = (_prevClose != null && _prevClose! > 0) ? _prevClose! : 0.0;
-    final amplitude = (high != null && high! > 0 && low != null && prev > 0)
+    final amplitude = (high != null && low != null && prev > 0)
         ? (high! - low!) / prev * 100
         : null;
-    final avgPrice = (high != null && low != null && displayClose != null && (high! + low! + displayClose!) > 0)
-        ? (high! + low! + displayClose!) / 3
+    final avgPrice = (high != null && low != null && displayClose != null)
+        ? (high! + low! + displayClose) / 3
         : null;
-    // 拿不到时显示 "—"：价格/量 为 null 或 0 视为拿不到
-    double? displayOpen = (open != null && open! > 0) ? open : null;
-    double? displayHigh = (high != null && high! > 0) ? high : null;
-    double? displayLow = (low != null && low! > 0) ? low : null;
-    double? displayCloseVal = (displayClose != null && displayClose > 0) ? displayClose : null;
-    double? displayPrev = (_prevClose != null && _prevClose! > 0) ? _prevClose : null;
-    final hasAny = displayCloseVal != null || displayPrev != null || displayOpen != null || vol != null;
-    if (!hasAny) return const SizedBox.shrink();
+    return ChartStatsBar(
+      symbol: widget.symbol,
+      currentPrice: displayClose,
+      change: change,
+      changePercent: _changePercent,
+      open: open,
+      high: high,
+      low: low,
+      close: displayClose,
+      prevClose: _prevClose,
+      amplitude: amplitude,
+      avgPrice: avgPrice,
+      volume: vol,
+      turnover: turnover,
+      turnoverRate: null,
+      peTtm: null,
+    );
+  }
+
+  Widget _buildMockBanner() {
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: const Color(0xFF111215),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFD4AF37).withValues(alpha: 0.25)),
+        color: ChartTheme.accentGold.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: ChartTheme.accentGold.withValues(alpha: 0.4)),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(bottom: 6),
-            child: Text('OHLC', style: _summaryLabelStyle()),
-          ),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _summaryItem('开', displayOpen, null),
-              _summaryItem('高', displayHigh, true),
-              _summaryItem('低', displayLow, false),
-              _summaryItem('收', displayCloseVal, null),
-              _summaryItem('昨收', displayPrev, null),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _summaryItem('涨', change, change != null ? (change! >= 0) : null, treatZeroAsMissing: false),
-              _summaryItem('涨跌幅', _changePercent != null ? _changePercent! : null, _changePercent != null ? (_changePercent! >= 0) : null, isPercent: true, treatZeroAsMissing: false),
-              _summaryItem('振幅', amplitude, null, isPercent: true),
-              _summaryItem('均价', avgPrice, null),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text('市盈率TTM', style: _summaryLabelStyle()),
-                  const SizedBox(height: 2),
-                  const Text('—', style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 11)),
-                ],
-              ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text('总市值', style: _summaryLabelStyle()),
-                  const SizedBox(height: 2),
-                  const Text('—', style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 11)),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              if (vol != null && vol > 0)
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text('成交量', style: _summaryLabelStyle()),
-                    const SizedBox(height: 2),
-                    Text(_formatVol(vol), style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 11)),
-                  ],
-                )
-              else
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text('成交量', style: _summaryLabelStyle()),
-                    const SizedBox(height: 2),
-                    const Text('—', style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 11)),
-                  ],
-                ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text('成交额', style: _summaryLabelStyle()),
-                  const SizedBox(height: 2),
-                  Text((turnover != null && turnover > 0) ? _formatTurnover(turnover) : '—', style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 11)),
-                ],
-              ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text('换手率', style: _summaryLabelStyle()),
-                  const SizedBox(height: 2),
-                  const Text('—', style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 11)),
-                ],
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  static String _formatTurnover(double v) {
-    if (v >= 100000000) return '${(v / 100000000).toStringAsFixed(2)}亿';
-    if (v >= 10000) return '${(v / 10000).toStringAsFixed(2)}万';
-    return v.toStringAsFixed(0);
-  }
-
-  TextStyle _summaryLabelStyle() => const TextStyle(color: Color(0xFF6B6B70), fontSize: 10);
-  /// 拿不到或 treatZeroAsMissing 且为 0 时显示 "—"
-  Widget _summaryItem(String label, double? value, bool? isUp, {bool isPercent = false, bool treatZeroAsMissing = true}) {
-    final effective = (value == null || (treatZeroAsMissing && value == 0)) ? null : value;
-    final color = effective == null ? MarketColors.neutral : (isUp == true ? MarketColors.up : isUp == false ? MarketColors.down : MarketColors.neutral);
-    String text = effective != null
-        ? (isPercent ? '${effective >= 0 ? '+' : ''}${effective.toStringAsFixed(2)}%' : effective.toStringAsFixed(2))
-        : '—';
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(label, style: _summaryLabelStyle()),
-        const SizedBox(height: 2),
-        Text(text, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600)),
-      ],
-    );
-  }
-
-  String _formatIntradayTime(double timeSec) {
-    final d = DateTime.fromMillisecondsSinceEpoch((timeSec * 1000).toInt());
-    if (_chartPeriod == '1D') {
-      return '${d.month.toString().padLeft(2, '0')}/${d.day.toString().padLeft(2, '0')}';
-    }
-    return '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
-  }
-
-  Widget _buildLineChart(List<ChartCandle> candles, double chartHeight, double timeAxisHeight) {
-    if (candles.isEmpty) return const Center(child: Text('No chart data', style: TextStyle(color: Color(0xFF9CA3AF))));
-    final closes = candles.map((c) => c.close).toList();
-    double minY = closes.reduce((a, b) => a < b ? a : b);
-    double maxY = closes.reduce((a, b) => a > b ? a : b);
-    if (_currentPrice != null) {
-      if (_currentPrice! < minY) minY = _currentPrice!;
-      if (_currentPrice! > maxY) maxY = _currentPrice!;
-    }
-    final range = (maxY - minY).clamp(0.01, double.infinity);
-    final minYPlot = minY - range * 0.05;
-    final maxYPlot = maxY + range * 0.05;
-    final spots = <FlSpot>[];
-    for (var i = 0; i < candles.length; i++) {
-      spots.add(FlSpot(i.toDouble(), candles[i].close));
-    }
-    if (_currentPrice != null) {
-      spots.add(FlSpot(
-          candles.isEmpty ? 0.0 : (candles.length - 1).toDouble() + 1,
-          _currentPrice!));
-    }
-    if (spots.isEmpty) return const SizedBox.shrink();
-    final lastClose =
-        candles.isNotEmpty ? candles.last.close : _currentPrice;
-    final firstOpen =
-        candles.isNotEmpty ? candles.first.open : _currentPrice;
-    final lineColor = (lastClose ?? firstOpen ?? 0) >= (firstOpen ?? lastClose ?? 0)
-        ? MarketColors.up
-        : MarketColors.down;
-    final maxX = spots.length <= 1 ? 1.0 : (spots.length - 1).toDouble();
-    final contentWidth = (candles.length * _candleWidth).clamp(200.0, double.infinity);
-    const axisStyle = TextStyle(color: Color(0xFF6B6B70), fontSize: 10);
-    final basePrice = _prevClose ?? candles.first.open;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 8, 16, 8),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SizedBox(
-            width: 48,
-            height: chartHeight + timeAxisHeight,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: List.generate(5, (i) {
-                final v = maxYPlot - (maxYPlot - minYPlot) * i / 4;
-                return Text(v.toStringAsFixed(2), style: axisStyle);
-              }),
-            ),
-          ),
-          const SizedBox(width: 4),
-          Expanded(
-            child: InteractiveViewer(
-              minScale: 0.5,
-              maxScale: 4.0,
-              child: SizedBox(
-                width: contentWidth,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    SizedBox(
-                      height: chartHeight,
-                      child: LineChart(
-                        LineChartData(
-                          minX: 0,
-                          maxX: maxX,
-                          minY: minYPlot,
-                          maxY: maxYPlot,
-                          lineBarsData: [
-                            LineChartBarData(
-                              spots: spots,
-                              isCurved: true,
-                              color: lineColor,
-                              barWidth: 2,
-                              dotData: const FlDotData(show: false),
-                              belowBarData: BarAreaData(
-                                show: true,
-                                color: lineColor.withValues(alpha: 0.15),
-                              ),
-                            ),
-                          ],
-                          gridData: const FlGridData(show: true, drawVerticalLine: false),
-                          titlesData: const FlTitlesData(
-                            show: false,
-                            leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                            rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                            topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                            bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                          ),
-                          borderData: FlBorderData(show: false),
-                        ),
-                        duration: const Duration(milliseconds: 150),
-                      ),
-                    ),
-                    SizedBox(
-                      height: timeAxisHeight,
-                      width: contentWidth,
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: List.generate(5, (i) {
-                          final idx = i == 0 ? 0 : (i * (candles.length - 1) / 4).floor().clamp(0, candles.length - 1);
-                          if (idx >= candles.length) return const SizedBox.shrink();
-                          return Text(_formatIntradayTime(candles[idx].time), style: axisStyle);
-                        }),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 4),
-          SizedBox(
-            width: 44,
-            height: chartHeight + timeAxisHeight,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: List.generate(5, (i) {
-                final v = maxYPlot - (maxYPlot - minYPlot) * i / 4;
-                final pct = basePrice > 0 ? (v - basePrice) / basePrice * 100 : 0.0;
-                final pctStr = '${pct >= 0 ? '+' : ''}${pct.toStringAsFixed(2)}%';
-                return Text(pctStr, style: axisStyle);
-              }),
-            ),
-          ),
+          Icon(Icons.info_outline, size: 18, color: ChartTheme.accentGold),
+          const SizedBox(width: 8),
+          Text('模拟数据，仅作展示', style: TextStyle(color: ChartTheme.textPrimary, fontSize: 12)),
         ],
+      ),
+    );
+  }
+
+  Widget _buildNoDataHint(bool? isIntraday) {
+    final label = isIntraday == false ? 'K线' : isIntraday == true ? '分时' : '图表';
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 2, color: ChartTheme.accentGold)),
+            const SizedBox(height: 12),
+            Text('正在拉取${label}实时数据…', style: TextStyle(color: ChartTheme.textPrimary, fontSize: 15, fontWeight: FontWeight.w500), textAlign: TextAlign.center),
+            const SizedBox(height: 4),
+            Text('每秒更新报价，图表每10秒刷新', style: TextStyle(color: ChartTheme.textSecondary, fontSize: 11), textAlign: TextAlign.center),
+          ],
+        ),
       ),
     );
   }
@@ -1052,7 +630,7 @@ class _StockChartPageState extends State<StockChartPage>
   }
 
   Widget _buildKLineWithMaAndVolume(List<ChartCandle> candles) {
-    if (candles.isEmpty) return const Center(child: Text('No chart data', style: TextStyle(color: Color(0xFF9CA3AF))));
+    if (candles.isEmpty) return Center(child: Text('暂无图表数据', style: TextStyle(color: ChartTheme.textSecondary)));
     double minY = candles.first.low;
     double maxY = candles.first.high;
     for (final c in candles) {
@@ -1076,13 +654,13 @@ class _StockChartPageState extends State<StockChartPage>
     final hasVolume = candles.any((c) => (c.volume ?? 0) > 0);
     final basePrice = _prevClose ?? candles.first.open;
     final contentWidth = (candles.length * _candleWidth).clamp(200.0, double.infinity);
-    const axisStyle = TextStyle(color: Color(0xFF6B6B70), fontSize: 10);
+    final axisStyle = TextStyle(color: ChartTheme.textSecondary, fontSize: 10);
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 8, 16, 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('MA5/MA10/MA20', style: _summaryLabelStyle()),
+          Text('MA5/MA10/MA20', style: TextStyle(color: ChartTheme.textSecondary, fontSize: 10)),
           const SizedBox(height: 4),
           Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1238,7 +816,7 @@ class _CandlestickPainter extends CustomPainter {
     if (ma20 != null) _drawMaLine(canvas, size, ma20, const Color(0xFF8B5CF6));
 
     final gridPaint = Paint()
-      ..color = const Color(0xFF2A2D34)
+      ..color = const Color(0x14FFFFFF) // rgba(255,255,255,0.08)
       ..strokeWidth = 0.8
       ..style = PaintingStyle.stroke;
     for (var g = 0; g <= 4; g++) {

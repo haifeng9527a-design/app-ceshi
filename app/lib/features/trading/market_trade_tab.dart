@@ -4,6 +4,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../market/market_colors.dart';
 import '../market/market_repository.dart';
 
 /// 行情与交易 Tab：整体行情（Polygon）→ 搜索标的 → 行情区 → 买入/卖出
@@ -29,10 +30,11 @@ const _overallSymbols = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA'];
 const _overallNames = {'AAPL': '苹果', 'MSFT': '微软', 'GOOGL': '谷歌', 'AMZN': '亚马逊', 'TSLA': '特斯拉'};
 
 class _MarketTradeTabState extends State<MarketTradeTab> {
-  static const Color _accent = Color(0xFFD4AF37);
-  static const Color _bg = Color(0xFF111215);
-  static const Color _muted = Color(0xFF6C6F77);
-  static const Color _surface = Color(0xFF1A1C21);
+  static const Color _accent = Color(0xFFD6B46A);
+  static const Color _bg = Color(0xFF0F1722);
+  static const Color _muted = Color(0x8CFFFFFF); // rgba(255,255,255,0.55)
+  static const Color _surface = Color(0xFF0F1722);
+  static const Color _chartGrid = Color(0x14FFFFFF); // rgba(255,255,255,0.08)
 
   final _searchController = TextEditingController();
   final _priceController = TextEditingController();
@@ -727,7 +729,7 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
 
     final lastClose = _candles.isNotEmpty ? _candles.last.close : _currentPrice;
     final firstOpen = _candles.isNotEmpty ? _candles.first.open : _currentPrice;
-    final lineColor = (lastClose ?? firstOpen ?? 0) >= (firstOpen ?? lastClose ?? 0) ? Colors.green : Colors.red;
+    final lineColor = (lastClose ?? firstOpen ?? 0) >= (firstOpen ?? lastClose ?? 0) ? MarketColors.up : MarketColors.down;
 
     final maxX = spots.length <= 1 ? 1.0 : (spots.length - 1).toDouble();
     return LineChart(
@@ -749,7 +751,11 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
             ),
           ),
         ],
-        gridData: const FlGridData(show: true, drawVerticalLine: false),
+        gridData: FlGridData(
+          show: true,
+          drawVerticalLine: false,
+          getDrawingHorizontalLine: (_) => FlLine(color: _chartGrid, strokeWidth: 0.8),
+        ),
         titlesData: FlTitlesData(
           show: true,
           leftTitles: AxisTitles(
@@ -762,7 +768,7 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
                   padding: const EdgeInsets.only(right: 6),
                   child: Text(
                     value.toStringAsFixed(2),
-                    style: TextStyle(color: _muted, fontSize: 10),
+                    style: const TextStyle(color: _muted, fontSize: 10, fontFamily: 'monospace'),
                   ),
                 );
               },
@@ -802,7 +808,7 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
 
   Widget _priceChip(String label, String value, bool? isUp) {
     Color? valueColor;
-    if (isUp != null) valueColor = isUp ? Colors.green : Colors.red;
+    if (isUp != null) valueColor = isUp ? MarketColors.up : MarketColors.down;
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
       decoration: BoxDecoration(
@@ -1063,7 +1069,7 @@ class _CandlestickPainter extends CustomPainter {
     final gap = (chartW - candleW * n) / (n + 1);
 
     final gridPaint = Paint()
-      ..color = const Color(0xFF2A2D34)
+      ..color = const Color(0x14FFFFFF) // rgba(255,255,255,0.08)
       ..strokeWidth = 0.8
       ..style = PaintingStyle.stroke;
     for (var g = 0; g <= 4; g++) {
@@ -1074,7 +1080,7 @@ class _CandlestickPainter extends CustomPainter {
     for (var i = 0; i < n; i++) {
       final c = candles[i];
       final isUp = c.close >= c.open;
-      final color = isUp ? Colors.green : Colors.red;
+      final color = MarketColors.forUp(isUp);
       final x = pad + gap + (gap + candleW) * i + candleW / 2;
       final yHigh = pad + chartH - (c.high - minY) / rangeY * chartH;
       final yLow = pad + chartH - (c.low - minY) / rangeY * chartH;

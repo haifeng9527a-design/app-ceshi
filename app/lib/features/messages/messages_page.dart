@@ -649,7 +649,7 @@ class _MessagesPageState extends State<MessagesPage> {
     return Scaffold(
       backgroundColor: const Color(0xFF0D0D0F),
       body: SafeArea(
-        child: firebaseReady && supabaseReady && _currentUser != null && _isPcLayout && _tabIndex == 0
+        child: firebaseReady && supabaseReady && _currentUser != null && _isPcLayout
             ? _buildPcTwoPaneLayout(context, userId)
             : Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1085,7 +1085,7 @@ class _MessagesPageState extends State<MessagesPage> {
       );
       return;
     }
-    if (_isPcLayout && _tabIndex == 0) {
+    if (_isPcLayout) {
       setState(() => _selectedConversation = conversation);
       return;
     }
@@ -1288,6 +1288,10 @@ class _MessagesPageState extends State<MessagesPage> {
             const SnackBar(content: Text('打开私聊失败，请重试')),
           );
         }
+        return;
+      }
+      if (_isPcLayout) {
+        if (mounted) setState(() => _selectedConversation = conversation);
         return;
       }
       Navigator.of(context).pushAndRemoveUntil(

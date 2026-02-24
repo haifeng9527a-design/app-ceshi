@@ -302,7 +302,7 @@ class _ChartViewportState extends State<ChartViewport> {
     final histogram = macdResult?.histogram.sublist(vStart, vEnd);
 
     final hasVolBars = sub == 'vol' && candles.any((c) => (c.volume ?? 0) > 0);
-    const axisStyle = TextStyle(color: Color(0xFF6B6B70), fontSize: 10);
+    const axisStyle = TextStyle(color: Color(0x8CFFFFFF), fontSize: 10); // rgba(255,255,255,0.55)
     final subHeight = widget.volumeHeight;
 
     return LayoutBuilder(
@@ -535,7 +535,7 @@ class _FlChartCandleLayer extends StatelessWidget {
       lineBars.add(LineChartBarData(
         spots: ma5Spots,
         isCurved: false,
-        color: const Color(0xFFF59E0B),
+        color: const Color(0xFFD6B46A), // 金色强调
         barWidth: 1.5,
         dotData: const FlDotData(show: false),
         belowBarData: BarAreaData(show: false),
@@ -584,7 +584,7 @@ class _FlChartCandleLayer extends StatelessWidget {
               show: true,
               drawVerticalLine: false,
               getDrawingHorizontalLine: (_) => FlLine(
-                color: const Color(0xFF2A2D34),
+                color: const Color(0x14FFFFFF), // rgba(255,255,255,0.08)
                 strokeWidth: 0.8,
               ),
             ),

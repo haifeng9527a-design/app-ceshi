@@ -35,10 +35,13 @@ class MockMarketData {
     ('雪崩', 'AVAX/USD'),
   ];
 
-  /// 假报价：指数（close, change, percent_change）
+  /// 假报价：指数（close, change, percent_change），与首页主要指数 DJI/SPX/IXIC/VIX/RUT 对齐
   static List<Map<String, dynamic>> get indicesQuotes => [
-    {'symbol': 'DJI', 'name': '道琼斯', 'close': 38250.0, 'change': 120.5, 'percent_change': 0.32},
-    {'symbol': 'SPX', 'name': '标普500', 'close': 4980.0, 'change': 15.2, 'percent_change': 0.31},
+    {'symbol': 'DJI', 'name': '道琼斯', 'close': 39220.0, 'change': 120.5, 'percent_change': 0.31},
+    {'symbol': 'SPX', 'name': '标普500', 'close': 5120.0, 'change': 15.2, 'percent_change': 0.30},
+    {'symbol': 'IXIC', 'name': '纳斯达克', 'close': 16500.0, 'change': 85.0, 'percent_change': 0.52},
+    {'symbol': 'VIX', 'name': 'VIX', 'close': 13.2, 'change': -0.3, 'percent_change': -2.22},
+    {'symbol': 'RUT', 'name': 'Russell 2000', 'close': 2080.0, 'change': 8.5, 'percent_change': 0.41},
     {'symbol': 'NDX', 'name': '纳斯达克', 'close': 17680.0, 'change': 85.0, 'percent_change': 0.48},
     {'symbol': 'HSI', 'name': '恒生指数', 'close': 16520.0, 'change': -120.0, 'percent_change': -0.72},
     {'symbol': 'N225', 'name': '日经225', 'close': 38200.0, 'change': 200.0, 'percent_change': 0.53},

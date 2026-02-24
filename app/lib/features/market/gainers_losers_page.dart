@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 
+import 'market_colors.dart';
 import 'market_repository.dart';
 import 'stock_chart_page.dart';
 
-/// 涨跌榜：Gainers / Losers 两个 Tab，列表点击进 StockChartPage
+/// 涨跌榜：Gainers / Losers 两个 Tab，表格展示代码/名称/涨跌幅/最新价/涨跌额/今开/昨收/最高/最低/成交量，底部三大指数
 class GainersLosersPage extends StatefulWidget {
   const GainersLosersPage({super.key});
 
@@ -18,6 +19,7 @@ class _GainersLosersPageState extends State<GainersLosersPage>
 
   List<PolygonGainer> _gainers = [];
   List<PolygonGainer> _losers = [];
+  Map<String, MarketQuote> _indexQuotes = {};
   bool _loadingGainers = true;
   bool _loadingLosers = true;
   String? _errorGainers;
@@ -29,6 +31,8 @@ class _GainersLosersPageState extends State<GainersLosersPage>
   static const _muted = Color(0xFF9CA3AF);
   static const _green = Color(0xFF22C55E);
   static const _red = Color(0xFFEF4444);
+  static const _indexSymbols = ['DJI', 'IXIC', 'SPX'];
+  static const _indexNames = ['道琼斯', '纳斯达克', '标普500'];
 
   @override
   void initState() {
@@ -36,6 +40,14 @@ class _GainersLosersPageState extends State<GainersLosersPage>
     _tabController = TabController(length: 2, vsync: this);
     _loadGainers();
     _loadLosers();
+    _loadIndices();
+  }
+
+  Future<void> _loadIndices() async {
+    try {
+      final q = await _market.getQuotes(_indexSymbols);
+      if (mounted) setState(() => _indexQuotes = q);
+    } catch (_) {}
   }
 
   @override
@@ -124,29 +136,95 @@ class _GainersLosersPageState extends State<GainersLosersPage>
           ],
         ),
       ),
-      body: TabBarView(
-        controller: _tabController,
+      body: Column(
         children: [
-          _buildList(
-            list: _gainers,
-            loading: _loadingGainers,
-            error: _errorGainers,
-            isGainers: true,
-            onRefresh: _loadGainers,
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                _buildTable(
+                  list: _gainers,
+                  loading: _loadingGainers,
+                  error: _errorGainers,
+                  isGainers: true,
+                  onRefresh: _loadGainers,
+                ),
+                _buildTable(
+                  list: _losers,
+                  loading: _loadingLosers,
+                  error: _errorLosers,
+                  isGainers: false,
+                  onRefresh: _loadLosers,
+                ),
+              ],
+            ),
           ),
-          _buildList(
-            list: _losers,
-            loading: _loadingLosers,
-            error: _errorLosers,
-            isGainers: false,
-            onRefresh: _loadLosers,
-          ),
+          _buildIndicesBar(),
         ],
       ),
     );
   }
 
-  Widget _buildList({
+  static String _formatPrice(double v) {
+    if (v >= 10000) return v.toStringAsFixed(0);
+    if (v >= 1) return v.toStringAsFixed(2);
+    return v.toStringAsFixed(4);
+  }
+
+  static String _formatVolume(int? v) {
+    if (v == null || v <= 0) return '—';
+    if (v >= 100000000) return '${(v / 100000000).toStringAsFixed(2)}亿';
+    if (v >= 10000) return '${(v / 10000).toStringAsFixed(2)}万';
+    return v.toString();
+  }
+
+  Widget _buildIndicesBar() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: _surface,
+        border: Border(top: BorderSide(color: const Color(0xFF1F1F23), width: 0.6)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Row(
+          children: [
+            const Text('三大指数 ', style: TextStyle(color: Color(0xFF6B6B70), fontSize: 12)),
+            ...List.generate(3, (i) {
+              final sym = _indexSymbols[i];
+              final name = _indexNames[i];
+              final q = _indexQuotes[sym];
+              final hasError = q?.hasError ?? true;
+              final isUp = (q?.changePercent ?? 0) >= 0;
+              final color = MarketColors.forUp(isUp);
+              return Padding(
+                padding: const EdgeInsets.only(right: 20),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('$name ', style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 12)),
+                    Text(
+                      hasError ? '—' : (q != null && q.price > 0 ? _formatPrice(q.price) : '—'),
+                      style: TextStyle(color: hasError ? _muted : Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                    ),
+                    if (!hasError && q != null && q.price > 0) ...[
+                      const SizedBox(width: 6),
+                      Text(
+                        '${q.change >= 0 ? '+' : ''}${q.change.toStringAsFixed(2)} ${q.changePercent >= 0 ? '+' : ''}${q.changePercent.toStringAsFixed(2)}%',
+                        style: TextStyle(color: color, fontSize: 12),
+                      ),
+                    ],
+                  ],
+                ),
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTable({
     required List<PolygonGainer> list,
     required bool loading,
     required String? error,
@@ -154,9 +232,7 @@ class _GainersLosersPageState extends State<GainersLosersPage>
     required Future<void> Function() onRefresh,
   }) {
     if (loading && list.isEmpty) {
-      return const Center(
-        child: CircularProgressIndicator(color: Color(0xFFD4AF37)),
-      );
+      return const Center(child: CircularProgressIndicator(color: Color(0xFFD4AF37)));
     }
     if (error != null && list.isEmpty) {
       return Center(
@@ -167,11 +243,7 @@ class _GainersLosersPageState extends State<GainersLosersPage>
             children: [
               const Icon(Icons.cloud_off, size: 48, color: Color(0xFF6B6B70)),
               const SizedBox(height: 16),
-              Text(
-                error,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 14),
-              ),
+              Text(error, textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 14)),
               const SizedBox(height: 16),
               TextButton.icon(
                 onPressed: onRefresh,
@@ -185,87 +257,91 @@ class _GainersLosersPageState extends State<GainersLosersPage>
       );
     }
     if (list.isEmpty) {
-      return const Center(
-        child: Text(
-          '暂无数据',
-          style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 14),
-        ),
-      );
+      return const Center(child: Text('暂无数据', style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 14)));
     }
+
+    const colCode = 64.0;
+    const colName = 72.0;
+    const colPct = 68.0;
+    const colPrice = 68.0;
+    const colChange = 60.0;
+    const colOpen = 60.0;
+    const colPrev = 60.0;
+    const colHigh = 60.0;
+    const colLow = 60.0;
+    const colVol = 72.0;
+
+    final headerRow = Row(
+      children: [
+        SizedBox(width: colCode, child: const Text('代码', style: TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
+        SizedBox(width: colName, child: const Text('名称', style: TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
+        SizedBox(width: colPct, child: const Text('涨跌幅', style: TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
+        SizedBox(width: colPrice, child: const Text('最新价', style: TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
+        SizedBox(width: colChange, child: const Text('涨跌额', style: TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
+        SizedBox(width: colOpen, child: const Text('今开', style: TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
+        SizedBox(width: colPrev, child: const Text('昨收', style: TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
+        SizedBox(width: colHigh, child: const Text('最高', style: TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
+        SizedBox(width: colLow, child: const Text('最低', style: TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
+        SizedBox(width: colVol, child: const Text('成交量', style: TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
+      ],
+    );
+
+    final isPc = MediaQuery.sizeOf(context).width >= 1100;
     return RefreshIndicator(
       onRefresh: onRefresh,
       color: _accent,
-      child: ListView.separated(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-        itemCount: list.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 0),
-        itemBuilder: (context, i) {
-          final g = list[i];
-          final price = g.price ?? 0.0;
-          final change = g.todaysChange;
-          final changePct = g.todaysChangePerc;
-          final color = isGainers ? _green : _red;
-          return Material(
-            color: _surface,
-            child: InkWell(
-              onTap: () => _openChart(g),
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
-                decoration: const BoxDecoration(
-                  border: Border(
-                    bottom: BorderSide(color: Color(0xFF1F1F23), width: 0.6),
+      child: ListView(
+        padding: isPc ? const EdgeInsets.symmetric(vertical: 12) : const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        children: [
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1A1C21),
+                    border: Border(bottom: BorderSide(color: const Color(0xFF1F1F23), width: 0.6)),
                   ),
+                  child: headerRow,
                 ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        g.ticker,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
+                ...list.map((g) {
+                  final color = MarketColors.forChangePercent(g.todaysChangePerc);
+                  final effectivePrice = (g.price != null && g.price! > 0)
+                      ? g.price!
+                      : (g.prevClose != null ? g.prevClose! + g.todaysChange : null);
+                  return Material(
+                    color: _surface,
+                    child: InkWell(
+                      onTap: () => _openChart(g),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        decoration: const BoxDecoration(
+                          border: Border(bottom: BorderSide(color: Color(0xFF1F1F23), width: 0.6)),
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    Text(
-                      price > 0 ? price.toStringAsFixed(2) : '—',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    SizedBox(
-                      width: 56,
-                      child: Text(
-                        '${change >= 0 ? '+' : ''}${change.toStringAsFixed(2)}',
-                        style: TextStyle(color: color, fontSize: 13),
-                        textAlign: TextAlign.right,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    SizedBox(
-                      width: 64,
-                      child: Text(
-                        '${changePct >= 0 ? '+' : ''}${changePct.toStringAsFixed(2)}%',
-                        style: TextStyle(
-                          color: color,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
+                        child: Row(
+                          children: [
+                            SizedBox(width: colCode, child: Text(g.ticker, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                            SizedBox(width: colName, child: Text(g.ticker, style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                            SizedBox(width: colPct, child: Text('${g.todaysChangePerc >= 0 ? '+' : ''}${g.todaysChangePerc.toStringAsFixed(2)}%', style: TextStyle(color: color, fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                            SizedBox(width: colPrice, child: Text(effectivePrice != null && effectivePrice > 0 ? _formatPrice(effectivePrice) : '—', style: const TextStyle(color: Colors.white, fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                            SizedBox(width: colChange, child: Text('${g.todaysChange >= 0 ? '+' : ''}${g.todaysChange.toStringAsFixed(2)}', style: TextStyle(color: color, fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                            SizedBox(width: colOpen, child: Text(g.dayOpen != null && g.dayOpen! > 0 ? _formatPrice(g.dayOpen!) : '—', style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                            SizedBox(width: colPrev, child: Text(g.prevClose != null && g.prevClose! > 0 ? _formatPrice(g.prevClose!) : '—', style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                            SizedBox(width: colHigh, child: Text(g.dayHigh != null && g.dayHigh! > 0 ? _formatPrice(g.dayHigh!) : '—', style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                            SizedBox(width: colLow, child: Text(g.dayLow != null && g.dayLow! > 0 ? _formatPrice(g.dayLow!) : '—', style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                            SizedBox(width: colVol, child: Text(_formatVolume(g.dayVolume), style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                          ],
                         ),
-                        textAlign: TextAlign.right,
                       ),
                     ),
-                  ],
-                ),
-              ),
+                  );
+                }),
+              ],
             ),
-          );
-        },
+          ),
+        ],
       ),
     );
   }

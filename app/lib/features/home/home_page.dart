@@ -32,6 +32,7 @@ class _HomePageState extends State<HomePage> {
   int _pendingFriendRequestCount = 0;
   StreamSubscription? _incomingRequestsSubscription;
   StreamSubscription? _authSubscription;
+  final GlobalKey<NavigatorState> _desktopContentNavKey = GlobalKey<NavigatorState>();
 
   static const double _kDesktopBreakpoint = 1100;
 
@@ -69,6 +70,16 @@ class _HomePageState extends State<HomePage> {
     _incomingRequestsSubscription?.cancel();
     _authSubscription?.cancel();
     super.dispose();
+  }
+
+  Widget _desktopChildForIndex(int index) {
+    final i = index.clamp(0, _desktopPages.length - 1);
+    if (i == 0) {
+      return PcDashboardPage(
+        onNavigateToSection: (idx) => setState(() => _currentIndex = idx),
+      );
+    }
+    return _desktopPages[i];
   }
 
   void _subscribeIncomingRequests() {
@@ -118,23 +129,36 @@ class _HomePageState extends State<HomePage> {
 
         if (useDesktopLayout) {
           final desktopIndex = _currentIndex.clamp(0, _desktopPages.length - 1);
-          final child = desktopIndex == 0
-              ? PcDashboardPage(
-                  onNavigateToSection: (index) {
-                    setState(() => _currentIndex = index);
-                  },
-                )
-              : _desktopPages[desktopIndex];
           return PcShell(
             currentIndex: desktopIndex,
             onDestinationSelected: (index) {
+              final nav = _desktopContentNavKey.currentState;
+              nav?.popUntil((route) => route.isFirst);
+              nav?.pushReplacement(
+                MaterialPageRoute<void>(
+                  builder: (_) => _desktopChildForIndex(index),
+                ),
+              );
               setState(() => _currentIndex = index);
             },
             unreadCount: totalUnread,
             userAvatarUrl: FirebaseBootstrap.isReady
                 ? FirebaseAuth.instance.currentUser?.photoURL
                 : null,
-            child: child,
+            contentPadding: desktopIndex == 1 ? EdgeInsets.zero : null,
+            child: Navigator(
+              key: _desktopContentNavKey,
+              initialRoute: '/',
+              onGenerateRoute: (settings) {
+                final name = settings.name ?? '/';
+                if (name == '/') {
+                  return MaterialPageRoute<void>(
+                    builder: (_) => _desktopChildForIndex(desktopIndex),
+                  );
+                }
+                return null;
+              },
+            ),
           );
         }
 

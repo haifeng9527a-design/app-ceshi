@@ -13,6 +13,7 @@ class PcShell extends StatelessWidget {
     required this.child,
     this.unreadCount = 0,
     this.userAvatarUrl,
+    this.contentPadding,
   });
 
   final int currentIndex;
@@ -20,6 +21,8 @@ class PcShell extends StatelessWidget {
   final Widget child;
   final int unreadCount;
   final String? userAvatarUrl;
+  /// 内容区内边距；null 时使用 contentPadding。行情等页传 EdgeInsets.zero 可铺满全屏
+  final EdgeInsets? contentPadding;
 
   static const List<String> _pageTitles = [
     '首页',
@@ -43,6 +46,7 @@ class PcShell extends StatelessWidget {
           PcSidebar(
             currentIndex: currentIndex,
             onDestinationSelected: onDestinationSelected,
+            messageUnreadCount: unreadCount,
           ),
           Expanded(
             child: Column(
@@ -55,7 +59,7 @@ class PcShell extends StatelessWidget {
                 ),
                 Expanded(
                   child: Padding(
-                    padding: const EdgeInsets.all(PcDashboardTheme.contentPadding),
+                    padding: contentPadding ?? const EdgeInsets.all(PcDashboardTheme.contentPadding),
                     child: child,
                   ),
                 ),

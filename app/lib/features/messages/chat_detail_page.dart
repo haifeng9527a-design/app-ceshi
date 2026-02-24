@@ -60,6 +60,7 @@ class ChatDetailPage extends StatefulWidget {
 
 class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStateMixin {
   final _textController = TextEditingController();
+  final _focusNode = FocusNode();
   final _scrollController = ScrollController();
   final _repository = MessagesRepository();
   final _friendsRepository = FriendsRepository();
@@ -187,6 +188,24 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
     }
     _loadCachedMessages();
     _messageStream = _debounceMessageStream(const Duration(milliseconds: 280));
+    // 打开聊天窗口时自动聚焦输入框，可直接输入
+    _requestInputFocus();
+  }
+
+  /// 下一帧请求输入框聚焦（打开或切换会话时调用，避免每次都要用鼠标点一下）
+  void _requestInputFocus() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focusNode.requestFocus();
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant ChatDetailPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.conversation.id != widget.conversation.id) {
+      // 切换到另一个会话时，同样自动聚焦输入框
+      _requestInputFocus();
+    }
   }
 
   Future<void> _loadCallRecords() async {
@@ -334,6 +353,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
     }
     _textController.removeListener(_handleTextChanged);
     _textController.dispose();
+    _focusNode.dispose();
     _hasTextNotifier.dispose();
     _shouldAutoScrollNotifier.dispose();
     _scrollController.removeListener(_handleScroll);
@@ -496,6 +516,8 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
     _shouldAutoScrollNotifier.value = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _scrollToBottom(animated: true);
+      // 发送后保持输入框聚焦，可继续输入
+      if (mounted) _focusNode.requestFocus();
     });
 
     // 先写本地缓存（纯本地，无网络不卡），再后台上传
@@ -2399,6 +2421,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
                           )
                         : TextField(
                             controller: _textController,
+                            focusNode: _focusNode,
                             minLines: 1,
                             maxLines: 3,
                             textInputAction: TextInputAction.send,
