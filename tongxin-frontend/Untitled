@@ -1,0 +1,75 @@
+Last login: Thu Feb 26 14:12:45 on ttys001
+haifeng@haideMacBook-Pro ~ % cd /Users/haifeng/Desktop/app---tongxin/tongxin-frontend && flutter run -d macos
+Resolving dependencies... 
+Downloading packages... 
+  app_links 6.4.1 (7.0.0 available)
+  archive 4.0.7 (4.0.9 available)
+  audio_session 0.1.25 (0.2.2 available)
+  ffi 2.1.5 (2.2.0 available)
+  file_picker 8.3.7 (10.3.10 available)
+  fl_chart 0.66.2 (1.1.1 available)
+  flutter_app_badger 1.5.0 (discontinued)
+  flutter_lints 3.0.2 (6.0.0 available)
+  flutter_local_notifications 20.0.0 (20.1.0 available)
+  flutter_local_notifications_windows 2.0.0 (2.0.1 available)
+  google_sign_in_android 7.2.7 (7.2.9 available)
+  google_sign_in_ios 6.2.5 (6.3.0 available)
+  google_sign_in_web 1.1.0 (1.1.2 available)
+  image 4.7.2 (4.8.0 available)
+  image_picker_android 0.8.13+13 (0.8.13+14 available)
+  intl 0.19.0 (0.20.2 available)
+  json_annotation 4.10.0 (4.11.0 available)
+  just_audio 0.9.46 (0.10.5 available)
+  lints 3.0.0 (6.1.0 available)
+  meta 1.17.0 (1.18.1 available)
+  mobile_scanner 6.0.11 (7.2.0 available)
+  permission_handler 11.4.0 (12.0.1 available)
+  permission_handler_android 12.1.0 (13.0.1 available)
+  petitparser 7.0.1 (7.0.2 available)
+  posix 6.0.3 (6.5.0 available)
+  record_android 1.5.0 (1.5.1 available)
+  record_macos 1.2.0 (1.2.1 available)
+  test_api 0.7.8 (0.7.9 available)
+  timezone 0.10.1 (0.11.0 available)
+  url_launcher_ios 6.3.6 (6.4.1 available)
+  uuid 4.5.2 (4.5.3 available)
+  video_player 2.10.1 (2.11.0 available)
+  video_player_android 2.9.1 (2.9.4 available)
+  video_player_avfoundation 2.9.1 (2.9.3 available)
+  win32 5.15.0 (6.0.0 available)
+Got dependencies!
+1 package is discontinued.
+34 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+Launching lib/main.dart on macOS in debug mode...
+lib/features/market/stock_chart_page.dart:538:35: Error: No named parameter with the name 'prevClose'.
+                                  prevClose: _prevClose,
+                                  ^^^^^^^^^
+lib/features/market/chart_viewport.dart:12:9: Context: Found this candidate, but the arguments don't match.
+  const ChartViewport({
+        ^^^^^^^^^^^^^
+lib/features/market/chart_viewport.dart:307:29: Error: The getter 'prevClose' isn't defined for the type 'ChartViewport'.
+ - 'ChartViewport' is from 'package:tongxin_frontend/features/market/chart_viewport.dart' ('lib/features/market/chart_viewport.dart').
+Try correcting the name to the name of an existing getter, or defining a getter or field named 'prevClose'.
+    final refPrice = widget.prevClose ?? (candles.isNotEmpty ? candles.last.close : null);
+                            ^^^^^^^^^
+Target kernel_snapshot_program failed: Exception
+Failed to package /Users/haifeng/Desktop/app---tongxin/tongxin-frontend.
+Command PhaseScriptExecution failed with a nonzero exit code
+/Users/haifeng/Desktop/app---tongxin/tongxin-frontend/macos/Pods/Pods.xcodeproj: warning: The macOS deployment target 'MACOSX_DEPLOYMENT_TARGET' is set to 10.12, but the range of supported deployment target versions is 10.13 to 26.2.99. (in target 'AppAuth-AppAuthCore_Privacy' from project 'Pods')
+/Users/haifeng/Desktop/app---tongxin/tongxin-frontend/macos/Pods/Pods.xcodeproj: warning: The macOS deployment target 'MACOSX_DEPLOYMENT_TARGET' is set to 10.12, but the range of supported deployment target versions is 10.13 to 26.2.99. (in target 'AppAuth' from project 'Pods')
+/Users/haifeng/Desktop/app---tongxin/tongxin-frontend/macos/Pods/Pods.xcodeproj: warning: The macOS deployment target 'MACOSX_DEPLOYMENT_TARGET' is set to 10.11, but the range of supported deployment target versions is 10.13 to 26.2.99. (in target 'PromisesObjC-FBLPromises_Privacy' from project 'Pods')
+/Users/haifeng/Desktop/app---tongxin/tongxin-frontend/macos/Pods/Pods.xcodeproj: warning: The macOS deployment target 'MACOSX_DEPLOYMENT_TARGET' is set to 10.11, but the range of supported deployment target versions is 10.13 to 26.2.99. (in target 'PromisesObjC' from project 'Pods')
+/Users/haifeng/Desktop/app---tongxin/tongxin-frontend/macos/Pods/Pods.xcodeproj: warning: The macOS deployment target 'MACOSX_DEPLOYMENT_TARGET' is set to 10.12, but the range of supported deployment target versions is 10.13 to 26.2.99. (in target 'GTMSessionFetcher-GTMSessionFetcher_Core_Privacy' from project 'Pods')
+/Users/haifeng/Desktop/app---tongxin/tongxin-frontend/macos/Pods/Pods.xcodeproj: warning: The macOS deployment target 'MACOSX_DEPLOYMENT_TARGET' is set to 10.12, but the range of supported deployment target versions is 10.13 to 26.2.99. (in target 'GTMSessionFetcher-GTMSessionFetcher_Full_Privacy' from project 'Pods')
+/Users/haifeng/Desktop/app---tongxin/tongxin-frontend/macos/Pods/Pods.xcodeproj: warning: The macOS deployment target 'MACOSX_DEPLOYMENT_TARGET' is set to 10.12, but the range of supported deployment target versions is 10.13 to 26.2.99. (in target 'GTMSessionFetcher' from project 'Pods')
+/Users/haifeng/Desktop/app---tongxin/tongxin-frontend/macos/Pods/Pods.xcodeproj: warning: The macOS deployment target 'MACOSX_DEPLOYMENT_TARGET' is set to 10.12, but the range of supported deployment target versions is 10.13 to 26.2.99. (in target 'GTMAppAuth-GTMAppAuth_Privacy' from project 'Pods')
+/Users/haifeng/Desktop/app---tongxin/tongxin-frontend/macos/Pods/Pods.xcodeproj: warning: The macOS deployment target 'MACOSX_DEPLOYMENT_TARGET' is set to 10.12, but the range of supported deployment target versions is 10.13 to 26.2.99. (in target 'GTMAppAuth' from project 'Pods')
+/Users/haifeng/Desktop/app---tongxin/tongxin-frontend/macos/Pods/Pods.xcodeproj: warning: The macOS deployment target 'MACOSX_DEPLOYMENT_TARGET' is set to 10.11, but the range of supported deployment target versions is 10.13 to 26.2.99. (in target 'AgoraIrisRTC_macOS' from project 'Pods')
+/Users/haifeng/Desktop/app---tongxin/tongxin-frontend/macos/Pods/Pods.xcodeproj: warning: The macOS deployment target 'MACOSX_DEPLOYMENT_TARGET' is set to 10.11, but the range of supported deployment target versions is 10.13 to 26.2.99. (in target 'AgoraRtcEngine_macOS' from project 'Pods')
+/Users/haifeng/Desktop/app---tongxin/tongxin-frontend/macos/Pods/Pods.xcodeproj: warning: The macOS deployment target 'MACOSX_DEPLOYMENT_TARGET' is set to 10.11, but the range of supported deployment target versions is 10.13 to 26.2.99. (in target 'AgoraInfra_macOS' from project 'Pods')
+** BUILD FAILED **
+
+Building macOS application...                                           
+Error: Build process failed
+haifeng@haideMacBook-Pro tongxin-frontend % 

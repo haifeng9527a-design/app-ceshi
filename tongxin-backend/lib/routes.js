@@ -1,0 +1,398 @@
+/**
+ * 行情代理路由：/api/quotes 按 symbol 缓存 + 批量查/补拉；其余接口仍用 getOrStale/set
+ */
+const { getOrStale, set, DEFAULT_TTL_MS } = require('./cache');
+const { resolve } = require('./symbolResolver');
+const polygon = require('./polygon');
+const { getBatchSnapshotsV2, getBatchSnapshotsV3, V2_SNAPSHOT_BATCH_SIZE, V3_SNAPSHOT_BATCH_SIZE } = polygon;
+const twelveData = require('./twelveData');
+const db = require('./db');
+const quoteStore = require('./quoteStore');
+const singleFlight = require('./singleFlight');
+const rateLimiter = require('./rateLimiter');
+const {
+  POLYGON_RATE_LIMIT_PER_SEC,
+  POLYGON_BATCH_SIZE,
+  QUOTE_FETCH_TIMEOUT_MS,
+  PARTIAL_THRESHOLD,
+} = require('./config');
+const quoteFetcher = require('./quoteFetcher');
+const supabaseQuoteCache = require('./supabaseQuoteCache');
+
+const toQuoteSnapshot = quoteFetcher.toQuoteSnapshot;
+
+/** 休市/接口无数据时：用 Supabase stock_quote_cache 表备份覆盖，最多取 24 小时内更新过的 */
+const SUPABASE_FALLBACK_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const fetchOneQuote = quoteFetcher.fetchOneQuote;
+
+/** GET /api/quotes?symbols=AAPL,MSFT,... — 按 symbol 缓存，批量查 + 只补缺失/过期
+ *  若 symbols=单只&realtime=1：跳过缓存，直连 Polygon 取实时数据（供详情页使用）
+ */
+async function handleQuotes(req, res, polygonKey, twelveKey) {
+  const raw = req.query.symbols;
+  if (!raw || typeof raw !== 'string') {
+    return res.status(400).json({ error: 'missing symbols' });
+  }
+  const symbols = [...new Set(raw.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean))];
+  if (symbols.length === 0) {
+    return res.json({});
+  }
+
+  const realtime = req.query.realtime === '1' || req.query.realtime === 'true';
+  if (realtime && symbols.length === 1 && polygonKey) {
+    const sym = symbols[0];
+    const r = resolve(sym);
+    if (r.usePolygon) {
+      try {
+        const q = await polygon.getTickerSnapshot(polygonKey, r.polygon);
+        const snap = toQuoteSnapshot({ ...q, symbol: sym });
+        quoteStore.setQuotesBatch([{ symbol: sym, payload: snap, priority: 0 }]);
+        return res.json({ [sym]: snap });
+      } catch (e) {
+        const snap = toQuoteSnapshot({ symbol: sym, price: 0, change: 0, changePercent: 0, error_reason: String(e.message || e) });
+        return res.json({ [sym]: snap });
+      }
+    }
+  }
+
+  db.touchMetaSymbols(symbols, 2);
+  const metaMap = db.getMetaBySymbols(symbols);
+  const { hit, miss } = await quoteStore.getQuotesBatch(symbols, metaMap);
+
+  const out = {};
+  for (const [s, payload] of hit) {
+    out[s] = payload;
+  }
+
+  const polygonToFetch = [];
+  const twelveToFetch = [];
+  for (const s of miss) {
+    const r = resolve(s);
+    if (!r.usePolygon && !r.useTwelve) {
+      out[s] = toQuoteSnapshot({ symbol: s, price: 0, change: 0, changePercent: 0, error_reason: '无法解析 symbol' });
+      continue;
+    }
+    if (r.usePolygon && polygonKey) polygonToFetch.push({ original: s, polygon: r.polygon });
+    if (r.useTwelve && twelveKey) twelveToFetch.push({ original: s, twelve: r.twelve });
+  }
+
+  if (twelveToFetch.length && twelveKey) {
+    const twelveList = [...new Set(twelveToFetch.map((x) => x.twelve))];
+    try {
+      const tdMap = await twelveData.getQuotes(twelveKey, twelveList);
+      const entries = [];
+      for (const { original, twelve } of twelveToFetch) {
+        const q = tdMap[twelve];
+        const snap = q
+          ? toQuoteSnapshot({
+              symbol: original,
+              price: q.close,
+              change: q.change,
+              changePercent: q.percent_change,
+              open: q.open,
+              high: q.high,
+              low: q.low,
+              volume: q.volume,
+            })
+          : toQuoteSnapshot({ symbol: original, price: 0, change: 0, changePercent: 0, error_reason: 'Twelve Data 无数据' });
+        out[original] = snap;
+        entries.push({ symbol: original, payload: snap, priority: 2 });
+      }
+      quoteStore.setQuotesBatch(entries);
+    } catch (e) {
+      for (const { original } of twelveToFetch) {
+        if (!out[original]) {
+          out[original] = toQuoteSnapshot({ symbol: original, price: 0, change: 0, changePercent: 0, error_reason: String(e.message || e) });
+        }
+      }
+    }
+  } else if (twelveToFetch.length) {
+    for (const { original } of twelveToFetch) {
+      out[original] = toQuoteSnapshot({ symbol: original, price: 0, change: 0, changePercent: 0, error_reason: '未配置 TWELVE_DATA_API_KEY' });
+    }
+  }
+
+  if (!polygonKey) {
+    for (const { original } of polygonToFetch) {
+      if (!out[original]) {
+        out[original] = toQuoteSnapshot({ symbol: original, price: 0, change: 0, changePercent: 0, error_reason: '未配置 POLYGON_API_KEY' });
+      }
+    }
+  } else if (polygonToFetch.length > 0) {
+    const needRatio = polygonToFetch.length / symbols.length;
+    /** 有缺失就优先用批量 Snapshot（v2 含 day/prevDay 能拿全今开/最高/最低/量），再对未命中做单只补拉 */
+    const USE_BATCH_THRESHOLD = 1;
+    /** 使用批量时不等先快返，等批量拉完再返回，保证 PC/Web 首包就有今开/最高/最低/量 */
+    const useBatch = polygonToFetch.length >= USE_BATCH_THRESHOLD;
+    const doPartial = useBatch ? false : needRatio > PARTIAL_THRESHOLD;
+
+    const runPolygonFetch = async () => {
+      const entries = [];
+      let toFetch = [...polygonToFetch];
+
+      if (toFetch.length >= USE_BATCH_THRESHOLD) {
+        const batchSize = V2_SNAPSHOT_BATCH_SIZE;
+        for (let i = 0; i < toFetch.length; i += batchSize) {
+          const chunk = toFetch.slice(i, i + batchSize);
+          const symbolsForApi = chunk.map((x) => x.polygon);
+          let batchMap = await getBatchSnapshotsV2(polygonKey, symbolsForApi);
+          if (batchMap.size === 0) {
+            batchMap = await getBatchSnapshotsV3(polygonKey, symbolsForApi);
+          }
+          for (const item of chunk) {
+            const data = batchMap.get(item.polygon);
+            if (data != null) {
+              const snap = toQuoteSnapshot({ ...data, symbol: item.original });
+              out[item.original] = snap;
+              entries.push({ symbol: item.original, payload: snap, priority: 2 });
+            }
+          }
+          await rateLimiter.acquire();
+        }
+        toFetch = toFetch.filter((item) => out[item.original] == null);
+      }
+
+      if (toFetch.length > 0) {
+        const concurrency = Math.min(POLYGON_RATE_LIMIT_PER_SEC, 5);
+        const list = [...toFetch];
+        await Promise.all(
+          Array(concurrency)
+            .fill(0)
+            .map(async () => {
+              while (list.length > 0) {
+                const item = list.shift();
+                if (!item) break;
+                await rateLimiter.acquire();
+                const snap = await singleFlight.getOrInflight(`quote:${item.original}`, () =>
+                  fetchOneQuote(polygonKey, item.original, item.polygon)
+                );
+                out[item.original] = snap;
+                entries.push({ symbol: item.original, payload: snap, priority: 2 });
+              }
+            })
+        );
+      }
+      if (entries.length > 0) quoteStore.setQuotesBatch(entries);
+    };
+
+    if (doPartial) {
+      const ordered = {};
+      for (const s of symbols) {
+        if (out[s] !== undefined) ordered[s] = out[s];
+      }
+      // 仅当已有缓存/其他源数据时才先快返；否则首屏会拿到空对象，列表全显示「—」
+      if (Object.keys(ordered).length > 0) {
+        ordered.partial = true;
+        ordered.missingSymbols = polygonToFetch.map((x) => x.original);
+        ordered.serverTimeMs = Date.now();
+        res.json(ordered);
+        runPolygonFetch().catch(() => {});
+        return;
+      }
+    }
+
+    await runPolygonFetch();
+  }
+
+  // 休市或 Polygon 无当日/昨收时：从 Supabase stock_quote_cache 取备份（24 小时内更新过的），覆盖无有效价格的项
+  const needFallback = symbols.filter(
+    (s) => out[s] && (out[s].close == null || Number(out[s].close) <= 0 || (out[s].error_reason && String(out[s].error_reason).trim().length > 0))
+  );
+  if (needFallback.length > 0 && supabaseQuoteCache.isConfigured()) {
+    try {
+      const fromSupabase = await supabaseQuoteCache.getBySymbols(needFallback, SUPABASE_FALLBACK_MAX_AGE_MS);
+      for (const s of needFallback) {
+        const row = fromSupabase.get(s);
+        if (row && row.payload && row.payload.close != null && Number(row.payload.close) > 0) {
+          out[s] = row.payload;
+        }
+      }
+    } catch (_) {}
+  }
+
+  const ordered = {};
+  for (const s of symbols) {
+    if (out[s] !== undefined) ordered[s] = out[s];
+  }
+  res.json(ordered);
+}
+
+// 日/周/月 K 线默认范围：2 年，首屏响应控制在数秒内；需更多历史可由前端「加载更多」分页请求
+const CANDLES_RANGE_YEARS = 2;
+const CANDLES_DAY_MS = CANDLES_RANGE_YEARS * 365.25 * 24 * 60 * 60 * 1000;
+const CANDLES_WEEK_MS = CANDLES_RANGE_YEARS * 365.25 * 24 * 60 * 60 * 1000;
+const CANDLES_MONTH_MS = CANDLES_RANGE_YEARS * 365.25 * 24 * 60 * 60 * 1000;
+
+/** GET /api/candles?symbol=AAPL&interval=1day|1week|1month|5min|1min|1h
+ *  可选 fromMs, toMs（毫秒时间戳）用于「加载更早」分页，不传则默认最近 CANDLES_RANGE_YEARS */
+async function handleCandles(req, res, polygonKey, twelveKey) {
+  const symbol = req.query.symbol?.trim();
+  const interval = (req.query.interval || '1day').toLowerCase();
+  if (!symbol) return res.status(400).json({ error: 'missing symbol' });
+
+  const r = resolve(symbol);
+  const now = Date.now();
+  let toMs = now;
+  let fromMs = now - 24 * 60 * 60 * 1000;
+  const hasRange = req.query.fromMs != null && req.query.toMs != null;
+  if (hasRange) {
+    toMs = Math.min(now, parseInt(req.query.toMs, 10) || now);
+    fromMs = parseInt(req.query.fromMs, 10) || fromMs;
+    if (fromMs >= toMs) return res.status(400).json({ error: 'fromMs must be less than toMs' });
+  } else {
+    if (interval === '1day') fromMs = now - CANDLES_DAY_MS;
+    else if (interval === '1week') fromMs = now - CANDLES_WEEK_MS;
+    else if (interval === '1month') fromMs = now - CANDLES_MONTH_MS;
+    else if (interval === '1h') fromMs = now - 72 * 60 * 60 * 1000;
+  }
+
+  const cacheKey = hasRange
+    ? `candles_${r.polygon || r.twelve}_${interval}_${fromMs}_${toMs}`
+    : `candles_${r.polygon || r.twelve}_${interval}`;
+  const cached = getOrStale(cacheKey);
+  if (cached) return res.json(cached);
+
+  let list = [];
+  if (r.usePolygon && polygonKey) {
+    let multiplier = 1;
+    let timespan = 'minute';
+    if (interval === '1min') { multiplier = 1; timespan = 'minute'; }
+    else if (interval === '5min') { multiplier = 5; timespan = 'minute'; }
+    else if (interval === '15min') { multiplier = 15; timespan = 'minute'; }
+    else if (interval === '1h') { multiplier = 1; timespan = 'hour'; }
+    else if (interval === '1week') { multiplier = 1; timespan = 'week'; }
+    else if (interval === '1month') { multiplier = 1; timespan = 'month'; }
+    else { multiplier = 1; timespan = 'day'; }
+    try {
+      const bars = await polygon.getAggregates(polygonKey, r.polygon, multiplier, timespan, fromMs, toMs);
+      list = (bars || []).map((b) => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));
+    } catch (_) {}
+  }
+  // Polygon 无数据时用 Twelve 兜底（仅默认范围；带 fromMs/toMs 时不再请求 Twelve）
+  if (list.length === 0 && twelveKey && !hasRange) {
+    const twelveSymbol = r.polygon || r.twelve;
+    const tdInterval = ['1day', '1week', '1month', '1h', '5min', '1min'].includes(interval) ? interval : '1day';
+    const outputsize = (tdInterval === '1day' || tdInterval === '1week' || tdInterval === '1month') ? 600 : 120;
+    try {
+      const bars = await twelveData.getTimeSeries(twelveKey, twelveSymbol, tdInterval, outputsize);
+      list = (bars || []).map((b) => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));
+    } catch (_) {}
+  }
+  set(cacheKey, list, DEFAULT_TTL_MS.candles);
+  res.json(list);
+}
+
+/** GET /api/gainers?limit=20 */
+async function handleGainers(req, res, polygonKey) {
+  if (!polygonKey) return res.json([]);
+  const cacheKey = 'gainers_20';
+  const cached = getOrStale(cacheKey);
+  if (cached) return res.json(cached);
+  try {
+    const list = await polygon.getGainers(polygonKey);
+    set(cacheKey, list, DEFAULT_TTL_MS.gainers);
+    res.json(list);
+  } catch (e) {
+    res.status(502).json({ error: String(e.message || e) });
+  }
+}
+
+/** GET /api/losers?limit=20 */
+async function handleLosers(req, res, polygonKey) {
+  if (!polygonKey) return res.json([]);
+  const cacheKey = 'losers_20';
+  const cached = getOrStale(cacheKey);
+  if (cached) return res.json(cached);
+  try {
+    const list = await polygon.getLosers(polygonKey);
+    set(cacheKey, list, DEFAULT_TTL_MS.losers);
+    res.json(list);
+  } catch (e) {
+    res.status(502).json({ error: String(e.message || e) });
+  }
+}
+
+/** GET /api/search?q=apple */
+async function handleSearch(req, res, polygonKey) {
+  const q = req.query.q?.trim();
+  if (!q) return res.json([]);
+  if (!polygonKey) return res.json([]);
+  const cacheKey = `search_${q}`;
+  const cached = getOrStale(cacheKey);
+  if (cached) return res.json(cached);
+  try {
+    const list = await polygon.searchTickers(polygonKey, q, 20);
+    set(cacheKey, list, DEFAULT_TTL_MS.search);
+    res.json(list);
+  } catch (e) {
+    res.status(502).json({ error: String(e.message || e) });
+  }
+}
+
+/** GET /api/ratios?symbol=AAPL — 财务比率（市盈率等） */
+async function handleRatios(req, res, polygonKey) {
+  const symbol = req.query.symbol?.trim();
+  if (!symbol) return res.status(400).json({ error: 'missing symbol' });
+  if (!polygonKey) return res.json(null);
+  const cacheKey = `ratios_${symbol.toUpperCase()}`;
+  const cached = getOrStale(cacheKey);
+  if (cached) return res.json(cached);
+  try {
+    const sym = symbol.toUpperCase();
+    const data = await polygon.getKeyRatios(polygonKey, sym);
+    if (data) set(cacheKey, data, DEFAULT_TTL_MS.ratios);
+    res.json(data);
+  } catch (e) {
+    res.status(502).json({ error: String(e.message || e) });
+  }
+}
+
+/** GET /api/dividends?symbol=AAPL — 分红历史 */
+async function handleDividends(req, res, polygonKey) {
+  const symbol = req.query.symbol?.trim();
+  if (!symbol) return res.status(400).json({ error: 'missing symbol' });
+  if (!polygonKey) return res.json([]);
+  const cacheKey = `dividends_${symbol.toUpperCase()}`;
+  const cached = getOrStale(cacheKey);
+  if (cached) return res.json(cached);
+  try {
+    const sym = symbol.toUpperCase();
+    const list = await polygon.getDividends(polygonKey, sym, 20);
+    set(cacheKey, list, DEFAULT_TTL_MS.dividends);
+    res.json(list);
+  } catch (e) {
+    res.status(502).json({ error: String(e.message || e) });
+  }
+}
+
+/** GET /api/splits?symbol=AAPL — 拆股历史 */
+async function handleSplits(req, res, polygonKey) {
+  const symbol = req.query.symbol?.trim();
+  if (!symbol) return res.status(400).json({ error: 'missing symbol' });
+  if (!polygonKey) return res.json([]);
+  const cacheKey = `splits_${symbol.toUpperCase()}`;
+  const cached = getOrStale(cacheKey);
+  if (cached) return res.json(cached);
+  try {
+    const sym = symbol.toUpperCase();
+    const list = await polygon.getSplits(polygonKey, sym, 20);
+    set(cacheKey, list, DEFAULT_TTL_MS.splits);
+    res.json(list);
+  } catch (e) {
+    res.status(502).json({ error: String(e.message || e) });
+  }
+}
+
+function registerRoutes(app, polygonKey, twelveKey) {
+  rateLimiter.init(require('./config').POLYGON_RATE_LIMIT_PER_SEC);
+  app.get('/api/quotes', (req, res) => handleQuotes(req, res, polygonKey, twelveKey));
+  app.get('/api/candles', (req, res) => handleCandles(req, res, polygonKey, twelveKey));
+  app.get('/api/gainers', (req, res) => handleGainers(req, res, polygonKey));
+  app.get('/api/losers', (req, res) => handleLosers(req, res, polygonKey));
+  app.get('/api/search', (req, res) => handleSearch(req, res, polygonKey));
+  app.get('/api/ratios', (req, res) => handleRatios(req, res, polygonKey));
+  app.get('/api/dividends', (req, res) => handleDividends(req, res, polygonKey));
+  app.get('/api/splits', (req, res) => handleSplits(req, res, polygonKey));
+}
+
+module.exports = { registerRoutes };

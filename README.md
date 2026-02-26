@@ -1,25 +1,14 @@
-# 交易员展示与学习 APP（多端框架）
+# 通心 (Tongxin)
 
-这是一个用于“交易员个人主页 + 学员浏览 + 排行榜 + 文章/行程”的多端应用框架。当前提供 **Flutter 单代码库** 的初始骨架，后续可扩展为移动端、桌面端与 Web 端。
+前后端分离结构：
 
-## 已包含
-- 多端统一的基础应用结构
-- 交易员列表、交易员详情、排行榜、我的页面
-- 文章/行程的基础信息展示（示例数据）
-- 角色意向：学员可升级为交易员（页面入口预留）
+| 目录 | 说明 |
+|------|------|
+| **tongxin-frontend** | Flutter 前端应用，展示名称为「Tongxin」 |
+| **tongxin-backend** | Node.js 后端，行情代理与缓存，可单独部署 |
 
-## 目录结构
-- `app/` Flutter 应用主体
-- `docs/` 需求、架构、数据模型、路线图
+- 前端包名：`tongxin_frontend`
+- 后端服务名：`tongxin-backend`，默认端口 3000
 
-## 快速开始（需要已安装 Flutter）
-```bash
-cd app
-flutter pub get
-flutter run -d chrome
-```
-
-## 下一步建议
-- 接入后端（交易员、文章、行程、排行榜）
-- 增加账号体系与交易员入驻流程
-- 课程/教学内容的展示与购买/预约功能
+后端详见 [tongxin-backend/README.md](tongxin-backend/README.md)。  
+前端运行：在 `tongxin-frontend` 目录执行 `flutter run`。

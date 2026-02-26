@@ -1,0 +1,460 @@
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
+
+import 'polygon_repository.dart';
+import 'trading_cache.dart';
+import '../market/market_repository.dart';
+
+/// 请求后端行情代理（tongxin-backend），不直连 Polygon/Twelve Data；所有结果做本地缓存
+class BackendMarketClient {
+  BackendMarketClient(String baseUrl)
+      : _base = baseUrl.endsWith('/') ? baseUrl : '$baseUrl/';
+  final String _base;
+  final _cache = TradingCache.instance;
+
+  static const _quotesMaxAge = Duration(seconds: 15);
+  static const _candlesMaxAge = Duration(minutes: 2);
+  static const _gainersLosersMaxAge = Duration(minutes: 5);
+  static const _searchMaxAge = Duration(minutes: 5);
+
+  /// [realtime] 为 true 且仅请求单只时：不读本地缓存，请求带 realtime=1，后端直连 Polygon 返回实时数据（详情页用）
+  Future<Map<String, MarketQuote>> getQuotes(List<String> symbols, {bool realtime = false}) async {
+    if (symbols.isEmpty) return {};
+    final sorted = List<String>.from(symbols)..sort();
+    final cacheKey = 'backend_quotes_${sorted.join(",")}';
+    final useRealtime = realtime && symbols.length == 1;
+    if (!useRealtime) {
+      final cached = await _cache.get(cacheKey, maxAge: _quotesMaxAge);
+      if (cached != null && cached is Map<String, dynamic>) {
+        final out = <String, MarketQuote>{};
+        for (final sym in symbols) {
+          final s = sym.trim();
+          if (s.isEmpty) continue;
+          final raw = cached[s] as Map<String, dynamic>?;
+          if (raw == null) {
+            out[s] = MarketQuote.failed(s, '无数据');
+            continue;
+          }
+          final q = MarketQuote.fromSnapshotMap(raw);
+          if (q != null) {
+            out[s] = q;
+          } else {
+            out[s] = MarketQuote.failed(s, raw['error_reason'] as String? ?? '解析失败');
+          }
+        }
+        return out;
+      }
+    }
+    final queryParams = <String, String>{'symbols': symbols.join(',')};
+    if (useRealtime) queryParams['realtime'] = '1';
+    final uri = Uri.parse('${_base}api/quotes').replace(
+      queryParameters: queryParams,
+    );
+    try {
+      final timeoutSec = symbols.length > 25 ? 45 : 15;
+      final resp = await http.get(uri).timeout(
+        Duration(seconds: timeoutSec),
+        onTimeout: () => throw Exception('请求超时'),
+      );
+      if (resp.statusCode != 200) {
+        if (kDebugMode) debugPrint('[Backend getQuotes] ${resp.statusCode} ${resp.body}');
+        return _failedMap(symbols, 'HTTP ${resp.statusCode}');
+      }
+      final map = jsonDecode(resp.body) as Map<String, dynamic>?;
+      if (map == null) return _failedMap(symbols, '无效响应');
+      final out = <String, MarketQuote>{};
+      for (final sym in symbols) {
+        final s = sym.trim();
+        if (s.isEmpty) continue;
+        final raw = map[s] as Map<String, dynamic>?;
+        if (raw == null) {
+          out[s] = MarketQuote.failed(s, '无数据');
+          continue;
+        }
+        final q = MarketQuote.fromSnapshotMap(raw);
+        if (q != null) {
+          out[s] = q;
+        } else {
+          out[s] = MarketQuote.failed(s, raw['error_reason'] as String? ?? '解析失败');
+        }
+      }
+      final hasAnySuccess = out.values.any((q) => !q.hasError && q.price > 0);
+      if (!useRealtime && hasAnySuccess) {
+        try {
+          await _cache.set(cacheKey, map);
+        } catch (_) {}
+      }
+      return out;
+    } catch (e) {
+      if (kDebugMode) debugPrint('[Backend getQuotes] $e');
+      return _failedMap(symbols, e.toString());
+    }
+  }
+
+  Map<String, MarketQuote> _failedMap(List<String> symbols, String reason) {
+    final out = <String, MarketQuote>{};
+    for (final s in symbols) {
+      final t = s.trim();
+      if (t.isEmpty) continue;
+      out[t] = MarketQuote.failed(t, reason);
+    }
+    return out;
+  }
+
+  /// [lastDays] 非 null 时请求多日数据（用于分时 2天/3天/4天 合并显示），会传 fromMs/toMs 给后端
+  Future<List<ChartCandle>> getCandles(String symbol, String interval, {int? lastDays, void Function(String)? onError}) async {
+    final sym = symbol.trim();
+    if (sym.isEmpty) return [];
+    final toMs = DateTime.now().millisecondsSinceEpoch;
+    final fromMs = lastDays != null && lastDays > 0
+        ? toMs - lastDays * 24 * 3600 * 1000
+        : null;
+    final cacheKey = fromMs != null
+        ? 'backend_candles_${sym}_${interval}_${fromMs}_$toMs'
+        : 'backend_candles_${sym}_$interval';
+    final cached = await _cache.getList(cacheKey, maxAge: _candlesMaxAge);
+    if (cached != null && cached.isNotEmpty) {
+      final result = <ChartCandle>[];
+      for (final e in cached) {
+        if (e is! Map<String, dynamic>) continue;
+        final t = (e['t'] as num?)?.toDouble();
+        final c = (e['c'] as num?)?.toDouble();
+        if (t == null || c == null) continue;
+        result.add(ChartCandle(
+          time: t / 1000.0,
+          open: (e['o'] as num?)?.toDouble() ?? c,
+          high: (e['h'] as num?)?.toDouble() ?? c,
+          low: (e['l'] as num?)?.toDouble() ?? c,
+          close: c,
+          volume: (e['v'] as num?)?.toInt(),
+        ));
+      }
+      if (result.isNotEmpty) return result;
+    }
+    final queryParams = <String, String>{'symbol': sym, 'interval': interval};
+    if (fromMs != null) {
+      queryParams['fromMs'] = fromMs.toString();
+      queryParams['toMs'] = toMs.toString();
+    }
+    final uri = Uri.parse('${_base}api/candles').replace(
+      queryParameters: queryParams,
+    );
+    try {
+      if (kDebugMode) debugPrint('[Backend getCandles] GET $uri');
+      // 后端拉 20 年历史时可能较慢，超时放宽到 45 秒
+      final resp = await http.get(uri).timeout(
+        const Duration(seconds: 45),
+        onTimeout: () => throw Exception('请求超时(45s)'),
+      );
+      if (resp.statusCode != 200) {
+        final msg = 'HTTP ${resp.statusCode}';
+        if (kDebugMode) debugPrint('[Backend getCandles] $sym $interval => $msg');
+        onError?.call(msg);
+        return [];
+      }
+      final list = jsonDecode(resp.body) as List<dynamic>?;
+      if (list == null) {
+        if (kDebugMode) debugPrint('[Backend getCandles] $sym $interval => 响应非数组');
+        onError?.call('响应格式错误');
+        return [];
+      }
+      final result = <ChartCandle>[];
+      final toCache = <Map<String, dynamic>>[];
+      for (final e in list) {
+        if (e is! Map<String, dynamic>) continue;
+        final t = (e['t'] as num?)?.toDouble();
+        final c = (e['c'] as num?)?.toDouble();
+        if (t == null || c == null) continue;
+        result.add(ChartCandle(
+          time: t / 1000.0,
+          open: (e['o'] as num?)?.toDouble() ?? c,
+          high: (e['h'] as num?)?.toDouble() ?? c,
+          low: (e['l'] as num?)?.toDouble() ?? c,
+          close: c,
+          volume: (e['v'] as num?)?.toInt(),
+        ));
+        toCache.add(e);
+      }
+      if (kDebugMode) debugPrint('[Backend getCandles] $sym $interval => ${result.length} 根K线');
+      if (toCache.isNotEmpty) {
+        try {
+          await _cache.setList(cacheKey, toCache);
+        } catch (_) {}
+      }
+      return result;
+    } catch (e) {
+      final msg = e.toString().replaceFirst('Exception: ', '');
+      if (kDebugMode) debugPrint('[Backend getCandles] $sym $interval 请求失败: $e');
+      onError?.call(msg);
+      return [];
+    }
+  }
+
+  /// 加载早于 [olderThanMs] 的 K 线（用于向左滑动加载更多、补全近 20 年）
+  /// 请求 GET /api/candles?symbol=&interval=&fromMs=&toMs=
+  Future<List<ChartCandle>> getCandlesOlderThan(
+    String symbol,
+    String interval, {
+    required int olderThanMs,
+    int limit = 500,
+  }) async {
+    final sym = symbol.trim();
+    if (sym.isEmpty) return [];
+    final intervalMs = _intervalMs(interval);
+    final toMs = olderThanMs - 1;
+    final fromMs = (olderThanMs - limit * intervalMs).clamp(0, toMs - 1);
+    final uri = Uri.parse('${_base}api/candles').replace(
+      queryParameters: {
+        'symbol': sym,
+        'interval': interval,
+        'fromMs': fromMs.toString(),
+        'toMs': toMs.toString(),
+      },
+    );
+    try {
+      if (kDebugMode) debugPrint('[Backend getCandlesOlderThan] GET $uri');
+      final resp = await http.get(uri).timeout(
+        const Duration(seconds: 45),
+        onTimeout: () => throw Exception('请求超时(45s)'),
+      );
+      if (resp.statusCode != 200) return [];
+      final list = jsonDecode(resp.body) as List<dynamic>?;
+      if (list == null) return [];
+      final result = <ChartCandle>[];
+      for (final e in list) {
+        if (e is! Map<String, dynamic>) continue;
+        final t = (e['t'] as num?)?.toDouble();
+        final c = (e['c'] as num?)?.toDouble();
+        if (t == null || c == null) continue;
+        result.add(ChartCandle(
+          time: t / 1000.0,
+          open: (e['o'] as num?)?.toDouble() ?? c,
+          high: (e['h'] as num?)?.toDouble() ?? c,
+          low: (e['l'] as num?)?.toDouble() ?? c,
+          close: c,
+          volume: (e['v'] as num?)?.toInt(),
+        ));
+      }
+      if (kDebugMode) debugPrint('[Backend getCandlesOlderThan] $sym $interval => ${result.length} 根');
+      return result;
+    } catch (e) {
+      if (kDebugMode) debugPrint('[Backend getCandlesOlderThan] $sym 失败: $e');
+      return [];
+    }
+  }
+
+  static int _intervalMs(String interval) {
+    if (interval == '1day') return 86400 * 1000;
+    if (interval == '1week') return 7 * 86400 * 1000;
+    if (interval == '1month') return 30 * 86400 * 1000;
+    if (interval == '1h') return 3600 * 1000;
+    if (interval == '5min') return 5 * 60 * 1000;
+    if (interval == '1min') return 60 * 1000;
+    return 86400 * 1000;
+  }
+
+  Future<List<PolygonGainer>> getGainers({int limit = 20}) async {
+    const cacheKey = 'backend_gainers_20';
+    final cached = await _cache.getList(cacheKey, maxAge: _gainersLosersMaxAge);
+    if (cached != null && cached.isNotEmpty) {
+      final result = <PolygonGainer>[];
+      for (final e in cached) {
+        if (e is! Map<String, dynamic>) continue;
+        final g = PolygonGainer.fromJson(e);
+        if (g != null) result.add(g);
+      }
+      if (result.isNotEmpty) return result.take(limit).toList();
+    }
+    final uri = Uri.parse('${_base}api/gainers').replace(
+      queryParameters: {'limit': limit.toString()},
+    );
+    try {
+      final resp = await http.get(uri).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () => throw Exception('请求超时'),
+      );
+      if (resp.statusCode != 200) return [];
+      final list = jsonDecode(resp.body) as List<dynamic>?;
+      if (list == null) return [];
+      final result = <PolygonGainer>[];
+      final toCache = <Map<String, dynamic>>[];
+      for (final e in list) {
+        if (e is! Map<String, dynamic>) continue;
+        final g = PolygonGainer.fromJson(e);
+        if (g != null) {
+          result.add(g);
+          toCache.add(e);
+        }
+      }
+      if (toCache.isNotEmpty) {
+        try {
+          await _cache.setList(cacheKey, toCache);
+        } catch (_) {}
+      }
+      return result;
+    } catch (e) {
+      if (kDebugMode) debugPrint('[Backend getGainers] $e');
+      return [];
+    }
+  }
+
+  Future<List<PolygonGainer>> getLosers({int limit = 20}) async {
+    const cacheKey = 'backend_losers_20';
+    final cached = await _cache.getList(cacheKey, maxAge: _gainersLosersMaxAge);
+    if (cached != null && cached.isNotEmpty) {
+      final result = <PolygonGainer>[];
+      for (final e in cached) {
+        if (e is! Map<String, dynamic>) continue;
+        final g = PolygonGainer.fromJson(e);
+        if (g != null) result.add(g);
+      }
+      if (result.isNotEmpty) return result.take(limit).toList();
+    }
+    final uri = Uri.parse('${_base}api/losers').replace(
+      queryParameters: {'limit': limit.toString()},
+    );
+    try {
+      final resp = await http.get(uri).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () => throw Exception('请求超时'),
+      );
+      if (resp.statusCode != 200) return [];
+      final list = jsonDecode(resp.body) as List<dynamic>?;
+      if (list == null) return [];
+      final result = <PolygonGainer>[];
+      final toCache = <Map<String, dynamic>>[];
+      for (final e in list) {
+        if (e is! Map<String, dynamic>) continue;
+        final g = PolygonGainer.fromJson(e);
+        if (g != null) {
+          result.add(g);
+          toCache.add(e);
+        }
+      }
+      if (toCache.isNotEmpty) {
+        try {
+          await _cache.setList(cacheKey, toCache);
+        } catch (_) {}
+      }
+      return result;
+    } catch (e) {
+      if (kDebugMode) debugPrint('[Backend getLosers] $e');
+      return [];
+    }
+  }
+
+  Future<List<MarketSearchResult>> search(String query) async {
+    final q = query.trim();
+    if (q.isEmpty) return [];
+    final cacheKey = 'backend_search_${q.replaceAll(RegExp(r'[^\w\s-]'), '_')}';
+    final cached = await _cache.getList(cacheKey, maxAge: _searchMaxAge);
+    if (cached != null && cached.isNotEmpty) {
+      return cached
+          .where((e) => e is Map<String, dynamic> && e['ticker'] != null)
+          .map((e) => MarketSearchResult(
+                symbol: e['ticker'] as String,
+                name: (e['name'] as String?) ?? e['ticker'] as String,
+                market: e['market'] as String?,
+              ))
+          .toList();
+    }
+    final uri = Uri.parse('${_base}api/search').replace(
+      queryParameters: {'q': q},
+    );
+    try {
+      final resp = await http.get(uri).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => throw Exception('请求超时'),
+      );
+      if (resp.statusCode != 200) return [];
+      final list = jsonDecode(resp.body) as List<dynamic>?;
+      if (list == null) return [];
+      final result = list
+          .where((e) => e is Map<String, dynamic> && e['ticker'] != null)
+          .map((e) => MarketSearchResult(
+                symbol: e['ticker'] as String,
+                name: (e['name'] as String?) ?? e['ticker'] as String,
+                market: e['market'] as String?,
+              ))
+          .toList();
+      final toCache = list.whereType<Map<String, dynamic>>().toList();
+      if (toCache.isNotEmpty) {
+        try {
+          await _cache.setList(cacheKey, toCache);
+        } catch (_) {}
+      }
+      return result;
+    } catch (e) {
+      if (kDebugMode) debugPrint('[Backend search] $e');
+      return [];
+    }
+  }
+
+  static const _ratiosMaxAge = Duration(minutes: 10);
+  static const _companyActionsMaxAge = Duration(hours: 1);
+
+  Future<Map<String, dynamic>?> getKeyRatios(String symbol) async {
+    final sym = symbol.trim();
+    if (sym.isEmpty) return null;
+    final cacheKey = 'backend_ratios_$sym';
+    final cached = await _cache.get(cacheKey, maxAge: _ratiosMaxAge);
+    if (cached != null && cached is Map<String, dynamic>) return cached;
+    final uri = Uri.parse('${_base}api/ratios').replace(queryParameters: {'symbol': sym});
+    try {
+      final resp = await http.get(uri).timeout(const Duration(seconds: 10), onTimeout: () => throw Exception('请求超时'));
+      if (resp.statusCode != 200) return null;
+      final data = jsonDecode(resp.body);
+      if (data == null) return null;
+      final map = data is Map<String, dynamic> ? data : null;
+      if (map != null) try { await _cache.set(cacheKey, map); } catch (_) {}
+      return map;
+    } catch (e) {
+      if (kDebugMode) debugPrint('[Backend getKeyRatios] $e');
+      return null;
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getDividends(String symbol) async {
+    final sym = symbol.trim();
+    if (sym.isEmpty) return [];
+    final cacheKey = 'backend_dividends_$sym';
+    final cached = await _cache.getList(cacheKey, maxAge: _companyActionsMaxAge);
+    if (cached != null && cached.isNotEmpty) return cached.whereType<Map<String, dynamic>>().toList();
+    final uri = Uri.parse('${_base}api/dividends').replace(queryParameters: {'symbol': sym});
+    try {
+      final resp = await http.get(uri).timeout(const Duration(seconds: 10), onTimeout: () => throw Exception('请求超时'));
+      if (resp.statusCode != 200) return [];
+      final list = jsonDecode(resp.body);
+      if (list is! List) return [];
+      final result = list.whereType<Map<String, dynamic>>().toList();
+      if (result.isNotEmpty) try { await _cache.setList(cacheKey, result); } catch (_) {}
+      return result;
+    } catch (e) {
+      if (kDebugMode) debugPrint('[Backend getDividends] $e');
+      return [];
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getSplits(String symbol) async {
+    final sym = symbol.trim();
+    if (sym.isEmpty) return [];
+    final cacheKey = 'backend_splits_$sym';
+    final cached = await _cache.getList(cacheKey, maxAge: _companyActionsMaxAge);
+    if (cached != null && cached.isNotEmpty) return cached.whereType<Map<String, dynamic>>().toList();
+    final uri = Uri.parse('${_base}api/splits').replace(queryParameters: {'symbol': sym});
+    try {
+      final resp = await http.get(uri).timeout(const Duration(seconds: 10), onTimeout: () => throw Exception('请求超时'));
+      if (resp.statusCode != 200) return [];
+      final list = jsonDecode(resp.body);
+      if (list is! List) return [];
+      final result = list.whereType<Map<String, dynamic>>().toList();
+      if (result.isNotEmpty) try { await _cache.setList(cacheKey, result); } catch (_) {}
+      return result;
+    } catch (e) {
+      if (kDebugMode) debugPrint('[Backend getSplits] $e');
+      return [];
+    }
+  }
+}
