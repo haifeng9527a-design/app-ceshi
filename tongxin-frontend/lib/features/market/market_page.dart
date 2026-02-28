@@ -557,15 +557,29 @@ class _HomeTabState extends State<_HomeTab> {
     return s.runes.every((r) => r >= 0x41 && r <= 0x5A);
   }
 
-  void _openDetail(String symbol, {String? name}) {
+  void _openDetail(String symbol, {String? name, List<String>? symbolList, int? symbolIndex}) {
     final n = name ?? _watchlistQuotes[symbol]?.name ?? symbol;
     if (_isUsStock(symbol)) {
       Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => StockChartPage(symbol: symbol, name: n != symbol ? n : null)),
+        MaterialPageRoute(
+          builder: (_) => StockChartPage(
+            symbol: symbol,
+            name: n != symbol ? n : null,
+            symbolList: symbolList,
+            symbolIndex: symbolIndex,
+          ),
+        ),
       );
     } else {
       Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => GenericChartPage(symbol: symbol, name: n)),
+        MaterialPageRoute(
+          builder: (_) => GenericChartPage(
+            symbol: symbol,
+            name: n,
+            symbolList: symbolList,
+            symbolIndex: symbolIndex,
+          ),
+        ),
       );
     }
   }
@@ -701,8 +715,9 @@ class _HomeTabState extends State<_HomeTab> {
               onTap: () {
                 if (hasError && !isLoading) { _load(); return; }
                 if (hasError) return;
+                final symbolList = _indexList.map((e) => e.$2).toList();
                 Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => GenericChartPage(symbol: symbol, name: label)),
+                  MaterialPageRoute(builder: (_) => GenericChartPage(symbol: symbol, name: label, symbolList: symbolList, symbolIndex: i)),
                 );
               },
               borderRadius: BorderRadius.circular(_pcRadiusLg),
@@ -790,8 +805,9 @@ class _HomeTabState extends State<_HomeTab> {
                 onTap: () {
                   if (hasError && !isLoading) { _load(); return; }
                   if (hasError) return;
+                  final symbolList = _indexList.map((e) => e.$2).toList();
                   Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => GenericChartPage(symbol: symbol, name: label)),
+                    MaterialPageRoute(builder: (_) => GenericChartPage(symbol: symbol, name: label, symbolList: symbolList, symbolIndex: i)),
                   );
                 },
               ),
@@ -923,17 +939,20 @@ class _HomeTabState extends State<_HomeTab> {
                   ],
                 )
               else
-                ...displayList.map((e) {
-                  final symbol = e.$1;
-                  final q = e.$2;
+                ...displayList.toList().asMap().entries.map((e) {
+                  final i = e.key;
+                  final item = e.value;
+                  final symbol = item.$1;
+                  final q = item.$2;
                   final color = MarketColors.forChangePercent(q.changePercent);
                   final name = q.name ?? symbol;
+                  final symbolList = displayList.map((x) => x.$1).toList();
                   return TableRow(
                     children: [
                       Material(
                         color: Colors.transparent,
                         child: InkWell(
-                          onTap: () => _openDetail(symbol, name: name),
+                          onTap: () => _openDetail(symbol, name: name, symbolList: symbolList, symbolIndex: i),
                           child: Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                             child: Text(name, style: PcDashboardTheme.bodySmall.copyWith(color: PcDashboardTheme.text)),
@@ -1025,13 +1044,14 @@ class _HomeTabState extends State<_HomeTab> {
                         ? Color.lerp(const Color(0xFF22C55E).withValues(alpha: 0.15), const Color(0xFF22C55E).withValues(alpha: 0.5), intensity)!
                         : Color.lerp(const Color(0xFFEF4444).withValues(alpha: 0.15), const Color(0xFFEF4444).withValues(alpha: 0.5), intensity)!;
                     final price = (g.price != null && g.price! > 0) ? g.price! : (g.prevClose != null && g.todaysChange != null ? g.prevClose! + g.todaysChange! : null);
+                    final symbols = list.map((x) => x.ticker).toList();
                     return SizedBox(
                       width: itemWidth,
                       height: itemHeight,
                       child: Material(
                         color: Colors.transparent,
                         child: InkWell(
-                          onTap: () => _openDetail(g.ticker),
+                          onTap: () => _openDetail(g.ticker, symbolList: symbols, symbolIndex: i),
                           borderRadius: BorderRadius.circular(8),
                           child: Container(
                             padding: const EdgeInsets.all(8),
@@ -1173,7 +1193,9 @@ class _HomeTabState extends State<_HomeTab> {
             ),
             child: headerRow,
           ),
-          ...list.take(8).map((g) {
+          ...list.take(8).toList().asMap().entries.map((e) {
+              final i = e.key;
+              final g = e.value;
               final color = MarketColors.forChangePercent(g.todaysChangePerc ?? 0);
               // 接口有时只返回昨收+涨跌额，无 price：用 最新价 = 昨收 + 涨跌额 回退，避免出现「有涨跌却最新价 —」
               final effectivePrice = (g.price != null && g.price! > 0)
@@ -1181,10 +1203,11 @@ class _HomeTabState extends State<_HomeTab> {
                   : (g.prevClose != null && g.todaysChange != null
                       ? g.prevClose! + g.todaysChange
                       : null);
+              final symbols = list.take(8).map((x) => x.ticker).toList();
               return Material(
                 color: Colors.transparent,
                 child: InkWell(
-                  onTap: () => _openDetail(g.ticker),
+                  onTap: () => _openDetail(g.ticker, symbolList: symbols, symbolIndex: i),
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: rowPadding),
                     decoration: BoxDecoration(
@@ -1325,10 +1348,13 @@ class _HomeTabState extends State<_HomeTab> {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: _forexForHome.map((e) {
-                          final name = e.$1;
-                          final symbol = e.$2;
+                        children: _forexForHome.toList().asMap().entries.map((e) {
+                          final i = e.key;
+                          final item = e.value;
+                          final name = item.$1;
+                          final symbol = item.$2;
                           final q = _forexQuotes[symbol];
+                          final symbolList = _forexForHome.map((x) => x.$2).toList();
                           return _buildPcWatchlistRow(
                             symbol: symbol,
                             name: name,
@@ -1336,7 +1362,7 @@ class _HomeTabState extends State<_HomeTab> {
                             change: q?.change ?? 0,
                             changePercent: q?.changePercent ?? 0,
                             hasError: q?.hasError ?? true,
-                            onTap: () => _openDetail(symbol, name: name),
+                            onTap: () => _openDetail(symbol, name: name, symbolList: symbolList, symbolIndex: i),
                           );
                         }).toList(),
                       ),
@@ -1445,8 +1471,9 @@ class _HomeTabState extends State<_HomeTab> {
                   return;
                 }
                 if (hasError) return;
+                final symbolList = _indexList.map((e) => e.$2).toList();
                 Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => GenericChartPage(symbol: symbol, name: label)),
+                  MaterialPageRoute(builder: (_) => GenericChartPage(symbol: symbol, name: label, symbolList: symbolList, symbolIndex: i)),
                 );
               },
               borderRadius: BorderRadius.circular(isPc ? PcDashboardTheme.radiusMd : 8),
@@ -1566,22 +1593,32 @@ class _HomeTabState extends State<_HomeTab> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        ..._gainers.take(5).map((g) => QuoteRow(
-          symbol: g.ticker,
-          price: g.price ?? 0,
-          change: g.todaysChange,
-          changePercent: g.todaysChangePerc,
-          hasError: g.price == null,
-          onTap: () => _openDetail(g.ticker),
-        )),
-        ..._losers.take(5).map((g) => QuoteRow(
-          symbol: g.ticker,
-          price: g.price ?? 0,
-          change: g.todaysChange,
-          changePercent: g.todaysChangePerc,
-          hasError: g.price == null,
-          onTap: () => _openDetail(g.ticker),
-        )),
+        ..._gainers.take(5).toList().asMap().entries.map((e) {
+          final i = e.key;
+          final g = e.value;
+          final symbols = [..._gainers.take(5).map((x) => x.ticker), ..._losers.take(5).map((x) => x.ticker)];
+          return QuoteRow(
+            symbol: g.ticker,
+            price: g.price ?? 0,
+            change: g.todaysChange,
+            changePercent: g.todaysChangePerc,
+            hasError: g.price == null,
+            onTap: () => _openDetail(g.ticker, symbolList: symbols, symbolIndex: i),
+          );
+        }),
+        ..._losers.take(5).toList().asMap().entries.map((e) {
+          final i = e.key;
+          final g = e.value;
+          final symbols = [..._gainers.take(5).map((x) => x.ticker), ..._losers.take(5).map((x) => x.ticker)];
+          return QuoteRow(
+            symbol: g.ticker,
+            price: g.price ?? 0,
+            change: g.todaysChange,
+            changePercent: g.todaysChangePerc,
+            hasError: g.price == null,
+            onTap: () => _openDetail(g.ticker, symbolList: symbols, symbolIndex: 5 + i),
+          );
+        }),
       ],
     );
   }
@@ -1621,7 +1658,9 @@ class _HomeTabState extends State<_HomeTab> {
             ),
           )
         else
-          ..._watchlistSymbols.map((symbol) {
+          ..._watchlistSymbols.toList().asMap().entries.map((e) {
+            final i = e.key;
+            final symbol = e.value;
             final q = _watchlistQuotes[symbol];
             return QuoteRow(
               symbol: symbol,
@@ -1630,7 +1669,7 @@ class _HomeTabState extends State<_HomeTab> {
               change: q?.change ?? 0,
               changePercent: q?.changePercent ?? 0,
               hasError: q?.hasError ?? true,
-              onTap: () => _openDetail(symbol),
+              onTap: () => _openDetail(symbol, symbolList: _watchlistSymbols.toList(), symbolIndex: i),
             );
           }),
       ],
@@ -1681,19 +1720,26 @@ class _HomeTabState extends State<_HomeTab> {
     if (_trendingSegment == 0) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: _trendingStocks.take(10).map((g) => QuoteRow(
-          symbol: g.ticker,
-          price: g.price ?? 0,
-          change: g.todaysChange,
-          changePercent: g.todaysChangePerc,
-          hasError: g.price == null,
-          onTap: () => _openDetail(g.ticker),
-        )).toList(),
+        children: _trendingStocks.take(10).toList().asMap().entries.map((e) {
+          final i = e.key;
+          final g = e.value;
+          final symbols = _trendingStocks.take(10).map((x) => x.ticker).toList();
+          return QuoteRow(
+            symbol: g.ticker,
+            price: g.price ?? 0,
+            change: g.todaysChange,
+            changePercent: g.todaysChangePerc,
+            hasError: g.price == null,
+            onTap: () => _openDetail(g.ticker, symbolList: symbols, symbolIndex: i),
+          );
+        }).toList(),
       );
     }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: _cryptoSymbols.map((symbol) {
+      children: _cryptoSymbols.toList().asMap().entries.map((e) {
+        final i = e.key;
+        final symbol = e.value;
         final q = _trendingCryptoQuotes[symbol];
         return QuoteRow(
           symbol: symbol,
@@ -1702,7 +1748,7 @@ class _HomeTabState extends State<_HomeTab> {
           change: q?.change ?? 0,
           changePercent: q?.changePercent ?? 0,
           hasError: q?.hasError ?? true,
-          onTap: () => _openDetail(symbol, name: q?.name ?? symbol),
+          onTap: () => _openDetail(symbol, name: q?.name ?? symbol, symbolList: _cryptoSymbols.toList(), symbolIndex: i),
         );
       }).toList(),
     );
@@ -1987,7 +2033,7 @@ class _OverviewTabState extends State<_OverviewTab> {
           const SizedBox(height: 8),
           _quoteGrid(
             items: _indices,
-            onTap: (name, symbol) => _pushChart(context, symbol, name),
+            onTap: (name, symbol, i) => _pushChart(context, symbol, name, symbolList: _indices.map((e) => e.$2).toList(), symbolIndex: i),
           ),
           const SizedBox(height: 20),
           _sectionTitle('资讯'),
@@ -1998,14 +2044,14 @@ class _OverviewTabState extends State<_OverviewTab> {
           const SizedBox(height: 8),
           _quoteGrid(
             items: _forex,
-            onTap: (name, symbol) => _pushChart(context, symbol, name),
+            onTap: (name, symbol, i) => _pushChart(context, symbol, name, symbolList: _forex.map((e) => e.$2).toList(), symbolIndex: i),
           ),
           const SizedBox(height: 20),
           _sectionTitle('加密货币'),
           const SizedBox(height: 8),
           _quoteGrid(
             items: _crypto,
-            onTap: (name, symbol) => _pushChart(context, symbol, name),
+            onTap: (name, symbol, i) => _pushChart(context, symbol, name, symbolList: _crypto.map((e) => e.$2).toList(), symbolIndex: i),
           ),
         ],
       ),
@@ -2151,7 +2197,7 @@ class _OverviewTabState extends State<_OverviewTab> {
 
   Widget _quoteGrid({
     required List<(String, String)> items,
-    required void Function(String name, String symbol) onTap,
+    required void Function(String name, String symbol, int index) onTap,
   }) {
     return GridView.count(
       shrinkWrap: true,
@@ -2160,15 +2206,17 @@ class _OverviewTabState extends State<_OverviewTab> {
       mainAxisSpacing: 10,
       crossAxisSpacing: 10,
       childAspectRatio: 1.15,
-      children: items.map((e) {
-        final name = e.$1;
-        final symbol = e.$2;
+      children: items.toList().asMap().entries.map((e) {
+        final i = e.key;
+        final item = e.value;
+        final name = item.$1;
+        final symbol = item.$2;
         final q = _quotes[symbol];
         return _QuoteCard(
           name: name,
           symbol: symbol,
           quote: q,
-          onTap: () => onTap(name, symbol),
+          onTap: () => onTap(name, symbol, i),
         );
       }).toList(),
     );
@@ -2194,10 +2242,10 @@ class _OverviewTabState extends State<_OverviewTab> {
     );
   }
 
-  void _pushChart(BuildContext context, String symbol, String name) {
+  void _pushChart(BuildContext context, String symbol, String name, {List<String>? symbolList, int? symbolIndex}) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => GenericChartPage(symbol: symbol, name: name),
+        builder: (_) => GenericChartPage(symbol: symbol, name: name, symbolList: symbolList, symbolIndex: symbolIndex),
       ),
     );
   }
@@ -2587,6 +2635,20 @@ class _UsStocksTabState extends State<_UsStocksTab> {
     } catch (_) {}
   }
 
+  void _openDetail(String symbol, {String? name, List<String>? symbolList, int? symbolIndex}) {
+    final n = name ?? _quotes[symbol]?.name ?? symbol;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => StockChartPage(
+          symbol: symbol,
+          name: n != symbol ? n : null,
+          symbolList: symbolList,
+          symbolIndex: symbolIndex,
+        ),
+      ),
+    );
+  }
+
   Future<void> _loadCachedThenRefresh() async {
     setState(() { _loading = true; _isMockData = false; _error = null; });
     if (_listMode == 0) {
@@ -2633,7 +2695,7 @@ class _UsStocksTabState extends State<_UsStocksTab> {
     } catch (_) {}
   }
 
-  /// 加载全量美股列表：先展示本地缓存（秒开），再后台拉取并更新；并拉取「当前可见」行报价 + 启动定时刷新
+  /// 加载全量美股列表：优先 stock_quote_cache（秒开）→ 本地缓存 → Polygon API
   Future<void> _loadAllTickers() async {
     if (!mounted) return;
     if (!_market.polygonAvailable) {
@@ -2644,6 +2706,19 @@ class _UsStocksTabState extends State<_UsStocksTab> {
       });
       return;
     }
+    // 1. 优先从后端 stock_quote_cache 获取（数据库查询，秒开）
+    final fromCache = await _market.getTickersFromBackendCache();
+    if (mounted && fromCache != null && fromCache.isNotEmpty) {
+      setState(() {
+        _allTickers = fromCache;
+        _loading = false;
+        _error = null;
+      });
+      await _restoreQuotesFromCache();
+      _loadFirstVisibleQuotesAndStartTimer();
+      return;
+    }
+    // 2. 本地 TradingCache 缓存（之前加载过）
     final cached = await _market.getCachedUsTickers();
     if (mounted && cached != null && cached.isNotEmpty) {
       setState(() {
@@ -2657,6 +2732,7 @@ class _UsStocksTabState extends State<_UsStocksTab> {
     }
     if (mounted) setState(() => _loading = true);
     try {
+      // 3. Polygon API（最慢，需分页请求）
       final list = await _market.getAllUsTickers();
       if (!mounted) return;
       setState(() {
@@ -3038,7 +3114,9 @@ class _UsStocksTabState extends State<_UsStocksTab> {
               ),
             ),
           ),
-          ...symbols.map((sym) {
+          ...symbols.toList().asMap().entries.map((e) {
+            final i = e.key;
+            final sym = e.value;
             final q = _quotes[sym];
             final hasError = q?.hasError ?? true;
             final price = q?.price ?? 0;
@@ -3056,11 +3134,7 @@ class _UsStocksTabState extends State<_UsStocksTab> {
               child: InkWell(
                 onTap: () {
                   setState(() => _selectedSymbol = sym);
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => StockChartPage(symbol: sym),
-                    ),
-                  );
+                  _openDetail(sym, symbolList: symbols, symbolIndex: i);
                 },
                 child: Container(
                   height: rowHeight,
@@ -3169,13 +3243,7 @@ class _UsStocksTabState extends State<_UsStocksTab> {
                 return Material(
                   color: const Color(0xFF111215),
                   child: InkWell(
-                    onTap: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => StockChartPage(symbol: sym),
-                        ),
-                      );
-                    },
+                    onTap: () => _openDetail(sym, symbolList: symbols, symbolIndex: i),
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                       decoration: const BoxDecoration(
@@ -3312,11 +3380,8 @@ class _UsStocksTabState extends State<_UsStocksTab> {
                   child: InkWell(
                     onTap: () {
                       setState(() => _selectedSymbol = t.symbol);
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => StockChartPage(symbol: t.symbol),
-                        ),
-                      );
+                      final symbolList = _sortedTickers.map((x) => x.symbol).toList();
+                      _openDetail(t.symbol, name: t.name, symbolList: symbolList, symbolIndex: i);
                     },
                     child: Container(
                       height: rowHeight,
@@ -3432,11 +3497,8 @@ class _UsStocksTabState extends State<_UsStocksTab> {
                   color: const Color(0xFF111215),
                   child: InkWell(
                     onTap: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => StockChartPage(symbol: t.symbol),
-                        ),
-                      );
+                      final symbolList = _sortedTickers.map((x) => x.symbol).toList();
+                      _openDetail(t.symbol, name: t.name, symbolList: symbolList, symbolIndex: i);
                     },
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -3671,8 +3733,9 @@ class _UsStocksTabState extends State<_UsStocksTab> {
               hasError: hasError,
               isLoading: q == null && _loading,
               onTap: () {
+                final symbolList = indices.map((e) => e.$2).toList();
                 Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => GenericChartPage(symbol: symbol, name: label)),
+                  MaterialPageRoute(builder: (_) => GenericChartPage(symbol: symbol, name: label, symbolList: symbolList, symbolIndex: entry.key)),
                 );
               },
             ),
@@ -4008,9 +4071,10 @@ class _ForexTabState extends State<_ForexTab> {
               changePercent: q?.changePercent ?? 0,
               hasError: q?.hasError ?? true,
               onTap: () {
+                final symbolList = _pairs.map((p) => p.$2).toList();
                 Navigator.of(context).push(
                   MaterialPageRoute(
-                    builder: (_) => GenericChartPage(symbol: symbol, name: name),
+                    builder: (_) => GenericChartPage(symbol: symbol, name: name, symbolList: symbolList, symbolIndex: i),
                   ),
                 );
               },
@@ -4305,21 +4369,26 @@ class _CryptoTabState extends State<_CryptoTab> {
           ],
         ),
         const SizedBox(height: 12),
-        ...sorted.map((e) => QuoteRow(
-          symbol: e.$2,
-          name: e.$1,
-          price: e.$3?.price ?? 0,
-          change: e.$3?.change ?? 0,
-          changePercent: e.$3?.changePercent ?? 0,
-          hasError: e.$3?.hasError ?? true,
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => GenericChartPage(symbol: e.$2, name: e.$1),
-              ),
-            );
-          },
-        )),
+        ...sorted.toList().asMap().entries.map((e) {
+          final i = e.key;
+          final item = e.value;
+          return QuoteRow(
+            symbol: item.$2,
+            name: item.$1,
+            price: item.$3?.price ?? 0,
+            change: item.$3?.change ?? 0,
+            changePercent: item.$3?.changePercent ?? 0,
+            hasError: item.$3?.hasError ?? true,
+            onTap: () {
+              final symbolList = sorted.map((x) => x.$2).toList();
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => GenericChartPage(symbol: item.$2, name: item.$1, symbolList: symbolList, symbolIndex: i),
+                ),
+              );
+            },
+          );
+        }),
       ],
     );
   }

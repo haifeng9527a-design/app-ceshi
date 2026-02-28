@@ -18,6 +18,54 @@ class BackendMarketClient {
   static const _candlesMaxAge = Duration(minutes: 2);
   static const _gainersLosersMaxAge = Duration(minutes: 5);
   static const _searchMaxAge = Duration(minutes: 5);
+  static const _tickersFromCacheMaxAge = Duration(hours: 1);
+
+  /// 从后端 stock_quote_cache 表获取 symbol+name 列表，秒开美股列表
+  Future<List<MarketSearchResult>?> getTickersFromCache() async {
+    const cacheKey = 'backend_tickers_from_cache';
+    final cached = await _cache.getList(cacheKey, maxAge: _tickersFromCacheMaxAge);
+    if (cached != null && cached.isNotEmpty) {
+      final list = <MarketSearchResult>[];
+      for (final e in cached) {
+        if (e is! Map<String, dynamic>) continue;
+        final s = e['s'] as String?;
+        final n = e['n'] as String?;
+        if (s == null || s.isEmpty) continue;
+        list.add(MarketSearchResult(symbol: s, name: n ?? s, market: null));
+      }
+      if (list.isNotEmpty) return list;
+    }
+    try {
+      final uri = Uri.parse('${_base}api/tickers-from-cache');
+      final resp = await http.get(uri).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => throw Exception('请求超时'),
+      );
+      if (resp.statusCode != 200) return null;
+      final list = jsonDecode(resp.body) as List<dynamic>?;
+      if (list == null || list.isEmpty) return null;
+      final result = <MarketSearchResult>[];
+      final toCache = <Map<String, dynamic>>[];
+      for (final e in list) {
+        if (e is! Map<String, dynamic>) continue;
+        final s = (e['symbol'] as String?)?.trim();
+        final n = e['name'] as String?;
+        if (s == null || s.isEmpty) continue;
+        result.add(MarketSearchResult(symbol: s, name: n ?? s, market: null));
+        toCache.add({'s': s, 'n': n ?? s});
+      }
+      if (result.isNotEmpty) {
+        try {
+          await _cache.setList(cacheKey, toCache);
+        } catch (_) {}
+        return result;
+      }
+      return null;
+    } catch (e) {
+      if (kDebugMode) debugPrint('[Backend getTickersFromCache] $e');
+      return null;
+    }
+  }
 
   /// [realtime] 为 true 且仅请求单只时：不读本地缓存，请求带 realtime=1，后端直连 Polygon 返回实时数据（详情页用）
   Future<Map<String, MarketQuote>> getQuotes(List<String> symbols, {bool realtime = false}) async {

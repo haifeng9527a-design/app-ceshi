@@ -575,6 +575,12 @@ class MarketRepository {
   static const _usTickersCacheKey = 'us_tickers';
   static const _usTickersCacheMaxAge = Duration(days: 7);
 
+  /// 优先从 stock_quote_cache 获取美股列表（后端有 Supabase 时秒开），否则返回 null
+  Future<List<MarketSearchResult>?> getTickersFromBackendCache() async {
+    if (_backend == null) return null;
+    return _backend!.getTickersFromCache();
+  }
+
   /// 从本地缓存读取全量美股列表（若有且未过期），用于首屏秒开
   Future<List<MarketSearchResult>?> getCachedUsTickers() async {
     final raw = await TradingCache.instance.getList(_usTickersCacheKey, maxAge: _usTickersCacheMaxAge);

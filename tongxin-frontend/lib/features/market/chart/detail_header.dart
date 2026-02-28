@@ -3,7 +3,8 @@ import 'package:flutter/material.dart';
 import 'chart_theme.dart';
 
 /// 详情页顶栏（参考主流行情 App）：左 返回 | 中 股票代码+左右箭头切换 | 右 分享
-class DetailHeader extends StatelessWidget {
+/// 支持在股票代码区域左右滑动切换上一只/下一只
+class DetailHeader extends StatefulWidget {
   const DetailHeader({
     super.key,
     required this.symbol,
@@ -30,6 +31,13 @@ class DetailHeader extends StatelessWidget {
   final VoidCallback? onNext;
 
   @override
+  State<DetailHeader> createState() => _DetailHeaderState();
+}
+
+class _DetailHeaderState extends State<DetailHeader> {
+  static const double _swipeThreshold = 100.0;
+
+  @override
   Widget build(BuildContext context) {
     return SafeArea(
       bottom: false,
@@ -48,52 +56,64 @@ class DetailHeader extends StatelessWidget {
                   _iconButton(
                     icon: Icons.arrow_back_ios_new,
                     size: 18,
-                    onPressed: onBack ?? () => Navigator.of(context).maybePop(),
+                    onPressed: widget.onBack ?? () => Navigator.of(context).maybePop(),
                   ),
                   Expanded(
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (onPrev != null) ...[
-                          _iconButton(
-                            icon: Icons.chevron_left,
-                            size: 24,
-                            onPressed: onPrev!,
-                          ),
-                          const SizedBox(width: 4),
-                        ],
-                        Flexible(
-                          child: Text(
-                            symbol,
-                            style: const TextStyle(
-                              color: ChartTheme.up,
-                              fontSize: 24,
-                              fontWeight: FontWeight.w700,
-                              fontFamily: ChartTheme.fontMono,
-                              fontFeatures: [ChartTheme.tabularFigures],
-                              letterSpacing: 1.0,
+                    child: GestureDetector(
+                      onHorizontalDragEnd: (d) {
+                        if (widget.onPrev == null && widget.onNext == null) return;
+                        final v = d.velocity.pixelsPerSecond.dx;
+                        if (v < -_swipeThreshold && widget.onNext != null) {
+                          widget.onNext!();
+                        } else if (v > _swipeThreshold && widget.onPrev != null) {
+                          widget.onPrev!();
+                        }
+                      },
+                      behavior: HitTestBehavior.opaque,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (widget.onPrev != null) ...[
+                            _iconButton(
+                              icon: Icons.chevron_left,
+                              size: 24,
+                              onPressed: widget.onPrev!,
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.center,
+                            const SizedBox(width: 4),
+                          ],
+                          Flexible(
+                            child: Text(
+                              widget.symbol,
+                              style: const TextStyle(
+                                color: ChartTheme.up,
+                                fontSize: 24,
+                                fontWeight: FontWeight.w700,
+                                fontFamily: ChartTheme.fontMono,
+                                fontFeatures: [ChartTheme.tabularFigures],
+                                letterSpacing: 1.0,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.center,
+                            ),
                           ),
-                        ),
-                        if (onNext != null) ...[
-                          const SizedBox(width: 4),
-                          _iconButton(
-                            icon: Icons.chevron_right,
-                            size: 24,
-                            onPressed: onNext!,
-                          ),
+                          if (widget.onNext != null) ...[
+                            const SizedBox(width: 4),
+                            _iconButton(
+                              icon: Icons.chevron_right,
+                              size: 24,
+                              onPressed: widget.onNext!,
+                            ),
+                          ],
                         ],
-                      ],
+                      ),
                     ),
                   ),
                   _iconButton(
                     icon: Icons.share_outlined,
                     size: 20,
-                    onPressed: onShare ?? () {},
+                    onPressed: widget.onShare ?? () {},
                   ),
                 ],
               ),

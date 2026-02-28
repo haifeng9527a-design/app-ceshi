@@ -18,6 +18,33 @@ import 'chart_viewport_controller.dart';
 import 'market_colors.dart';
 import 'market_repository.dart';
 
+/// 股票详情页切换时的内存缓存（最近 5 只），切换时先展示缓存再后台刷新
+class _StockDetailCache {
+  double? currentPrice;
+  double? changePercent;
+  double? prevClose;
+  double? dayOpen;
+  double? dayHigh;
+  double? dayLow;
+  int? dayVolume;
+  String? stockName;
+  List<ChartCandle> candlesIntraday = [];
+  List<ChartCandle> candlesKLine = [];
+  String klineInterval = '5min';
+}
+
+const int _detailCacheMaxSize = 5;
+final Map<String, _StockDetailCache> _stockDetailCache = {};
+
+void _trimDetailCache() {
+  if (_stockDetailCache.length > _detailCacheMaxSize) {
+    final keys = _stockDetailCache.keys.toList();
+    for (var i = 0; i < keys.length - _detailCacheMaxSize; i++) {
+      _stockDetailCache.remove(keys[i]);
+    }
+  }
+}
+
 /// 股票详情：实时价、历史走势、成交量、成交额、开高低收（对齐 MOMO 等看盘 App）
 ///
 /// 数据来源（见注释）：
@@ -86,9 +113,11 @@ class _StockChartPageState extends State<StockChartPage>
   /// 周K Tab 下拉选中：1week | 1month | 1year
   String _extendedKlineInterval = '1week';
   /// 主图叠加：ma / ema
-  String _overlayIndicator = 'ma';
+  String _overlayIndicator = 'none';
   /// 副图：vol / macd / rsi
   String _subChartIndicator = 'vol';
+  /// 是否显示昨收价虚线（Prev Close）
+  bool _showPrevCloseLine = true;
   Timer? _quoteTimer;
   Timer? _chartTimer;
   Timer? _autoRetryTimer;
@@ -96,10 +125,18 @@ class _StockChartPageState extends State<StockChartPage>
   List<Map<String, dynamic>> _dividends = [];
   List<Map<String, dynamic>> _splits = [];
   String? _stockName;
+  /// 有 symbolList 时用于原地切换，避免 pushReplacement 重建页面
+  late String _currentSymbol;
+  int _currentIndex = 0;
+
+  String get _effectiveSymbol => widget.symbolList != null ? _currentSymbol : widget.symbol;
+  int get _effectiveIndex => widget.symbolList != null ? _currentIndex : _prevNextIndex;
 
   @override
   void initState() {
     super.initState();
+    _currentSymbol = widget.symbol.trim().toUpperCase();
+    _currentIndex = _prevNextIndex;
     _tabController = TabController(length: 6, vsync: this);
     _klineController = ChartViewportController(initialVisibleCount: 80, minVisibleCount: 30, maxVisibleCount: 400);
     _tabController.addListener(() {
@@ -140,10 +177,16 @@ class _StockChartPageState extends State<StockChartPage>
     });
     _loadTodayOHLC();
     _loadIntraday().then((_) {
-      if (mounted) setState(() => _chartLoading = false);
+      if (mounted) {
+        setState(() => _chartLoading = false);
+        _saveToCache(_effectiveSymbol);
+      }
     });
     _loadKLine().then((_) {
-      if (mounted) setState(() => _chartLoading = false);
+      if (mounted) {
+        setState(() => _chartLoading = false);
+        _saveToCache(_effectiveSymbol);
+      }
     });
     _connectRealtime();
     _startRealtimeTimers();
@@ -154,7 +197,7 @@ class _StockChartPageState extends State<StockChartPage>
 
   /// 无名称时通过搜索获取股票名称（如从领涨榜进入详情页）
   Future<void> _loadStockName() async {
-    final sym = widget.symbol.trim().toUpperCase();
+    final sym = _effectiveSymbol.trim().toUpperCase();
     if (sym.isEmpty) return;
     final results = await _market.searchSymbols(sym);
     if (!mounted || results.isEmpty) return;
@@ -197,6 +240,7 @@ class _StockChartPageState extends State<StockChartPage>
   int get _prevNextIndex {
     final list = widget.symbolList;
     if (list == null || list.isEmpty) return -1;
+    if (widget.symbolList != null) return _currentIndex.clamp(0, list.length - 1);
     if (widget.symbolIndex != null) {
       return widget.symbolIndex!.clamp(0, list.length - 1);
     }
@@ -207,21 +251,103 @@ class _StockChartPageState extends State<StockChartPage>
   void _switchToPrev() {
     final list = widget.symbolList;
     if (list == null || list.isEmpty) return;
-    final i = _prevNextIndex;
+    final i = _effectiveIndex;
     if (i <= 0) return;
-    _navigateToSymbol(list[i - 1]);
+    _switchToSymbolInPlace(list[i - 1]);
   }
 
   void _switchToNext() {
     final list = widget.symbolList;
     if (list == null || list.isEmpty) return;
-    final i = _prevNextIndex;
+    final i = _effectiveIndex;
     if (i >= list.length - 1) return;
-    _navigateToSymbol(list[i + 1]);
+    _switchToSymbolInPlace(list[i + 1]);
+  }
+
+  /// 原地切换：不 pushReplacement，先展示缓存再后台刷新，切换更丝滑
+  void _switchToSymbolInPlace(String newSymbol) {
+    final list = widget.symbolList;
+    if (list == null || list.isEmpty) return;
+    final newSym = newSymbol.trim().toUpperCase();
+    final newIndex = list.indexWhere((s) => s.toUpperCase() == newSym);
+    if (newIndex < 0) return;
+
+    final oldSym = _currentSymbol;
+    _saveToCache(oldSym);
+
+    setState(() {
+      _currentSymbol = newSym;
+      _currentIndex = newIndex;
+      _chartLoading = true;
+      _realtimeVolume = 0;
+    });
+
+    final cached = _stockDetailCache[newSym];
+    if (cached != null) {
+      setState(() {
+        _currentPrice = cached.currentPrice;
+        _changePercent = cached.changePercent;
+        _prevClose = cached.prevClose;
+        _dayOpen = cached.dayOpen;
+        _dayHigh = cached.dayHigh;
+        _dayLow = cached.dayLow;
+        _dayVolume = cached.dayVolume;
+        _stockName = cached.stockName;
+        _candlesIntraday = List.from(cached.candlesIntraday);
+        _candlesKLine = List.from(cached.candlesKLine);
+        _klineInterval = cached.klineInterval;
+        _chartLoading = false;
+      });
+      _klineController.initFromCandlesLength(_candlesKLine.length);
+    }
+
+    _realtimeSub?.cancel();
+    _realtime?.dispose();
+    _realtime = null;
+    _realtimeSub = null;
+    _connectRealtime();
+    _loadQuote().then((_) {
+      if (mounted) setState(() {});
+    });
+    _loadTodayOHLC();
+    _loadIntraday().then((_) {
+      if (mounted) {
+        setState(() => _chartLoading = false);
+        _saveToCache(newSym);
+      }
+    });
+    _loadKLine().then((_) {
+      if (mounted) {
+        setState(() => _chartLoading = false);
+        _saveToCache(newSym);
+      }
+    });
+  }
+
+  void _saveToCache(String sym) {
+    if (_candlesIntraday.isEmpty && _candlesKLine.isEmpty) return;
+    final c = _StockDetailCache()
+      ..currentPrice = _currentPrice
+      ..changePercent = _changePercent
+      ..prevClose = _prevClose
+      ..dayOpen = _dayOpen
+      ..dayHigh = _dayHigh
+      ..dayLow = _dayLow
+      ..dayVolume = _dayVolume
+      ..stockName = _stockName
+      ..candlesIntraday = List.from(_candlesIntraday)
+      ..candlesKLine = List.from(_candlesKLine)
+      ..klineInterval = _klineInterval;
+    _stockDetailCache[sym] = c;
+    _trimDetailCache();
   }
 
   void _navigateToSymbol(String newSymbol) {
     final list = widget.symbolList;
+    if (list != null && list.isNotEmpty) {
+      _switchToSymbolInPlace(newSymbol);
+      return;
+    }
     final newIndex = list != null ? list.indexWhere((s) => s.toUpperCase() == newSymbol.toUpperCase()) : -1;
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
@@ -266,7 +392,7 @@ class _StockChartPageState extends State<StockChartPage>
 
   void _connectRealtime() {
     if (!_market.polygonAvailable) return;
-    _realtime = _market.openRealtime(widget.symbol);
+    _realtime = _market.openRealtime(_effectiveSymbol);
     _realtime?.connect();
     _realtimeSub = _realtime?.stream.listen((u) {
       if (!mounted) return;
@@ -289,8 +415,8 @@ class _StockChartPageState extends State<StockChartPage>
   }
 
   Future<void> _loadQuote() async {
-    final quote = await _market.getQuote(widget.symbol, realtime: true);
-    final prev = _market.polygonAvailable ? await _market.getPreviousClose(widget.symbol) : null;
+    final quote = await _market.getQuote(_effectiveSymbol, realtime: true);
+    final prev = _market.polygonAvailable ? await _market.getPreviousClose(_effectiveSymbol) : null;
     if (!mounted) return;
     setState(() {
       if (!quote.hasError) {
@@ -310,13 +436,13 @@ class _StockChartPageState extends State<StockChartPage>
   /// 当日 OHLC + volume：优先 Polygon Snapshot（单标的 /v2/snapshot/.../tickers/{ticker}），
   /// 否则 Polygon aggregates(1, day, today) 取最后一根作为当日 bar
   Future<void> _loadKeyRatios() async {
-    final data = await _market.getKeyRatios(widget.symbol);
+    final data = await _market.getKeyRatios(_effectiveSymbol);
     if (mounted) setState(() => _keyRatios = data);
   }
 
   Future<void> _loadCompanyActions() async {
-    final div = await _market.getDividends(widget.symbol);
-    final spl = await _market.getSplits(widget.symbol);
+    final div = await _market.getDividends(_effectiveSymbol);
+    final spl = await _market.getSplits(_effectiveSymbol);
     if (mounted) setState(() {
       _dividends = div;
       _splits = spl;
@@ -325,7 +451,7 @@ class _StockChartPageState extends State<StockChartPage>
 
   Future<void> _loadTodayOHLC() async {
     if (!_market.polygonAvailable) return;
-    final snap = await _market.getDaySnapshot(widget.symbol);
+    final snap = await _market.getDaySnapshot(_effectiveSymbol);
     if (!mounted) return;
     if (snap != null) {
       setState(() {
@@ -342,7 +468,7 @@ class _StockChartPageState extends State<StockChartPage>
     final todayStart = DateTime.utc(now.year, now.month, now.day);
     final fromMs = todayStart.millisecondsSinceEpoch;
     final list = await _market.getAggregates(
-      widget.symbol,
+      _effectiveSymbol,
       multiplier: 1,
       timespan: 'day',
       fromMs: fromMs,
@@ -360,7 +486,7 @@ class _StockChartPageState extends State<StockChartPage>
 
   /// 分时图（仅 1 分）：折线图，当日数据
   Future<void> _loadIntraday() async {
-    final sym = widget.symbol.trim().toUpperCase();
+    final sym = _effectiveSymbol.trim().toUpperCase();
     const lastDays = 1;
     const interval = '1min';
     List<ChartCandle> list = [];
@@ -417,7 +543,7 @@ class _StockChartPageState extends State<StockChartPage>
 
   /// K 线图：5分/15分/30分/日K/周K，均用蜡烛图
   Future<void> _loadKLine() async {
-    final sym = widget.symbol.trim().toUpperCase();
+    final sym = _effectiveSymbol.trim().toUpperCase();
     final interval = _klineInterval;
     int? lastDays;
     if (interval == '5min') lastDays = 5;
@@ -549,7 +675,7 @@ class _StockChartPageState extends State<StockChartPage>
       final beforeLen = _candlesKLine.length;
       final earliestTsBefore = beforeLen > 0 ? (_candlesKLine.first.time * 1000).round() : null;
       final list = await _market.getCandlesOlderThan(
-        widget.symbol,
+        _effectiveSymbol,
         _klineIntervalForLoadMore(),
         olderThanMs: earliestTimestampMs,
         limit: 500,
@@ -604,7 +730,7 @@ class _StockChartPageState extends State<StockChartPage>
       body: Column(
         children: [
           DetailHeader(
-            symbol: widget.symbol,
+            symbol: _effectiveSymbol,
             name: widget.name ?? _stockName,
             onBack: () => Navigator.of(context).maybePop(),
             onPrev: _prevNextIndex > 0 ? _switchToPrev : null,
@@ -705,8 +831,10 @@ class _StockChartPageState extends State<StockChartPage>
             currentPrice: _currentPrice,
             overlayIndicator: _overlayIndicator,
             subChartIndicator: _subChartIndicator,
+            showPrevCloseLine: _showPrevCloseLine,
             onOverlayChanged: (v) => setState(() => _overlayIndicator = v),
             onSubChartChanged: (v) => setState(() => _subChartIndicator = v),
+            onShowPrevCloseLineChanged: (v) => setState(() => _showPrevCloseLine = v),
             klineCandles: _candlesKLine,
           ),
           if (_dividends.isNotEmpty || _splits.isNotEmpty) _buildCompanyActionsSection(),
@@ -837,7 +965,7 @@ class _StockChartPageState extends State<StockChartPage>
         ? (high! + low! + displayClose) / 3
         : null;
     return ChartStatsBar(
-      symbol: widget.symbol,
+      symbol: _effectiveSymbol,
       currentPrice: displayClose,
       change: change,
       changePercent: _changePercent,

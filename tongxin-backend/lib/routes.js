@@ -387,8 +387,23 @@ async function handleSplits(req, res, polygonKey) {
   }
 }
 
+/** GET /api/tickers-from-cache — 从 Supabase stock_quote_cache 取 symbol+name 列表，秒开美股列表 */
+async function handleTickersFromCache(req, res) {
+  if (!supabaseQuoteCache.isConfigured()) {
+    return res.status(503).json({ error: 'Supabase 未配置' });
+  }
+  try {
+    const maxAgeMs = req.query.maxAgeHours ? parseInt(req.query.maxAgeHours, 10) * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+    const list = await supabaseQuoteCache.getAllSymbolsAndNames(maxAgeMs);
+    return res.json(list);
+  } catch (e) {
+    return res.status(502).json({ error: String(e.message || e) });
+  }
+}
+
 function registerRoutes(app, polygonKey, twelveKey) {
   rateLimiter.init(require('./config').POLYGON_RATE_LIMIT_PER_SEC);
+  app.get('/api/tickers-from-cache', handleTickersFromCache);
   app.get('/api/quotes', (req, res) => handleQuotes(req, res, polygonKey, twelveKey));
   app.get('/api/candles', (req, res) => handleCandles(req, res, polygonKey, twelveKey));
   app.get('/api/gainers', (req, res) => handleGainers(req, res, polygonKey));

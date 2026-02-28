@@ -10,18 +10,22 @@ class BottomDetailTabs extends StatefulWidget {
   const BottomDetailTabs({
     super.key,
     required this.currentPrice,
-    this.overlayIndicator = 'ma',
+    this.overlayIndicator = 'none',
     this.subChartIndicator = 'vol',
+    this.showPrevCloseLine = true,
     this.onOverlayChanged,
     this.onSubChartChanged,
+    this.onShowPrevCloseLineChanged,
     this.klineCandles = const [],
   });
 
   final double? currentPrice;
   final String overlayIndicator;
   final String subChartIndicator;
+  final bool showPrevCloseLine;
   final ValueChanged<String>? onOverlayChanged;
   final ValueChanged<String>? onSubChartChanged;
+  final ValueChanged<bool>? onShowPrevCloseLineChanged;
   final List<ChartCandle> klineCandles;
 
   @override
@@ -97,8 +101,10 @@ class _BottomDetailTabsState extends State<BottomDetailTabs> {
           key: const ValueKey('indicators'),
           overlayIndicator: widget.overlayIndicator,
           subChartIndicator: widget.subChartIndicator,
+          showPrevCloseLine: widget.showPrevCloseLine,
           onOverlayChanged: widget.onOverlayChanged ?? (_) {},
           onSubChartChanged: widget.onSubChartChanged ?? (_) {},
+          onShowPrevCloseLineChanged: widget.onShowPrevCloseLineChanged,
           candles: widget.klineCandles,
         );
       case 2:

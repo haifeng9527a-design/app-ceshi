@@ -12,6 +12,8 @@ class IndicatorsSection extends StatelessWidget {
     required this.subChartIndicator,
     required this.onOverlayChanged,
     required this.onSubChartChanged,
+    this.showPrevCloseLine = true,
+    this.onShowPrevCloseLineChanged,
     this.candles = const [],
   });
 
@@ -19,9 +21,12 @@ class IndicatorsSection extends StatelessWidget {
   final String subChartIndicator;
   final ValueChanged<String> onOverlayChanged;
   final ValueChanged<String> onSubChartChanged;
+  final bool showPrevCloseLine;
+  final ValueChanged<bool>? onShowPrevCloseLineChanged;
   final List<ChartCandle> candles;
 
   static const List<({String label, String id, bool isOverlay})> items = [
+    (label: '无', id: 'none', isOverlay: true),
     (label: 'MA', id: 'ma', isOverlay: true),
     (label: 'EMA', id: 'ema', isOverlay: true),
     (label: 'VOL', id: 'vol', isOverlay: false),
@@ -58,30 +63,73 @@ class IndicatorsSection extends StatelessWidget {
       children: [
         Text('主图叠加', style: TextStyle(color: ChartTheme.textTertiary, fontSize: 11)),
         const SizedBox(height: 6),
-        Row(
-          children: items.where((e) => e.isOverlay).map((e) {
-            final selected = overlayIndicator == e.id;
-            return Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: FilterChip(
-                label: Text(e.label, style: TextStyle(fontSize: 12)),
-                selected: selected,
-                onSelected: (_) => onOverlayChanged(e.id),
-                selectedColor: ChartTheme.accentGold.withValues(alpha: 0.3),
-                checkmarkColor: ChartTheme.accentGold,
-                labelStyle: TextStyle(
-                  color: selected ? ChartTheme.accentGold : ChartTheme.textSecondary,
-                  fontSize: 12,
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: items.where((e) => e.isOverlay).map((e) {
+              final selected = overlayIndicator == e.id;
+              return Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: FilterChip(
+                  label: Text(e.label, style: TextStyle(fontSize: 12)),
+                  selected: selected,
+                  onSelected: (_) => onOverlayChanged(e.id),
+                  selectedColor: ChartTheme.accentGold.withValues(alpha: 0.3),
+                  checkmarkColor: ChartTheme.accentGold,
+                  labelStyle: TextStyle(
+                    color: selected ? ChartTheme.accentGold : ChartTheme.textSecondary,
+                    fontSize: 12,
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Text('昨收线', style: TextStyle(color: ChartTheme.textTertiary, fontSize: 11)),
+        const SizedBox(height: 6),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: FilterChip(
+                  label: const Text('有', style: TextStyle(fontSize: 12)),
+                  selected: showPrevCloseLine,
+                  onSelected: onShowPrevCloseLineChanged != null ? (_) => onShowPrevCloseLineChanged!(true) : null,
+                  selectedColor: ChartTheme.accentGold.withValues(alpha: 0.3),
+                  checkmarkColor: ChartTheme.accentGold,
+                  labelStyle: TextStyle(
+                    color: showPrevCloseLine ? ChartTheme.accentGold : ChartTheme.textSecondary,
+                    fontSize: 12,
+                  ),
                 ),
               ),
-            );
-          }).toList(),
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: FilterChip(
+                  label: const Text('无', style: TextStyle(fontSize: 12)),
+                  selected: !showPrevCloseLine,
+                  onSelected: onShowPrevCloseLineChanged != null ? (_) => onShowPrevCloseLineChanged!(false) : null,
+                  selectedColor: ChartTheme.accentGold.withValues(alpha: 0.3),
+                  checkmarkColor: ChartTheme.accentGold,
+                  labelStyle: TextStyle(
+                    color: !showPrevCloseLine ? ChartTheme.accentGold : ChartTheme.textSecondary,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
         const SizedBox(height: 12),
         Text('副图指标', style: TextStyle(color: ChartTheme.textTertiary, fontSize: 11)),
         const SizedBox(height: 6),
-        Row(
-          children: items.where((e) => !e.isOverlay).map((e) {
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: items.where((e) => !e.isOverlay).map((e) {
             final selected = subChartIndicator == e.id;
             return Padding(
               padding: const EdgeInsets.only(right: 8),
@@ -98,6 +146,7 @@ class IndicatorsSection extends StatelessWidget {
               ),
             );
           }).toList(),
+          ),
         ),
       ],
     );
@@ -112,6 +161,9 @@ class IndicatorsSection extends StatelessWidget {
     final rows = <Widget>[];
 
     // 主图叠加数值
+    if (overlayIndicator == 'none') {
+      // 无主图叠加时不显示 MA/EMA 数值
+    } else {
     final label = overlayIndicator == 'ema' ? 'EMA' : 'MA';
     const ma5Color = Color(0xFFF6C343);
     const ma10Color = Color(0xFF3B82F6);
@@ -136,6 +188,7 @@ class IndicatorsSection extends StatelessWidget {
       rows.add(_valueRow('${label}5', v5, ma5Color));
       rows.add(_valueRow('${label}10', v10, ma10Color));
       rows.add(_valueRow('${label}20', v20, ma20Color));
+    }
     }
 
     // 副图数值

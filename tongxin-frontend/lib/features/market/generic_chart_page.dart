@@ -11,6 +11,27 @@ import 'chart_viewport.dart';
 import 'chart_viewport_controller.dart';
 import 'market_repository.dart';
 
+/// 指数/外汇/加密货币详情页切换时的内存缓存（最近 5 只）
+class _GenericDetailCache {
+  MarketQuote? quote;
+  List<ChartCandle> intraday = [];
+  List<ChartCandle> daily = [];
+  String chartPeriod = '1m';
+  String klineTimespan = 'day';
+}
+
+const int _genericCacheMaxSize = 5;
+final Map<String, _GenericDetailCache> _genericDetailCache = {};
+
+void _trimGenericCache() {
+  if (_genericDetailCache.length > _genericCacheMaxSize) {
+    final keys = _genericDetailCache.keys.toList();
+    for (var i = 0; i < keys.length - _genericCacheMaxSize; i++) {
+      _genericDetailCache.remove(keys[i]);
+    }
+  }
+}
+
 /// 指数/外汇/加密货币详情：与股票详情（StockChartPage）同一套界面
 /// 分时：摘要行（价/均/涨/涨跌幅/量/额）+ IntradayChart 铺满、时间轴对齐、当前价虚线贯通
 /// K 线：ChartViewport + 指标面板 + 底部数据带。数据来源：Twelve Data
@@ -19,10 +40,14 @@ class GenericChartPage extends StatefulWidget {
     super.key,
     required this.symbol,
     required this.name,
+    this.symbolList,
+    this.symbolIndex,
   });
 
   final String symbol;
   final String name;
+  final List<String>? symbolList;
+  final int? symbolIndex;
 
   @override
   State<GenericChartPage> createState() => _GenericChartPageState();
@@ -39,11 +64,19 @@ class _GenericChartPageState extends State<GenericChartPage>
   late final ChartViewportController _dailyController;
   bool _dailyLoadingMore = false;
   int? _lastLoadedEarliestTs;
-  String _overlayIndicator = 'ma';
+  String _overlayIndicator = 'none';
   String _subChartIndicator = 'vol';
+  bool _showPrevCloseLine = true;
   bool _loading = true;
   String _chartPeriod = '1m';
   String _klineTimespan = 'day';
+  late String _currentSymbol;
+  String _currentName = '';
+  int _currentIndex = 0;
+
+  String get _effectiveSymbol => widget.symbolList != null ? _currentSymbol : widget.symbol;
+  String get _effectiveName => widget.symbolList != null ? _currentName : widget.name;
+  int get _effectiveIndex => widget.symbolList != null ? _currentIndex : _prevNextIndex;
 
   static const double _chartMinHeight = 320.0;
   static const double _chartContainerPaddingV = 28.0;
@@ -76,9 +109,118 @@ class _GenericChartPageState extends State<GenericChartPage>
     }
   }
 
+  int get _symbolListLength => widget.symbolList?.length ?? 0;
+
+  int get _prevNextIndex {
+    final list = widget.symbolList;
+    if (list == null || list.isEmpty) return -1;
+    if (widget.symbolList != null) return _currentIndex.clamp(0, list.length - 1);
+    if (widget.symbolIndex != null) {
+      return widget.symbolIndex!.clamp(0, list.length - 1);
+    }
+    final i = list.indexWhere((s) => s.toUpperCase() == widget.symbol.toUpperCase());
+    return i >= 0 ? i : 0;
+  }
+
+  void _switchToPrev() {
+    final list = widget.symbolList;
+    if (list == null || list.isEmpty) return;
+    final i = _effectiveIndex;
+    if (i <= 0) return;
+    _switchToSymbolInPlace(list[i - 1]);
+  }
+
+  void _switchToNext() {
+    final list = widget.symbolList;
+    if (list == null || list.isEmpty) return;
+    final i = _effectiveIndex;
+    if (i >= list.length - 1) return;
+    _switchToSymbolInPlace(list[i + 1]);
+  }
+
+  void _switchToSymbolInPlace(String newSymbol) {
+    final list = widget.symbolList;
+    if (list == null || list.isEmpty) return;
+    final newSym = newSymbol.trim();
+    final newIndex = list.indexWhere((s) => s.toUpperCase() == newSym.toUpperCase());
+    if (newIndex < 0) return;
+
+    final oldSym = _currentSymbol;
+    _saveToCache(oldSym);
+
+    setState(() {
+      _currentSymbol = newSym;
+      _currentName = newSym;
+      _currentIndex = newIndex;
+      _loading = true;
+    });
+
+    final cached = _genericDetailCache[newSym];
+    if (cached != null && (cached.intraday.isNotEmpty || cached.daily.isNotEmpty)) {
+      setState(() {
+        _quote = cached.quote;
+        _intraday = List.from(cached.intraday);
+        _daily = List.from(cached.daily);
+        _chartPeriod = cached.chartPeriod;
+        _klineTimespan = cached.klineTimespan;
+        _loading = false;
+      });
+      _dailyController.initFromCandlesLength(_daily.length);
+    }
+
+    _load().then((_) {
+      if (mounted) {
+        setState(() {});
+        _saveToCache(newSym);
+      }
+    });
+  }
+
+  void _saveToCache(String sym) {
+    if (_intraday.isEmpty && _daily.isEmpty) return;
+    final c = _GenericDetailCache()
+      ..quote = _quote
+      ..intraday = List.from(_intraday)
+      ..daily = List.from(_daily)
+      ..chartPeriod = _chartPeriod
+      ..klineTimespan = _klineTimespan;
+    _genericDetailCache[sym] = c;
+    _trimGenericCache();
+  }
+
+  void _navigateToSymbol(String newSymbol) {
+    final list = widget.symbolList;
+    if (list != null && list.isNotEmpty) {
+      _switchToSymbolInPlace(newSymbol);
+      return;
+    }
+    final newIndex = list != null ? list.indexWhere((s) => s.toUpperCase() == newSymbol.toUpperCase()) : -1;
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => GenericChartPage(
+          symbol: newSymbol,
+          name: newSymbol,
+          symbolList: list,
+          symbolIndex: newIndex >= 0 ? newIndex : null,
+        ),
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
+    _currentSymbol = widget.symbol.trim();
+    _currentName = widget.name;
+    final list = widget.symbolList;
+    if (list != null && list.isNotEmpty && widget.symbolIndex != null) {
+      _currentIndex = widget.symbolIndex!.clamp(0, list.length - 1);
+    } else if (list != null && list.isNotEmpty) {
+      final i = list.indexWhere((s) => s.toUpperCase() == widget.symbol.toUpperCase());
+      _currentIndex = i >= 0 ? i : 0;
+    } else {
+      _currentIndex = 0;
+    }
     _tabController = TabController(length: 2, vsync: this);
     _tabController.addListener(() {
       if (_tabController.indexIsChanging) return;
@@ -100,7 +242,7 @@ class _GenericChartPageState extends State<GenericChartPage>
       return;
     }
     setState(() => _loading = true);
-    final sym = widget.symbol.trim();
+    final sym = _effectiveSymbol.trim();
     final q = await _market.getQuote(sym);
     final lastDays = _intradayLastDays(_chartPeriod);
     final intra = await _market.getCandles(sym, _intradayToInterval(_chartPeriod), lastDays: lastDays);
@@ -113,7 +255,9 @@ class _GenericChartPageState extends State<GenericChartPage>
       _lastLoadedEarliestTs = null;
       _dailyController.initFromCandlesLength(day.length);
       _loading = false;
+      if (q.name != null && q.name!.isNotEmpty) _currentName = q.name!;
     });
+    _saveToCache(sym);
   }
 
   Future<void> _loadDailyOlder(int earliestTimestampMs) async {
@@ -123,7 +267,7 @@ class _GenericChartPageState extends State<GenericChartPage>
     try {
       final beforeLen = _daily.length;
       final list = await _market.getCandlesOlderThan(
-        widget.symbol,
+        _effectiveSymbol,
         _klineToInterval(_klineTimespan),
         olderThanMs: earliestTimestampMs,
         limit: 300,
@@ -154,9 +298,11 @@ class _GenericChartPageState extends State<GenericChartPage>
       body: Column(
         children: [
           DetailHeader(
-            symbol: widget.symbol,
-            name: widget.name.isNotEmpty ? widget.name : null,
+            symbol: _effectiveSymbol,
+            name: _effectiveName.isNotEmpty ? _effectiveName : null,
             onBack: () => Navigator.of(context).maybePop(),
+            onPrev: _prevNextIndex > 0 ? _switchToPrev : null,
+            onNext: _prevNextIndex >= 0 && _prevNextIndex < _symbolListLength - 1 ? _switchToNext : null,
           ),
           ChartModeTabs(
             labels: ChartModeTabs.genericLabels,
@@ -237,6 +383,7 @@ class _GenericChartPageState extends State<GenericChartPage>
                                   timeAxisHeight: timeAxisHeight,
                                   overlayIndicator: _overlayIndicator,
                                   subChartIndicator: _subChartIndicator,
+                                  showPrevCloseLine: _showPrevCloseLine,
                                 ),
                                 ListenableBuilder(
                                   listenable: _dailyController,
@@ -278,8 +425,10 @@ class _GenericChartPageState extends State<GenericChartPage>
             IndicatorsPanel(
               overlayIndicator: _overlayIndicator,
               subChartIndicator: _subChartIndicator,
+              showPrevCloseLine: _showPrevCloseLine,
               onOverlayChanged: (v) => setState(() => _overlayIndicator = v),
               onSubChartChanged: (v) => setState(() => _subChartIndicator = v),
+              onShowPrevCloseLineChanged: (v) => setState(() => _showPrevCloseLine = v),
             ),
           _buildStatsBar(),
         ],

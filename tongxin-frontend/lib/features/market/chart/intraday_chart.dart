@@ -200,6 +200,30 @@ class IntradayChart extends StatelessWidget {
     ];
   }
 
+  /// 紧凑模式时间轴：按实际数据时间范围，首尾各一个刻度 + 中间均匀分布
+  List<({double xFraction, String label})> _buildCompactSessionTimeAxisTicks(double dataStartSec, double dataEndSec) {
+    final d0 = DateTime.fromMillisecondsSinceEpoch((dataStartSec * 1000).toInt());
+    final d1 = DateTime.fromMillisecondsSinceEpoch((dataEndSec * 1000).toInt());
+    if (d0.day != d1.day) {
+      return [
+        (xFraction: 0.0, label: '${d0.month.toString().padLeft(2, '0')}/${d0.day.toString().padLeft(2, '0')} ${d0.hour.toString().padLeft(2, '0')}:${d0.minute.toString().padLeft(2, '0')}'),
+        (xFraction: 0.5, label: '${d1.month.toString().padLeft(2, '0')}/${d1.day.toString().padLeft(2, '0')}'),
+        (xFraction: 1.0, label: '${d1.hour.toString().padLeft(2, '0')}:${d1.minute.toString().padLeft(2, '0')}'),
+      ];
+    }
+    String fmt(double sec) {
+      final d = DateTime.fromMillisecondsSinceEpoch((sec * 1000).round());
+      return '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+    }
+    return [
+      (xFraction: 0.0, label: '${d0.month.toString().padLeft(2, '0')}/${d0.day.toString().padLeft(2, '0')} ${d0.hour.toString().padLeft(2, '0')}:${d0.minute.toString().padLeft(2, '0')}'),
+      (xFraction: 0.25, label: fmt(dataStartSec + (dataEndSec - dataStartSec) * 0.25)),
+      (xFraction: 0.5, label: fmt(dataStartSec + (dataEndSec - dataStartSec) * 0.5)),
+      (xFraction: 0.75, label: fmt(dataStartSec + (dataEndSec - dataStartSec) * 0.75)),
+      (xFraction: 1.0, label: '${d1.hour.toString().padLeft(2, '0')}:${d1.minute.toString().padLeft(2, '0')}'),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     if (candles.isEmpty) {
@@ -269,27 +293,27 @@ class IntradayChart extends StatelessWidget {
     List<double>? spotXFractionsComputed;
     double maxXComputed = 0;
 
-    if (useSessionMode && sessionLen > 0) {
+    if (useSessionMode && sessionLen > 0 && plotCandles.isNotEmpty) {
+      // 使用实际数据时间范围映射，避免左侧大片空白（部分股票开盘后很久才有成交）
+      final dataStartSec = plotCandles.first.time;
+      final dataEndSec = plotCandles.last.time;
+      final dataLen = (dataEndSec - dataStartSec).clamp(60.0, double.infinity);
       for (var i = 0; i < plotCandles.length; i++) {
         final c = plotCandles[i];
-        final x = ((c.time - sessionStartSec) / sessionLen).clamp(0.0, 1.0);
+        final x = ((c.time - dataStartSec) / dataLen).clamp(0.0, 1.0);
         spots.add(FlSpot(x, plotCloses[i]));
       }
-      if (plotCandles.isNotEmpty) {
-        dataEndX = ((plotCandles.last.time - sessionStartSec) / sessionLen).clamp(0.0, 1.0);
-      }
+      dataEndX = 1.0;
       if (currentPrice != null) {
         final cp = currentPrice!;
         final lastPlot = plotCloses.isNotEmpty ? plotCloses.last : cp;
         final sanePrice = (plotCloses.length >= 10 && basePrice > 0)
             ? (cp < yFloor || cp > yCeil ? lastPlot : cp)
             : cp;
-        spots.add(FlSpot(dataEndX, sanePrice));
+        spots.add(FlSpot(1.0, sanePrice));
       }
       maxXComputed = 1.0;
-      spotXFractionsComputed = plotCandles.isNotEmpty
-          ? plotCandles.map((c) => ((c.time - sessionStartSec) / sessionLen).clamp(0.0, 1.0)).toList()
-          : null;
+      spotXFractionsComputed = plotCandles.map((c) => ((c.time - dataStartSec) / dataLen).clamp(0.0, 1.0)).toList();
     } else if (useEqualDayWidth) {
       for (var i = 0; i < plotCandles.length; i++) {
         var d = 0;
@@ -364,8 +388,11 @@ class IntradayChart extends StatelessWidget {
         sumVw += c.close * v;
         final avg = sumV > 0 ? sumVw / sumV : (sumVw / (i + 1));
         double x;
-        if (useSessionMode) {
-          x = ((c.time - sessionStartSec) / sessionLen).clamp(0.0, 1.0);
+        if (useSessionMode && plotCandles.isNotEmpty) {
+          final dataStartSec = plotCandles.first.time;
+          final dataEndSec = plotCandles.last.time;
+          final dataLen = (dataEndSec - dataStartSec).clamp(60.0, double.infinity);
+          x = ((c.time - dataStartSec) / dataLen).clamp(0.0, 1.0);
         } else if (useEqualDayWidth) {
           var d = 0;
           for (; d < dayRanges.length; d++) {
@@ -659,8 +686,8 @@ class IntradayChart extends StatelessWidget {
                       width: contentWidth,
                       child: LayoutBuilder(
                         builder: (context, constraints) {
-                          if (useSessionMode && sessionLen > 0) {
-                            final ticks = _buildSessionTimeAxisTicks(sessionStartSec, sessionEndSec, dataEndX);
+                          if (useSessionMode && sessionLen > 0 && plotCandles.isNotEmpty) {
+                            final ticks = _buildCompactSessionTimeAxisTicks(plotCandles.first.time, plotCandles.last.time);
                             if (ticks.isEmpty) return const SizedBox.shrink();
                             const labelW = 56.0;
                             return Stack(

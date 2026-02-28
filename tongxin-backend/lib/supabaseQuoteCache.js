@@ -95,8 +95,26 @@ async function setBatch(entries) {
   }
 }
 
+/**
+ * 获取 stock_quote_cache 表中所有 symbol+name（24 小时内更新过的），用于美股列表秒开
+ * 返回 [{ symbol, name }, ...]，按 symbol 排序
+ */
+async function getAllSymbolsAndNames(maxAgeMs = 24 * 60 * 60 * 1000) {
+  const supabase = getClient();
+  if (!supabase) return [];
+  const since = new Date(Date.now() - maxAgeMs).toISOString();
+  const { data, error } = await supabase
+    .from(TABLE)
+    .select('symbol, name')
+    .gte('updated_at', since)
+    .order('symbol');
+  if (error) return [];
+  return (data || []).map((row) => ({ symbol: row.symbol || '', name: row.name || row.symbol || '' }));
+}
+
 module.exports = {
   isConfigured,
   getBySymbols,
   setBatch,
+  getAllSymbolsAndNames,
 };

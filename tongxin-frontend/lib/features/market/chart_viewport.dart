@@ -30,6 +30,8 @@ class ChartViewport extends StatefulWidget {
     this.prevClose,
     /// 现价，虚线画在此价位、右侧为相对昨收涨跌幅；不传则用最后一根 K 线收盘
     this.currentPrice,
+    /// 是否显示昨收价虚线（Prev Close），可在指标面板切换
+    this.showPrevCloseLine = true,
   });
 
   final ChartViewportController controller;
@@ -46,6 +48,7 @@ class ChartViewport extends StatefulWidget {
   final int loadMoreThreshold;
   final double? prevClose;
   final double? currentPrice;
+  final bool showPrevCloseLine;
 
   @override
   State<ChartViewport> createState() => _ChartViewportState();
@@ -273,7 +276,7 @@ class _ChartViewportState extends State<ChartViewport> {
     return Positioned(
       right: 0,
       top: rightTop,
-      width: 38,
+      width: 56,
       height: rightLabelH,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
@@ -407,7 +410,8 @@ class _ChartViewportState extends State<ChartViewport> {
       );
     }
 
-    final overlay = widget.overlayIndicator ?? (widget.showMa ? 'ma' : null);
+    final raw = widget.overlayIndicator ?? (widget.showMa ? 'ma' : null);
+    final overlay = (raw == null || raw == 'none') ? null : raw;
     final sub = widget.subChartIndicator ?? (widget.showVolume ? 'vol' : null);
     final hasSubChart = sub != null;
 
@@ -492,7 +496,7 @@ class _ChartViewportState extends State<ChartViewport> {
 
     return LayoutBuilder(
       builder: (context, layoutConstraints) {
-        const rightAxisWidth = 38.0;
+        const rightAxisWidth = 56.0;
         const horizontalPad = 4.0;
         final chartAreaWidth = (layoutConstraints.maxWidth - horizontalPad - 2 - rightAxisWidth).clamp(0.0, double.infinity);
         const timeRatio = 22 / 376;
@@ -534,7 +538,8 @@ class _ChartViewportState extends State<ChartViewport> {
               SizedBox(
                 width: chartConstraints.maxWidth,
                 height: chartH,
-                child: Row(
+                child: ClipRect(
+                  child: Row(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Expanded(
@@ -581,7 +586,8 @@ class _ChartViewportState extends State<ChartViewport> {
                               highlightIndex: _tooltipIndex,
                             ),
                           ),
-                          if (widget.prevClose != null &&
+                          if (widget.showPrevCloseLine &&
+                              widget.prevClose != null &&
                               widget.prevClose! > 0 &&
                               widget.prevClose! >= minY &&
                               widget.prevClose! <= maxY &&
@@ -600,7 +606,8 @@ class _ChartViewportState extends State<ChartViewport> {
                                 ),
                               ),
                             ),
-                          if (widget.prevClose != null &&
+                          if (widget.showPrevCloseLine &&
+                              widget.prevClose != null &&
                               widget.prevClose! > 0 &&
                               widget.prevClose! >= minY &&
                               widget.prevClose! <= maxY &&
@@ -671,6 +678,7 @@ class _ChartViewportState extends State<ChartViewport> {
                     ),
                     ],
                   ),
+                ),
                 ),
             if (hasVolBars)
                 SizedBox(
@@ -918,8 +926,8 @@ class _ReferenceLinePainter extends CustomPainter {
       old.refPrice != refPrice || old.minY != minY || old.maxY != maxY || old.color != color;
 }
 
-/// 右侧预留的 K 线空位数（0=拉满，参考同花顺/东方财富最后一根贴右）
-const int _kRightReservedCandleSlots = 0;
+/// 右侧预留的 K 线空位数，留出空间让涨幅/比例数字完整显示，避免被截断
+const int _kRightReservedCandleSlots = 4;
 
 class _CandlestickPainter extends CustomPainter {
   _CandlestickPainter({
@@ -948,15 +956,22 @@ class _CandlestickPainter extends CustomPainter {
     final totalSlots = n + _kRightReservedCandleSlots;
     final slotWidth = chartW / totalSlots;
     final candleW = (slotWidth * 0.85).clamp(2.0, 20.0);
+    final yMin = pad;
+    final yMax = pad + chartH;
     for (var i = 0; i < n; i++) {
       final c = candles[i];
       final isUp = c.close >= c.open;
       final color = isUp ? ChartTheme.up : ChartTheme.down;
       final x = pad + (i + 0.5) * slotWidth;
-      final yHigh = pad + chartH - (c.high - minY) / rangeY * chartH;
-      final yLow = pad + chartH - (c.low - minY) / rangeY * chartH;
-      final yOpen = pad + chartH - (c.open - minY) / rangeY * chartH;
-      final yClose = pad + chartH - (c.close - minY) / rangeY * chartH;
+      var yHigh = pad + chartH - (c.high - minY) / rangeY * chartH;
+      var yLow = pad + chartH - (c.low - minY) / rangeY * chartH;
+      var yOpen = pad + chartH - (c.open - minY) / rangeY * chartH;
+      var yClose = pad + chartH - (c.close - minY) / rangeY * chartH;
+      // 限制在图表区域内，避免极端 K 线影线超出主图、侵入 VOL 区域
+      yHigh = yHigh.clamp(yMin, yMax);
+      yLow = yLow.clamp(yMin, yMax);
+      yOpen = yOpen.clamp(yMin, yMax);
+      yClose = yClose.clamp(yMin, yMax);
       final bodyTop = yOpen < yClose ? yOpen : yClose;
       final bodyBottom = yOpen < yClose ? yClose : yOpen;
       final bodyH = (bodyBottom - bodyTop).clamp(1.0, double.infinity);
