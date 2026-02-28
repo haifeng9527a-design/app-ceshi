@@ -561,7 +561,7 @@ class _HomeTabState extends State<_HomeTab> {
     final n = name ?? _watchlistQuotes[symbol]?.name ?? symbol;
     if (_isUsStock(symbol)) {
       Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => StockChartPage(symbol: symbol)),
+        MaterialPageRoute(builder: (_) => StockChartPage(symbol: symbol, name: n != symbol ? n : null)),
       );
     } else {
       Navigator.of(context).push(

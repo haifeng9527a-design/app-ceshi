@@ -250,6 +250,8 @@ class BackendMarketClient {
     if (interval == '1week') return 7 * 86400 * 1000;
     if (interval == '1month') return 30 * 86400 * 1000;
     if (interval == '1h') return 3600 * 1000;
+    if (interval == '30min') return 30 * 60 * 1000;
+    if (interval == '15min') return 15 * 60 * 1000;
     if (interval == '5min') return 5 * 60 * 1000;
     if (interval == '1min') return 60 * 1000;
     return 86400 * 1000;

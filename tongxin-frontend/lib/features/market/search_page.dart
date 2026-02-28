@@ -80,7 +80,7 @@ class _SearchPageState extends State<SearchPage> {
     if (_isUsStock(item.symbol)) {
       Navigator.of(context).push(
         MaterialPageRoute(
-          builder: (_) => StockChartPage(symbol: item.symbol),
+          builder: (_) => StockChartPage(symbol: item.symbol, name: item.name),
         ),
       );
     } else {

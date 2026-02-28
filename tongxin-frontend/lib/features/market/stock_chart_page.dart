@@ -5,10 +5,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../trading/trading_cache.dart';
+import 'chart/bottom_detail_tabs.dart';
 import 'chart/chart_theme.dart';
 import 'chart/chart_mode_tabs.dart';
 import 'chart/detail_header.dart';
-import 'chart/indicators_panel.dart';
+import 'chart/price_section.dart';
 import 'chart/intraday_chart.dart';
 import 'chart/stats_bar.dart';
 import 'chart/tv_chart_container.dart';
@@ -28,15 +29,24 @@ class StockChartPage extends StatefulWidget {
   const StockChartPage({
     super.key,
     required this.symbol,
+    this.name,
     this.initialSnapshot,
     this.isMockData = false,
+    this.symbolList,
+    this.symbolIndex,
   });
 
   final String symbol;
+  /// 股票名称（如「特斯拉」），无则用 symbol
+  final String? name;
   /// 从行情列表点进时传入，用于立即展示今开/最高/最低/昨收，不等图表
   final PolygonGainer? initialSnapshot;
   /// 是否为模拟数据（列表无 API 时传入，详情页顶部显示「模拟数据」提示）
   final bool isMockData;
+  /// 股票列表，传入后顶栏显示左右箭头可切换股票
+  final List<String>? symbolList;
+  /// 当前在 symbolList 中的索引，不传则按 symbol 查找
+  final int? symbolIndex;
 
   @override
   State<StockChartPage> createState() => _StockChartPageState();
@@ -69,10 +79,12 @@ class _StockChartPageState extends State<StockChartPage>
   int _realtimeVolume = 0;
   PolygonRealtime? _realtime;
   StreamSubscription<PolygonTradeUpdate>? _realtimeSub;
-  /// 分时周期：1m（1分钟当日）、2d/3d/4d（两天/三天/四天连续分时）
-  String _chartPeriod = '1m';
-  /// K线周期（仅 K 线 Tab）：5day, day, week, month, year
-  String _klineTimespan = 'day';
+  /// 分时周期：仅 Tab 0（1分）用折线图，固定 1min
+  static const String _intradayInterval = '1min';
+  /// K线周期（Tab 1-5）：5min/15min/30min/1day/1week|1month|1year
+  String _klineInterval = '5min';
+  /// 周K Tab 下拉选中：1week | 1month | 1year
+  String _extendedKlineInterval = '1week';
   /// 主图叠加：ma / ema
   String _overlayIndicator = 'ma';
   /// 副图：vol / macd / rsi
@@ -83,15 +95,33 @@ class _StockChartPageState extends State<StockChartPage>
   Map<String, dynamic>? _keyRatios;
   List<Map<String, dynamic>> _dividends = [];
   List<Map<String, dynamic>> _splits = [];
+  String? _stockName;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 6, vsync: this);
     _klineController = ChartViewportController(initialVisibleCount: 80, minVisibleCount: 30, maxVisibleCount: 400);
     _tabController.addListener(() {
       if (_tabController.indexIsChanging) return;
-      setState(() {});
+      final i = _tabController.index;
+      if (i == 0) {
+        setState(() {});
+        return;
+      }
+      // Tab 1-5: 5分/15分/30分/日K/周K(或月K/年K) 均为 K 线图
+      final interval = i == 5 ? _extendedKlineInterval : ['5min', '15min', '30min', '1day'][i - 1];
+      if (_klineInterval != interval) {
+        setState(() {
+          _klineInterval = interval;
+          _chartLoading = true;
+        });
+        _loadKLine().then((_) {
+          if (mounted) setState(() => _chartLoading = false);
+        });
+      } else {
+        setState(() {});
+      }
     });
     final snap = widget.initialSnapshot;
     if (snap != null) {
@@ -119,6 +149,26 @@ class _StockChartPageState extends State<StockChartPage>
     _startRealtimeTimers();
     _loadKeyRatios();
     _loadCompanyActions();
+    if (widget.name == null) _loadStockName();
+  }
+
+  /// 无名称时通过搜索获取股票名称（如从领涨榜进入详情页）
+  Future<void> _loadStockName() async {
+    final sym = widget.symbol.trim().toUpperCase();
+    if (sym.isEmpty) return;
+    final results = await _market.searchSymbols(sym);
+    if (!mounted || results.isEmpty) return;
+    MarketSearchResult? match;
+    for (final r in results) {
+      if (r.symbol.toUpperCase() == sym) {
+        match = r;
+        break;
+      }
+    }
+    final m = match ?? results.first;
+    if (m.name.isNotEmpty && m.name != sym) {
+      setState(() => _stockName = m.name);
+    }
   }
 
   void _startRealtimeTimers() {
@@ -140,6 +190,72 @@ class _StockChartPageState extends State<StockChartPage>
       if (_candlesIntraday.isEmpty) _loadIntraday();
       if (_candlesKLine.isEmpty) _loadKLine();
     });
+  }
+
+  int get _symbolListLength => widget.symbolList?.length ?? 0;
+
+  int get _prevNextIndex {
+    final list = widget.symbolList;
+    if (list == null || list.isEmpty) return -1;
+    if (widget.symbolIndex != null) {
+      return widget.symbolIndex!.clamp(0, list.length - 1);
+    }
+    final i = list.indexWhere((s) => s.toUpperCase() == widget.symbol.toUpperCase());
+    return i >= 0 ? i : 0;
+  }
+
+  void _switchToPrev() {
+    final list = widget.symbolList;
+    if (list == null || list.isEmpty) return;
+    final i = _prevNextIndex;
+    if (i <= 0) return;
+    _navigateToSymbol(list[i - 1]);
+  }
+
+  void _switchToNext() {
+    final list = widget.symbolList;
+    if (list == null || list.isEmpty) return;
+    final i = _prevNextIndex;
+    if (i >= list.length - 1) return;
+    _navigateToSymbol(list[i + 1]);
+  }
+
+  void _navigateToSymbol(String newSymbol) {
+    final list = widget.symbolList;
+    final newIndex = list != null ? list.indexWhere((s) => s.toUpperCase() == newSymbol.toUpperCase()) : -1;
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => StockChartPage(
+          symbol: newSymbol,
+          symbolList: list,
+          symbolIndex: newIndex >= 0 ? newIndex : null,
+          isMockData: widget.isMockData,
+        ),
+      ),
+    );
+  }
+
+  double? _marketCapForPriceSection() {
+    final cap = _keyRatios != null && _keyRatios!['market_cap'] != null
+        ? (_keyRatios!['market_cap'] as num).toDouble()
+        : null;
+    if (cap != null && cap > 0) return cap;
+    return null;
+  }
+
+  double? _turnoverForPriceSection() {
+    int? vol;
+    if (_realtimeVolume > 0) vol = _realtimeVolume;
+    else if (_candlesIntraday.isNotEmpty && _candlesIntraday.any((c) => (c.volume ?? 0) > 0)) {
+      vol = _candlesIntraday.fold<int>(0, (s, c) => s + (c.volume ?? 0));
+    } else if (_candlesKLine.isNotEmpty && _candlesKLine.last.volume != null && _candlesKLine.last.volume! > 0) {
+      vol = _candlesKLine.last.volume;
+    }
+    if (vol == null || vol <= 0) vol = _dayVolume;
+    if (vol == null || vol <= 0) return null;
+    final price = _currentPrice ?? _dayOpen ?? _prevClose;
+    if (price == null || price <= 0) return null;
+    return vol * price;
   }
 
   static String _formatVol(int v) {
@@ -185,6 +301,7 @@ class _StockChartPageState extends State<StockChartPage>
         if (quote.low != null && quote.low! > 0) _dayLow = quote.low;
         if (quote.volume != null && quote.volume! > 0) _dayVolume = quote.volume;
         if (quote.price > 0 && quote.change != 0) _prevClose = quote.price - quote.change;
+        if (quote.name != null && quote.name!.isNotEmpty) _stockName = quote.name;
       }
       if (_prevClose == null) _prevClose = prev;
     });
@@ -241,29 +358,112 @@ class _StockChartPageState extends State<StockChartPage>
     });
   }
 
-  /// 分时 1天/2天/3天/4天 对应的拉取天数（用于多日分时合并显示：昨天+今天 等）
-  static int _intradayLastDays(String period) {
-    switch (period) {
-      case '2d': return 2;
-      case '3d': return 3;
-      case '4d': return 4;
-      default: return 1;
-    }
-  }
-
+  /// 分时图（仅 1 分）：折线图，当日数据
   Future<void> _loadIntraday() async {
     final sym = widget.symbol.trim().toUpperCase();
-    final lastDays = _intradayLastDays(_chartPeriod);
-    final toMs = DateTime.now().millisecondsSinceEpoch;
-    final fromMs = toMs - lastDays * 24 * 3600 * 1000;
-    const multiplier = 1;
-    const timespan = 'minute';
+    const lastDays = 1;
+    const interval = '1min';
     List<ChartCandle> list = [];
-    // 配置了后端时优先用后端拉多日分时（2天=昨天+今天合并，3天/4天同理）
     if (_market.useBackend) {
-      list = await _market.getCandles(sym, '1min', lastDays: lastDays);
+      list = await _market.getCandles(sym, interval, lastDays: lastDays);
     }
     if (list.isEmpty) {
+      final toMs = DateTime.now().millisecondsSinceEpoch;
+      final fromMs = toMs - lastDays * 24 * 3600 * 1000;
+      final cache = TradingCache.instance;
+      final cacheKey = 'polygon_aggs_${sym}_1_minute_${fromMs}_$toMs';
+      final cached = await cache.getList(cacheKey, maxAge: const Duration(hours: 24));
+      if (cached != null && cached.isNotEmpty) {
+        for (final r in cached) {
+          if (r is Map<String, dynamic>) {
+            final bar = PolygonBar.fromJson(r);
+            if (bar != null) list.add(ChartCandle.fromBar(bar));
+          }
+        }
+      }
+      if (_market.polygonAvailable && list.isEmpty) {
+        list = await _market.getAggregates(sym, multiplier: 1, timespan: 'minute', fromMs: fromMs, toMs: toMs);
+      }
+      if (list.isEmpty && _market.twelveDataAvailable) {
+        list = await _market.getCandles(sym, interval, lastDays: lastDays);
+      }
+    }
+    list.sort((a, b) => a.time.compareTo(b.time));
+    if (mounted) setState(() => _candlesIntraday = list);
+  }
+
+  /// Tab 0：1 分分时折线图
+  Widget _buildIntradayTab(double chartHeight, double timeAxisHeight, double volumeHeight) {
+    if (_candlesIntraday.isEmpty) {
+      return _buildNoDataHint(true, stillLoading: _chartLoading);
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(
+          child: IntradayChart(
+            candles: _candlesIntraday,
+            prevClose: _prevClose,
+            currentPrice: _currentPrice,
+            chartHeight: chartHeight,
+            timeAxisHeight: timeAxisHeight,
+            volumeHeight: volumeHeight,
+            periodLabel: '1m',
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// K 线图：5分/15分/30分/日K/周K，均用蜡烛图
+  Future<void> _loadKLine() async {
+    final sym = widget.symbol.trim().toUpperCase();
+    final interval = _klineInterval;
+    int? lastDays;
+    if (interval == '5min') lastDays = 5;
+    else if (interval == '15min') lastDays = 10;
+    else if (interval == '30min') lastDays = 15;
+    List<ChartCandle> list = [];
+    if (mounted) setState(() => _klineLoadError = null);
+
+    if (kDebugMode) debugPrint('StockChartPage _loadKLine: symbol=$sym interval=$interval useBackend=${_market.useBackend}');
+    if (_market.useBackend) {
+      list = await _market.getCandles(
+        sym,
+        interval,
+        lastDays: lastDays,
+        onError: (msg) {
+          if (mounted) setState(() => _klineLoadError = msg);
+        },
+      );
+    }
+    if (list.isEmpty) {
+      final toMs = DateTime.now().millisecondsSinceEpoch;
+      int fromMs;
+      int multiplier = 1;
+      String timespan = 'minute';
+      if (interval == '5min') {
+        fromMs = toMs - 5 * 24 * 3600 * 1000;
+        multiplier = 5;
+      } else if (interval == '15min') {
+        fromMs = toMs - 10 * 24 * 3600 * 1000;
+        multiplier = 15;
+      } else if (interval == '30min') {
+        fromMs = toMs - 15 * 24 * 3600 * 1000;
+        multiplier = 30;
+      } else if (interval == '1week') {
+        fromMs = toMs - 52 * 7 * 24 * 3600 * 1000;
+        timespan = 'week';
+      } else if (interval == '1month') {
+        fromMs = toMs - 24 * 30 * 24 * 3600 * 1000;
+        timespan = 'month';
+      } else if (interval == '1year') {
+        fromMs = toMs - 20 * 365 * 24 * 3600 * 1000;
+        timespan = 'year';
+      } else {
+        fromMs = toMs - 60 * 24 * 3600 * 1000;
+        timespan = 'day';
+      }
       final cache = TradingCache.instance;
       final cacheKey = 'polygon_aggs_${sym}_${multiplier}_${timespan}_${fromMs}_$toMs';
       final cached = await cache.getList(cacheKey, maxAge: const Duration(hours: 24));
@@ -275,73 +475,17 @@ class _StockChartPageState extends State<StockChartPage>
           }
         }
       }
-      if (_market.polygonAvailable && list.isEmpty) {
+      if (list.isEmpty && _market.polygonAvailable) {
         list = await _market.getAggregates(sym, multiplier: multiplier, timespan: timespan, fromMs: fromMs, toMs: toMs);
       }
       if (list.isEmpty && _market.twelveDataAvailable) {
-        list = await _market.getCandles(sym, '1min', lastDays: lastDays);
-      }
-    }
-    list.sort((a, b) => a.time.compareTo(b.time));
-    if (mounted) setState(() => _candlesIntraday = list);
-  }
-
-  Future<void> _loadKLine() async {
-    final sym = widget.symbol.trim().toUpperCase();
-    final toMs = DateTime.now().millisecondsSinceEpoch;
-    int fromMs;
-    String polygonTimespan = _klineTimespan;
-    if (_klineTimespan == '5day') {
-      fromMs = toMs - 5 * 24 * 3600 * 1000;
-      polygonTimespan = 'day';
-    } else if (_klineTimespan == 'year') {
-      fromMs = toMs - 10 * 365 * 24 * 3600 * 1000;
-      polygonTimespan = 'month';
-    } else if (_klineTimespan == 'week') {
-      fromMs = toMs - 52 * 7 * 24 * 3600 * 1000;
-    } else if (_klineTimespan == 'month') {
-      fromMs = toMs - 24 * 30 * 24 * 3600 * 1000;
-    } else {
-      fromMs = toMs - 60 * 24 * 3600 * 1000;
-    }
-    final interval = polygonTimespan == 'week' ? '1week' : polygonTimespan == 'month' ? '1month' : '1day';
-    List<ChartCandle> list = [];
-    if (mounted) setState(() => _klineLoadError = null);
-
-    // 配置了后端时优先用后端拉 K 线，避免依赖客户端 Polygon 导致无数据
-    if (kDebugMode) debugPrint('StockChartPage _loadKLine: symbol=$sym interval=$interval useBackend=${_market.useBackend}');
-    if (_market.useBackend) {
-      list = await _market.getCandles(
-        sym,
-        interval,
-        onError: (msg) {
-          if (mounted) setState(() => _klineLoadError = msg);
-        },
-      );
-    }
-    if (list.isEmpty) {
-      final cache = TradingCache.instance;
-      final cacheKey = 'polygon_aggs_${sym}_1_${polygonTimespan}_${fromMs}_$toMs';
-      final cached = await cache.getList(cacheKey, maxAge: const Duration(hours: 24));
-      if (cached != null && cached.isNotEmpty) {
-        for (final r in cached) {
-          if (r is Map<String, dynamic>) {
-            final bar = PolygonBar.fromJson(r);
-            if (bar != null) list.add(ChartCandle.fromBar(bar));
-          }
-        }
-      }
-      if (list.isEmpty && _market.polygonAvailable) {
-        list = await _market.getAggregates(sym, multiplier: 1, timespan: polygonTimespan, fromMs: fromMs, toMs: toMs);
-      }
-      if (list.isEmpty && _market.twelveDataAvailable) {
-        list = await _market.getCandles(sym, interval);
+        list = await _market.getCandles(sym, interval, lastDays: lastDays);
       }
     }
     if (list.isEmpty) {
-      debugPrint('StockChartPage: K线无数据 symbol=$sym timespan=$_klineTimespan');
+      debugPrint('StockChartPage: K线无数据 symbol=$sym interval=$interval');
       if (_market.useBackend && kDebugMode) {
-        debugPrint('  → 已配置后端优先，请确认：1) 后端已启动  2) TONGXIN_API_URL 可访问（真机/模拟器请用本机 IP，如 http://192.168.x.x:3000）');
+        debugPrint('  → 已配置后端优先，请确认：1) 后端已启动  2) TONGXIN_API_URL 可访问');
       }
     }
     if (mounted) {
@@ -349,14 +493,18 @@ class _StockChartPageState extends State<StockChartPage>
         _candlesKLine = list;
         _klineController.initFromCandlesLength(list.length);
       });
-      _scheduleBackfillKLineTo20Years();
+      if (_isKlineIntervalDayOrWeek()) _scheduleBackfillKLineTo20Years();
     }
   }
+
+  bool _isKlineIntervalDayOrWeek() =>
+      _klineInterval == '1day' || _klineInterval == '1week' || _klineInterval == '1month' || _klineInterval == '1year';
 
   /// 近 20 年 K 线目标：首屏显示后持续在后台补全更早数据，直到约 20 年或接口无更多数据
   static final int _kline20YearsMs = (20 * 365.25 * 24 * 3600 * 1000).round();
 
   void _scheduleBackfillKLineTo20Years() {
+    if (!_isKlineIntervalDayOrWeek()) return;
     if (_candlesKLine.isEmpty || _klineLoadingMore) return;
     final oldestMs = (_candlesKLine.first.time * 1000).round();
     final twentyYearsAgo = DateTime.now().millisecondsSinceEpoch - _kline20YearsMs;
@@ -371,20 +519,7 @@ class _StockChartPageState extends State<StockChartPage>
     });
   }
 
-  String _klineIntervalForLoadMore() {
-    if (_klineTimespan == 'day' || _klineTimespan == '5day') return '1day';
-    if (_klineTimespan == 'week') return '1week';
-    if (_klineTimespan == 'month' || _klineTimespan == 'year') return '1month';
-    return '1day';
-  }
-
-  String _klinePolygonTimespan() {
-    if (_klineTimespan == '5day' || _klineTimespan == 'day') return 'day';
-    if (_klineTimespan == 'year') return 'month';
-    if (_klineTimespan == 'week') return 'week';
-    if (_klineTimespan == 'month') return 'month';
-    return 'day';
-  }
+  String _klineIntervalForLoadMore() => _klineInterval;
 
   /// 传给图表的 K 线列表：在「最新」视口且有实时价时，最后一根用实时价更新 high/low/close，使最后一根随行情波动
   List<ChartCandle> get _kLineDisplayCandles {
@@ -440,24 +575,24 @@ class _StockChartPageState extends State<StockChartPage>
     }
   }
 
-  static const double _chartMinHeight = 320.0;
-  /// TvChartContainer 上下内边距（缩小以让图表占更多面积）
-  static const double _chartContainerPaddingV = 12.0;
+  static const double _chartMinHeight = 260.0;
+  /// TvChartContainer 上下内边距
+  static const double _chartContainerPaddingV = 20.0;
   /// 分时图内部 Padding 占用的垂直空间
-  static const double _intradayChartPaddingV = 8.0;
-  /// 分时图上方摘要行（价/均/涨/量/额）占用的高度，用于计算可用高度避免溢出
+  static const double _intradayChartPaddingV = 16.0;
+  /// 分时图上方摘要行占用的高度
   static const double _intradaySummaryRowHeight = 44.0;
   /// K 线视口额外占用（缩小以让主图+成交量占满可用高度）
   static const double _klineViewportExtraV = 36.0;
-  /// 分时：主图+时间轴+成交量 比例分母 (220+56+22=298)
-  static const double _ratioChart = 220 / 298;
-  static const double _ratioVolume = 56 / 298;
-  static const double _ratioTimeAxis = 22 / 298;
+  /// 分时：主图+成交量+时间轴，放大主图和成交量便于看清
+  static const double _ratioChart = 228 / 320;
+  static const double _ratioVolume = 70 / 320;
+  static const double _ratioTimeAxis = 22 / 320;
   /// K 线：主图 90%、成交量 10%，占地更高、主图放大更清晰
   static const double _ratioChartK = 0.90 * (1 - 22 / 376);
   static const double _ratioVolumeK = 0.10 * (1 - 22 / 376);
   static const double _ratioTimeAxisK = 22 / 376;
-  static const double _ratioIntradayVolume = 0.18;
+  static const double _ratioIntradayVolume = 70 / 320;
 
   @override
   Widget build(BuildContext context) {
@@ -470,32 +605,48 @@ class _StockChartPageState extends State<StockChartPage>
         children: [
           DetailHeader(
             symbol: widget.symbol,
-            exchangeOrName: null,
+            name: widget.name ?? _stockName,
+            onBack: () => Navigator.of(context).maybePop(),
+            onPrev: _prevNextIndex > 0 ? _switchToPrev : null,
+            onNext: _prevNextIndex >= 0 && _prevNextIndex < _symbolListLength - 1 ? _switchToNext : null,
+          ),
+          PriceSection(
             currentPrice: _currentPrice,
             change: changeVal,
             changePercent: _changePercent,
-            statusLabel: _statusLabel(),
-            onBack: () => Navigator.of(context).maybePop(),
+            prevClose: _prevClose,
+            open: _dayOpen ?? (_candlesIntraday.isNotEmpty ? _candlesIntraday.first.open : null),
+            high: _dayHigh ?? (_candlesIntraday.isNotEmpty ? _candlesIntraday.map((c) => c.high).reduce((a, b) => a > b ? a : b) : null),
+            low: _dayLow ?? (_candlesIntraday.isNotEmpty ? _candlesIntraday.map((c) => c.low).reduce((a, b) => a < b ? a : b) : null),
+            turnover: _turnoverForPriceSection(),
+            marketCap: _marketCapForPriceSection(),
+            turnoverRate: _keyRatios != null && _keyRatios!['volume_turnover'] != null
+                ? (_keyRatios!['volume_turnover'] as num).toDouble() * 100
+                : null,
+            amplitude: _prevClose != null && _prevClose! > 0 && _dayHigh != null && _dayLow != null
+                ? (_dayHigh! - _dayLow!) / _prevClose! * 100
+                : null,
           ),
           ChartModeTabs(
             tabIndex: _tabController.index,
             onTabChanged: (i) => _tabController.animateTo(i),
             isIntraday: _tabController.index == 0,
-            intradayPeriod: _chartPeriod,
-            klineTimespan: _klineTimespan,
-            onIntradayPeriodChanged: (p) async {
-              if (_chartPeriod == p) return;
-              setState(() => _chartPeriod = p);
-              setState(() => _chartLoading = true);
-              await _loadIntraday();
-              if (mounted) setState(() => _chartLoading = false);
-            },
-            onKlineTimespanChanged: (t) async {
-              if (_klineTimespan == t) return;
-              setState(() => _klineTimespan = t);
-              setState(() => _chartLoading = true);
-              await _loadKLine();
-              if (mounted) setState(() => _chartLoading = false);
+            intradayPeriod: _intradayInterval,
+            klineTimespan: _klineInterval == '1day' ? 'day' : _klineInterval == '1week' ? 'week' : _klineInterval == '1month' ? 'month' : _klineInterval == '1year' ? 'year' : _klineInterval,
+            onIntradayPeriodChanged: (_) {},
+            onKlineTimespanChanged: (_) {},
+            extendedKlineInterval: _extendedKlineInterval,
+            onExtendedKlineChanged: (v) {
+              if (_extendedKlineInterval != v) {
+                setState(() {
+                  _extendedKlineInterval = v;
+                  _klineInterval = v;
+                  _chartLoading = true;
+                });
+                _loadKLine().then((_) {
+                  if (mounted) setState(() => _chartLoading = false);
+                });
+              }
             },
           ),
           if (widget.isMockData) _buildMockBanner(),
@@ -503,9 +654,9 @@ class _StockChartPageState extends State<StockChartPage>
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final availableHeight = constraints.maxHeight.clamp(_chartMinHeight, double.infinity);
-                final contentHeight = (availableHeight - _chartContainerPaddingV - _intradayChartPaddingV).clamp(200.0, double.infinity);
-                // 分时 Tab 里还有摘要行，可用高度要减去摘要行，否则会 BOTTOM OVERFLOWED
-                final contentHeightIntraday = (contentHeight - _intradaySummaryRowHeight).clamp(200.0, double.infinity);
+                final contentHeight = (availableHeight - _chartContainerPaddingV - _intradayChartPaddingV - 8).clamp(160.0, double.infinity);
+                // 分时 Tab 无摘要行，价格区已移至顶部
+                final contentHeightIntraday = contentHeight.clamp(180.0, double.infinity);
                 // K 线视口需要 chart+2*vol+2*time + tooltip/overlay，单独算可用高度与比例
                 final contentHeightKline = (availableHeight - _chartContainerPaddingV - _intradayChartPaddingV - _klineViewportExtraV).clamp(200.0, double.infinity);
                 final chartHeight = contentHeightKline * _ratioChartK;
@@ -526,85 +677,38 @@ class _StockChartPageState extends State<StockChartPage>
                   chartContent = TabBarView(
                     controller: _tabController,
                     children: [
-                      _candlesIntraday.isEmpty
-                          ? _buildNoDataHint(true, stillLoading: _chartLoading)
-                          : Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                _buildIntradaySummaryRow(),
-                                Expanded(
-                                  child: IntradayChart(
-                                    candles: _candlesIntraday,
-                                    prevClose: _prevClose,
-                                    currentPrice: _currentPrice,
-                                    chartHeight: chartHeightIntraday,
-                                    timeAxisHeight: timeAxisHeightIntraday,
-                                    volumeHeight: intradayVolumeHeight,
-                                    periodLabel: _chartPeriod,
-                                  ),
-                                ),
-                              ],
-                            ),
-                      _candlesKLine.isEmpty
-                          ? _buildNoDataHint(false, stillLoading: _chartLoading, klineError: _klineLoadError, onRetry: () {
-                              setState(() => _chartLoading = true);
-                              _loadKLine().then((_) { if (mounted) setState(() => _chartLoading = false); });
-                            })
-                          : Stack(
-                              children: [
-                                ChartViewport(
-                                  controller: _klineController,
-                                  candles: _kLineDisplayCandles,
-                                  onLoadMoreHistory: _loadKLineHistory,
-                                  isLoadingMore: _klineLoadingMore,
-                                  chartHeight: chartHeight,
-                                  volumeHeight: volumeHeight,
-                                  timeAxisHeight: timeAxisHeight,
-                                  overlayIndicator: _overlayIndicator,
-                                  subChartIndicator: _subChartIndicator,
-                                  prevClose: _prevClose,
-                                  currentPrice: _currentPrice,
-                                ),
-                                ListenableBuilder(
-                                  listenable: _klineController,
-                                  builder: (_, __) {
-                                    final atRealtime = _klineController.isAtRealtime(_candlesKLine.length);
-                                    if (atRealtime) return const SizedBox.shrink();
-                                    return Positioned(
-                                      right: 12,
-                                      bottom: 12,
-                                      child: Material(
-                                        color: ChartTheme.cardBackground,
-                                        borderRadius: BorderRadius.circular(ChartTheme.radiusButton),
-                                        child: InkWell(
-                                          onTap: () => _klineController.goToRealtime(_candlesKLine.length),
-                                          borderRadius: BorderRadius.circular(ChartTheme.radiusButton),
-                                          child: Padding(
-                                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                            child: Text('回最新', style: TextStyle(color: ChartTheme.accentGold, fontSize: 12, fontWeight: FontWeight.w600)),
-                                          ),
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                ),
-                              ],
-                            ),
+                      _buildIntradayTab(chartHeightIntraday, timeAxisHeightIntraday, intradayVolumeHeight),
+                      _buildKlineTab(chartHeight, volumeHeight, timeAxisHeight),
+                      _buildKlineTab(chartHeight, volumeHeight, timeAxisHeight),
+                      _buildKlineTab(chartHeight, volumeHeight, timeAxisHeight),
+                      _buildKlineTab(chartHeight, volumeHeight, timeAxisHeight),
+                      _buildKlineTab(chartHeight, volumeHeight, timeAxisHeight),
                     ],
                   );
                 }
 
+                final chartAreaHeight = constraints.maxHeight.clamp(200.0, double.infinity);
                 return TvChartContainer(
-                  padding: const EdgeInsets.fromLTRB(ChartTheme.innerPadding, 8, ChartTheme.innerPadding, ChartTheme.innerPadding),
+                  edgeToEdge: true,
+                  padding: const EdgeInsets.fromLTRB(0, 8, 0, ChartTheme.innerPadding),
                   child: SizedBox(
-                    height: double.infinity,
-                    child: chartContent,
+                    height: chartAreaHeight,
+                    child: ClipRect(
+                      child: chartContent,
+                    ),
                   ),
                 );
               },
             ),
           ),
-          _buildStatsBar(),
+          BottomDetailTabs(
+            currentPrice: _currentPrice,
+            overlayIndicator: _overlayIndicator,
+            subChartIndicator: _subChartIndicator,
+            onOverlayChanged: (v) => setState(() => _overlayIndicator = v),
+            onSubChartChanged: (v) => setState(() => _subChartIndicator = v),
+            klineCandles: _candlesKLine,
+          ),
           if (_dividends.isNotEmpty || _splits.isNotEmpty) _buildCompanyActionsSection(),
         ],
       ),
@@ -756,6 +860,55 @@ class _StockChartPageState extends State<StockChartPage>
     );
   }
 
+  Widget _buildKlineTab(double chartHeight, double volumeHeight, double timeAxisHeight) {
+    if (_candlesKLine.isEmpty) {
+      return _buildNoDataHint(false, stillLoading: _chartLoading, klineError: _klineLoadError, onRetry: () {
+        setState(() => _chartLoading = true);
+        _loadKLine().then((_) { if (mounted) setState(() => _chartLoading = false); });
+      });
+    }
+    return Stack(
+      children: [
+        ChartViewport(
+          controller: _klineController,
+          candles: _kLineDisplayCandles,
+          onLoadMoreHistory: _loadKLineHistory,
+          isLoadingMore: _klineLoadingMore,
+          chartHeight: chartHeight,
+          volumeHeight: volumeHeight,
+          timeAxisHeight: timeAxisHeight,
+          overlayIndicator: _overlayIndicator,
+          subChartIndicator: _subChartIndicator,
+          prevClose: _prevClose,
+          currentPrice: _currentPrice,
+        ),
+        ListenableBuilder(
+          listenable: _klineController,
+          builder: (_, __) {
+            final atRealtime = _klineController.isAtRealtime(_candlesKLine.length);
+            if (atRealtime) return const SizedBox.shrink();
+            return Positioned(
+              right: 12,
+              bottom: 12,
+              child: Material(
+                color: ChartTheme.cardBackground,
+                borderRadius: BorderRadius.circular(ChartTheme.radiusButton),
+                child: InkWell(
+                  onTap: () => _klineController.goToRealtime(_candlesKLine.length),
+                  borderRadius: BorderRadius.circular(ChartTheme.radiusButton),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    child: Text('回最新', style: TextStyle(color: ChartTheme.accentGold, fontSize: 12, fontWeight: FontWeight.w600)),
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
   Widget _buildMockBanner() {
     return Container(
       width: double.infinity,
@@ -776,7 +929,7 @@ class _StockChartPageState extends State<StockChartPage>
     );
   }
 
-  /// 分时图上方摘要行：价 均 涨 涨跌幅 量 额（对齐别人行情软件）
+  /// 分时图上方摘要行：价 均 涨 涨跌幅 量 额（对齐同花顺/东方财富，数据一目了然）
   Widget _buildIntradaySummaryRow() {
     final price = _currentPrice ?? (_candlesIntraday.isNotEmpty ? _candlesIntraday.last.close : 0.0);
     final open = _dayOpen ?? (_candlesIntraday.isNotEmpty ? _candlesIntraday.first.open : null);
@@ -804,36 +957,55 @@ class _StockChartPageState extends State<StockChartPage>
     String turnStr = '—';
     if (turnover >= 10000) turnStr = '${(turnover / 10000).toStringAsFixed(2)}万';
     else if (turnover > 0) turnStr = turnover.toStringAsFixed(0);
+    String volStr = '—';
+    if (totalVol > 0) volStr = totalVol >= 10000 ? '${(totalVol / 10000).toStringAsFixed(2)}万' : totalVol.toString();
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: ChartTheme.pagePadding, vertical: 6),
       decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: ChartTheme.border, width: 0.6)),
+        color: ChartTheme.cardBackground,
+        border: Border(bottom: BorderSide(color: ChartTheme.border, width: 1)),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _summaryItem('价', price > 0 ? price.toStringAsFixed(2) : '—', null),
-          _summaryItem('均', avgPrice != null ? avgPrice!.toStringAsFixed(2) : '—', null),
-          _summaryItem('涨', open != null ? '${change >= 0 ? '+' : ''}${change.toStringAsFixed(2)}' : '—', changeColor),
-          _summaryItem('', '${changePct >= 0 ? '+' : ''}${changePct.toStringAsFixed(2)}%', changeColor),
-          _summaryItem('量', totalVol > 0 ? (totalVol >= 10000 ? '${(totalVol / 10000).toStringAsFixed(2)}万' : totalVol.toString()) : '—', null),
-          _summaryItem('额', turnStr, null),
-        ],
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            _summaryBlock('价', price > 0 ? price.toStringAsFixed(2) : '—', null),
+            _summaryBlock('均', avgPrice != null ? avgPrice!.toStringAsFixed(2) : '—', null),
+            _summaryBlock('涨', open != null ? '${change >= 0 ? '+' : ''}${change.toStringAsFixed(2)}' : '—', changeColor),
+            _summaryBlock('涨跌幅', '${changePct >= 0 ? '+' : ''}${changePct.toStringAsFixed(2)}%', changeColor),
+            _summaryBlock('量', volStr, null),
+            _summaryBlock('额', turnStr, null),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _summaryItem(String label, String value, Color? valueColor) {
-    return Text.rich(
-      TextSpan(
+  Widget _summaryBlock(String label, String value, Color? valueColor) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (label.isNotEmpty) TextSpan(text: '$label ', style: const TextStyle(color: ChartTheme.textTertiary, fontSize: 11)),
-          TextSpan(text: value, style: TextStyle(color: valueColor ?? ChartTheme.textPrimary, fontSize: 12, fontWeight: FontWeight.w600, fontFamily: ChartTheme.fontMono)),
+          Text(label, style: const TextStyle(color: ChartTheme.textTertiary, fontSize: 10)),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: TextStyle(
+              color: valueColor ?? ChartTheme.textPrimary,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              fontFamily: ChartTheme.fontMono,
+              fontFeatures: const [ChartTheme.tabularFigures],
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
         ],
       ),
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
     );
   }
 
@@ -964,10 +1136,10 @@ class _StockChartPageState extends State<StockChartPage>
 
   String _formatChartTime(double timeSec) {
     final d = DateTime.fromMillisecondsSinceEpoch((timeSec * 1000).toInt());
-    if (_klineTimespan == 'month' || _klineTimespan == 'week' || _klineTimespan == 'year') {
+    if (_klineInterval == '1week') {
       return '${d.year}/${d.month.toString().padLeft(2, '0')}';
     }
-    if (_klineTimespan == 'day' || _klineTimespan == '5day') {
+    if (_klineInterval == '1day') {
       return '${d.month.toString().padLeft(2, '0')}/${d.day.toString().padLeft(2, '0')}';
     }
     return '${d.month.toString().padLeft(2, '0')}/${d.day} ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';

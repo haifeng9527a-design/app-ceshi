@@ -85,7 +85,7 @@ class ChartStatsBar extends StatelessWidget {
 
     return Container(
       width: double.infinity,
-      height: 72,
+      height: 64,
       padding: const EdgeInsets.symmetric(vertical: 10, horizontal: ChartTheme.pagePadding),
       decoration: const BoxDecoration(
         color: ChartTheme.cardBackground,
@@ -140,21 +140,21 @@ class ChartStatsBar extends StatelessWidget {
         ? ChartTheme.textTertiary
         : (item.isUp == true ? ChartTheme.up : item.isUp == false ? ChartTheme.down : ChartTheme.textPrimary);
     return SizedBox(
-      width: 72,
+      width: 68,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           Text(
             item.label,
-            style: const TextStyle(color: ChartTheme.textTertiary, fontSize: 10),
+            style: const TextStyle(color: ChartTheme.textTertiary, fontSize: ChartTheme.fontSizeLabel),
           ),
-          const SizedBox(height: 2),
+          const SizedBox(height: 3),
           Text(
             item.value,
             style: TextStyle(
               color: color,
-              fontSize: item.highlight ? 13 : 12,
+              fontSize: item.highlight ? ChartTheme.fontSizeKey : 12,
               fontWeight: FontWeight.w600,
               fontFamily: ChartTheme.fontMono,
               fontFeatures: const [ChartTheme.tabularFigures],

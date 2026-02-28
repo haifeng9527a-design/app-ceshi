@@ -1,0 +1,126 @@
+import 'package:flutter/material.dart';
+
+import '../../trading/polygon_repository.dart';
+import 'chart_theme.dart';
+import 'indicators_section.dart';
+import 'order_book_section.dart';
+
+/// 底部 Tab（一比一参考）：盘口 | 指标 | 资金 | 新闻 | 公告
+class BottomDetailTabs extends StatefulWidget {
+  const BottomDetailTabs({
+    super.key,
+    required this.currentPrice,
+    this.overlayIndicator = 'ma',
+    this.subChartIndicator = 'vol',
+    this.onOverlayChanged,
+    this.onSubChartChanged,
+    this.klineCandles = const [],
+  });
+
+  final double? currentPrice;
+  final String overlayIndicator;
+  final String subChartIndicator;
+  final ValueChanged<String>? onOverlayChanged;
+  final ValueChanged<String>? onSubChartChanged;
+  final List<ChartCandle> klineCandles;
+
+  @override
+  State<BottomDetailTabs> createState() => _BottomDetailTabsState();
+}
+
+class _BottomDetailTabsState extends State<BottomDetailTabs> {
+  int _index = 0;
+
+  static const List<String> labels = ['盘口', '指标', '资金', '新闻', '公告'];
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          decoration: const BoxDecoration(
+            border: Border(top: BorderSide(color: ChartTheme.border, width: 0.5)),
+          ),
+          child: Row(
+            children: List.generate(labels.length, (i) {
+              final selected = _index == i;
+              return Expanded(
+                child: GestureDetector(
+                  onTap: () => setState(() => _index = i),
+                  behavior: HitTestBehavior.opaque,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    decoration: BoxDecoration(
+                      border: Border(
+                        bottom: BorderSide(
+                          color: selected ? ChartTheme.tabUnderline : Colors.transparent,
+                          width: 2,
+                        ),
+                      ),
+                    ),
+                    child: Text(
+                      labels[i],
+                      style: TextStyle(
+                        color: selected ? ChartTheme.textPrimary : ChartTheme.textSecondary,
+                        fontSize: 14,
+                        fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+              );
+            }),
+          ),
+        ),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 180),
+          child: SingleChildScrollView(
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 200),
+              child: _buildContent(),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildContent() {
+    switch (_index) {
+      case 0:
+        return OrderBookSection(key: const ValueKey('orderbook'), currentPrice: widget.currentPrice);
+      case 1:
+        return IndicatorsSection(
+          key: const ValueKey('indicators'),
+          overlayIndicator: widget.overlayIndicator,
+          subChartIndicator: widget.subChartIndicator,
+          onOverlayChanged: widget.onOverlayChanged ?? (_) {},
+          onSubChartChanged: widget.onSubChartChanged ?? (_) {},
+          candles: widget.klineCandles,
+        );
+      case 2:
+        return _placeholder('资金');
+      case 3:
+        return _placeholder('新闻');
+      case 4:
+        return _placeholder('公告');
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+
+  Widget _placeholder(String label) {
+    return Container(
+      key: ValueKey(label),
+      padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 24),
+      alignment: Alignment.center,
+      child: Text(
+        '$label 功能开发中',
+        style: TextStyle(color: ChartTheme.textSecondary, fontSize: 14),
+      ),
+    );
+  }
+}

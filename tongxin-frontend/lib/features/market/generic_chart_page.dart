@@ -48,7 +48,7 @@ class _GenericChartPageState extends State<GenericChartPage>
   static const double _chartMinHeight = 320.0;
   static const double _chartContainerPaddingV = 28.0;
   static const double _intradayChartPaddingV = 16.0;
-  static const double _intradaySummaryRowHeight = 44.0;
+  static const double _intradaySummaryRowHeight = 56.0;
   static const double _ratioChart = 220 / 298;
   static const double _ratioVolume = 56 / 298;
   static const double _ratioTimeAxis = 22 / 298;
@@ -155,14 +155,11 @@ class _GenericChartPageState extends State<GenericChartPage>
         children: [
           DetailHeader(
             symbol: widget.symbol,
-            exchangeOrName: widget.name.isNotEmpty ? widget.name : null,
-            currentPrice: (q != null && !q.hasError && q.price > 0) ? q.price : null,
-            change: changeVal,
-            changePercent: changePercent,
-            statusLabel: _statusLabel(),
+            name: widget.name.isNotEmpty ? widget.name : null,
             onBack: () => Navigator.of(context).maybePop(),
           ),
           ChartModeTabs(
+            labels: ChartModeTabs.genericLabels,
             tabIndex: _tabController.index,
             onTabChanged: (i) => _tabController.animateTo(i),
             isIntraday: _tabController.index == 0,
@@ -299,7 +296,7 @@ class _GenericChartPageState extends State<GenericChartPage>
     return '盘中';
   }
 
-  /// 分时图上方摘要行：价 均 涨 涨跌幅 量 额（与股票详情一致）
+  /// 分时图上方摘要行：价 均 涨 涨跌幅 量 额（与股票详情一致，数据一目了然）
   Widget _buildIntradaySummaryRow() {
     final q = _quote;
     final price = (q != null && !q.hasError && q.price > 0) ? q.price : (_intraday.isNotEmpty ? _intraday.last.close : 0.0);
@@ -328,36 +325,55 @@ class _GenericChartPageState extends State<GenericChartPage>
     String turnStr = '—';
     if (turnover >= 10000) turnStr = '${(turnover / 10000).toStringAsFixed(2)}万';
     else if (turnover > 0) turnStr = turnover.toStringAsFixed(0);
+    String volStr = '—';
+    if (totalVol > 0) volStr = totalVol >= 10000 ? '${(totalVol / 10000).toStringAsFixed(2)}万' : totalVol.toString();
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: ChartTheme.pagePadding, vertical: 8),
       decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: ChartTheme.border, width: 0.6)),
+        color: ChartTheme.cardBackground,
+        border: Border(bottom: BorderSide(color: ChartTheme.border, width: 1)),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _summaryItem('价', price > 0 ? price.toStringAsFixed(2) : '—', null),
-          _summaryItem('均', avgPrice != null ? avgPrice.toStringAsFixed(2) : '—', null),
-          _summaryItem('涨', '${change >= 0 ? '+' : ''}${change.toStringAsFixed(2)}', changeColor),
-          _summaryItem('', '${changePct >= 0 ? '+' : ''}${changePct.toStringAsFixed(2)}%', changeColor),
-          _summaryItem('量', totalVol > 0 ? (totalVol >= 10000 ? '${(totalVol / 10000).toStringAsFixed(2)}万' : totalVol.toString()) : '—', null),
-          _summaryItem('额', turnStr, null),
-        ],
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            _summaryBlock('价', price > 0 ? price.toStringAsFixed(2) : '—', null),
+            _summaryBlock('均', avgPrice != null ? avgPrice.toStringAsFixed(2) : '—', null),
+            _summaryBlock('涨', '${change >= 0 ? '+' : ''}${change.toStringAsFixed(2)}', changeColor),
+            _summaryBlock('涨跌幅', '${changePct >= 0 ? '+' : ''}${changePct.toStringAsFixed(2)}%', changeColor),
+            _summaryBlock('量', volStr, null),
+            _summaryBlock('额', turnStr, null),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _summaryItem(String label, String value, Color? valueColor) {
-    return Text.rich(
-      TextSpan(
+  Widget _summaryBlock(String label, String value, Color? valueColor) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (label.isNotEmpty) TextSpan(text: '$label ', style: const TextStyle(color: ChartTheme.textTertiary, fontSize: 11)),
-          TextSpan(text: value, style: TextStyle(color: valueColor ?? ChartTheme.textPrimary, fontSize: 12, fontWeight: FontWeight.w600, fontFamily: ChartTheme.fontMono)),
+          Text(label, style: const TextStyle(color: ChartTheme.textTertiary, fontSize: 10)),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: TextStyle(
+              color: valueColor ?? ChartTheme.textPrimary,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              fontFamily: ChartTheme.fontMono,
+              fontFeatures: const [ChartTheme.tabularFigures],
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
         ],
       ),
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
     );
   }
 

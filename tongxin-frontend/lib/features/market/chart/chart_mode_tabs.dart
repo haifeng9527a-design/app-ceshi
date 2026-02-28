@@ -1,10 +1,52 @@
 import 'package:flutter/material.dart';
 
 import 'chart_theme.dart';
-import 'timeframe_bar.dart';
 
-/// 图表工具条：分时/K线 Segmented + 周期 pills + 指标/更多占位；按钮高 28~30，间距 8，hover 轻亮
-class ChartModeTabs extends StatefulWidget {
+/// 分时/1分 Tab 图标：竖条（K线柱）+ 下拉箭头，参考同花顺等行情 App
+class _IntradayTabIcon extends StatelessWidget {
+  const _IntradayTabIcon({required this.selected});
+
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = selected ? ChartTheme.tabUnderline : ChartTheme.textSecondary;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+      decoration: BoxDecoration(
+        border: Border.all(color: ChartTheme.border, width: 1),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            width: 6,
+            height: 14,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: selected ? 0.85 : 0.5),
+              borderRadius: BorderRadius.circular(1),
+            ),
+          ),
+          const SizedBox(width: 4),
+          Icon(Icons.keyboard_arrow_down, size: 16, color: color),
+        ],
+      ),
+    );
+  }
+}
+
+/// 周K/月K/年K 下拉选项
+const List<({String label, String interval})> extendedKlineOptions = [
+  (label: '周K', interval: '1week'),
+  (label: '月K', interval: '1month'),
+  (label: '年K', interval: '1year'),
+];
+
+/// 图表 Tab：股票详情 6 个（1分/5分/15分/30分/日K/周K），指数/外汇等 2 个（分时/日K）
+/// 第一个 Tab（1分/分时）用图标替代文字；最后一个 Tab（周K）带下拉菜单，可选月K、年K
+class ChartModeTabs extends StatelessWidget {
   const ChartModeTabs({
     super.key,
     required this.tabIndex,
@@ -14,6 +56,9 @@ class ChartModeTabs extends StatefulWidget {
     required this.klineTimespan,
     required this.onIntradayPeriodChanged,
     required this.onKlineTimespanChanged,
+    this.labels,
+    this.extendedKlineInterval = '1week',
+    this.onExtendedKlineChanged,
   });
 
   final int tabIndex;
@@ -23,115 +68,101 @@ class ChartModeTabs extends StatefulWidget {
   final String klineTimespan;
   final ValueChanged<String> onIntradayPeriodChanged;
   final ValueChanged<String> onKlineTimespanChanged;
+  /// 不传则用股票详情 6 个 Tab
+  final List<String>? labels;
+  /// 周K/月K/年K 当前选中项
+  final String extendedKlineInterval;
+  final ValueChanged<String>? onExtendedKlineChanged;
 
-  @override
-  State<ChartModeTabs> createState() => _ChartModeTabsState();
-}
+  static const List<String> stockLabels = ['1分', '5分', '15分', '30分', '日K', '周K'];
+  static const List<String> genericLabels = ['分时', '日K'];
 
-class _ChartModeTabsState extends State<ChartModeTabs> {
-  static const _duration = Duration(milliseconds: 180);
+  String _extendedLabel() {
+    final opt = extendedKlineOptions.firstWhere(
+      (e) => e.interval == extendedKlineInterval,
+      orElse: () => extendedKlineOptions.first,
+    );
+    return opt.label;
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: ChartTheme.pagePadding,
-        vertical: ChartTheme.toolbarSpacing,
-      ),
-      child: Row(
-        children: [
-          _segmentRow(),
-          const SizedBox(width: ChartTheme.toolbarSpacing),
-          TimeframeBar(
-            isIntraday: widget.isIntraday,
-            intradayPeriod: widget.intradayPeriod,
-            klineTimespan: widget.klineTimespan,
-            onIntradayPeriodChanged: widget.onIntradayPeriodChanged,
-            onKlineTimespanChanged: widget.onKlineTimespanChanged,
-          ),
-          const Spacer(),
-          _pillButton('指标', onTap: () {}),
-          const SizedBox(width: ChartTheme.toolbarSpacing),
-          _pillButton('更多', onTap: () {}),
-        ],
-      ),
-    );
-  }
-
-  /// 分时 / K线：与右侧周期按钮同一风格，独立圆角胶囊，选中为绿色底+绿字
-  Widget _segmentRow() {
+    final tabLabels = labels ?? stockLabels;
+    final hasExtendedDropdown = tabLabels.length >= 6 && onExtendedKlineChanged != null;
     return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: ChartTheme.surface2,
-        borderRadius: BorderRadius.circular(ChartTheme.radiusButton),
-        border: Border.all(color: ChartTheme.borderSubtle, width: 1),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: ChartTheme.border, width: 0.5)),
       ),
       child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(left: 2, right: 2),
-            child: _segmentChip('分时', 0),
-          ),
-          Padding(
-            padding: const EdgeInsets.only(left: 2, right: 2),
-            child: _segmentChip('K线', 1),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _segmentChip(String label, int index) {
-    final selected = widget.tabIndex == index;
-    return Material(
-      color: Colors.transparent,
-      borderRadius: BorderRadius.circular(ChartTheme.radiusButton - 2),
-      child: InkWell(
-        onTap: () => widget.onTabChanged(index),
-        borderRadius: BorderRadius.circular(ChartTheme.radiusButton - 2),
-        hoverColor: ChartTheme.surfaceHover,
-        child: AnimatedContainer(
-          duration: _duration,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: selected ? ChartTheme.up.withValues(alpha: 0.15) : null,
-            borderRadius: BorderRadius.circular(ChartTheme.radiusButton - 2),
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-              color: selected ? ChartTheme.up : ChartTheme.textSecondary,
-              fontSize: 12,
-              fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+        children: List.generate(tabLabels.length, (i) {
+          final selected = tabIndex == i;
+          final useIcon = i == 0;
+          final isExtendedTab = hasExtendedDropdown && i == tabLabels.length - 1;
+          return Expanded(
+            child: GestureDetector(
+              onTap: () => onTabChanged(i),
+              behavior: HitTestBehavior.opaque,
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  border: Border(
+                    bottom: BorderSide(
+                      color: selected ? ChartTheme.tabUnderline : Colors.transparent,
+                      width: 2,
+                    ),
+                  ),
+                ),
+                child: useIcon
+                    ? Center(child: _IntradayTabIcon(selected: selected))
+                    : isExtendedTab
+                        ? Center(
+                            child: PopupMenuButton<String>(
+                              padding: EdgeInsets.zero,
+                              offset: const Offset(0, 8),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              onOpened: () => onTabChanged(i),
+                              onSelected: (interval) => onExtendedKlineChanged!(interval),
+                              itemBuilder: (context) => extendedKlineOptions
+                                  .map((e) => PopupMenuItem<String>(
+                                        value: e.interval,
+                                        child: Text(e.label, style: const TextStyle(fontSize: 14)),
+                                      ))
+                                  .toList(),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    _extendedLabel(),
+                                    style: TextStyle(
+                                      color: selected ? ChartTheme.textPrimary : ChartTheme.textSecondary,
+                                      fontSize: 14,
+                                      fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                                    ),
+                                  ),
+                                  Icon(
+                                    Icons.keyboard_arrow_down,
+                                    size: 18,
+                                    color: selected ? ChartTheme.textPrimary : ChartTheme.textSecondary,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          )
+                        : Text(
+                            tabLabels[i],
+                            style: TextStyle(
+                              color: selected ? ChartTheme.textPrimary : ChartTheme.textSecondary,
+                              fontSize: 14,
+                              fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+              ),
             ),
-            overflow: TextOverflow.visible,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _pillButton(String label, {required VoidCallback onTap}) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(6),
-        hoverColor: ChartTheme.surfaceHover,
-        child: Container(
-          height: ChartTheme.toolbarButtonHeight,
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          alignment: Alignment.center,
-          child: Text(
-            label,
-            style: const TextStyle(
-              color: ChartTheme.textSecondary,
-              fontSize: 12,
-            ),
-          ),
-        ),
+          );
+        }),
       ),
     );
   }

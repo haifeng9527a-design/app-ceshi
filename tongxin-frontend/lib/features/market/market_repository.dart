@@ -391,6 +391,9 @@ class MarketRepository {
       } else if (interval == '15min') {
         multiplier = 15;
         timespan = 'minute';
+      } else if (interval == '30min') {
+        multiplier = 30;
+        timespan = 'minute';
       } else if (interval == '1h') {
         multiplier = 1;
         timespan = 'hour';
@@ -460,6 +463,9 @@ class MarketRepository {
       } else if (interval == '15min') {
         multiplier = 15;
         timespan = 'minute';
+      } else if (interval == '30min') {
+        multiplier = 30;
+        timespan = 'minute';
       } else if (interval == '1h') {
         multiplier = 1;
         timespan = 'hour';
@@ -472,6 +478,9 @@ class MarketRepository {
       } else if (interval == '1month') {
         multiplier = 1;
         timespan = 'month';
+      } else if (interval == '1year') {
+        multiplier = 1;
+        timespan = 'year';
       } else {
         multiplier = 5;
         timespan = 'minute';
@@ -502,7 +511,9 @@ class MarketRepository {
     if (interval == '1day') return 86400 * 1000;
     if (interval == '1week') return 7 * 86400 * 1000;
     if (interval == '1month') return 30 * 86400 * 1000;
+    if (interval == '1year') return 365 * 86400 * 1000;
     if (interval == '1h') return 3600 * 1000;
+    if (interval == '30min') return 30 * 60 * 1000;
     if (interval == '15min') return 15 * 60 * 1000;
     if (interval == '5min') return 5 * 60 * 1000;
     if (interval == '1min') return 60 * 1000;

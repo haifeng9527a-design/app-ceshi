@@ -273,7 +273,7 @@ class _ChartViewportState extends State<ChartViewport> {
     return Positioned(
       right: 0,
       top: rightTop,
-      width: 44,
+      width: 38,
       height: rightLabelH,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
@@ -281,45 +281,6 @@ class _ChartViewportState extends State<ChartViewport> {
         alignment: Alignment.centerRight,
         child: Text(
           pctStr,
-          style: textStyle,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-      ),
-    );
-  }
-
-  /// 左侧 Y 轴列上的现价标签（在 K 线图外，与 2.28、1.81 等刻度同一列）
-  Widget _buildLeftAxisRefLabel(double refPrice, double minY, double maxY, double chartH) {
-    const pad = 4.0;
-    const labelHeight = 20.0;
-    const margin = 2.0;
-    final rangeY = (maxY - minY).clamp(0.01, double.infinity);
-    final innerH = chartH - pad * 2;
-    final y = pad + innerH * (maxY - refPrice) / rangeY;
-    final top = (y - labelHeight / 2).clamp(margin, chartH - labelHeight - margin);
-    final lineColor = _refLineColor(refPrice);
-    final boxDeco = BoxDecoration(
-      color: lineColor.withValues(alpha: 0.22),
-      border: Border.all(color: lineColor, width: 1),
-      borderRadius: BorderRadius.circular(4),
-    );
-    final textStyle = TextStyle(
-      color: lineColor,
-      fontSize: 11,
-      fontWeight: FontWeight.w700,
-    );
-    return Positioned(
-      left: 0,
-      top: top,
-      width: 42,
-      height: labelHeight,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-        decoration: boxDeco,
-        alignment: Alignment.centerRight,
-        child: Text(
-          refPrice.toStringAsFixed(2),
           style: textStyle,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
@@ -343,7 +304,7 @@ class _ChartViewportState extends State<ChartViewport> {
     final change = c.close - c.open;
     final changePct = c.open != 0 ? (change / c.open * 100) : 0.0;
     final isUp = c.close >= c.open;
-    final color = isUp ? const Color(0xFF22C55E) : const Color(0xFFEF4444);
+    final color = isUp ? ChartTheme.up : ChartTheme.down;
     final volStr = c.volume != null && c.volume! > 0 ? _formatVol(c.volume!) : '—';
     return Stack(
       children: [
@@ -494,9 +455,21 @@ class _ChartViewportState extends State<ChartViewport> {
       if (pc < minY) minY = pc;
       if (pc > maxY) maxY = pc;
     }
-    final range = (maxY - minY).clamp(0.01, double.infinity);
+    var range = (maxY - minY).clamp(0.01, double.infinity);
     minY = minY - range * 0.02;
     maxY = maxY + range * 0.02;
+    range = maxY - minY;
+    // 防止单根极端K线（如暴涨暴跌）压缩其他K线：若某根K线占幅>45%，则扩大Y轴使该K线占幅≤70%
+    final maxCandleRange = candles.fold<double>(0, (m, c) {
+      final r = (c.high - c.low).clamp(0.0, double.infinity);
+      return r > m ? r : m;
+    });
+    if (maxCandleRange > 0 && range > 0 && maxCandleRange / range > 0.45) {
+      final targetRange = maxCandleRange / 0.7;
+      final expand = (targetRange - range) / 2;
+      minY = minY - expand;
+      maxY = maxY + expand;
+    }
 
     MacdResult? macdResult;
     List<double?>? rsiList;
@@ -515,16 +488,19 @@ class _ChartViewportState extends State<ChartViewport> {
     final histogram = macdResult?.histogram.sublist(vStart, vEnd);
 
     final hasVolBars = sub == 'vol' && candles.any((c) => (c.volume ?? 0) > 0);
-    const axisStyle = TextStyle(color: Color(0x8CFFFFFF), fontSize: 10); // rgba(255,255,255,0.55)
+    const axisStyle = TextStyle(color: Color(0x99FFFFFF), fontSize: ChartTheme.fontSizeAxis);
 
     return LayoutBuilder(
       builder: (context, layoutConstraints) {
-        final chartAreaWidth = (layoutConstraints.maxWidth - 42 - 2 - 2 - 44).clamp(0.0, double.infinity);
+        const rightAxisWidth = 38.0;
+        const horizontalPad = 4.0;
+        final chartAreaWidth = (layoutConstraints.maxWidth - horizontalPad - 2 - rightAxisWidth).clamp(0.0, double.infinity);
         const timeRatio = 22 / 376;
 
         return Padding(
-          padding: const EdgeInsets.fromLTRB(4, 4, 12, 4),
-          child: Column(
+          padding: const EdgeInsets.fromLTRB(0, 4, 4, 4),
+          child: ClipRect(
+            child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (_tooltipIndex != null && _tooltipIndex! < candles.length)
@@ -556,30 +532,11 @@ class _ChartViewportState extends State<ChartViewport> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
               SizedBox(
-                width: layoutConstraints.maxWidth,
+                width: chartConstraints.maxWidth,
                 height: chartH,
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    SizedBox(
-                      width: 42,
-                      height: chartH,
-                      child: Stack(
-                        children: [
-                          Column(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: List.generate(5, (i) {
-                              final v = maxY - (maxY - minY) * i / 4;
-                              return Text(v.toStringAsFixed(2), style: axisStyle);
-                            }),
-                          ),
-                          if (refPrice != null && refPrice >= minY && refPrice <= maxY)
-                            _buildLeftAxisRefLabel(refPrice, minY, maxY, chartH),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 2),
                     Expanded(
                       child: Container(
                         decoration: const BoxDecoration(
@@ -668,79 +625,50 @@ class _ChartViewportState extends State<ChartViewport> {
                           ],
                           if (_tooltipIndex != null && _tooltipPosition != null && _tooltipIndex! < candles.length)
                             _buildCrosshairTooltip(candles, chartAreaWidth, minY, maxY),
-                          if (widget.isLoadingMore)
-                            Positioned(
-                              left: 8,
-                              top: 8,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: Colors.black54,
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    const SizedBox(
-                                      width: 14,
-                                      height: 14,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: Color(0xFFD4AF37),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      'Loading history...',
-                                      style: TextStyle(
-                                        color: const Color(0xFF9CA3AF).withValues(alpha: 0.95),
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
                         ],
                       ),
                     ),
                     ),
                   ),
-                ),
+                    ),
                     const SizedBox(width: 2),
                     SizedBox(
-                      width: 44,
-                    height: chartH,
-                    child: Stack(
-                      children: [
-                        Column(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: List.generate(5, (i) {
-                            final v = maxY - (maxY - minY) * i / 4;
-                            if (refPrice != null && refPrice > 0) {
-                              final pct = (v - refPrice) / refPrice * 100;
+                      width: rightAxisWidth,
+                      height: chartH,
+                      child: ClipRect(
+                        child: Stack(
+                          clipBehavior: Clip.hardEdge,
+                          children: [
+                          Column(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: List.generate(5, (i) {
+                              final v = maxY - (maxY - minY) * i / 4;
+                              final style = axisStyle.copyWith(fontSize: 9);
+                              if (refPrice != null && refPrice > 0) {
+                                final pct = (v - refPrice) / refPrice * 100;
+                                return Text(
+                                  '${pct >= 0 ? '+' : ''}${pct.toStringAsFixed(1)}%',
+                                  style: style,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                );
+                              }
                               return Text(
-                                '${pct >= 0 ? '+' : ''}${pct.toStringAsFixed(2)}%',
-                                style: axisStyle,
+                                '${(v >= 0 ? '+' : '')}${v.toStringAsFixed(2)}',
+                                style: style,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               );
-                            }
-                            return Text(
-                              '${(v >= 0 ? '+' : '')}${v.toStringAsFixed(2)}',
-                              style: axisStyle,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            );
-                          }),
-                        ),
-                        if (refPrice != null && refPrice >= minY && refPrice <= maxY) ...[
-                          _buildRightAxisRefLabel(refPrice, minY, maxY, chartH),
+                            }),
+                          ),
+                          if (refPrice != null && refPrice >= minY && refPrice <= maxY) ...[
+                            _buildRightAxisRefLabel(refPrice, minY, maxY, chartH),
+                          ],
                         ],
-                      ],
+                        ),
+                      ),
                     ),
-                  ),
                     ],
                   ),
                 ),
@@ -750,18 +678,6 @@ class _ChartViewportState extends State<ChartViewport> {
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                    SizedBox(
-                      width: 42,
-                      child: Center(
-                        child: Text(
-                          '成交量 VOL: ${candles.isNotEmpty && candles.last.volume != null && candles.last.volume! > 0 ? _formatVol(candles.last.volume!) : "—"}',
-                            style: axisStyle,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                    ),
-                    const SizedBox(width: 2),
                     Expanded(
                       child: LayoutBuilder(
                         builder: (context, volConstraints) {
@@ -777,13 +693,13 @@ class _ChartViewportState extends State<ChartViewport> {
                       ),
                     ),
                     const SizedBox(width: 2),
-                    const SizedBox(width: 44),
+                    SizedBox(width: rightAxisWidth),
                   ],
                 ),
               ),
               if (sub == 'macd' && macdResult != null)
                 Padding(
-                  padding: const EdgeInsets.only(left: 44),
+                  padding: const EdgeInsets.only(left: 2),
                   child: SizedBox(
                     height: subH,
                     child: CustomPaint(
@@ -798,7 +714,7 @@ class _ChartViewportState extends State<ChartViewport> {
                 ),
               if (sub == 'rsi' && rsiList != null)
                 Padding(
-                  padding: const EdgeInsets.only(left: 44),
+                  padding: const EdgeInsets.only(left: 2),
                   child: SizedBox(
                     height: subH,
                     child: CustomPaint(
@@ -808,7 +724,7 @@ class _ChartViewportState extends State<ChartViewport> {
                   ),
                 ),
               Padding(
-                padding: const EdgeInsets.only(left: 44),
+                padding: const EdgeInsets.only(left: 2),
                 child: SizedBox(
                   height: timeH,
                   width: chartAreaWidth,
@@ -828,6 +744,7 @@ class _ChartViewportState extends State<ChartViewport> {
                 ),
               ),
             ],
+          ),
           ),
         );
       },
@@ -871,15 +788,14 @@ class _FlChartCandleLayer extends StatelessWidget {
   Widget build(BuildContext context) {
     if (candles.isEmpty) return const SizedBox.shrink();
     final n = candles.length;
-    final ma5Spots = ma5 == null || ma5!.length != n
-        ? <FlSpot>[]
-        : List.generate(n, (i) => FlSpot(i.toDouble(), ma5![i] ?? 0));
-    final ma10Spots = ma10 == null || ma10!.length != n
-        ? <FlSpot>[]
-        : List.generate(n, (i) => FlSpot(i.toDouble(), ma10![i] ?? 0));
-    final ma20Spots = ma20 == null || ma20!.length != n
-        ? <FlSpot>[]
-        : List.generate(n, (i) => FlSpot(i.toDouble(), ma20![i] ?? 0));
+    // 均线前 period-1 个为 null，只绘制有效点，避免 null 被当成 0 导致垂直线
+    List<FlSpot> _maSpots(List<double?>? list) {
+      if (list == null || list.length != n) return [];
+      return [for (var i = 0; i < n; i++) if (list[i] != null) FlSpot(i.toDouble(), list[i]!)];
+    }
+    final ma5Spots = _maSpots(ma5);
+    final ma10Spots = _maSpots(ma10);
+    final ma20Spots = _maSpots(ma20);
     final lineBars = <LineChartBarData>[];
     if (ma5Spots.isNotEmpty) {
       lineBars.add(LineChartBarData(
@@ -935,9 +851,9 @@ class _FlChartCandleLayer extends StatelessWidget {
               show: true,
               drawVerticalLine: false,
               horizontalInterval: (maxY - minY) / 4,
-              getDrawingHorizontalLine: (_) => FlLine(
-                color: const Color(0x26FFFFFF), // opacity 0.15
-                strokeWidth: 0.8,
+              getDrawingHorizontalLine: (_) => const FlLine(
+                color: ChartTheme.gridLine,
+                strokeWidth: 1,
               ),
             ),
             titlesData: const FlTitlesData(show: false),
@@ -1002,8 +918,8 @@ class _ReferenceLinePainter extends CustomPainter {
       old.refPrice != refPrice || old.minY != minY || old.maxY != maxY || old.color != color;
 }
 
-/// 右侧预留的 K 线空位数（与常见行情软件一致，最后一根右侧留白）
-const int _kRightReservedCandleSlots = 2;
+/// 右侧预留的 K 线空位数（0=拉满，参考同花顺/东方财富最后一根贴右）
+const int _kRightReservedCandleSlots = 0;
 
 class _CandlestickPainter extends CustomPainter {
   _CandlestickPainter({
@@ -1035,7 +951,7 @@ class _CandlestickPainter extends CustomPainter {
     for (var i = 0; i < n; i++) {
       final c = candles[i];
       final isUp = c.close >= c.open;
-      final color = isUp ? const Color(0xFF22C55E) : const Color(0xFFEF4444);
+      final color = isUp ? ChartTheme.up : ChartTheme.down;
       final x = pad + (i + 0.5) * slotWidth;
       final yHigh = pad + chartH - (c.high - minY) / rangeY * chartH;
       final yLow = pad + chartH - (c.low - minY) / rangeY * chartH;
@@ -1044,8 +960,8 @@ class _CandlestickPainter extends CustomPainter {
       final bodyTop = yOpen < yClose ? yOpen : yClose;
       final bodyBottom = yOpen < yClose ? yClose : yOpen;
       final bodyH = (bodyBottom - bodyTop).clamp(1.0, double.infinity);
-      const wickW = 1.0;
-      final bodyW = (candleW * 0.7).clamp(3.0, 14.0);
+      const wickW = 1.2;
+      final bodyW = (candleW * 0.72).clamp(3.5, 14.0);
 
       final isHighlight = highlightIndex != null && i == highlightIndex;
       if (isHighlight) {
@@ -1115,8 +1031,8 @@ class _VolumeBarPainter extends CustomPainter {
       if (v <= 0) continue;
       final isUp = candles[i].close >= candles[i].open;
       final color = isUp
-          ? const Color(0xFF22C55E).withValues(alpha: 0.7)
-          : const Color(0xFFEF4444).withValues(alpha: 0.7);
+          ? ChartTheme.up.withValues(alpha: 0.65)
+          : ChartTheme.down.withValues(alpha: 0.65);
       final x = pad + (i + 0.5) * slotWidth - barW / 2;
       final h = (v / maxV * chartH).clamp(2.0, chartH);
       final y = pad + chartH - h;

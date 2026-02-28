@@ -58,9 +58,15 @@ class _WatchlistPageState extends State<WatchlistPage> {
   void _openDetail(String symbol) {
     final name = _quotes[symbol]?.name ?? symbol;
     if (_isUsStock(symbol)) {
+      final idx = _symbols.indexOf(symbol);
       Navigator.of(context).push(
         MaterialPageRoute(
-          builder: (_) => StockChartPage(symbol: symbol),
+          builder: (_) => StockChartPage(
+            symbol: symbol,
+            name: name != symbol ? name : null,
+            symbolList: _symbols,
+            symbolIndex: idx >= 0 ? idx : null,
+          ),
         ),
       );
     } else {

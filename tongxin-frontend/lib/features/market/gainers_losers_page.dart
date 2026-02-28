@@ -98,12 +98,16 @@ class _GainersLosersPageState extends State<GainersLosersPage>
     }
   }
 
-  void _openChart(PolygonGainer g) {
+  void _openChart(PolygonGainer g, {required List<PolygonGainer> list}) {
+    final symbols = list.map((e) => e.ticker).toList();
+    final idx = list.indexWhere((e) => e.ticker == g.ticker);
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => StockChartPage(
           symbol: g.ticker,
           initialSnapshot: g,
+          symbolList: symbols,
+          symbolIndex: idx >= 0 ? idx : null,
         ),
       ),
     );
@@ -314,7 +318,7 @@ class _GainersLosersPageState extends State<GainersLosersPage>
                   return Material(
                     color: _surface,
                     child: InkWell(
-                      onTap: () => _openChart(g),
+                      onTap: () => _openChart(g, list: list),
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                         decoration: const BoxDecoration(

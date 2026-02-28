@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'chart_theme.dart';
 
-/// 悬浮在主图底部居中的周期切换条：1分钟/两天/三天/四天（分时）或 5日/日K/周K/月K/年K（K线）
+/// 1天/2天/3天/4天（分时）或 5日/日K/周K/月K/年K（K线）；分时用绿字+绿下划线
 class TimeframeBar extends StatelessWidget {
   const TimeframeBar({
     super.key,
@@ -27,18 +27,57 @@ class TimeframeBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (isIntraday) {
-      return _buildBar(
-        options: intradayOptions,
-        labels: intradayLabels,
-        selected: intradayPeriod,
-        onTap: onIntradayPeriodChanged,
-      );
+      return _buildIntradayBar();
     }
-    final selected = klineTimespan;
+    return _buildKlineBar();
+  }
+
+  /// 1天/2天/3天/4天：绿字+绿下划线（与特斯拉图一致）
+  Widget _buildIntradayBar() {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: List.generate(intradayOptions.length, (i) {
+        final id = intradayOptions[i];
+        final label = intradayLabels[i];
+        final selected = intradayPeriod == id;
+        return GestureDetector(
+          onTap: () => onIntradayPeriodChanged(id),
+          behavior: HitTestBehavior.opaque,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: selected ? ChartTheme.up : ChartTheme.textSecondary,
+                    fontSize: 13,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Container(
+                  height: 2,
+                  width: 24,
+                  decoration: BoxDecoration(
+                    color: selected ? ChartTheme.up : Colors.transparent,
+                    borderRadius: BorderRadius.circular(1),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }),
+    );
+  }
+
+  Widget _buildKlineBar() {
     return _buildBar(
       options: klineOptions,
       labels: klineLabels,
-      selected: selected,
+      selected: klineTimespan,
       onTap: onKlineTimespanChanged,
     );
   }
@@ -70,21 +109,17 @@ class TimeframeBar extends StatelessWidget {
               child: InkWell(
                 onTap: () => onTap(id),
                 borderRadius: BorderRadius.circular(ChartTheme.radiusButton - 2),
-                hoverColor: ChartTheme.surfaceHover,
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 180),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: isSelected ? ChartTheme.up.withValues(alpha: 0.15) : null,
-                    borderRadius: BorderRadius.circular(ChartTheme.radiusButton - 2),
-                  ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                   child: Text(
                     label,
                     style: TextStyle(
                       color: isSelected ? ChartTheme.up : ChartTheme.textSecondary,
-                      fontSize: 12,
+                      fontSize: 11,
                       fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
                     ),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
                   ),
                 ),
               ),

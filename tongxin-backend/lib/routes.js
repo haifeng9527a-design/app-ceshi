@@ -222,6 +222,7 @@ const CANDLES_RANGE_YEARS = 2;
 const CANDLES_DAY_MS = CANDLES_RANGE_YEARS * 365.25 * 24 * 60 * 60 * 1000;
 const CANDLES_WEEK_MS = CANDLES_RANGE_YEARS * 365.25 * 24 * 60 * 60 * 1000;
 const CANDLES_MONTH_MS = CANDLES_RANGE_YEARS * 365.25 * 24 * 60 * 60 * 1000;
+const CANDLES_YEAR_MS = 20 * 365.25 * 24 * 60 * 60 * 1000; // 年K 默认 20 年
 
 /** GET /api/candles?symbol=AAPL&interval=1day|1week|1month|5min|1min|1h
  *  可选 fromMs, toMs（毫秒时间戳）用于「加载更早」分页，不传则默认最近 CANDLES_RANGE_YEARS */
@@ -243,6 +244,7 @@ async function handleCandles(req, res, polygonKey, twelveKey) {
     if (interval === '1day') fromMs = now - CANDLES_DAY_MS;
     else if (interval === '1week') fromMs = now - CANDLES_WEEK_MS;
     else if (interval === '1month') fromMs = now - CANDLES_MONTH_MS;
+    else if (interval === '1year') fromMs = now - CANDLES_YEAR_MS;
     else if (interval === '1h') fromMs = now - 72 * 60 * 60 * 1000;
   }
 
@@ -259,9 +261,11 @@ async function handleCandles(req, res, polygonKey, twelveKey) {
     if (interval === '1min') { multiplier = 1; timespan = 'minute'; }
     else if (interval === '5min') { multiplier = 5; timespan = 'minute'; }
     else if (interval === '15min') { multiplier = 15; timespan = 'minute'; }
+    else if (interval === '30min') { multiplier = 30; timespan = 'minute'; }
     else if (interval === '1h') { multiplier = 1; timespan = 'hour'; }
     else if (interval === '1week') { multiplier = 1; timespan = 'week'; }
     else if (interval === '1month') { multiplier = 1; timespan = 'month'; }
+    else if (interval === '1year') { multiplier = 1; timespan = 'year'; }
     else { multiplier = 1; timespan = 'day'; }
     try {
       const bars = await polygon.getAggregates(polygonKey, r.polygon, multiplier, timespan, fromMs, toMs);
@@ -271,8 +275,8 @@ async function handleCandles(req, res, polygonKey, twelveKey) {
   // Polygon 无数据时用 Twelve 兜底（仅默认范围；带 fromMs/toMs 时不再请求 Twelve）
   if (list.length === 0 && twelveKey && !hasRange) {
     const twelveSymbol = r.polygon || r.twelve;
-    const tdInterval = ['1day', '1week', '1month', '1h', '5min', '1min'].includes(interval) ? interval : '1day';
-    const outputsize = (tdInterval === '1day' || tdInterval === '1week' || tdInterval === '1month') ? 600 : 120;
+    const tdInterval = ['1day', '1week', '1month', '1year', '1h', '30min', '15min', '5min', '1min'].includes(interval) ? interval : '1day';
+    const outputsize = (tdInterval === '1day' || tdInterval === '1week' || tdInterval === '1month' || tdInterval === '1year') ? 600 : 120;
     try {
       const bars = await twelveData.getTimeSeries(twelveKey, twelveSymbol, tdInterval, outputsize);
       list = (bars || []).map((b) => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));

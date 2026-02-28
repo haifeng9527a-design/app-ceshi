@@ -16,6 +16,7 @@ class IntradayChart extends StatelessWidget {
     this.timeAxisHeight = 22,
     this.volumeHeight = 0,
     this.periodLabel = '5m',
+    this.capitalFlowText,
   });
 
   final List<ChartCandle> candles;
@@ -26,6 +27,8 @@ class IntradayChart extends StatelessWidget {
   /// 若 >0 则底部绘制成交量柱
   final double volumeHeight;
   final String periodLabel;
+  /// 主力流入等资金流向文案，如 "主力流入 -1.1亿"
+  final String? capitalFlowText;
 
   static const double _candleWidth = 8.0;
   /// 会话模式下图表最小宽度（当可用宽度很小时保底）
@@ -47,9 +50,9 @@ class IntradayChart extends StatelessWidget {
 
   String _volumeLabel(List<ChartCandle> candles) {
     final total = candles.fold<int>(0, (s, c) => s + (c.volume ?? 0));
-    if (total <= 0) return '成交量 VOL: 0';
-    if (total >= 10000) return '成交量 VOL: ${(total / 10000).toStringAsFixed(2)}万';
-    return '成交量 VOL: $total';
+    if (total <= 0) return 'VOL 0';
+    if (total >= 10000) return 'VOL ${(total / 10000).toStringAsFixed(2)}万';
+    return 'VOL $total';
   }
 
   String _formatTime(double timeSec) {
@@ -202,7 +205,7 @@ class IntradayChart extends StatelessWidget {
     if (candles.isEmpty) {
       return Center(child: Text('暂无图表数据', style: TextStyle(color: ChartTheme.textSecondary)));
     }
-    final axisStyle = TextStyle(color: ChartTheme.textSecondary, fontSize: 10, fontFamily: ChartTheme.fontMono);
+    final axisStyle = TextStyle(color: ChartTheme.textSecondary, fontSize: ChartTheme.fontSizeAxis, fontFamily: ChartTheme.fontMono);
     final basePrice = prevClose ?? candles.first.open;
 
     // 仅 1m 按“当日交易时段”展示（9:30-16:00）；2d/3d/4d 为多日连续分时
@@ -229,6 +232,29 @@ class IntradayChart extends StatelessWidget {
       if (currentPrice! < minY) minY = currentPrice!;
       if (currentPrice! > maxY) maxY = currentPrice!;
     }
+    // 异常值处理：若极值（如 API 错误数据、0 等）导致 Y 轴范围过大，会压缩正常波动呈「垂直暴跌」状
+    // 用 2%/98% 分位数限制范围，并过滤绘制用的价格，避免异常点拉出垂直线
+    List<double> plotCloses = closes;
+    double yFloor = minY;
+    double yCeil = maxY;
+    if (closes.length >= 10 && basePrice > 0) {
+      final sorted = List<double>.from(closes)..sort();
+      final p2 = sorted[(closes.length * 0.02).floor().clamp(0, closes.length - 1)];
+      final p98 = sorted[(closes.length * 0.98).floor().clamp(0, closes.length - 1)];
+      final midRange = (p98 - p2).clamp(0.001 * basePrice, double.infinity);
+      yFloor = p2 - midRange * 0.2;
+      yCeil = p98 + midRange * 0.2;
+      // 限制 Y 轴范围
+      if (minY < yFloor) minY = yFloor;
+      if (maxY > yCeil) maxY = yCeil;
+      // 过滤绘制：异常点用前一点替代，避免折线出现垂直暴跌
+      plotCloses = <double>[];
+      for (var i = 0; i < closes.length; i++) {
+        final v = closes[i];
+        final prev = i > 0 ? plotCloses[i - 1] : v;
+        plotCloses.add((v < yFloor || v > yCeil) ? prev : v);
+      }
+    }
     final range = (maxY - minY).clamp(0.01, double.infinity);
     final minYPlot = minY - range * 0.05;
     final maxYPlot = maxY + range * 0.05;
@@ -244,15 +270,21 @@ class IntradayChart extends StatelessWidget {
     double maxXComputed = 0;
 
     if (useSessionMode && sessionLen > 0) {
-      for (final c in plotCandles) {
+      for (var i = 0; i < plotCandles.length; i++) {
+        final c = plotCandles[i];
         final x = ((c.time - sessionStartSec) / sessionLen).clamp(0.0, 1.0);
-        spots.add(FlSpot(x, c.close));
+        spots.add(FlSpot(x, plotCloses[i]));
       }
       if (plotCandles.isNotEmpty) {
         dataEndX = ((plotCandles.last.time - sessionStartSec) / sessionLen).clamp(0.0, 1.0);
       }
       if (currentPrice != null) {
-        spots.add(FlSpot(dataEndX, currentPrice!));
+        final cp = currentPrice!;
+        final lastPlot = plotCloses.isNotEmpty ? plotCloses.last : cp;
+        final sanePrice = (plotCloses.length >= 10 && basePrice > 0)
+            ? (cp < yFloor || cp > yCeil ? lastPlot : cp)
+            : cp;
+        spots.add(FlSpot(dataEndX, sanePrice));
       }
       maxXComputed = 1.0;
       spotXFractionsComputed = plotCandles.isNotEmpty
@@ -270,10 +302,15 @@ class IntradayChart extends StatelessWidget {
         final count = (end - start + 1).clamp(1, 0x7fffffff);
         final localJ = (i - start).toDouble();
         final x = (d + localJ / count) / dayCount;
-        spots.add(FlSpot(x, plotCandles[i].close));
+        spots.add(FlSpot(x, plotCloses[i]));
       }
       if (currentPrice != null) {
-        spots.add(FlSpot(1.0, currentPrice!));
+        final cp = currentPrice!;
+        final lastPlot = plotCloses.isNotEmpty ? plotCloses.last : cp;
+        final sanePrice = (plotCloses.length >= 10 && basePrice > 0)
+            ? (cp < yFloor || cp > yCeil ? lastPlot : cp)
+            : cp;
+        spots.add(FlSpot(1.0, sanePrice));
       }
       maxXComputed = 1.0;
       spotXFractionsComputed = <double>[];
@@ -291,12 +328,17 @@ class IntradayChart extends StatelessWidget {
       }
     } else {
       for (var i = 0; i < plotCandles.length; i++) {
-        spots.add(FlSpot(i.toDouble(), plotCandles[i].close));
+        spots.add(FlSpot(i.toDouble(), plotCloses[i]));
       }
       if (currentPrice != null) {
+        final cp = currentPrice!;
+        final lastPlot = plotCloses.isNotEmpty ? plotCloses.last : cp;
+        final sanePrice = (plotCloses.length >= 10 && basePrice > 0)
+            ? (cp < yFloor || cp > yCeil ? lastPlot : cp)
+            : cp;
         spots.add(FlSpot(
             plotCandles.isEmpty ? 0.0 : (plotCandles.length - 1).toDouble() + 1,
-            currentPrice!));
+            sanePrice));
       }
       maxXComputed = (spots.length <= 1 ? 1.0 : (plotCandles.length - 1).toDouble());
     }
@@ -375,9 +417,18 @@ class IntradayChart extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         // 铺满屏：与 1 天一致，2天/3天/4天 也用可用宽度铺满，不再按根数算窄条
-        const rightAxisWidth = 56.0;
-        final availableWidth = (constraints.maxWidth - 4 - 16 - 48 - 4 - 4 - rightAxisWidth).clamp(_sessionChartMinWidth, double.infinity);
+        const rightAxisWidth = 38.0;
+        final availableWidth = (constraints.maxWidth - 4 - 2 - rightAxisWidth).clamp(_sessionChartMinWidth, double.infinity);
         final contentWidth = availableWidth;
+        // 限制总高度不超过可用空间，避免 BOTTOM OVERFLOWED
+        const volumeOverhead = 4.0;
+        final maxTotalH = (constraints.maxHeight - 60).clamp(100.0, double.infinity);
+        final totalNeeded = chartHeight + totalBottom;
+        final scale = totalNeeded > 0 && maxTotalH < totalNeeded ? maxTotalH / totalNeeded : 1.0;
+        final effectiveChartH = (chartHeight * scale).clamp(80.0, double.infinity);
+        final effectiveTimeH = (timeAxisHeight * scale).clamp(18.0, double.infinity);
+        final effectiveVolH = volumeHeight > 0 ? (volumeHeight * scale).clamp(24.0, double.infinity) : 0.0;
+        final effectiveTotalBottom = effectiveTimeH + effectiveVolH + (effectiveVolH > 0 ? volumeOverhead : 0);
 
         return _buildChartContent(
           useSessionMode: useSessionMode,
@@ -398,10 +449,10 @@ class IntradayChart extends StatelessWidget {
           highlightTickIndex: highlightTickIndex,
           basePrice: basePrice,
           axisStyle: axisStyle,
-          chartHeight: chartHeight,
-          timeAxisHeight: timeAxisHeight,
-          volumeHeight: volumeHeight,
-          totalBottom: totalBottom,
+          chartHeight: effectiveChartH,
+          timeAxisHeight: effectiveTimeH,
+          volumeHeight: effectiveVolH,
+          totalBottom: effectiveTotalBottom,
           rightAxisWidth: rightAxisWidth,
           multiDayTicks: multiDayTicks,
           dayBoundaryIndices: dayBoundaryIndices,
@@ -447,62 +498,10 @@ class IntradayChart extends StatelessWidget {
     double yToTop(double value) => ((maxYPlot - value) / rangeY * chartHeight).clamp(0.0, chartHeight);
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 8, 16, 8),
+      padding: const EdgeInsets.fromLTRB(0, 8, 4, 8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SizedBox(
-            width: 48,
-            height: chartHeight + totalBottom,
-            child: Stack(
-              clipBehavior: Clip.none,
-              children: [
-                for (var i = 0; i < tickCount; i++) ...[
-                  Positioned(
-                    left: 0,
-                    top: (yToTop(yTicks[i]) - labelHeight / 2).clamp(0.0, chartHeight - labelHeight),
-                    width: 48,
-                    height: labelHeight,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                      child: Text(
-                        yTicks[i].toStringAsFixed(2),
-                        style: axisStyle.copyWith(fontSize: 10),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ),
-                ],
-                if (currentPrice != null && currentPrice! >= minYPlot && currentPrice! <= maxYPlot)
-                  Positioned(
-                    left: 0,
-                    top: (yToTop(currentPrice!) - labelHeight / 2).clamp(0.0, chartHeight - labelHeight),
-                    width: 48,
-                    height: labelHeight,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: lineColor.withValues(alpha: 0.22),
-                        border: Border.all(color: lineColor, width: 1),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        currentPrice!.toStringAsFixed(2),
-                        style: axisStyle.copyWith(
-                          fontWeight: FontWeight.w700,
-                          color: lineColor,
-                          fontSize: 11,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 4),
           Expanded(
             child: InteractiveViewer(
               minScale: 0.5,
@@ -547,7 +546,7 @@ class IntradayChart extends StatelessWidget {
                                   spots: spots,
                                   isCurved: false,
                                   color: lineColor,
-                                  barWidth: 2,
+                                  barWidth: 2.2,
                                   dotData: FlDotData(
                                     show: true,
                                     checkToShowDot: (FlSpot spot, LineChartBarData barData) {
@@ -558,20 +557,33 @@ class IntradayChart extends StatelessWidget {
                                         FlDotCirclePainter(
                                           color: lineColor,
                                           radius: 4,
-                                          strokeWidth: 0,
+                                          strokeWidth: 1.5,
+                                          strokeColor: ChartTheme.background,
                                         ),
                                   ),
                                   belowBarData: BarAreaData(
                                     show: true,
-                                    color: lineColor.withValues(alpha: 0.25),
+                                    gradient: LinearGradient(
+                                      colors: lineColor == ChartTheme.down
+                                          ? [
+                                              ChartTheme.down.withValues(alpha: 0.35),
+                                              ChartTheme.down.withValues(alpha: 0.05),
+                                            ]
+                                          : [
+                                              ChartTheme.up.withValues(alpha: 0.25),
+                                              ChartTheme.up.withValues(alpha: 0.04),
+                                            ],
+                                      begin: Alignment.topCenter,
+                                      end: Alignment.bottomCenter,
+                                    ),
                                   ),
                                 ),
                                 if (avgSpots.length > 1)
                                   LineChartBarData(
                                     spots: avgSpots,
                                     isCurved: false,
-                                    color: ChartTheme.accentGold,
-                                    barWidth: 1.5,
+                                    color: ChartTheme.avgLine,
+                                    barWidth: 1.8,
                                     dotData: const FlDotData(show: false),
                                     belowBarData: BarAreaData(show: false),
                                   ),
@@ -579,7 +591,8 @@ class IntradayChart extends StatelessWidget {
                               gridData: FlGridData(
                                 show: true,
                                 drawVerticalLine: false,
-                                getDrawingHorizontalLine: (_) => const FlLine(color: ChartTheme.gridLine, strokeWidth: 0.6),
+                                horizontalInterval: (maxYPlot - minYPlot) / 4,
+                                getDrawingHorizontalLine: (_) => const FlLine(color: ChartTheme.gridLine, strokeWidth: 1),
                               ),
                               titlesData: const FlTitlesData(show: false),
                               borderData: FlBorderData(show: false),
@@ -615,7 +628,7 @@ class IntradayChart extends StatelessWidget {
                         padding: const EdgeInsets.only(left: 4, bottom: 2),
                         child: Text(
                           _volumeLabel(plotCandles),
-                          style: axisStyle.copyWith(fontSize: 9, color: ChartTheme.textTertiary),
+                          style: axisStyle.copyWith(fontSize: 11, color: ChartTheme.textTertiary),
                         ),
                       ),
                       SizedBox(
@@ -632,6 +645,14 @@ class IntradayChart extends StatelessWidget {
                           ),
                         ),
                       ),
+                      if (capitalFlowText != null && capitalFlowText!.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 4, top: 2, bottom: 2),
+                          child: Text(
+                            capitalFlowText!,
+                            style: axisStyle.copyWith(fontSize: 9, color: ChartTheme.down),
+                          ),
+                        ),
                     ],
                     SizedBox(
                       height: timeAxisHeight,
@@ -641,7 +662,7 @@ class IntradayChart extends StatelessWidget {
                           if (useSessionMode && sessionLen > 0) {
                             final ticks = _buildSessionTimeAxisTicks(sessionStartSec, sessionEndSec, dataEndX);
                             if (ticks.isEmpty) return const SizedBox.shrink();
-                            const labelW = 52.0;
+                            const labelW = 56.0;
                             return Stack(
                               clipBehavior: Clip.none,
                               children: ticks.map((t) {
@@ -728,7 +749,7 @@ class IntradayChart extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(width: 4),
+          const SizedBox(width: 2),
           SizedBox(
             width: rightAxisWidth,
             height: chartHeight + totalBottom,
@@ -742,11 +763,11 @@ class IntradayChart extends StatelessWidget {
                     width: rightAxisWidth,
                     height: labelHeight,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                      padding: const EdgeInsets.only(left: 2, right: 0),
                       alignment: Alignment.centerRight,
                       child: Text(
-                        basePrice > 0 ? '${(yTicks[i] - basePrice) / basePrice * 100 >= 0 ? '+' : ''}${((yTicks[i] - basePrice) / basePrice * 100).toStringAsFixed(2)}%' : '—',
-                        style: axisStyle.copyWith(fontSize: 10),
+                        basePrice > 0 ? '${(yTicks[i] - basePrice) / basePrice * 100 >= 0 ? '+' : ''}${((yTicks[i] - basePrice) / basePrice * 100).toStringAsFixed(1)}%' : '—',
+                        style: axisStyle.copyWith(fontSize: 11),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -760,19 +781,19 @@ class IntradayChart extends StatelessWidget {
                     width: rightAxisWidth,
                     height: labelHeight,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                      padding: const EdgeInsets.only(left: 2, right: 0),
                       decoration: BoxDecoration(
                         color: lineColor.withValues(alpha: 0.22),
                         border: Border.all(color: lineColor, width: 1),
-                        borderRadius: BorderRadius.circular(4),
+                        borderRadius: BorderRadius.circular(3),
                       ),
                       alignment: Alignment.centerRight,
                       child: Text(
-                        '${(currentPrice! - basePrice) / basePrice * 100 >= 0 ? '+' : ''}${((currentPrice! - basePrice) / basePrice * 100).toStringAsFixed(2)}%',
+                        '${(currentPrice! - basePrice) / basePrice * 100 >= 0 ? '+' : ''}${((currentPrice! - basePrice) / basePrice * 100).toStringAsFixed(1)}%',
                         style: axisStyle.copyWith(
                           fontWeight: FontWeight.w700,
                           color: lineColor,
-                          fontSize: 11,
+                          fontSize: 12,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.clip,
@@ -808,9 +829,9 @@ class _CurrentPriceLinePainter extends CustomPainter {
     final y = size.height * (1 - t);
     final paint = Paint()
       ..color = color
-      ..strokeWidth = 1;
-    const dashLen = 4.0;
-    const gapLen = 3.0;
+      ..strokeWidth = 1.5;
+    const dashLen = 5.0;
+    const gapLen = 4.0;
     var x = 0.0;
     while (x < size.width) {
       canvas.drawLine(Offset(x, y), Offset((x + dashLen).clamp(0, size.width), y), paint);
@@ -936,13 +957,13 @@ class _VolumeBarPainter extends CustomPainter {
       final v = vols[i];
       if (v <= 0) continue;
       final isUp = candles[i].close >= candles[i].open;
-      final color = (isUp ? ChartTheme.up : ChartTheme.down).withValues(alpha: 0.5);
+      final color = (isUp ? ChartTheme.volumeUp : ChartTheme.down).withValues(alpha: 0.75);
       final centerX = useDataRange
           ? (n > 1 ? (i / (n - 1)) * dataEndX! * size.width : dataEndX! * size.width * 0.5)
           : (useSpotX
               ? (spotXFractions![i].clamp(0.0, 1.0) * size.width)
               : (n > 1 ? (i / (n - 1)) : 0.5) * size.width);
-      final barW = (useDataRange ? (dataWidth / n * 0.75) : (size.width / n * 0.75)).clamp(1.5, 12.0);
+      final barW = (useDataRange ? (dataWidth / n * 0.88) : (size.width / n * 0.88)).clamp(2.5, 14.0);
       final left = (centerX - barW / 2).clamp(0.0, size.width - barW);
       final h = (v / maxV * chartH).clamp(2.0, chartH);
       final y = chartH - h;
