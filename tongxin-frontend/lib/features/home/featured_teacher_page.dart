@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:math' as math;
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -6,6 +9,9 @@ import '../auth/login_page.dart';
 import '../../core/firebase_bootstrap.dart';
 import '../../core/models.dart';
 import '../../core/supabase_bootstrap.dart';
+import '../messages/chat_detail_page.dart';
+import '../messages/message_models.dart';
+import '../messages/messages_repository.dart';
 import '../strategies/strategies_page.dart';
 import '../teachers/teacher_detail_page.dart';
 import '../teachers/teacher_models.dart' as tmodels;
@@ -231,9 +237,11 @@ class _FeaturedTeacherPageState extends State<FeaturedTeacherPage> {
                   _SectionTitle(title: '今日交易策略'),
                   _TodayStrategyStream(
                     teacherId: teacher.id,
+                    teacherName: teacher.name,
+                    teacherAvatarUrl: teacher.avatarUrl,
                     fallbackText: teacher.todayStrategy,
-                    comments: teacher.comments,
                     repo: _repo,
+                    currentUserId: FirebaseAuth.instance.currentUser?.uid ?? '',
                   ),
                   const SizedBox(height: 8),
                   Align(
@@ -652,36 +660,57 @@ class _InfoCard extends StatelessWidget {
 class _TodayStrategyStream extends StatelessWidget {
   const _TodayStrategyStream({
     required this.teacherId,
+    required this.teacherName,
+    required this.teacherAvatarUrl,
     required this.fallbackText,
-    required this.comments,
     required this.repo,
+    required this.currentUserId,
   });
 
   final String teacherId;
+  final String teacherName;
+  final String teacherAvatarUrl;
   final String fallbackText;
-  final List<Comment> comments;
   final TeacherRepository repo;
+  final String currentUserId;
 
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<List<tmodels.TeacherStrategy>>(
       stream: repo.watchPublishedStrategies(teacherId),
-      builder: (context, snapshot) {
-        final strategies = snapshot.data ?? const [];
+      builder: (context, stratSnapshot) {
+        final strategies = stratSnapshot.data ?? const [];
         final latest = strategies.isNotEmpty ? strategies.first : null;
         final title = latest?.title ?? '核心策略';
-        // 优先显示策略内容，其次摘要，最后档案中的今日策略
         final text = (latest?.content?.trim().isNotEmpty == true
                 ? latest!.content!
                 : (latest?.summary ?? '').trim().isNotEmpty == true
                     ? latest!.summary
                     : null) ??
             (fallbackText.trim().isNotEmpty ? fallbackText : '暂无今日策略');
-        return _HeroStrategyCard(
-          title: title,
-          text: text,
-          imageUrls: latest?.imageUrls,
-          comments: comments,
+        // 策略未加载完成时用空流，避免从教师级评论切换到策略评论时条数跳变
+        final commentsStream = stratSnapshot.hasData
+            ? (latest != null
+                ? repo.watchStrategyComments(teacherId, latest.id)
+                : repo.watchTeacherComments(teacherId))
+            : Stream<List<Comment>>.value(const []);
+        return StreamBuilder<List<Comment>>(
+          stream: commentsStream,
+          builder: (context, commentsSnapshot) {
+            final comments = commentsSnapshot.data ?? const [];
+            return _HeroStrategyCard(
+              title: title,
+              text: text,
+              imageUrls: latest?.imageUrls,
+              comments: comments,
+              teacherId: teacherId,
+              strategyId: latest?.id,
+              teacherName: teacherName,
+              teacherAvatarUrl: teacherAvatarUrl,
+              currentUserId: currentUserId,
+              repo: repo,
+            );
+          },
         );
       },
     );
@@ -694,12 +723,24 @@ class _HeroStrategyCard extends StatefulWidget {
     required this.text,
     this.imageUrls,
     required this.comments,
+    required this.teacherId,
+    this.strategyId,
+    required this.teacherName,
+    required this.teacherAvatarUrl,
+    required this.currentUserId,
+    required this.repo,
   });
 
   final String title;
   final String text;
   final List<String>? imageUrls;
   final List<Comment> comments;
+  final String teacherId;
+  final String? strategyId;
+  final String teacherName;
+  final String teacherAvatarUrl;
+  final String currentUserId;
+  final TeacherRepository repo;
 
   @override
   State<_HeroStrategyCard> createState() => _HeroStrategyCardState();
@@ -707,158 +748,498 @@ class _HeroStrategyCard extends StatefulWidget {
 
 class _HeroStrategyCardState extends State<_HeroStrategyCard> {
   bool _showComments = false;
+  Comment? _replyToComment;
+  final List<Comment> _optimisticComments = [];
+  int? _likeCountOverride;
+  bool? _likedOverride;
+  DateTime? _lastLikeToggleAt;
+
+  void _onCommentPosted(String userName, String content, {Comment? replyTo}) {
+    final now = DateTime.now();
+    final date = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} '
+        '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+    setState(() {
+      _optimisticComments.add(Comment(
+        id: 'local-${now.millisecondsSinceEpoch}',
+        userName: userName,
+        content: content,
+        date: date,
+        replyToCommentId: replyTo?.id,
+        replyToContent: replyTo != null
+            ? (replyTo.content.length > 50 ? '${replyTo.content.substring(0, 50)}…' : replyTo.content)
+            : null,
+      ));
+    });
+  }
+
+  List<Comment> get _mergedComments {
+    final fromStream = widget.comments;
+    final merged = [...fromStream];
+    for (final o in _optimisticComments) {
+      if (!merged.any((c) => c.content == o.content && c.userName == o.userName)) {
+        merged.add(o);
+      }
+    }
+    merged.sort((a, b) => b.date.compareTo(a.date));
+    return merged;
+  }
+
+  void _onLikeToggled(bool currentlyLiked, int currentCount) {
+    setState(() {
+      _lastLikeToggleAt = DateTime.now();
+      _likedOverride = !currentlyLiked;
+      _likeCountOverride = currentCount + (_likedOverride! ? 1 : -1);
+    });
+  }
+
+  /// 抖音式评论：父评论按时间倒序，回复紧贴父评论下方、按时间正序
+  List<Widget> _buildThreadedCommentsInline(List<Comment> list) {
+    void onReplyTap(Comment c) {
+      setState(() {
+        _replyToComment = c;
+        _showComments = true;
+      });
+    }
+    final topLevel = list.where((c) => c.replyToCommentId == null).toList()
+      ..sort((a, b) => b.date.compareTo(a.date));
+    final widgets = <Widget>[];
+    for (final parent in topLevel) {
+      widgets.add(_CommentItem(
+        comment: parent,
+        onReplyTap: onReplyTap,
+        isReply: false,
+      ));
+      final descendantIds = <String>{parent.id};
+      var changed = true;
+      while (changed) {
+        changed = false;
+        for (final c in list) {
+          if (c.replyToCommentId != null &&
+              descendantIds.contains(c.replyToCommentId) &&
+              !descendantIds.contains(c.id)) {
+            descendantIds.add(c.id);
+            changed = true;
+          }
+        }
+      }
+      final replies = list
+          .where((c) =>
+              c.replyToCommentId != null &&
+              descendantIds.contains(c.replyToCommentId))
+          .toList()
+        ..sort((a, b) => a.date.compareTo(b.date));
+      for (final reply in replies) {
+        widgets.add(_CommentItem(
+          comment: reply,
+          onReplyTap: onReplyTap,
+          isReply: true,
+        ));
+      }
+    }
+    return widgets;
+  }
+
+  void _syncLikeFromStream(int count, bool liked) {
+    if (_lastLikeToggleAt != null &&
+        DateTime.now().difference(_lastLikeToggleAt!).inSeconds < 3) {
+      return;
+    }
+    if (_likeCountOverride == count && _likedOverride == liked) return;
+    setState(() {
+      _likeCountOverride = count;
+      _likedOverride = liked;
+    });
+  }
+
+  void _showForwardSheet(BuildContext context) {
+    if (widget.currentUserId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('请先登录后再转发')),
+      );
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const LoginPage()),
+      );
+      return;
+    }
+    final payload = {
+      'teacher_id': widget.teacherId,
+      'teacher_name': widget.teacherName,
+      'avatar_url': widget.teacherAvatarUrl,
+    };
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF1A1C21),
+      builder: (ctx) => _ForwardConversationSheet(
+        teacherPayload: payload,
+        currentUserId: widget.currentUserId,
+        onSent: () => Navigator.of(ctx).pop(),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: () {
-        _showStrategyDialog(context, widget.text, widget.comments);
-      },
-      borderRadius: BorderRadius.circular(18),
-      child: Ink(
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(18),
-          gradient: const LinearGradient(
-            colors: [
-              Color(0xFF1B1C20),
-              Color(0xFF0F1012),
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          border: Border.all(color: const Color(0xFFD4AF37), width: 0.6),
-          boxShadow: [
-            BoxShadow(
-              color: Color(0xFFD4AF37),
-              blurRadius: 12,
-              spreadRadius: -6,
-              offset: Offset(0, 6),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxW = constraints.maxWidth;
+        return SizedBox(
+          width: maxW,
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(18),
+              gradient: const LinearGradient(
+                colors: [
+                  Color(0xFF1B1C20),
+                  Color(0xFF0F1012),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              border: Border.all(color: const Color(0xFFD4AF37), width: 0.6),
+              boxShadow: [
+                BoxShadow(
+                  color: Color(0xFFD4AF37),
+                  blurRadius: 12,
+                  spreadRadius: -6,
+                  offset: Offset(0, 6),
+                ),
+              ],
             ),
-          ],
-        ),
-        child: Column(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                InkWell(
+                  onTap: () {
+                    _showStrategyDialog(
+                      context,
+                      widget.text,
+                      _mergedComments,
+                      teacherId: widget.teacherId,
+                      strategyId: widget.strategyId,
+                      currentUserId: widget.currentUserId,
+                      repo: widget.repo,
+                      onCommentPosted: _onCommentPosted,
+                      initialShowComments: _showComments,
+                    );
+                  },
+                  borderRadius: BorderRadius.circular(18),
+                  child: Padding(
+                    padding: const EdgeInsets.all(18),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (widget.imageUrls != null && widget.imageUrls!.isNotEmpty) ...[
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: Image.network(
+                              widget.imageUrls!.first,
+                              height: 120,
+                              width: double.infinity,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                        ],
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFD4AF37),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Icon(
+                                Icons.trending_up,
+                                color: Color(0xFF111215),
+                                size: 18,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                widget.title,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .titleSmall
+                                    ?.copyWith(color: const Color(0xFFD4AF37)),
+                              ),
+                            ),
+                            const Spacer(),
+                            const Icon(Icons.open_in_new, size: 16),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          widget.text,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                fontSize: 15,
+                                height: 1.4,
+                              ),
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          '点击查看完整投资策略',
+                          style: Theme.of(context)
+                              .textTheme
+                              .labelSmall
+                              ?.copyWith(color: const Color(0xFFD4AF37)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          TextButton.icon(
+                            onPressed: () {
+                              setState(() {
+                                _showComments = !_showComments;
+                              });
+                            },
+                            icon: Icon(
+                              _showComments ? Icons.expand_less : Icons.expand_more,
+                              size: 18,
+                              color: const Color(0xFFD4AF37),
+                            ),
+                            label: Text(
+                              _showComments ? '隐藏评论' : '查看评论',
+                              style: const TextStyle(color: Color(0xFFD4AF37)),
+                            ),
+                          ),
+                          StreamBuilder<int>(
+                            stream: widget.repo.watchTeacherLikesCount(widget.teacherId),
+                            builder: (context, likeSnap) {
+                              final streamCount = likeSnap.data ?? 0;
+                              final likeCount = _likeCountOverride ?? streamCount;
+                              return StreamBuilder<bool>(
+                                stream: widget.repo.watchUserLiked(
+                                  teacherId: widget.teacherId,
+                                  userId: widget.currentUserId,
+                                ),
+                                builder: (context, likedSnap) {
+                                  final streamLiked = likedSnap.data ?? false;
+                                  if (likeSnap.hasData && likedSnap.hasData) {
+                                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                                      if (mounted) _syncLikeFromStream(streamCount, streamLiked);
+                                    });
+                                  }
+                                  final liked = _likedOverride ?? streamLiked;
+                                  return TextButton.icon(
+                                    onPressed: widget.currentUserId.isEmpty
+                                        ? null
+                                        : () async {
+                                            _onLikeToggled(liked, likeCount);
+                                            await widget.repo.toggleLike(
+                                              teacherId: widget.teacherId,
+                                              userId: widget.currentUserId,
+                                            );
+                                          },
+                                    icon: Icon(
+                                      liked ? Icons.thumb_up : Icons.thumb_up_outlined,
+                                      size: 18,
+                                      color: liked ? const Color(0xFFD4AF37) : null,
+                                    ),
+                                    label: Text('$likeCount'),
+                                  );
+                                },
+                              );
+                            },
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.share, size: 20),
+                            onPressed: () => _showForwardSheet(context),
+                            tooltip: '转发',
+                          ),
+                          const Spacer(),
+                          Flexible(
+                            child: Text(
+                              '${_mergedComments.length}条',
+                              style: Theme.of(context).textTheme.labelSmall,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (_showComments) ...[
+                        const SizedBox(height: 8),
+                        const Divider(height: 1, color: Color(0xFF2A2C31)),
+                        const SizedBox(height: 8),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxHeight: 500),
+                          child: SingleChildScrollView(
+                            child: _mergedComments.isEmpty
+                                ? const _EmptyHint(text: '暂无评论')
+                                : Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: _buildThreadedCommentsInline(_mergedComments),
+                                  ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        _CommentForm(
+                          teacherId: widget.teacherId,
+                          strategyId: widget.strategyId,
+                          currentUserId: widget.currentUserId,
+                          repo: widget.repo,
+                          replyToComment: _replyToComment,
+                          onReplyConsumed: () => setState(() => _replyToComment = null),
+                          onPosted: (userName, content, {Comment? replyTo}) {
+                            _onCommentPosted(userName, content, replyTo: replyTo);
+                            setState(() => _replyToComment = null);
+                          },
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// 转发到会话选择
+class _ForwardConversationSheet extends StatelessWidget {
+  const _ForwardConversationSheet({
+    required this.teacherPayload,
+    required this.currentUserId,
+    required this.onSent,
+  });
+
+  final Map<String, String> teacherPayload;
+  final String currentUserId;
+  final VoidCallback onSent;
+
+  static const Color _accent = Color(0xFFD4AF37);
+
+  Future<String> _getUserName() async {
+    try {
+      final r = await SupabaseBootstrap.client
+          .from('user_profiles')
+          .select('display_name')
+          .eq('user_id', currentUserId)
+          .maybeSingle();
+      final n = r?['display_name'] as String?;
+      return (n?.trim().isNotEmpty == true) ? n!.trim() : '用户';
+    } catch (_) {
+      return '用户';
+    }
+  }
+
+  Future<void> _sendToConversation(
+    BuildContext context,
+    Conversation conv,
+    String senderName,
+  ) async {
+    final content = jsonEncode(teacherPayload);
+    try {
+      await MessagesRepository().sendMessage(
+        conversationId: conv.id,
+        senderId: currentUserId,
+        senderName: senderName,
+        content: content,
+        messageType: 'teacher_share',
+        receiverId: conv.peerId,
+      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('已转发')),
+        );
+        onSent();
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('转发失败: ${e.toString().length > 40 ? e.toString().substring(0, 40) : e}')),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.5,
+      minChildSize: 0.3,
+      maxChildSize: 0.9,
+      expand: false,
+      builder: (_, scrollController) {
+        return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (widget.imageUrls != null && widget.imageUrls!.isNotEmpty) ...[
-              ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: Image.network(
-                  widget.imageUrls!.first,
-                  height: 120,
-                  width: double.infinity,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-                ),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Text(
+                    '转发到',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          color: _accent,
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: onSent,
+                  ),
+                ],
               ),
-              const SizedBox(height: 12),
-            ],
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFD4AF37),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(
-                    Icons.trending_up,
-                    color: Color(0xFF111215),
-                    size: 18,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    widget.title,
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleSmall
-                        ?.copyWith(color: const Color(0xFFD4AF37)),
-                  ),
-                ),
-                const Spacer(),
-                const Icon(Icons.open_in_new, size: 16),
-              ],
             ),
-            const SizedBox(height: 12),
-            Text(
-              widget.text,
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    fontSize: 15,
-                    height: 1.4,
-                  ),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              '点击查看完整投资策略',
-              style: Theme.of(context)
-                  .textTheme
-                  .labelSmall
-                  ?.copyWith(color: const Color(0xFFD4AF37)),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                TextButton.icon(
-                  onPressed: () {
-                    setState(() {
-                      _showComments = !_showComments;
-                    });
-                  },
-                  icon: Icon(
-                    _showComments ? Icons.expand_less : Icons.expand_more,
-                  ),
-                  label: Text(_showComments ? '隐藏评论' : '查看评论'),
-                ),
-                const Spacer(),
-                Text(
-                  '${widget.comments.length}条',
-                  style: Theme.of(context).textTheme.labelSmall,
-                ),
-              ],
-            ),
-            if (_showComments) ...[
-              const SizedBox(height: 8),
-              const Divider(height: 1, color: Color(0xFF2A2C31)),
-              const SizedBox(height: 8),
-              if (widget.comments.isEmpty)
-                const _EmptyHint(text: '暂无评论')
-              else
-                ...widget.comments
-                    .map((comment) => _CommentItem(comment: comment)),
-              const SizedBox(height: 8),
-              TextField(
-                decoration: InputDecoration(
-                  hintText: '写下你的评论…',
-                  filled: true,
-                  fillColor: const Color(0xFF0B0C0E),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide:
-                        const BorderSide(color: Color(0xFFD4AF37), width: 0.4),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide:
-                        const BorderSide(color: Color(0xFFD4AF37), width: 0.4),
-                  ),
-                ),
+            const Divider(height: 1),
+            Expanded(
+              child: StreamBuilder<List<Conversation>>(
+                stream: MessagesRepository().watchConversations(userId: currentUserId),
+                builder: (context, snapshot) {
+                  final list = snapshot.data ?? [];
+                  if (list.isEmpty) {
+                    return const Center(
+                      child: Text('暂无会话，请先添加好友或加入群聊'),
+                    );
+                  }
+                  return ListView.builder(
+                    controller: scrollController,
+                    itemCount: list.length,
+                    itemBuilder: (context, i) {
+                      final conv = list[i];
+                      return ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: _accent,
+                          child: Text(
+                            (conv.title.isNotEmpty ? conv.title[0] : '?'),
+                            style: const TextStyle(color: Color(0xFF111215)),
+                          ),
+                        ),
+                        title: Text(conv.title),
+                        subtitle: Text(conv.subtitle),
+                        onTap: () async {
+                          final name = await _getUserName();
+                          if (context.mounted) {
+                            await _sendToConversation(context, conv, name);
+                          }
+                        },
+                      );
+                    },
+                  );
+                },
               ),
-              const SizedBox(height: 8),
-              Align(
-                alignment: Alignment.centerRight,
-                child: FilledButton(
-                  onPressed: () {},
-                  child: const Text('发表评论'),
-                ),
-              ),
-            ],
+            ),
           ],
-        ),
-      ),
+        );
+      },
     );
   }
 }
@@ -866,109 +1247,264 @@ class _HeroStrategyCardState extends State<_HeroStrategyCard> {
 void _showStrategyDialog(
   BuildContext context,
   String text,
-  List<Comment> comments,
-) {
+  List<Comment> comments, {
+  required String teacherId,
+  String? strategyId,
+  required String currentUserId,
+  required TeacherRepository repo,
+  required void Function(String userName, String content) onCommentPosted,
+  bool initialShowComments = false,
+}) {
+  const accent = Color(0xFFD4AF37);
+  const bgDark = Color(0xFF0D0E11);
+  const bgCard = Color(0xFF0B0C0E);
+  const radius = 24.0;
+  const cornerSize = 48.0;
+
   showDialog(
     context: context,
+    barrierColor: Colors.black54,
     builder: (context) {
-      bool showComments = false;
+      bool showComments = initialShowComments;
+      Comment? replyToComment;
+      final dialogOptimistic = <Comment>[];
       return Dialog(
-        backgroundColor: const Color(0xFF111215),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
         child: StatefulBuilder(
           builder: (context, setState) {
+            final merged = [...comments, ...dialogOptimistic]
+              ..sort((a, b) => b.date.compareTo(a.date));
             final maxHeight = MediaQuery.of(context).size.height * 0.75;
-            return ConstrainedBox(
-              constraints: BoxConstraints(maxHeight: maxHeight),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.trending_up, color: Color(0xFFD4AF37)),
-                        const SizedBox(width: 8),
-                        Text(
-                          '完整投资策略',
-                          style: Theme.of(context).textTheme.titleMedium,
+
+            /// 抖音式：父评论倒序，回复紧贴父评论下方、正序
+            List<Widget> buildThreadedComments(
+              List<Comment> list,
+              void Function(Comment) onReplyTap,
+            ) {
+              final topLevel = list.where((c) => c.replyToCommentId == null).toList()
+                ..sort((a, b) => b.date.compareTo(a.date));
+              final widgets = <Widget>[];
+              for (final parent in topLevel) {
+                widgets.add(_CommentItem(
+                  comment: parent,
+                  onReplyTap: onReplyTap,
+                  isReply: false,
+                ));
+                final descendantIds = <String>{parent.id};
+                var changed = true;
+                while (changed) {
+                  changed = false;
+                  for (final c in list) {
+                    if (c.replyToCommentId != null &&
+                        descendantIds.contains(c.replyToCommentId) &&
+                        !descendantIds.contains(c.id)) {
+                      descendantIds.add(c.id);
+                      changed = true;
+                    }
+                  }
+                }
+                final replies = list
+                    .where((c) =>
+                        c.replyToCommentId != null &&
+                        descendantIds.contains(c.replyToCommentId))
+                    .toList()
+                  ..sort((a, b) => a.date.compareTo(b.date));
+                for (final reply in replies) {
+                  widgets.add(_CommentItem(
+                    comment: reply,
+                    onReplyTap: onReplyTap,
+                    isReply: true,
+                  ));
+                }
+              }
+              return widgets;
+            }
+
+            return ClipRRect(
+              borderRadius: BorderRadius.circular(radius),
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Container(
+                    height: maxHeight,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(radius),
+                      gradient: const LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [Color(0xFF1A1C21), Color(0xFF0D0E11)],
+                      ),
+                      border: Border.all(color: accent.withOpacity(0.6), width: 1.5),
+                      boxShadow: [
+                        BoxShadow(
+                          color: accent.withOpacity(0.15),
+                          blurRadius: 24,
+                          spreadRadius: -4,
+                          offset: const Offset(0, 8),
                         ),
-                        const Spacer(),
-                        IconButton(
-                          onPressed: () => Navigator.of(context).pop(),
-                          icon: const Icon(Icons.close),
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.5),
+                          blurRadius: 32,
+                          spreadRadius: -8,
+                          offset: const Offset(0, 12),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 8),
-                    Expanded(
-                      child: SingleChildScrollView(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF0B0C0E),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: const Color(0xFFD4AF37),
-                                  width: 0.3,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.max,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: accent.withOpacity(0.15),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: accent.withOpacity(0.4)),
+                                ),
+                                child: const Icon(Icons.trending_up, color: accent, size: 22),
+                              ),
+                              const SizedBox(width: 12),
+                              Text(
+                                '完整投资策略',
+                                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: 0.5,
                                 ),
                               ),
-                              child: Text(
-                                text,
-                                style: Theme.of(context).textTheme.bodyMedium,
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                TextButton.icon(
-                                  onPressed: () {
-                                    setState(() {
-                                      showComments = !showComments;
-                                    });
-                                  },
-                                  icon: Icon(
-                                    showComments
-                                        ? Icons.expand_less
-                                        : Icons.expand_more,
-                                  ),
-                                  label:
-                                      Text(showComments ? '隐藏评论' : '查看评论'),
+                              const Spacer(),
+                              IconButton(
+                                onPressed: () => Navigator.of(context).pop(),
+                                icon: Icon(Icons.close, color: Colors.white70, size: 22),
+                                style: IconButton.styleFrom(
+                                  backgroundColor: Colors.white.withOpacity(0.08),
                                 ),
-                                const Spacer(),
-                                Text(
-                                  '${comments.length}条',
-                                  style: Theme.of(context).textTheme.labelSmall,
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: bgCard,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: accent.withOpacity(0.25), width: 0.8),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: accent.withOpacity(0.05),
+                                  blurRadius: 12,
+                                  offset: const Offset(0, 4),
                                 ),
                               ],
                             ),
-                            if (showComments) ...[
-                              const Divider(height: 1, color: Color(0xFF2A2C31)),
-                              const SizedBox(height: 8),
-                              if (comments.isEmpty)
-                                const _EmptyHint(text: '暂无评论')
-                              else
-                                ...comments
-                                    .map((comment) => _CommentItem(comment: comment)),
-                              const SizedBox(height: 80),
+                            child: Text(
+                              text,
+                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                color: Colors.white.withOpacity(0.9),
+                                height: 1.65,
+                                fontSize: 15,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              TextButton.icon(
+                                onPressed: () {
+                                  setState(() => showComments = !showComments);
+                                },
+                                icon: Icon(
+                                  showComments ? Icons.expand_less : Icons.expand_more,
+                                  color: accent,
+                                  size: 20,
+                                ),
+                                label: Text(
+                                  showComments ? '隐藏评论' : '查看评论',
+                                  style: const TextStyle(color: accent, fontWeight: FontWeight.w500),
+                                ),
+                              ),
+                              const Spacer(),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: accent.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  '${merged.length}条',
+                                  style: const TextStyle(color: accent, fontSize: 13, fontWeight: FontWeight.w500),
+                                ),
+                              ),
                             ],
+                          ),
+                          if (showComments) ...[
+                            const Divider(height: 24, color: Color(0xFF2A2C31)),
+                            Expanded(
+                              child: SingleChildScrollView(
+                                child: merged.isEmpty
+                                    ? const _EmptyHint(text: '暂无评论')
+                                    : Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: buildThreadedComments(merged, (c) {
+                                          setState(() {
+                                            showComments = true;
+                                            replyToComment = c;
+                                          });
+                                        }),
+                                      ),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
                           ],
-                        ),
+                          if (showComments)
+                            AnimatedPadding(
+                              duration: const Duration(milliseconds: 200),
+                              padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+                              child: _CommentForm(
+                                teacherId: teacherId,
+                                strategyId: strategyId,
+                                currentUserId: currentUserId,
+                                repo: repo,
+                                replyToComment: replyToComment,
+                                onReplyConsumed: () => setState(() => replyToComment = null),
+                                onPosted: (userName, content, {Comment? replyTo}) {
+                                  onCommentPosted(userName, content);
+                                  setState(() => replyToComment = null);
+                                  final now = DateTime.now();
+                                  final date = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} '
+                                      '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+                                  dialogOptimistic.add(Comment(
+                                    id: 'local-${now.millisecondsSinceEpoch}',
+                                    userName: userName,
+                                    content: content,
+                                    date: date,
+                                    replyToCommentId: replyTo?.id,
+                                    replyToContent: replyTo != null
+                                        ? (replyTo.content.length > 50
+                                            ? '${replyTo.content.substring(0, 50)}…'
+                                            : replyTo.content)
+                                        : null,
+                                  ));
+                                  setState(() {});
+                                },
+                              ),
+                            ),
+                        ],
                       ),
                     ),
-                    if (showComments)
-                      AnimatedPadding(
-                        duration: const Duration(milliseconds: 200),
-                        padding: EdgeInsets.only(
-                          bottom: MediaQuery.of(context).viewInsets.bottom,
-                        ),
-                        child: _CommentComposer(),
-                      ),
-                  ],
-                ),
+                  ),
+                  Positioned(top: 0, left: 0, child: _CornerOrnament(rotation: 0, size: cornerSize, color: accent)),
+                  Positioned(top: 0, right: 0, child: _CornerOrnament(rotation: math.pi / 2, size: cornerSize, color: accent)),
+                  Positioned(bottom: 0, left: 0, child: _CornerOrnament(rotation: -math.pi / 2, size: cornerSize, color: accent)),
+                  Positioned(bottom: 0, right: 0, child: _CornerOrnament(rotation: math.pi, size: cornerSize, color: accent)),
+                ],
               ),
             );
           },
@@ -978,7 +1514,167 @@ void _showStrategyDialog(
   );
 }
 
-class _CommentComposer extends StatelessWidget {
+/// 四角花纹装饰
+class _CornerOrnament extends StatelessWidget {
+  const _CornerOrnament({required this.rotation, required this.size, required this.color});
+
+  final double rotation;
+  final double size;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Transform.rotate(
+      angle: rotation,
+      child: SizedBox(
+        width: size,
+        height: size,
+        child: CustomPaint(
+          painter: _CornerOrnamentPainter(color: color),
+        ),
+      ),
+    );
+  }
+}
+
+class _CornerOrnamentPainter extends CustomPainter {
+  _CornerOrnamentPainter({required this.color});
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const len = 40.0;
+    const r = 10.0;
+
+    void drawL(Paint p, double offset) {
+      final path = Path();
+      path.moveTo(offset, size.height);
+      path.lineTo(offset, r + offset);
+      path.quadraticBezierTo(offset, offset, r + offset, offset);
+      path.lineTo(size.width, offset);
+      canvas.drawPath(path, p);
+    }
+
+    final paint = Paint()
+      ..color = color.withOpacity(0.85)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.2;
+    drawL(paint, 0);
+
+    paint.strokeWidth = 1.0;
+    paint.color = color.withOpacity(0.5);
+    drawL(paint, 8);
+
+    paint.strokeWidth = 0.8;
+    paint.color = color.withOpacity(0.3);
+    drawL(paint, 14);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+/// 评论输入框与发表按钮
+class _CommentForm extends StatefulWidget {
+  const _CommentForm({
+    required this.teacherId,
+    this.strategyId,
+    required this.currentUserId,
+    required this.repo,
+    this.replyToComment,
+    this.onReplyConsumed,
+    this.onPosted,
+  });
+
+  final String teacherId;
+  final String? strategyId;
+  final String currentUserId;
+  final TeacherRepository repo;
+  final Comment? replyToComment;
+  final VoidCallback? onReplyConsumed;
+  final void Function(String userName, String content, {Comment? replyTo})? onPosted;
+
+  @override
+  State<_CommentForm> createState() => _CommentFormState();
+}
+
+class _CommentFormState extends State<_CommentForm> {
+  final _controller = TextEditingController();
+  final _focusNode = FocusNode();
+  bool _submitting = false;
+  Comment? _pendingReplyTo;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(_CommentForm oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.replyToComment != null &&
+        widget.replyToComment != oldWidget.replyToComment) {
+      _pendingReplyTo = widget.replyToComment;
+      _controller.text = '@${widget.replyToComment!.userName} ';
+      _controller.selection = TextSelection.collapsed(offset: _controller.text.length);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _focusNode.requestFocus();
+        widget.onReplyConsumed?.call();
+      });
+    }
+  }
+
+  Future<void> _submit() async {
+    final content = _controller.text.trim();
+    if (content.isEmpty) return;
+    if (widget.currentUserId.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('请先登录后再发表评论')),
+        );
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const LoginPage()),
+        );
+      }
+      return;
+    }
+    setState(() => _submitting = true);
+    try {
+      final replyTo = _pendingReplyTo ?? widget.replyToComment;
+      final userName = await widget.repo.insertComment(
+        teacherId: widget.teacherId,
+        userId: widget.currentUserId,
+        content: content,
+        strategyId: widget.strategyId,
+        replyToCommentId: replyTo?.id,
+        replyToContent: replyTo?.content,
+      );
+      _controller.clear();
+      _pendingReplyTo = null;
+      if (mounted) {
+        widget.onPosted?.call(userName, content, replyTo: replyTo);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('评论已发表')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        final msg = e.toString();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('发表失败: ${msg.length > 120 ? msg.substring(0, 120) + '…' : msg}'),
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -992,8 +1688,11 @@ class _CommentComposer extends StatelessWidget {
         children: [
           Expanded(
             child: TextField(
+              controller: _controller,
+              focusNode: _focusNode,
               minLines: 1,
-              maxLines: 1,
+              maxLines: 3,
+              enabled: !_submitting,
               decoration: InputDecoration(
                 hintText: '写下你的评论…',
                 filled: true,
@@ -1015,8 +1714,8 @@ class _CommentComposer extends StatelessWidget {
           ),
           const SizedBox(width: 10),
           FilledButton(
-            onPressed: () {},
-            child: const Text('发表'),
+            onPressed: _submitting ? null : _submit,
+            child: Text(_submitting ? '发表中…' : '发表'),
           ),
         ],
       ),
@@ -1024,47 +1723,168 @@ class _CommentComposer extends StatelessWidget {
   }
 }
 
+/// 抖音风格 @ 提及色（蓝色）
+const _mentionColor = Color(0xFF5B9EFF);
+
 class _CommentItem extends StatelessWidget {
-  const _CommentItem({required this.comment});
+  const _CommentItem({
+    required this.comment,
+    this.onReplyTap,
+    this.isReply = false,
+  });
 
   final Comment comment;
+  final void Function(Comment)? onReplyTap;
+  final bool isReply;
+
+  static List<TextSpan> _buildContentSpans(String content, Color mentionColor) {
+    final spans = <TextSpan>[];
+    final regex = RegExp(r'@(\S+)');
+    int lastEnd = 0;
+    for (final match in regex.allMatches(content)) {
+      if (match.start > lastEnd) {
+        spans.add(TextSpan(
+          text: content.substring(lastEnd, match.start),
+          style: const TextStyle(color: Colors.white70),
+        ));
+      }
+      spans.add(TextSpan(
+        text: '@${match.group(1)}',
+        style: TextStyle(color: mentionColor, fontWeight: FontWeight.w600),
+      ));
+      lastEnd = match.end;
+    }
+    if (lastEnd < content.length) {
+      spans.add(TextSpan(
+        text: content.substring(lastEnd),
+        style: const TextStyle(color: Colors.white70),
+      ));
+    }
+    if (spans.isEmpty) {
+      spans.add(TextSpan(
+        text: content,
+        style: const TextStyle(color: Colors.white70),
+      ));
+    }
+    return spans;
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        CircleAvatar(
-          radius: 16,
-          backgroundColor: const Color(0xFFD4AF37),
-          child: Text(
-            comment.userName.characters.first,
-            style: const TextStyle(color: Color(0xFF111215)),
+    const accent = Color(0xFFD4AF37);
+    final content = Padding(
+      padding: EdgeInsets.only(
+        bottom: 12,
+        left: isReply ? 44 : 0,
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            radius: isReply ? 12 : 16,
+            backgroundColor: accent,
+            child: Text(
+              comment.userName.characters.first,
+              style: const TextStyle(color: Color(0xFF111215)),
+            ),
           ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                comment.userName,
-                style: Theme.of(context).textTheme.labelMedium,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                comment.content,
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-            ],
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      comment.userName,
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: accent,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    if (onReplyTap != null) ...[
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        onTap: () => onReplyTap!(comment),
+                        child: Text(
+                          '回复',
+                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: accent.withOpacity(0.8),
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                if (comment.replyToContent != null &&
+                    comment.replyToContent!.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: accent.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: accent.withOpacity(0.3)),
+                    ),
+                    child: Row(
+                      children: [
+                        Text(
+                          '回复 ',
+                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: accent.withOpacity(0.9),
+                            fontSize: 12,
+                          ),
+                        ),
+                        Expanded(
+                          child: Text(
+                            comment.replyToContent!,
+                            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              color: Colors.white54,
+                              fontSize: 12,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 4),
+                RichText(
+                  maxLines: 5,
+                  overflow: TextOverflow.ellipsis,
+                  text: TextSpan(
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Colors.white70,
+                    ),
+                    children: _buildContentSpans(comment.content, _mentionColor),
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-        Text(
-          comment.date,
-          style: Theme.of(context).textTheme.labelSmall,
-        ),
-      ],
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              comment.date,
+              style: Theme.of(context).textTheme.labelSmall,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
     );
+    if (onReplyTap != null) {
+      return GestureDetector(
+        onTap: () => onReplyTap!(comment),
+        behavior: HitTestBehavior.opaque,
+        child: content,
+      );
+    }
+    return content;
   }
 }
 

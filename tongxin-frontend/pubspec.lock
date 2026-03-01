@@ -531,10 +531,9 @@ packages:
   getuiflut:
     dependency: "direct main"
     description:
-      name: getuiflut
-      sha256: dfa5fa7ead827fdcf91c809cc2d86a0d6623c72fa2a06021dd40dad69519f1c3
-      url: "https://pub.dev"
-    source: hosted
+      path: "packages/getuiflut"
+      relative: true
+    source: path
     version: "0.2.40"
   glob:
     dependency: transitive

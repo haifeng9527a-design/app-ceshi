@@ -106,6 +106,211 @@ class TeacherRepository {
         );
   }
 
+  /// 监听指定交易员的评论（全部，用于兼容）
+  Stream<List<core_models.Comment>> watchTeacherComments(String teacherId) {
+    if (teacherId.isEmpty) {
+      return Stream.value(const []);
+    }
+    return SupabaseBootstrap.client
+        .from('teacher_comments')
+        .stream(primaryKey: ['id'])
+        .map(
+          (rows) {
+            final list = rows
+                .where((row) =>
+                    row['teacher_id'] == teacherId &&
+                    row['strategy_id'] == null)
+                .map((row) {
+                  final id = row['id'] as String? ?? '';
+                  final userName = row['user_name'] as String? ?? '用户';
+                  final content = row['content'] as String? ?? '';
+                  final replyToId = row['reply_to_comment_id']?.toString();
+                  final replyToContent = row['reply_to_content'] as String?;
+                  final ts = row['comment_time'] ?? row['created_at'];
+                  DateTime? dt;
+                  if (ts != null) {
+                    if (ts is DateTime) dt = ts;
+                    else if (ts is String) dt = DateTime.tryParse(ts);
+                  }
+                  final date = dt != null
+                      ? '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')} '
+                          '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}'
+                      : '';
+                  return MapEntry(
+                    dt ?? DateTime.fromMillisecondsSinceEpoch(0),
+                    core_models.Comment(
+                      id: id,
+                      userName: userName,
+                      content: content,
+                      date: date,
+                      replyToCommentId: replyToId,
+                      replyToContent: replyToContent,
+                    ),
+                  );
+                })
+                .toList();
+            list.sort((a, b) => b.key.compareTo(a.key));
+            return list.map((e) => e.value).toList();
+          },
+        );
+  }
+
+  /// 监听指定策略的评论
+  Stream<List<core_models.Comment>> watchStrategyComments(
+    String teacherId,
+    String strategyId,
+  ) {
+    if (teacherId.isEmpty || strategyId.isEmpty) {
+      return Stream.value(const []);
+    }
+    return SupabaseBootstrap.client
+        .from('teacher_comments')
+        .stream(primaryKey: ['id'])
+        .map(
+          (rows) {
+            final list = rows
+                .where((row) =>
+                    row['teacher_id'] == teacherId &&
+                    row['strategy_id'] == strategyId)
+                .map((row) {
+                  final id = row['id'] as String? ?? '';
+                  final userName = row['user_name'] as String? ?? '用户';
+                  final content = row['content'] as String? ?? '';
+                  final replyToId = row['reply_to_comment_id']?.toString();
+                  final replyToContent = row['reply_to_content'] as String?;
+                  final ts = row['comment_time'] ?? row['created_at'];
+                  DateTime? dt;
+                  if (ts != null) {
+                    if (ts is DateTime) dt = ts;
+                    else if (ts is String) dt = DateTime.tryParse(ts);
+                  }
+                  final date = dt != null
+                      ? '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')} '
+                          '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}'
+                      : '';
+                  return MapEntry(
+                    dt ?? DateTime.fromMillisecondsSinceEpoch(0),
+                    core_models.Comment(
+                      id: id,
+                      userName: userName,
+                      content: content,
+                      date: date,
+                      replyToCommentId: replyToId,
+                      replyToContent: replyToContent,
+                    ),
+                  );
+                })
+                .toList();
+            list.sort((a, b) => b.key.compareTo(a.key));
+            return list.map((e) => e.value).toList();
+          },
+        );
+  }
+
+  /// 监听指定交易员策略的点赞数
+  Stream<int> watchTeacherLikesCount(String teacherId) {
+    if (teacherId.isEmpty) return Stream.value(0);
+    return SupabaseBootstrap.client
+        .from('teacher_strategy_likes')
+        .stream(primaryKey: ['teacher_id', 'user_id'])
+        .map(
+          (rows) => rows.where((r) => r['teacher_id'] == teacherId).length,
+        );
+  }
+
+  /// 当前用户是否已点赞
+  Stream<bool> watchUserLiked({
+    required String teacherId,
+    required String userId,
+  }) {
+    if (teacherId.isEmpty || userId.isEmpty) return Stream.value(false);
+    return SupabaseBootstrap.client
+        .from('teacher_strategy_likes')
+        .stream(primaryKey: ['teacher_id', 'user_id'])
+        .map(
+          (rows) => rows.any(
+            (r) =>
+                r['teacher_id'] == teacherId && r['user_id'] == userId,
+          ),
+        );
+  }
+
+  /// 点赞/取消点赞
+  Future<void> toggleLike({
+    required String teacherId,
+    required String userId,
+  }) async {
+    if (teacherId.isEmpty || userId.isEmpty) return;
+    final existing = await SupabaseBootstrap.client
+        .from('teacher_strategy_likes')
+        .select('teacher_id')
+        .eq('teacher_id', teacherId)
+        .eq('user_id', userId)
+        .maybeSingle();
+    if (existing != null) {
+      await SupabaseBootstrap.client
+          .from('teacher_strategy_likes')
+          .delete()
+          .eq('teacher_id', teacherId)
+          .eq('user_id', userId);
+    } else {
+      await SupabaseBootstrap.client.from('teacher_strategy_likes').insert({
+        'teacher_id': teacherId,
+        'user_id': userId,
+      });
+    }
+  }
+
+  /// 发表评论，返回使用的昵称（用于乐观更新）
+  /// [strategyId] 可选，指定则评论关联到该策略
+  /// [replyToCommentId] 可选，被回复的评论 ID
+  /// [replyToContent] 可选，被回复评论的内容摘要
+  Future<String> insertComment({
+    required String teacherId,
+    required String userId,
+    required String content,
+    String? strategyId,
+    String? replyToCommentId,
+    String? replyToContent,
+  }) async {
+    if (teacherId.isEmpty || userId.isEmpty || content.trim().isEmpty) {
+      return '用户';
+    }
+    String userName = '用户';
+    try {
+      final profile = await SupabaseBootstrap.client
+          .from('user_profiles')
+          .select('display_name')
+          .eq('user_id', userId)
+          .maybeSingle();
+      if (profile != null) {
+        final dn = profile['display_name'] as String?;
+        if (dn?.trim().isNotEmpty == true) userName = dn!.trim();
+      }
+    } catch (_) {
+      // 忽略资料查询失败，使用默认昵称
+    }
+    final data = <String, dynamic>{
+      'teacher_id': teacherId,
+      'user_name': userName,
+      'content': content.trim(),
+      'comment_time': DateTime.now().toIso8601String(),
+    };
+    if (strategyId != null && strategyId.isNotEmpty) {
+      data['strategy_id'] = strategyId;
+    }
+    if (replyToCommentId != null && replyToCommentId!.isNotEmpty) {
+      data['reply_to_comment_id'] = replyToCommentId;
+      if (replyToContent != null && replyToContent!.isNotEmpty) {
+        data['reply_to_content'] = replyToContent.length > 50
+            ? '${replyToContent.substring(0, 50)}…'
+            : replyToContent;
+      }
+    }
+    await SupabaseBootstrap.client.from('teacher_comments').insert(data);
+    return userName;
+  }
+
   Stream<List<TeacherProfile>> watchPublicProfiles() {
     return SupabaseBootstrap.client
         .from('teacher_profiles')

@@ -150,6 +150,7 @@ class ChatMessage {
   bool get isVideo => messageType == 'video';
   bool get isAudio => messageType == 'audio';
   bool get isFile => messageType == 'file';
+  bool get isTeacherShare => messageType == 'teacher_share';
   bool get isSystemJoin => messageType == 'system_join';
   bool get isSystemLeave => messageType == 'system_leave';
   bool get isSystem => isSystemJoin || isSystemLeave;

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -3172,6 +3173,12 @@ class _MessageBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (message.isTeacherShare) {
+      return _MediaContainer(
+        color: bubbleColor,
+        child: _TeacherShareCard(content: message.content),
+      );
+    }
     if (message.isImage && message.mediaUrl != null) {
       return _MediaContainer(
         color: bubbleColor,
@@ -3590,6 +3597,116 @@ class _VideoPreviewDialogState extends State<_VideoPreviewDialog> {
                         ),
                 ),
               ),
+      ),
+    );
+  }
+}
+
+/// 交易员分享卡片：点击跳转交易员资料页
+class _TeacherShareCard extends StatelessWidget {
+  const _TeacherShareCard({required this.content});
+
+  final String content;
+
+  static const Color _accent = Color(0xFFD4AF37);
+
+  @override
+  Widget build(BuildContext context) {
+    String? teacherId;
+    String teacherName = '交易员';
+    String? avatarUrl;
+    try {
+      final map = jsonDecode(content) as Map<String, dynamic>?;
+      if (map != null) {
+        teacherId = map['teacher_id'] as String?;
+        teacherName = (map['teacher_name'] as String?)?.trim().isNotEmpty == true
+            ? (map['teacher_name'] as String).trim()
+            : '交易员';
+        avatarUrl = map['avatar_url'] as String?;
+      }
+    } catch (_) {}
+    if (teacherId == null || teacherId!.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(12),
+        child: Text(
+          '[交易员名片]',
+          style: TextStyle(color: Colors.grey[400]),
+        ),
+      );
+    }
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => TeacherPublicPage(teacherId: teacherId!),
+            ),
+          );
+        },
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          constraints: const BoxConstraints(minWidth: 200, maxWidth: 260),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: _accent.withOpacity(0.5), width: 1),
+            color: const Color(0xFF1A1C21),
+          ),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 24,
+                backgroundColor: _accent,
+                backgroundImage: avatarUrl != null && avatarUrl!.trim().isNotEmpty
+                    ? CachedNetworkImageProvider(avatarUrl!.trim())
+                    : null,
+                child: avatarUrl == null || avatarUrl!.trim().isEmpty
+                    ? Text(
+                        teacherName.isNotEmpty ? teacherName[0] : '?',
+                        style: const TextStyle(
+                          color: Color(0xFF111215),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 18,
+                        ),
+                      )
+                    : null,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      teacherName,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 15,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Text(
+                          '查看交易员资料',
+                          style: TextStyle(
+                            color: _accent,
+                            fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Icon(Icons.arrow_forward_ios, size: 10, color: _accent),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

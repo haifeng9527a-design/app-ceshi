@@ -146,12 +146,18 @@ class Comment {
     required this.userName,
     required this.content,
     required this.date,
+    this.replyToCommentId,
+    this.replyToContent,
   });
 
   final String id;
   final String userName;
   final String content;
   final String date;
+  /// 被回复的评论 ID
+  final String? replyToCommentId;
+  /// 被回复评论的内容摘要
+  final String? replyToContent;
 }
 
 class RankingEntry {

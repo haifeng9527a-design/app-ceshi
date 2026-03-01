@@ -1,0 +1,15 @@
+-- 聊天消息支持交易员分享卡片（无需新增列，使用 message_type='teacher_share' + content 存 JSON）
+-- content 格式: {"teacher_id":"xxx","teacher_name":"xxx","avatar_url":"xxx"}
+-- 会话列表 last_message 显示 [交易员名片]，需更新触发器
+
+-- 若 chat_on_message_insert 触发器中有 when new.message_type 分支，添加：
+-- when new.message_type = 'teacher_share' then '[交易员名片]'
+--
+-- 示例（替换触发器中的 case 分支）：
+-- set last_message = case
+--   when new.message_type = 'image' then '[图片]'
+--   when new.message_type = 'video' then '[视频]'
+--   when new.message_type = 'audio' then '[语音]'
+--   when new.message_type = 'teacher_share' then '[交易员名片]'
+--   else new.content
+-- end,

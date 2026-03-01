@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/services.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:convert';
@@ -28,6 +29,8 @@ class NotificationService {
       FlutterLocalNotificationsPlugin();
   static final Getuiflut _getui = Getuiflut();
   static String? _pendingGetuiCid;
+  /// 个推冷启动：点击来电通知拉起应用时，待展示的来电 payload
+  static Map<String, dynamic>? _pendingLaunchCallPayload;
   static final MessagesRepository _messagesRepository = MessagesRepository();
   static final GlobalKey<NavigatorState> navigatorKey =
       GlobalKey<NavigatorState>();
@@ -162,6 +165,11 @@ class NotificationService {
 
     await _initGetui();
 
+    // 个推冷启动：用户点击个推来电通知后拉起应用，检查并弹出来电界面
+    if (!kIsWeb && Platform.isAndroid) {
+      _checkGetuiLaunchNotification();
+    }
+
     try {
       final token = await FirebaseMessaging.instance.getToken();
       debugPrint('[通知] FCM token 获取: ${token != null ? "成功" : "null"}');
@@ -184,6 +192,8 @@ class NotificationService {
         return;
       }
       _incomingCallSubscription?.cancel();
+      // 个推冷启动：若由点击来电通知拉起，此时弹出来电界面
+      _showPendingLaunchCallIfAny();
       _incomingCallSubscription = CallInvitationRepository()
           .watchIncomingInvitations(user.uid)
           .listen((invitation) {
@@ -379,7 +389,33 @@ class NotificationService {
       },
       onReceiveOnlineState: (_) async {},
       onRegisterDeviceToken: (_) async {},
-      onReceivePayload: (_) async {},
+      onReceivePayload: (dynamic msg) async {
+        // 透传消息：应用在后台/被杀死时个推可能只触发此回调，需处理来电
+        debugPrint('[通知] 个推 onReceivePayload 收到');
+        if (msg is Map<String, dynamic>) {
+          final payload = msg['payload'] ?? msg['transmissionContent'];
+          String? payloadStr;
+          if (payload is String) {
+            payloadStr = payload;
+          } else if (payload != null) {
+            payloadStr = jsonEncode(payload);
+          }
+          if (payloadStr != null && payloadStr.isNotEmpty) {
+            Map<String, dynamic>? decoded;
+            try {
+              final d = jsonDecode(payloadStr);
+              if (d is Map<String, dynamic>) decoded = d;
+            } catch (_) {}
+            if (decoded != null && decoded['messageType']?.toString() == 'call_invitation') {
+              final data = decoded;
+              await _showGetuiLocalNotification({'payload': payloadStr, ...data});
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                _openIncomingCallIfNeeded(data);
+              });
+            }
+          }
+        }
+      },
       onReceiveNotificationResponse: (_) async {},
       onAppLinkPayload: (_) async {},
       onPushModeResult: (_) async {},
@@ -394,6 +430,10 @@ class NotificationService {
     );
     // 个推 SDK 通过 addEventHandler 已注册，原生端按文档在 Android 自动初始化
     _getui.initGetuiSdk;
+    // 开启后台运行，提高应用被杀死后仍能收到来电推送的概率（华为等机型）
+    try {
+      _getui.runBackgroundEnable(1);
+    } catch (_) {}
   }
 
   static String _encodePayload(Map<String, dynamic> data) {
@@ -505,6 +545,51 @@ class NotificationService {
     } catch (e) {
       debugPrint('[通知] 个推本地通知失败: $e');
     }
+  }
+
+  /// 个推冷启动：检查是否由点击来电通知拉起，若是则待登录后弹出来电界面
+  static Future<void> _checkGetuiLaunchNotification() async {
+    try {
+      // 优先使用 MainActivity 捕获的 intent payload（应用被杀死后点击通知拉起）
+      String? payloadStr;
+      const channel = MethodChannel('com.example.teacher_hub/launch');
+      try {
+        payloadStr = await channel.invokeMethod<String>('getLaunchPayload');
+      } catch (_) {}
+      if (payloadStr == null || payloadStr.isEmpty) {
+        try {
+          final launch = await _getui.getLaunchNotification;
+          if (launch != null && launch.isNotEmpty) {
+            payloadStr = _extractGetuiPayload(Map<String, dynamic>.from(launch));
+          }
+        } catch (_) {}
+      }
+      if (payloadStr == null || payloadStr.isEmpty) return;
+      Map<String, dynamic>? decoded;
+      try {
+        final d = jsonDecode(payloadStr);
+        if (d is Map<String, dynamic>) decoded = d;
+      } catch (_) {}
+      if (decoded != null && decoded['messageType']?.toString() == 'call_invitation') {
+        debugPrint('[来电] 冷启动检测到来电 payload，待展示');
+        _pendingLaunchCallPayload = decoded;
+      }
+    } catch (e) {
+      debugPrint('[通知] 冷启动 payload 检查失败: $e');
+    }
+  }
+
+  /// 登录后若有待展示的来电（个推冷启动），弹出来电界面
+  static void _showPendingLaunchCallIfAny() {
+    final payload = _pendingLaunchCallPayload;
+    if (payload == null) return;
+    _pendingLaunchCallPayload = null;
+    // 冷启动时需等待 Flutter 首帧渲染完成，navigatorKey 才有 context
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future.delayed(const Duration(milliseconds: 300), () {
+        _openIncomingCallIfNeeded(payload);
+      });
+    });
   }
 
   static String? _extractGetuiPayload(Map<String, dynamic> message) {

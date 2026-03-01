@@ -156,20 +156,27 @@ serve(async (req) => {
       const serviceAccountJson = atob(serviceAccountBase64);
       const serviceAccount = JSON.parse(serviceAccountJson) as ServiceAccount;
       const accessToken = await getAccessToken(serviceAccount);
-      // notification+data：由系统在后台/未运行时直接显示通知栏
+      const isCall = body.invitationId != null && body.invitationId !== "";
+      const fcmTitle = isCall
+        ? (body.callType === "video" ? "视频通话" : "语音通话")
+        : (body.title ?? "新消息");
+      const fcmBody = isCall
+        ? `${body.fromUserName ?? "对方"} 邀请你${body.callType === "video" ? "视频" : "语音"}通话`
+        : (body.body ?? "你收到一条新消息");
+      // notification+data：由系统在后台/未运行时直接显示通知栏，来电用 incoming_call 渠道
       for (const row of fcmTokens) {
         const payload = {
           message: {
             token: row.token,
             notification: {
-              title: body.title ?? "新消息",
-              body: body.body ?? "你收到一条新消息",
+              title: fcmTitle,
+              body: fcmBody,
             },
             data: {
               conversationId: body.conversationId ?? "",
-              messageType: body.messageType ?? "",
-              title: body.title ?? "新消息",
-              body: body.body ?? "你收到一条新消息",
+              messageType: isCall ? "call_invitation" : (body.messageType ?? ""),
+              title: fcmTitle,
+              body: fcmBody,
               badge: badgeStr,
               ...(body.invitationId != null && { invitationId: body.invitationId }),
               ...(body.channelId != null && { channelId: body.channelId }),
@@ -179,7 +186,7 @@ serve(async (req) => {
             android: {
               priority: "HIGH",
               notification: {
-                channel_id: "messages",
+                channel_id: isCall ? "incoming_call" : "messages",
                 notification_priority: "PRIORITY_HIGH",
                 default_sound: true,
                 default_vibrate_timings: true,
@@ -220,18 +227,24 @@ serve(async (req) => {
           })
         : undefined;
       for (const row of getuiTokens) {
+        const notifTitle = isCall
+          ? (body.callType === "video" ? "视频通话" : "语音通话")
+          : body.title ?? "新消息";
+        const notifBody = isCall
+          ? `${body.fromUserName ?? "对方"} 邀请你${body.callType === "video" ? "视频" : "语音"}通话`
+          : body.body ?? "你收到一条新消息";
         const payload: Record<string, unknown> = {
           request_id: crypto.randomUUID(),
-          settings: { ttl: 2 * 60 * 60 * 1000 },
+          settings: {
+            ttl: 2 * 60 * 60 * 1000,
+            // 策略1：在线用个推，离线用厂商通道（华为等）
+            strategy: { default: 1 },
+          },
           audience: { cid: [row.token] },
           push_message: {
             notification: {
-              title: isCall
-                ? (body.callType === "video" ? "视频通话" : "语音通话")
-                : body.title ?? "新消息",
-              body: isCall
-                ? `${body.fromUserName ?? "对方"} 邀请你${body.callType === "video" ? "视频" : "语音"}通话`
-                : body.body ?? "你收到一条新消息",
+              title: notifTitle,
+              body: notifBody,
               click_type: isCall ? "payload" : "startapp",
               channel_id: isCall ? "incoming_call" : "messages",
               channel_name: isCall ? "来电" : "消息通知",
@@ -240,6 +253,29 @@ serve(async (req) => {
             },
           },
         };
+        // 厂商通道：应用被杀死时由华为/小米等系统推送送达，否则退出应用后收不到
+        if (isCall && callPayload != null) {
+          const payloadEnc = encodeURIComponent(callPayload);
+          payload.push_channel = {
+            android: {
+              ups: {
+                notification: {
+                  title: notifTitle,
+                  body: notifBody,
+                  click_type: "intent",
+                  intent: `intent://com.getui.push/call?#Intent;scheme=gtpushscheme;launchFlags=0x4000000;package=com.example.teacher_hub;component=com.example.teacher_hub/com.example.teacher_hub.MainActivity;S.payload=${payloadEnc};S.gttask=;end`,
+                },
+                options: {
+                  HW: {
+                    "/message/android/urgency": "HIGH",
+                    "/message/android/category": "PLAY_VOICE",
+                  },
+                  XM: { "/message/android/notification_channel_id": "incoming_call" },
+                },
+              },
+            },
+          };
+        }
         const response = await fetch(
           `https://restapi.getui.com/v2/${getuiAppId}/push/single/cid`,
           {
