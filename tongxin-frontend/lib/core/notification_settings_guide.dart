@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'notification_service.dart';
+
 /// 安装/首次启动时一次性请求应用所需全部权限（通知、后台运行、相机、麦克风、相册、悬浮窗等）。
 class NotificationSettingsGuide {
   static const String _keyShown = 'notification_settings_guide_shown';
@@ -44,6 +46,10 @@ class NotificationSettingsGuide {
         // 部分机型某项权限不可用时跳过
       }
     }
+    // Android 14+ 来电全屏：若未授予「全屏意图」，引导去设置
+    if (context.mounted) {
+      await showFullScreenIntentPermissionGuide(context);
+    }
   }
 
   /// 立即请求全部权限（不检查是否已展示过），用于「收不到推送」等页面的「重新请求」按钮。
@@ -52,38 +58,25 @@ class NotificationSettingsGuide {
     await _requestAllPermissions(context);
   }
 
-  /// 来电全屏接听：若未授予「显示在其他应用上层」，弹窗说明并引导去设置。
-  /// 后台或锁屏时能否直接弹出接听界面（像微信来电）依赖此权限，华为/小米等需手动开启。
+  /// Android 14+ 来电全屏接听：若未授予「全屏意图」，直接跳转设置页让用户点允许。
+  static Future<void> showFullScreenIntentPermissionGuide(BuildContext context) async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    final canUse = await NotificationService.canUseFullScreenIntent();
+    if (canUse) return;
+    await NotificationService.openFullScreenIntentSettings();
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('请在设置页开启「全屏 intent」开关')),
+      );
+    }
+  }
+
+  /// 来电全屏接听：若未授予「显示在其他应用上层」，直接跳转设置页让用户点允许（华为/小米等需此项）。
   static Future<void> showCallFullScreenPermissionGuide(BuildContext context) async {
     if (kIsWeb || !Platform.isAndroid) return;
     final status = await Permission.systemAlertWindow.status;
     if (status.isGranted) return;
-    if (!context.mounted) return;
-    await showDialog<void>(
-      context: context,
-      barrierDismissible: true,
-      builder: (ctx) => AlertDialog(
-        title: const Text('来电全屏接听'),
-        content: const Text(
-          '为了在后台或锁屏时直接弹出接听界面（像微信来电一样），需要允许本应用「显示在其他应用上层」。\n\n'
-          '请点击「去设置」，在设置页中找到「显示在其他应用上层」或「悬浮窗」等选项，并开启 teacher_hub。',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              Navigator.of(ctx).pop();
-              await Permission.systemAlertWindow.request();
-              if (ctx.mounted) await openAppSettings();
-            },
-            child: const Text('去设置'),
-          ),
-        ],
-      ),
-    );
+    await Permission.systemAlertWindow.request();
   }
 
   /// 若通知未授予，可再次触发系统请求或引导去设置。

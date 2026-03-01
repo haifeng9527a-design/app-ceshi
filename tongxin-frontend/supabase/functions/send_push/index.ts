@@ -233,11 +233,11 @@ serve(async (req) => {
         const notifBody = isCall
           ? `${body.fromUserName ?? "对方"} 邀请你${body.callType === "video" ? "视频" : "语音"}通话`
           : body.body ?? "你收到一条新消息";
+        // 来电用 notification：透传在后台时可能不送达，导致完全无通知；notification 至少能保证有通知栏提示
         const payload: Record<string, unknown> = {
           request_id: crypto.randomUUID(),
           settings: {
             ttl: 2 * 60 * 60 * 1000,
-            // 策略1：在线用个推，离线用厂商通道（华为等）
             strategy: { default: 1 },
           },
           audience: { cid: [row.token] },
@@ -249,7 +249,7 @@ serve(async (req) => {
               channel_id: isCall ? "incoming_call" : "messages",
               channel_name: isCall ? "来电" : "消息通知",
               channel_level: 4,
-              ...(callPayload != null && { payload: callPayload }),
+              ...(isCall && callPayload != null && { payload: callPayload }),
             },
           },
         };

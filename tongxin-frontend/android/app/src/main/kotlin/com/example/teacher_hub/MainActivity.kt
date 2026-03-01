@@ -1,9 +1,12 @@
 package com.example.teacher_hub
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.util.Log
+import android.app.NotificationManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -52,12 +55,20 @@ class MainActivity : FlutterActivity() {
             flutterEngine.dartExecutor.binaryMessenger,
             CHANNEL
         ).setMethodCallHandler { call, result ->
-            if (call.method == "getLaunchPayload") {
-                val payload = LaunchPayloadHolder.payload
-                LaunchPayloadHolder.payload = null
-                result.success(payload)
-            } else {
-                result.notImplemented()
+            when (call.method) {
+                "getLaunchPayload" -> {
+                    val payload = LaunchPayloadHolder.payload
+                    LaunchPayloadHolder.payload = null
+                    result.success(payload)
+                }
+                "canUseFullScreenIntent" -> {
+                    result.success(canUseFullScreenIntent())
+                }
+                "openFullScreenIntentSettings" -> {
+                    openFullScreenIntentSettings()
+                    result.success(null)
+                }
+                else -> result.notImplemented()
             }
         }
     }
@@ -68,6 +79,43 @@ class MainActivity : FlutterActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
+        }
+    }
+
+    /** Android 14+ 需用户手动开启「全屏意图」权限，否则来电只显示横幅不弹全屏 */
+    private fun canUseFullScreenIntent(): Boolean {
+        if (Build.VERSION.SDK_INT < 34) return true
+        val nm = getSystemService(NOTIFICATION_SERVICE) as? NotificationManager ?: return true
+        return nm.canUseFullScreenIntent()
+    }
+
+    private fun openFullScreenIntentSettings() {
+        if (Build.VERSION.SDK_INT >= 34) {
+            try {
+                val intent = Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT)
+                    .setData(Uri.parse("package:$packageName"))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                startActivity(intent)
+            } catch (e: Exception) {
+                Log.e(TAG, "openFullScreenIntentSettings failed, fallback to app settings", e)
+                try {
+                    val fallback = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                        .setData(Uri.parse("package:$packageName"))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    startActivity(fallback)
+                } catch (e2: Exception) {
+                    Log.e(TAG, "fallback also failed", e2)
+                }
+            }
+        } else {
+            try {
+                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                    .setData(Uri.parse("package:$packageName"))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                startActivity(intent)
+            } catch (e: Exception) {
+                Log.e(TAG, "openAppSettings failed", e)
+            }
         }
     }
 

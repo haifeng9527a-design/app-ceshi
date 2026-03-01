@@ -51,6 +51,29 @@ class NotificationService {
     _currentConversationId = conversationId;
   }
 
+  /// Android 14+ 是否已授予「全屏意图」权限，未授予时来电只显示横幅不弹全屏接听界面
+  static Future<bool> canUseFullScreenIntent() async {
+    if (kIsWeb || !Platform.isAndroid) return true;
+    try {
+      const channel = MethodChannel('com.example.teacher_hub/launch');
+      final r = await channel.invokeMethod<bool>('canUseFullScreenIntent');
+      return r ?? true;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  /// 打开「全屏意图」权限设置页（Android 14+ 来电全屏接听必开）
+  static Future<void> openFullScreenIntentSettings() async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    try {
+      const channel = MethodChannel('com.example.teacher_hub/launch');
+      await channel.invokeMethod('openFullScreenIntentSettings');
+    } catch (e) {
+      debugPrint('[通知] openFullScreenIntentSettings 失败: $e');
+    }
+  }
+
   static const AndroidNotificationChannel _defaultChannel =
       AndroidNotificationChannel(
     'messages',
@@ -165,9 +188,9 @@ class NotificationService {
 
     await _initGetui();
 
-    // 个推冷启动：用户点击个推来电通知后拉起应用，检查并弹出来电界面
+    // 个推冷启动：用户点击个推来电通知后拉起应用，检查并弹出来电界面（必须 await，否则 authStateChanges 可能先于 payload 检查完成）
     if (!kIsWeb && Platform.isAndroid) {
-      _checkGetuiLaunchNotification();
+      await _checkGetuiLaunchNotification();
     }
 
     try {
@@ -495,6 +518,7 @@ class NotificationService {
       final id = isCallInvitation && decodedPayload?['invitationId'] != null
           ? (decodedPayload!['invitationId'] as String).hashCode.abs() % 0x7FFFFFFF
           : DateTime.now().millisecondsSinceEpoch % 0x7FFFFFFF;
+      // 来电与普通消息均显示通知；来电用 fullScreenIntent，原生+Flutter 双通道提高弹屏成功率
       await _localNotifications.show(
         id: id,
         title: title,
@@ -516,7 +540,7 @@ class NotificationService {
         payload: payloadStr,
       );
       debugPrint('[通知] 个推本地通知已显示${isCallInvitation ? "（来电）" : ""}');
-      // 来电：同时唤起应用并弹出全屏接听界面（与微信等一致），不再只依赖用户点通知
+      // 来电：唤起应用内接听对话框
       if (isCallInvitation && decodedPayload != null) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           _openIncomingCallIfNeeded(decodedPayload!);
@@ -559,7 +583,7 @@ class NotificationService {
       if (payloadStr == null || payloadStr.isEmpty) {
         try {
           final launch = await _getui.getLaunchNotification;
-          if (launch != null && launch.isNotEmpty) {
+          if (launch.isNotEmpty) {
             payloadStr = _extractGetuiPayload(Map<String, dynamic>.from(launch));
           }
         } catch (_) {}

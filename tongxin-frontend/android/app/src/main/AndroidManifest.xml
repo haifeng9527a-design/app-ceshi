@@ -86,5 +86,9 @@
             <action android:name="android.intent.action.VIEW"/>
             <data android:scheme="teacherhub"/>
         </intent>
+        <!-- Android 14+ 全屏意图：跳转设置页让用户直接点允许 -->
+        <intent>
+            <action android:name="android.settings.MANAGE_APP_USE_FULL_SCREEN_INTENT"/>
+        </intent>
     </queries>
 </manifest>

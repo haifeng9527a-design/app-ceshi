@@ -1,6 +1,12 @@
 package com.getui.getuiflut;
 
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.Context;
+import android.content.Intent;
+import android.app.Notification;
+import android.os.Build;
 import android.util.Log;
 
 import com.google.gson.Gson;
@@ -48,11 +54,25 @@ public class FlutterIntentService extends GTIntentService {
     @Override
     public void onReceiveMessageData(Context context, GTTransmitMessage msg) {
         log("Received message data");
+        String payloadStr = new String(msg.getPayload());
         Map<String, Object> payload = new HashMap<>();
         payload.put("messageId", msg.getMessageId());
-        payload.put("payload", new String(msg.getPayload()));
+        payload.put("payload", payloadStr);
         payload.put("payloadId", msg.getPayloadId());
         payload.put("taskId", msg.getTaskId());
+        // 来电透传：原生层直接显示 fullScreenIntent 通知
+        if (payloadStr != null && !payloadStr.isEmpty() && payloadStr.contains("call_invitation")) {
+            try {
+                com.google.gson.JsonObject jo = JsonParser.parseString(payloadStr).getAsJsonObject();
+                String from = jo.has("fromUserName") ? jo.get("fromUserName").getAsString() : "对方";
+                boolean isVideo = "video".equals(jo.has("callType") ? jo.get("callType").getAsString() : "");
+                String title = isVideo ? "视频通话" : "语音通话";
+                String body = from + " 邀请你" + (isVideo ? "视频" : "语音") + "通话";
+                showCallNotification(context, title, body, payloadStr);
+            } catch (Throwable t) {
+                log("parse call payload: " + t.getMessage());
+            }
+        }
         GetuiflutPlugin.transmitMessageReceive(GSON.toJson(payload), GetuiflutPlugin.StateType.onReceivePayload);
     }
 
@@ -252,7 +272,8 @@ public class FlutterIntentService extends GTIntentService {
 
     @Override
     public void onNotificationMessageArrived(Context context, GTNotificationMessage message) {
-        log("Notification arrived");
+        String p = message.getPayload();
+        log("Notification arrived title=" + message.getTitle() + " hasPayload=" + (p != null && !p.isEmpty()));
         Map<String, Object> notification = new HashMap<String, Object>();
         notification.put("messageId", message.getMessageId());
         notification.put("taskId", message.getTaskId());
@@ -262,6 +283,10 @@ public class FlutterIntentService extends GTIntentService {
         String payloadStr = message.getPayload();
         if (payloadStr != null && !payloadStr.isEmpty()) {
             notification.put("payload", payloadStr);
+            // 来电：原生层直接显示 fullScreenIntent 通知，确保后台/锁屏/其它 App 时也能弹出
+            if (payloadStr.contains("call_invitation")) {
+                showCallNotification(context, message.getTitle(), message.getContent(), payloadStr);
+            }
         }
         GetuiflutPlugin.transmitMessageReceive(GSON.toJson(notification), GetuiflutPlugin.StateType.onNotificationMessageArrived);
     }
@@ -279,6 +304,54 @@ public class FlutterIntentService extends GTIntentService {
             notification.put("payload", payloadStr);
         }
         GetuiflutPlugin.transmitMessageReceive(GSON.toJson(notification), GetuiflutPlugin.StateType.onNotificationMessageClicked);
+    }
+
+    /**
+     * 来电时在原生层显示 fullScreenIntent 通知，确保后台/锁屏/其它 App 时也能弹出接听界面
+     */
+    private void showCallNotification(Context context, String title, String body, String payloadStr) {
+        try {
+            NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm == null) return;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                NotificationChannel ch = new NotificationChannel("incoming_call", "来电",
+                        NotificationManager.IMPORTANCE_HIGH);
+                ch.setDescription("语音/视频来电提醒");
+                ch.enableVibration(true);
+                ch.setSound(android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_RINGTONE), null);
+                nm.createNotificationChannel(ch);
+            }
+            Intent intent = new Intent();
+            intent.setClassName(context.getPackageName(), "com.example.teacher_hub.MainActivity");
+            intent.putExtra("payload", payloadStr);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                intent.addFlags(0x00100000 | 0x00200000); // SHOW_WHEN_LOCKED | TURN_SCREEN_ON
+            }
+            PendingIntent fullScreen = PendingIntent.getActivity(context, 0, intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            int iconRes = context.getApplicationInfo().icon;
+            if (iconRes == 0) iconRes = android.R.drawable.ic_menu_call;
+            // contentIntent：用户点击通知时打开接听界面（fullScreenIntent 未弹出时的后备）
+            PendingIntent contentIntent = PendingIntent.getActivity(context, 1, intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            Notification.Builder builder = new Notification.Builder(context, "incoming_call")
+                    .setSmallIcon(iconRes)
+                    .setContentTitle(title)
+                    .setContentText(body)
+                    .setContentIntent(contentIntent)
+                    .setPriority(Notification.PRIORITY_MAX)
+                    .setCategory(Notification.CATEGORY_CALL)
+                    .setVisibility(Notification.VISIBILITY_PUBLIC)
+                    .setFullScreenIntent(fullScreen, true)
+                    .setAutoCancel(true);
+            int id = payloadStr.hashCode() & 0x7FFFFFFF;
+            nm.notify(id, builder.build());
+            log("Call notification shown (fullScreenIntent) id=" + id);
+        } catch (Throwable t) {
+            log("showCallNotification error: " + t.getMessage());
+        }
     }
 
     // 统一日志记录方法

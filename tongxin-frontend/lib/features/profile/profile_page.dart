@@ -16,6 +16,7 @@ import '../../core/firebase_bootstrap.dart';
 import '../../core/role_badge.dart';
 import '../../core/supabase_bootstrap.dart';
 import '../../core/notification_settings_guide.dart';
+import '../../core/notification_service.dart';
 import '../../core/user_restrictions.dart';
 import '../teachers/teacher_center_page.dart';
 import '../messages/supabase_user_sync.dart';
@@ -838,10 +839,20 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
               child: ListTile(
                 leading: const Icon(Icons.call_outlined),
                 title: const Text('来电全屏接听'),
-                subtitle: const Text('后台或锁屏时直接弹出接听界面'),
+                subtitle: const Text('后台或锁屏时直接弹出接听界面（Android 14+ 需开启全屏意图）'),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () async {
-                  await NotificationSettingsGuide.showCallFullScreenPermissionGuide(context);
+                  final canUse = await NotificationService.canUseFullScreenIntent();
+                  if (canUse && context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('已开启，来电时将全屏弹出')),
+                    );
+                    return;
+                  }
+                  await NotificationSettingsGuide.showFullScreenIntentPermissionGuide(context);
+                  if (context.mounted) {
+                    await NotificationSettingsGuide.showCallFullScreenPermissionGuide(context);
+                  }
                 },
               ),
             ),

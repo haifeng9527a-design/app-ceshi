@@ -22,6 +22,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:open_filex/open_filex.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/last_online_service.dart';
 import '../../core/network_error_helper.dart';
@@ -1761,6 +1762,35 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
         );
       }
       return;
+    }
+    // 发起通话前检查权限，未授予则跳转设置后才能打电话/打视频
+    final mic = await Permission.microphone.status;
+    if (!mic.isGranted) {
+      final ok = mic.isPermanentlyDenied
+          ? false
+          : (await Permission.microphone.request()).isGranted;
+      if (!ok && mounted) {
+        await openAppSettings();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('需要麦克风权限才能通话，请先开启')),
+        );
+        return;
+      }
+    }
+    if (isVideo) {
+      final cam = await Permission.camera.status;
+      if (!cam.isGranted) {
+        final ok = cam.isPermanentlyDenied
+            ? false
+            : (await Permission.camera.request()).isGranted;
+        if (!ok && mounted) {
+          await openAppSettings();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('需要相机权限才能视频通话，请先开启')),
+          );
+          return;
+        }
+      }
     }
     final fromUserId = _userId;
     final fromUserName = _userName;
