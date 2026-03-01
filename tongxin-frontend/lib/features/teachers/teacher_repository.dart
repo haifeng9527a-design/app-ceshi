@@ -2,10 +2,46 @@ import 'dart:typed_data';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../core/models.dart' as core_models;
 import '../../core/supabase_bootstrap.dart';
 import 'teacher_models.dart';
 
 class TeacherRepository {
+  /// 将 TeacherProfile 转为 Teacher（供策略中心等页面使用）
+  static core_models.Teacher profileToTeacher(TeacherProfile p) {
+    final name = p.displayName?.trim().isNotEmpty == true
+        ? p.displayName!
+        : (p.realName?.trim().isNotEmpty == true ? p.realName! : '交易员');
+    final title = p.title?.trim().isNotEmpty == true ? p.title! : '导师';
+    final bio = p.bio?.trim().isNotEmpty == true ? p.bio! : '';
+    final tags = p.tags ?? const [];
+    return core_models.Teacher(
+      id: p.userId,
+      name: name,
+      title: title,
+      avatarUrl: p.avatarUrl ?? '',
+      bio: bio,
+      tags: tags,
+      wins: p.wins ?? 0,
+      losses: p.losses ?? 0,
+      rating: p.rating ?? 0,
+      todayStrategy: p.todayStrategy?.trim().isNotEmpty == true
+          ? p.todayStrategy!
+          : '暂无今日策略',
+      strategyHistory: const [],
+      trades: const [],
+      positions: const [],
+      historyPositions: const [],
+      pnlCurrent: (p.pnlCurrent ?? 0).toDouble(),
+      pnlMonth: (p.pnlMonth ?? 0).toDouble(),
+      pnlYear: (p.pnlYear ?? 0).toDouble(),
+      pnlTotal: (p.pnlTotal ?? 0).toDouble(),
+      comments: const [],
+      articles: const [],
+      schedules: const [],
+    );
+  }
+
   TeacherRepository();
   static const String _recordBucket = 'teacher-records';
   static const String _avatarBucket = 'avatars';

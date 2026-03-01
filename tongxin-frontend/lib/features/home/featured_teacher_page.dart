@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../auth/login_page.dart';
 import '../../core/firebase_bootstrap.dart';
 import '../../core/models.dart';
 import '../../core/supabase_bootstrap.dart';
@@ -46,7 +47,10 @@ Teacher _profileToTeacher(tmodels.TeacherProfile p) {
 }
 
 class FeaturedTeacherPage extends StatefulWidget {
-  const FeaturedTeacherPage({super.key});
+  const FeaturedTeacherPage({super.key, this.teacherId});
+
+  /// 指定交易员 ID 时，直接显示该交易员的策略中心（用于「进入交易策略中心」）
+  final String? teacherId;
 
   @override
   State<FeaturedTeacherPage> createState() => _FeaturedTeacherPageState();
@@ -65,9 +69,39 @@ class _FeaturedTeacherPageState extends State<FeaturedTeacherPage> {
   }
 
   Future<void> _load() async {
+    final specifiedId = widget.teacherId?.trim().isNotEmpty == true ? widget.teacherId! : null;
+    if (specifiedId != null) {
+      setState(() { _loading = true; _error = null; });
+      try {
+        final profile = await _repo.fetchProfile(specifiedId);
+        if (mounted) {
+          setState(() {
+            _teacher = profile != null ? _profileToTeacher(profile) : null;
+            _loading = false;
+            if (_teacher == null) _error = '暂无交易员信息';
+          });
+        }
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            _loading = false;
+            _error = e.toString().length > 80 ? '加载失败，请重试' : e.toString();
+          });
+        }
+      }
+      return;
+    }
     final userId = FirebaseBootstrap.isReady
         ? (FirebaseAuth.instance.currentUser?.uid ?? '')
         : '';
+    if (userId.isEmpty) {
+      setState(() {
+        _loading = false;
+        _teacher = null;
+        _error = 'not_logged_in';
+      });
+      return;
+    }
     if (!SupabaseBootstrap.isReady) {
       setState(() {
         _loading = false;
@@ -127,6 +161,7 @@ class _FeaturedTeacherPageState extends State<FeaturedTeacherPage> {
       );
     }
     if (_error != null || _teacher == null) {
+      final isNotLoggedIn = _error == 'not_logged_in';
       return Scaffold(
         body: Center(
           child: Padding(
@@ -135,16 +170,34 @@ class _FeaturedTeacherPageState extends State<FeaturedTeacherPage> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  _error ?? '暂无数据',
-                  style: const TextStyle(color: Color(0xFF6C6F77)),
+                  isNotLoggedIn ? '你还没有开启自己的投资之旅' : (_error ?? '暂无数据'),
+                  style: const TextStyle(color: Color(0xFF6C6F77), fontSize: 15),
                   textAlign: TextAlign.center,
                 ),
-                const SizedBox(height: 16),
-                TextButton.icon(
-                  onPressed: _load,
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('重试'),
-                ),
+                const SizedBox(height: 20),
+                if (isNotLoggedIn)
+                  FilledButton.icon(
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const LoginPage(),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.login, size: 20),
+                    label: const Text('登录/注册'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFFD4AF37),
+                      foregroundColor: const Color(0xFF111215),
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    ),
+                  )
+                else
+                  TextButton.icon(
+                    onPressed: _load,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('重试'),
+                  ),
               ],
             ),
           ),

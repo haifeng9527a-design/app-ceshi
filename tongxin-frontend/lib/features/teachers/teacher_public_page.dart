@@ -1,7 +1,9 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../auth/login_page.dart';
 import '../../core/network_error_helper.dart';
+import '../home/featured_teacher_page.dart';
 import '../messages/chat_detail_page.dart';
 import '../messages/friends_repository.dart';
 import '../messages/message_models.dart';
@@ -27,9 +29,12 @@ class TeacherPublicPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final repository = TeacherRepository();
-    final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
-    final isOwner = currentUserId == teacherId;
-    return Scaffold(
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.authStateChanges(),
+      builder: (context, authSnapshot) {
+        final currentUserId = authSnapshot.data?.uid ?? '';
+        final isOwner = currentUserId == teacherId;
+        return Scaffold(
       backgroundColor: const Color(0xFF111215),
       appBar: AppBar(
         backgroundColor: Colors.transparent,
@@ -39,7 +44,7 @@ class TeacherPublicPage extends StatelessWidget {
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: const Text(
-          '交易员主页',
+          '交易员资料',
           style: TextStyle(color: _accent, fontWeight: FontWeight.w600),
         ),
         centerTitle: true,
@@ -270,6 +275,8 @@ class TeacherPublicPage extends StatelessWidget {
         },
       ),
     );
+      },
+    );
   }
 
   static String _formatDate(DateTime dt) {
@@ -279,7 +286,7 @@ class TeacherPublicPage extends StatelessWidget {
   }
 }
 
-class _BottomFollowBar extends StatelessWidget {
+class _BottomFollowBar extends StatefulWidget {
   const _BottomFollowBar({
     required this.teacherId,
     required this.teacherDisplayName,
@@ -296,16 +303,24 @@ class _BottomFollowBar extends StatelessWidget {
   final TeacherRepository repository;
   final bool isAlreadyFriend;
 
+  @override
+  State<_BottomFollowBar> createState() => _BottomFollowBarState();
+}
+
+class _BottomFollowBarState extends State<_BottomFollowBar> {
   static const Color _accent = Color(0xFFD4AF37);
 
+  /// 点击加好友时若返回「已是好友」，则设为 true 以立即切换按钮
+  bool? _overrideIsFriend;
+
   Future<void> _openPrivateChat(BuildContext context) async {
-    if (currentUserId.isEmpty) return;
+    if (widget.currentUserId.isEmpty) return;
     final navigator = Navigator.of(context);
     try {
       final conv = await MessagesRepository().createOrGetDirectConversation(
-        currentUserId: currentUserId,
-        friendId: teacherId,
-        friendName: teacherDisplayName,
+        currentUserId: widget.currentUserId,
+        friendId: widget.teacherId,
+        friendName: widget.teacherDisplayName,
       );
       if (!context.mounted) return;
       // 关掉交易员页，清掉下层可能是的群聊，只保留根路由后压入私聊，避免点发消息后仍停在群聊
@@ -333,22 +348,36 @@ class _BottomFollowBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bottomPad = MediaQuery.of(context).padding.bottom;
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.fromLTRB(16, 12, 16, 12 + bottomPad),
-      decoration: BoxDecoration(
-        color: const Color(0xFF111215),
-        border: Border(top: BorderSide(color: Colors.white.withOpacity(0.08))),
-      ),
-      child: SafeArea(
-        top: false,
-        child: isOwner
+    return FutureBuilder<bool>(
+      future: widget.currentUserId.isNotEmpty
+          ? FriendsRepository().isFriend(userId: widget.currentUserId, friendId: widget.teacherId)
+          : Future.value(false),
+      builder: (context, friendSnapshot) {
+        final isFriend = _overrideIsFriend ?? friendSnapshot.data ?? widget.isAlreadyFriend;
+        return Container(
+          width: double.infinity,
+          padding: EdgeInsets.fromLTRB(16, 12, 16, 12 + bottomPad),
+          decoration: BoxDecoration(
+            color: const Color(0xFF111215),
+            border: Border(top: BorderSide(color: Colors.white.withOpacity(0.08))),
+          ),
+          child: SafeArea(
+            top: false,
+            child: widget.isOwner || isFriend
             ? SizedBox(
                 width: double.infinity,
                 child: FilledButton(
                   onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('这是您的主页，无法添加自己')),
+                    if (widget.currentUserId.isEmpty) {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const LoginPage()),
+                      );
+                      return;
+                    }
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => FeaturedTeacherPage(teacherId: widget.teacherId),
+                      ),
                     );
                   },
                   style: FilledButton.styleFrom(
@@ -360,7 +389,7 @@ class _BottomFollowBar extends StatelessWidget {
                     ),
                   ),
                   child: const Text(
-                    '加好友',
+                    '进入交易策略中心',
                     style: TextStyle(
                       fontWeight: FontWeight.w600,
                       fontSize: 16,
@@ -368,82 +397,65 @@ class _BottomFollowBar extends StatelessWidget {
                   ),
                 ),
               )
-            : isAlreadyFriend
-                ? SizedBox(
-                    width: double.infinity,
-                    child: FilledButton(
-                      onPressed: currentUserId.isEmpty
-                          ? null
-                          : () => _openPrivateChat(context),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: _accent,
-                        foregroundColor: const Color(0xFF111215),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: const Text(
-                        '发消息',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 16,
-                        ),
-                      ),
-                    ),
-                  )
-                : SizedBox(
-                    width: double.infinity,
-                    child: FilledButton(
-                      onPressed: currentUserId.isEmpty
-                          ? null
-                          : () async {
-                              try {
-                                await FriendsRepository().sendFriendRequest(
-                                  requesterId: currentUserId,
-                                  receiverId: teacherId,
-                                );
-                                if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(content: Text('已发送好友申请')),
-                                  );
-                                }
-                              } catch (e) {
-                                if (context.mounted) {
-                                  final msg = e.toString();
-                                  String displayMsg;
-                                  if (msg.contains('already_friends')) {
-                                    displayMsg = '你们已是好友';
-                                  } else if (msg.contains('already_pending')) {
-                                    displayMsg = '已发送过申请，请等待对方处理';
-                                  } else {
-                                    displayMsg = NetworkErrorHelper.messageForUser(e, prefix: '加好友失败');
-                                  }
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text(displayMsg)),
-                                  );
-                                }
-                              }
-                            },
-                      style: FilledButton.styleFrom(
-                        backgroundColor: _accent,
-                        foregroundColor: const Color(0xFF111215),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: const Text(
-                        '加好友',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 16,
-                        ),
-                      ),
-                    ),
+            : SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                onPressed: () async {
+                  if (widget.currentUserId.isEmpty) {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const LoginPage()),
+                    );
+                    return;
+                  }
+                  try {
+                    await FriendsRepository().sendFriendRequest(
+                      requesterId: widget.currentUserId,
+                      receiverId: widget.teacherId,
+                    );
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('已发送好友申请')),
+                      );
+                    }
+                  } catch (e) {
+                    if (context.mounted) {
+                      final msg = e.toString();
+                      String displayMsg;
+                      if (msg.contains('already_friends')) {
+                        displayMsg = '你们已是好友';
+                        if (mounted) setState(() => _overrideIsFriend = true);
+                      } else if (msg.contains('already_pending')) {
+                        displayMsg = '已发送过申请，请等待对方处理';
+                      } else {
+                        displayMsg = NetworkErrorHelper.messageForUser(e, prefix: '加好友失败');
+                      }
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(displayMsg)),
+                      );
+                    }
+                  }
+                },
+                style: FilledButton.styleFrom(
+                  backgroundColor: _accent,
+                  foregroundColor: const Color(0xFF111215),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
                   ),
-      ),
-    );
+                ),
+                child: const Text(
+                  '加好友',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        },
+      );
   }
 }
 

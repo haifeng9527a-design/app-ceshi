@@ -530,6 +530,7 @@ class FriendsRepository {
   }
 
   /// 判断两人是否为好友（双向关系存在即可）
+  /// 同时检查 friends 表与 friend_requests 表，避免数据不一致
   Future<bool> isFriend({
     required String userId,
     required String friendId,
@@ -537,12 +538,27 @@ class FriendsRepository {
     if (userId.isEmpty || friendId.isEmpty || userId == friendId) {
       return false;
     }
-    final row = await _client
+    final friendsRow = await _client
         .from('friends')
         .select('user_id')
         .eq('user_id', userId)
         .eq('friend_id', friendId)
         .maybeSingle();
-    return row != null;
+    if (friendsRow != null) return true;
+    // 若 friends 表无记录，再查 friend_requests（accepted 表示已是好友）
+    final req1 = await _client
+        .from('friend_requests')
+        .select('status')
+        .eq('requester_id', userId)
+        .eq('receiver_id', friendId)
+        .maybeSingle();
+    if (req1?['status'] == 'accepted') return true;
+    final req2 = await _client
+        .from('friend_requests')
+        .select('status')
+        .eq('requester_id', friendId)
+        .eq('receiver_id', userId)
+        .maybeSingle();
+    return req2?['status'] == 'accepted';
   }
 }
