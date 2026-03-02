@@ -5,6 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 
+import 'package:flutter/foundation.dart';
+import 'dart:io';
+
+import '../../core/notification_service.dart';
 import 'agora_config.dart';
 import 'agora_call_page.dart';
 import 'call_invitation_repository.dart';
@@ -89,6 +93,9 @@ class _IncomingCallScreenState extends State<_IncomingCallScreen>
         .listen((status) {
       if (!mounted) return;
       if (status == 'cancelled') {
+        if (!kIsWeb && Platform.isAndroid) {
+          NotificationService.dismissIncomingCallService();
+        }
         Navigator.of(context).pop();
         widget.onDismiss();
         ScaffoldMessenger.of(context).showSnackBar(
@@ -109,6 +116,9 @@ class _IncomingCallScreenState extends State<_IncomingCallScreen>
 
   Future<void> _reject() async {
     FlutterRingtonePlayer().stop();
+    if (!kIsWeb && Platform.isAndroid) {
+      NotificationService.dismissIncomingCallService();
+    }
     Navigator.of(context).pop();
     widget.onDismiss();
     await CallInvitationRepository().updateStatus(widget.invitationId, 'rejected');
@@ -128,6 +138,9 @@ class _IncomingCallScreenState extends State<_IncomingCallScreen>
       return;
     }
     FlutterRingtonePlayer().stop();
+    if (!kIsWeb && Platform.isAndroid) {
+      NotificationService.dismissIncomingCallService();
+    }
     print('[TH_CALL] 被叫接听，更新状态为 accepted invitationId=${widget.invitationId} channelId=${widget.channelId}');
     await repo.updateStatus(widget.invitationId, 'accepted');
     if (!mounted) return;

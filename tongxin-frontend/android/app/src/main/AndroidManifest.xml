@@ -9,6 +9,8 @@
     <!-- Android 12 及以下选图/选视频兼容 -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- 来电全屏弹窗：后台/锁屏时弹出接听界面，与微信等一致 -->
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
@@ -59,6 +61,11 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!-- ForegroundService + CallStyle 来电，适配华为/小米/Android 12+ 后台弹出来电 -->
+        <service
+            android:name=".call.IncomingCallService"
+            android:foregroundServiceType="phoneCall"
+            android:exported="false" />
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

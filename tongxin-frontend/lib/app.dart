@@ -33,12 +33,13 @@ class _TeacherHubAppState extends State<TeacherHubApp>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      // 若启动时 Firebase 未就绪导致推送未初始化，恢复时重试一次
       if (!NotificationService.isInitialized) {
         NotificationService.init();
       }
       NotificationService.ensureTokenSavedOnResume();
       NotificationService.refreshBadgeFromUnread();
+      // Android CallStyle 接听/拒绝后，检查待处理的来电数据
+      NotificationService.checkPendingCallAnswerAndDecline();
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.detached) {

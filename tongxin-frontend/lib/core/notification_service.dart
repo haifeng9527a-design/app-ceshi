@@ -13,6 +13,8 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:getuiflut/getuiflut.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../features/call/agora_call_page.dart';
+import '../features/call/agora_config.dart';
 import '../features/call/call_invitation_repository.dart';
 import '../features/call/incoming_call_dialog.dart';
 import '../features/messages/chat_detail_page.dart';
@@ -34,6 +36,9 @@ class NotificationService {
   static final MessagesRepository _messagesRepository = MessagesRepository();
   static final GlobalKey<NavigatorState> navigatorKey =
       GlobalKey<NavigatorState>();
+
+  /// Android ForegroundService + CallStyle 来电通道（华为/小米/Android 12+ 后台弹出来电）
+  static const _callChannel = MethodChannel('teacherhub.call');
 
   /// 当前正在看的会话 ID（在聊天详情页时设置），用于前台收到该会话消息时不弹通知
   static String? _currentConversationId;
@@ -215,8 +220,8 @@ class NotificationService {
         return;
       }
       _incomingCallSubscription?.cancel();
-      // 个推冷启动：若由点击来电通知拉起，此时弹出来电界面
       _showPendingLaunchCallIfAny();
+      checkPendingCallAnswerAndDecline();
       _incomingCallSubscription = CallInvitationRepository()
           .watchIncomingInvitations(user.uid)
           .listen((invitation) {
@@ -258,9 +263,9 @@ class NotificationService {
     final isCallInvitation = data['messageType']?.toString() == 'call_invitation';
 
     if (isCallInvitation) {
-      // 来电：立即弹出接听界面（前台也会弹），并显示带铃声的来电通知
-      debugPrint('[来电] FCM 收到来电，弹接听界面');
+      debugPrint('[来电] FCM 收到来电');
       _openIncomingCallIfNeeded(Map<String, dynamic>.from(data));
+      // 同时显示本地通知（ForegroundService 兜底，华为等机型 MethodChannel 可能不可用）
       final fromUserName = data['fromUserName']?.toString().trim() ?? '对方';
       final isVideo = data['callType']?.toString() == 'video';
       final title = isVideo ? '视频通话' : '语音通话';
@@ -518,7 +523,7 @@ class NotificationService {
       final id = isCallInvitation && decodedPayload?['invitationId'] != null
           ? (decodedPayload!['invitationId'] as String).hashCode.abs() % 0x7FFFFFFF
           : DateTime.now().millisecondsSinceEpoch % 0x7FFFFFFF;
-      // 来电与普通消息均显示通知；来电用 fullScreenIntent，原生+Flutter 双通道提高弹屏成功率
+      // 来电与普通消息均显示通知（ForegroundService 作为增强，本地通知作兜底）
       await _localNotifications.show(
         id: id,
         title: title,
@@ -540,11 +545,8 @@ class NotificationService {
         payload: payloadStr,
       );
       debugPrint('[通知] 个推本地通知已显示${isCallInvitation ? "（来电）" : ""}');
-      // 来电：唤起应用内接听对话框
       if (isCallInvitation && decodedPayload != null) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          _openIncomingCallIfNeeded(decodedPayload!);
-        });
+        _openIncomingCallIfNeeded(decodedPayload);
       }
       int? badgeNum;
       if (payloadStr != null && payloadStr.isNotEmpty) {
@@ -663,6 +665,32 @@ class NotificationService {
     if (invitationId == null || invitationId.isEmpty || channelId == null || channelId.isEmpty) return;
     final fromUserName = data['fromUserName']?.toString().trim() ?? '对方';
     final callType = data['callType']?.toString() ?? 'voice';
+
+    // Android: 尝试 ForegroundService CallStyle（后台弹出来电）+ 有 context 时显示 Flutter 弹窗
+    if (!kIsWeb && Platform.isAndroid) {
+      _showIncomingCallViaService(
+        caller: fromUserName,
+        invitationId: invitationId,
+        channelId: channelId,
+        callType: callType,
+      );
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final ctx = navigatorKey.currentContext;
+        if (ctx != null) {
+          showIncomingCallDialog(
+            context: ctx,
+            invitationId: invitationId,
+            fromUserName: fromUserName,
+            channelId: channelId,
+            callType: callType,
+            fromAvatarUrl: data['fromAvatarUrl']?.toString().trim(),
+          );
+        }
+      });
+      return;
+    }
+
+    // iOS/其他: Flutter 来电弹窗
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final ctx = navigatorKey.currentContext;
       if (ctx == null) return;
@@ -675,6 +703,80 @@ class NotificationService {
         fromAvatarUrl: data['fromAvatarUrl']?.toString().trim(),
       );
     });
+  }
+
+  /// Android 通过 ForegroundService + CallStyle 显示来电（后台可弹出）
+  static Future<void> _showIncomingCallViaService({
+    required String caller,
+    required String invitationId,
+    required String channelId,
+    required String callType,
+  }) async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    try {
+      await _callChannel.invokeMethod('showIncomingCall', {
+        'caller': caller,
+        'invitationId': invitationId,
+        'channelId': channelId,
+        'callType': callType,
+      });
+      debugPrint('[来电] Android ForegroundService 已启动');
+    } catch (e) {
+      debugPrint('[来电] showIncomingCall 失败: $e');
+    }
+  }
+
+  /// Android 关闭 ForegroundService 来电通知（Flutter 弹窗接听/拒绝时调用）
+  static Future<void> dismissIncomingCallService() async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    try {
+      await _callChannel.invokeMethod('dismissIncomingCall');
+    } catch (_) {}
+  }
+
+  /// 检查 CallStyle 接听/拒绝后的待处理数据，打开 Agora 或更新状态（app 恢复时调用）
+  static Future<void> checkPendingCallAnswerAndDecline() async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    try {
+      final declineId = await _callChannel.invokeMethod<String>('getPendingCallDecline');
+      if (declineId != null && declineId.isNotEmpty) {
+        await CallInvitationRepository().updateStatus(declineId, 'rejected');
+        debugPrint('[来电] 已处理 CallStyle 拒绝 invitationId=$declineId');
+      }
+      final answerData = await _callChannel.invokeMethod<Map<dynamic, dynamic>>('getPendingCallAnswer');
+      if (answerData != null && answerData.isNotEmpty) {
+        final invitationId = (answerData['invitationId'] ?? '').toString();
+        final channelId = (answerData['channelId'] ?? '').toString();
+        final callType = (answerData['callType'] ?? 'voice').toString();
+        final fromUserName = (answerData['fromUserName'] ?? '对方').toString();
+        if (invitationId.isNotEmpty && channelId.isNotEmpty) {
+          final repo = CallInvitationRepository();
+          final status = await repo.getStatus(invitationId);
+          if (status == 'ringing') {
+            await repo.updateStatus(invitationId, 'accepted');
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              final navigator = navigatorKey.currentState;
+              if (navigator != null) {
+                navigator.push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => AgoraCallPage(
+                      channelId: channelId,
+                      remoteUserName: fromUserName,
+                      isVideo: callType == 'video',
+                      token: AgoraConfig.token,
+                      isCallee: true,
+                    ),
+                  ),
+                );
+                debugPrint('[来电] CallStyle 接听，已打开 Agora 通话页');
+              }
+            });
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[来电] _checkPendingCallAnswerAndDecline: $e');
+    }
   }
 
   /// 收到来电但无法弹窗时显示本地通知（如 context 为 null），用户点击后打开来电对话框
