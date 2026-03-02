@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import '../auth/login_page.dart';
@@ -12,6 +13,7 @@ import '../../core/supabase_bootstrap.dart';
 import '../messages/chat_detail_page.dart';
 import '../messages/message_models.dart';
 import '../messages/messages_repository.dart';
+import '../strategies/strategy_dialog.dart';
 import '../strategies/strategies_page.dart';
 import '../teachers/teacher_detail_page.dart';
 import '../teachers/teacher_models.dart' as tmodels;
@@ -749,10 +751,68 @@ class _HeroStrategyCard extends StatefulWidget {
 class _HeroStrategyCardState extends State<_HeroStrategyCard> {
   bool _showComments = false;
   Comment? _replyToComment;
+  final Set<String> _expandedReplies = {};
   final List<Comment> _optimisticComments = [];
+  OverlayEntry? _formOverlayEntry;
   int? _likeCountOverride;
   bool? _likedOverride;
   DateTime? _lastLikeToggleAt;
+
+  @override
+  void dispose() {
+    _formOverlayEntry?.remove();
+    _formOverlayEntry = null;
+    super.dispose();
+  }
+
+  void _updateFormOverlay() {
+    _formOverlayEntry?.markNeedsBuild();
+  }
+
+  void _syncFormOverlay() {
+    if (_showComments && mounted) {
+      _formOverlayEntry ??= OverlayEntry(
+        builder: (context) => Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: Material(
+            color: const Color(0xFF0D0E11),
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.of(context).viewInsets.bottom,
+                ),
+                child: _CommentForm(
+                  teacherId: widget.teacherId,
+                  strategyId: widget.strategyId,
+                  currentUserId: widget.currentUserId,
+                  repo: widget.repo,
+                  replyToComment: _replyToComment,
+                  onReplyConsumed: () {
+                    setState(() => _replyToComment = null);
+                    _updateFormOverlay();
+                  },
+                  onPosted: (userName, content, {Comment? replyTo}) {
+                    _onCommentPosted(userName, content, replyTo: replyTo);
+                    setState(() {
+                      _replyToComment = null;
+                      _updateFormOverlay();
+                    });
+                  },
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      Overlay.of(context).insert(_formOverlayEntry!);
+    } else {
+      _formOverlayEntry?.remove();
+      _formOverlayEntry = null;
+    }
+  }
 
   void _onCommentPosted(String userName, String content, {Comment? replyTo}) {
     final now = DateTime.now();
@@ -792,13 +852,16 @@ class _HeroStrategyCardState extends State<_HeroStrategyCard> {
     });
   }
 
-  /// 抖音式评论：父评论按时间倒序，回复紧贴父评论下方、按时间正序
+  /// 抖音式评论：父评论按时间倒序，回复紧贴父评论下方、按时间正序；默认只显示 1 条回复，可展开
   List<Widget> _buildThreadedCommentsInline(List<Comment> list) {
+    const accent = Color(0xFFD4AF37);
     void onReplyTap(Comment c) {
       setState(() {
         _replyToComment = c;
         _showComments = true;
+        _syncFormOverlay();
       });
+      _updateFormOverlay();
     }
     final topLevel = list.where((c) => c.replyToCommentId == null).toList()
       ..sort((a, b) => b.date.compareTo(a.date));
@@ -828,12 +891,40 @@ class _HeroStrategyCardState extends State<_HeroStrategyCard> {
               descendantIds.contains(c.replyToCommentId))
           .toList()
         ..sort((a, b) => a.date.compareTo(b.date));
-      for (final reply in replies) {
+      final isExpanded = _expandedReplies.contains(parent.id);
+      final showCount = replies.length <= 1 ? replies.length : (isExpanded ? replies.length : 1);
+      for (var i = 0; i < showCount; i++) {
         widgets.add(_CommentItem(
-          comment: reply,
+          comment: replies[i],
           onReplyTap: onReplyTap,
           isReply: true,
         ));
+      }
+      if (replies.length > 1) {
+        widgets.add(
+          GestureDetector(
+            onTap: () {
+              setState(() {
+                if (isExpanded) {
+                  _expandedReplies.remove(parent.id);
+                } else {
+                  _expandedReplies.add(parent.id);
+                }
+              });
+            },
+            child: Padding(
+              padding: const EdgeInsets.only(left: 78, bottom: 12),
+              child: Text(
+                isExpanded ? '收起' : '展开 ${replies.length - 1} 条回复',
+                style: TextStyle(
+                  color: accent.withOpacity(0.9),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ),
+        );
       }
     }
     return widgets;
@@ -910,7 +1001,7 @@ class _HeroStrategyCardState extends State<_HeroStrategyCard> {
               children: [
                 InkWell(
                   onTap: () {
-                    _showStrategyDialog(
+                    showStrategyDialog(
                       context,
                       widget.text,
                       _mergedComments,
@@ -1003,6 +1094,7 @@ class _HeroStrategyCardState extends State<_HeroStrategyCard> {
                             onPressed: () {
                               setState(() {
                                 _showComments = !_showComments;
+                                _syncFormOverlay();
                               });
                             },
                             icon: Icon(
@@ -1085,19 +1177,7 @@ class _HeroStrategyCardState extends State<_HeroStrategyCard> {
                                   ),
                           ),
                         ),
-                        const SizedBox(height: 8),
-                        _CommentForm(
-                          teacherId: widget.teacherId,
-                          strategyId: widget.strategyId,
-                          currentUserId: widget.currentUserId,
-                          repo: widget.repo,
-                          replyToComment: _replyToComment,
-                          onReplyConsumed: () => setState(() => _replyToComment = null),
-                          onPosted: (userName, content, {Comment? replyTo}) {
-                            _onCommentPosted(userName, content, replyTo: replyTo);
-                            setState(() => _replyToComment = null);
-                          },
-                        ),
+                        const SizedBox(height: 80),
                       ],
                     ],
                   ),
@@ -1242,276 +1322,6 @@ class _ForwardConversationSheet extends StatelessWidget {
       },
     );
   }
-}
-
-void _showStrategyDialog(
-  BuildContext context,
-  String text,
-  List<Comment> comments, {
-  required String teacherId,
-  String? strategyId,
-  required String currentUserId,
-  required TeacherRepository repo,
-  required void Function(String userName, String content) onCommentPosted,
-  bool initialShowComments = false,
-}) {
-  const accent = Color(0xFFD4AF37);
-  const bgDark = Color(0xFF0D0E11);
-  const bgCard = Color(0xFF0B0C0E);
-  const radius = 24.0;
-  const cornerSize = 48.0;
-
-  showDialog(
-    context: context,
-    barrierColor: Colors.black54,
-    builder: (context) {
-      bool showComments = initialShowComments;
-      Comment? replyToComment;
-      final dialogOptimistic = <Comment>[];
-      return Dialog(
-        backgroundColor: Colors.transparent,
-        insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
-        child: StatefulBuilder(
-          builder: (context, setState) {
-            final merged = [...comments, ...dialogOptimistic]
-              ..sort((a, b) => b.date.compareTo(a.date));
-            final maxHeight = MediaQuery.of(context).size.height * 0.75;
-
-            /// 抖音式：父评论倒序，回复紧贴父评论下方、正序
-            List<Widget> buildThreadedComments(
-              List<Comment> list,
-              void Function(Comment) onReplyTap,
-            ) {
-              final topLevel = list.where((c) => c.replyToCommentId == null).toList()
-                ..sort((a, b) => b.date.compareTo(a.date));
-              final widgets = <Widget>[];
-              for (final parent in topLevel) {
-                widgets.add(_CommentItem(
-                  comment: parent,
-                  onReplyTap: onReplyTap,
-                  isReply: false,
-                ));
-                final descendantIds = <String>{parent.id};
-                var changed = true;
-                while (changed) {
-                  changed = false;
-                  for (final c in list) {
-                    if (c.replyToCommentId != null &&
-                        descendantIds.contains(c.replyToCommentId) &&
-                        !descendantIds.contains(c.id)) {
-                      descendantIds.add(c.id);
-                      changed = true;
-                    }
-                  }
-                }
-                final replies = list
-                    .where((c) =>
-                        c.replyToCommentId != null &&
-                        descendantIds.contains(c.replyToCommentId))
-                    .toList()
-                  ..sort((a, b) => a.date.compareTo(b.date));
-                for (final reply in replies) {
-                  widgets.add(_CommentItem(
-                    comment: reply,
-                    onReplyTap: onReplyTap,
-                    isReply: true,
-                  ));
-                }
-              }
-              return widgets;
-            }
-
-            return ClipRRect(
-              borderRadius: BorderRadius.circular(radius),
-              child: Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  Container(
-                    height: maxHeight,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(radius),
-                      gradient: const LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [Color(0xFF1A1C21), Color(0xFF0D0E11)],
-                      ),
-                      border: Border.all(color: accent.withOpacity(0.6), width: 1.5),
-                      boxShadow: [
-                        BoxShadow(
-                          color: accent.withOpacity(0.15),
-                          blurRadius: 24,
-                          spreadRadius: -4,
-                          offset: const Offset(0, 8),
-                        ),
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.5),
-                          blurRadius: 32,
-                          spreadRadius: -8,
-                          offset: const Offset(0, 12),
-                        ),
-                      ],
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.max,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(10),
-                                decoration: BoxDecoration(
-                                  color: accent.withOpacity(0.15),
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: accent.withOpacity(0.4)),
-                                ),
-                                child: const Icon(Icons.trending_up, color: accent, size: 22),
-                              ),
-                              const SizedBox(width: 12),
-                              Text(
-                                '完整投资策略',
-                                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w600,
-                                  letterSpacing: 0.5,
-                                ),
-                              ),
-                              const Spacer(),
-                              IconButton(
-                                onPressed: () => Navigator.of(context).pop(),
-                                icon: Icon(Icons.close, color: Colors.white70, size: 22),
-                                style: IconButton.styleFrom(
-                                  backgroundColor: Colors.white.withOpacity(0.08),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 16),
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: bgCard,
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: accent.withOpacity(0.25), width: 0.8),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: accent.withOpacity(0.05),
-                                  blurRadius: 12,
-                                  offset: const Offset(0, 4),
-                                ),
-                              ],
-                            ),
-                            child: Text(
-                              text,
-                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                color: Colors.white.withOpacity(0.9),
-                                height: 1.65,
-                                fontSize: 15,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          Row(
-                            children: [
-                              TextButton.icon(
-                                onPressed: () {
-                                  setState(() => showComments = !showComments);
-                                },
-                                icon: Icon(
-                                  showComments ? Icons.expand_less : Icons.expand_more,
-                                  color: accent,
-                                  size: 20,
-                                ),
-                                label: Text(
-                                  showComments ? '隐藏评论' : '查看评论',
-                                  style: const TextStyle(color: accent, fontWeight: FontWeight.w500),
-                                ),
-                              ),
-                              const Spacer(),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: accent.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Text(
-                                  '${merged.length}条',
-                                  style: const TextStyle(color: accent, fontSize: 13, fontWeight: FontWeight.w500),
-                                ),
-                              ),
-                            ],
-                          ),
-                          if (showComments) ...[
-                            const Divider(height: 24, color: Color(0xFF2A2C31)),
-                            Expanded(
-                              child: SingleChildScrollView(
-                                child: merged.isEmpty
-                                    ? const _EmptyHint(text: '暂无评论')
-                                    : Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: buildThreadedComments(merged, (c) {
-                                          setState(() {
-                                            showComments = true;
-                                            replyToComment = c;
-                                          });
-                                        }),
-                                      ),
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                          ],
-                          if (showComments)
-                            AnimatedPadding(
-                              duration: const Duration(milliseconds: 200),
-                              padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-                              child: _CommentForm(
-                                teacherId: teacherId,
-                                strategyId: strategyId,
-                                currentUserId: currentUserId,
-                                repo: repo,
-                                replyToComment: replyToComment,
-                                onReplyConsumed: () => setState(() => replyToComment = null),
-                                onPosted: (userName, content, {Comment? replyTo}) {
-                                  onCommentPosted(userName, content);
-                                  setState(() => replyToComment = null);
-                                  final now = DateTime.now();
-                                  final date = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} '
-                                      '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
-                                  dialogOptimistic.add(Comment(
-                                    id: 'local-${now.millisecondsSinceEpoch}',
-                                    userName: userName,
-                                    content: content,
-                                    date: date,
-                                    replyToCommentId: replyTo?.id,
-                                    replyToContent: replyTo != null
-                                        ? (replyTo.content.length > 50
-                                            ? '${replyTo.content.substring(0, 50)}…'
-                                            : replyTo.content)
-                                        : null,
-                                  ));
-                                  setState(() {});
-                                },
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  Positioned(top: 0, left: 0, child: _CornerOrnament(rotation: 0, size: cornerSize, color: accent)),
-                  Positioned(top: 0, right: 0, child: _CornerOrnament(rotation: math.pi / 2, size: cornerSize, color: accent)),
-                  Positioned(bottom: 0, left: 0, child: _CornerOrnament(rotation: -math.pi / 2, size: cornerSize, color: accent)),
-                  Positioned(bottom: 0, right: 0, child: _CornerOrnament(rotation: math.pi, size: cornerSize, color: accent)),
-                ],
-              ),
-            );
-          },
-        ),
-      );
-    },
-  );
 }
 
 /// 四角花纹装饰
@@ -1783,10 +1593,17 @@ class _CommentItem extends StatelessWidget {
           CircleAvatar(
             radius: isReply ? 12 : 16,
             backgroundColor: accent,
-            child: Text(
-              comment.userName.characters.first,
-              style: const TextStyle(color: Color(0xFF111215)),
-            ),
+            backgroundImage: comment.avatarUrl != null &&
+                    comment.avatarUrl!.trim().isNotEmpty
+                ? NetworkImage(comment.avatarUrl!.trim())
+                : null,
+            child: comment.avatarUrl == null ||
+                    comment.avatarUrl!.trim().isEmpty
+                ? Text(
+                    comment.userName.characters.first,
+                    style: const TextStyle(color: Color(0xFF111215)),
+                  )
+                : null,
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -1803,52 +1620,37 @@ class _CommentItem extends StatelessWidget {
                       ),
                       overflow: TextOverflow.ellipsis,
                     ),
-                    if (onReplyTap != null) ...[
-                      const SizedBox(width: 8),
-                      GestureDetector(
-                        onTap: () => onReplyTap!(comment),
-                        child: Text(
-                          '回复',
-                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color: accent.withOpacity(0.8),
-                            fontSize: 12,
-                          ),
-                        ),
+                    const Spacer(),
+                    Text(
+                      comment.date,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: Colors.white54,
+                        fontSize: 11,
                       ),
-                    ],
+                    ),
                   ],
                 ),
                 if (comment.replyToContent != null &&
                     comment.replyToContent!.isNotEmpty) ...[
                   const SizedBox(height: 4),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                     decoration: BoxDecoration(
-                      color: accent.withOpacity(0.08),
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: accent.withOpacity(0.3)),
+                      color: Colors.white.withOpacity(0.06),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border(
+                        left: BorderSide(color: accent.withOpacity(0.5), width: 3),
+                      ),
                     ),
-                    child: Row(
-                      children: [
-                        Text(
-                          '回复 ',
-                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color: accent.withOpacity(0.9),
-                            fontSize: 12,
-                          ),
-                        ),
-                        Expanded(
-                          child: Text(
-                            comment.replyToContent!,
-                            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                              color: Colors.white54,
-                              fontSize: 12,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                            maxLines: 1,
-                          ),
-                        ),
-                      ],
+                    child: Text(
+                      comment.replyToContent!,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: Colors.white54,
+                        fontSize: 12,
+                        fontStyle: FontStyle.italic,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ],
@@ -1866,20 +1668,15 @@ class _CommentItem extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(width: 8),
-          Flexible(
-            child: Text(
-              comment.date,
-              style: Theme.of(context).textTheme.labelSmall,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
         ],
       ),
     );
     if (onReplyTap != null) {
       return GestureDetector(
-        onTap: () => onReplyTap!(comment),
+        onLongPress: () {
+          HapticFeedback.mediumImpact();
+          onReplyTap!(comment);
+        },
         behavior: HitTestBehavior.opaque,
         child: content,
       );

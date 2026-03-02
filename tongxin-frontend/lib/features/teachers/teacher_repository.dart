@@ -126,6 +126,7 @@ class TeacherRepository {
                   final content = row['content'] as String? ?? '';
                   final replyToId = row['reply_to_comment_id']?.toString();
                   final replyToContent = row['reply_to_content'] as String?;
+                  final avatarUrl = (row['avatar_url'] as String?)?.trim();
                   final ts = row['comment_time'] ?? row['created_at'];
                   DateTime? dt;
                   if (ts != null) {
@@ -145,6 +146,7 @@ class TeacherRepository {
                       date: date,
                       replyToCommentId: replyToId,
                       replyToContent: replyToContent,
+                      avatarUrl: avatarUrl?.isNotEmpty == true ? avatarUrl : null,
                     ),
                   );
                 })
@@ -178,6 +180,7 @@ class TeacherRepository {
                   final content = row['content'] as String? ?? '';
                   final replyToId = row['reply_to_comment_id']?.toString();
                   final replyToContent = row['reply_to_content'] as String?;
+                  final avatarUrl = (row['avatar_url'] as String?)?.trim();
                   final ts = row['comment_time'] ?? row['created_at'];
                   DateTime? dt;
                   if (ts != null) {
@@ -197,6 +200,7 @@ class TeacherRepository {
                       date: date,
                       replyToCommentId: replyToId,
                       replyToContent: replyToContent,
+                      avatarUrl: avatarUrl?.isNotEmpty == true ? avatarUrl : null,
                     ),
                   );
                 })
@@ -277,22 +281,27 @@ class TeacherRepository {
       return '用户';
     }
     String userName = '用户';
+    String? avatarUrl;
     try {
       final profile = await SupabaseBootstrap.client
           .from('user_profiles')
-          .select('display_name')
+          .select('display_name, avatar_url')
           .eq('user_id', userId)
           .maybeSingle();
       if (profile != null) {
         final dn = profile['display_name'] as String?;
         if (dn?.trim().isNotEmpty == true) userName = dn!.trim();
+        final av = profile['avatar_url'] as String?;
+        if (av?.trim().isNotEmpty == true) avatarUrl = av!.trim();
       }
     } catch (_) {
       // 忽略资料查询失败，使用默认昵称
     }
     final data = <String, dynamic>{
       'teacher_id': teacherId,
+      'user_id': userId,
       'user_name': userName,
+      'avatar_url': avatarUrl,
       'content': content.trim(),
       'comment_time': DateTime.now().toIso8601String(),
     };

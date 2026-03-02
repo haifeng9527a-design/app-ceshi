@@ -63,6 +63,10 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
   List<PolygonGainer> _gainers = [];
   bool _loadingGainers = false;
 
+  /// 搜索引导：股票 / 外汇 / 加密货币
+  int _searchCategoryIndex = 0;
+  static const List<String> _searchCategories = ['股票', '外汇', '加密货币'];
+
   PolygonRealtime? _realtime;
   StreamSubscription<PolygonTradeUpdate>? _realtimeSub;
 
@@ -573,6 +577,11 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
   }
 
   Widget _buildSearchSection() {
+    final hintByCategory = [
+      '股票代码或名称',
+      '外汇代码如 EUR/USD',
+      '加密货币如 BTC、ETH',
+    ];
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
@@ -586,50 +595,86 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
           ),
         ],
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: '股票代码或名称',
-                hintStyle: TextStyle(color: _muted, fontSize: 12),
-                prefixIcon: Icon(Icons.search_rounded, color: _muted, size: 18),
-                filled: true,
-                fillColor: _bg,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: BorderSide.none,
-                ),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              ),
-              style: const TextStyle(color: Colors.white, fontSize: 12),
-              onSubmitted: (_) => _onSearch(),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Material(
-            color: _accent,
-            borderRadius: BorderRadius.circular(10),
-            child: InkWell(
-              onTap: _loadingSearch ? null : _onSearch,
-              borderRadius: BorderRadius.circular(10),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                alignment: Alignment.center,
-                child: _loadingSearch
-                    ? SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: _bg),
-                      )
-                    : const Text('搜索', style: TextStyle(
-                        color: Color(0xFF111215),
-                        fontWeight: FontWeight.w600,
+          Row(
+            children: List.generate(_searchCategories.length, (i) {
+              final selected = _searchCategoryIndex == i;
+              return Padding(
+                padding: EdgeInsets.only(right: i < _searchCategories.length - 1 ? 8 : 0),
+                child: GestureDetector(
+                  onTap: () => setState(() => _searchCategoryIndex = i),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: selected ? _accent.withValues(alpha: 0.25) : Colors.transparent,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: selected ? _accent : _muted.withValues(alpha: 0.3),
+                        width: selected ? 1.5 : 0.5,
+                      ),
+                    ),
+                    child: Text(
+                      _searchCategories[i],
+                      style: TextStyle(
+                        color: selected ? _accent : _muted,
                         fontSize: 12,
-                      )),
+                        fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _searchController,
+                  decoration: InputDecoration(
+                    hintText: hintByCategory[_searchCategoryIndex],
+                    hintStyle: TextStyle(color: _muted, fontSize: 12),
+                    prefixIcon: Icon(Icons.search_rounded, color: _muted, size: 18),
+                    filled: true,
+                    fillColor: _bg,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide.none,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  ),
+                  style: const TextStyle(color: Colors.white, fontSize: 12),
+                  onSubmitted: (_) => _onSearch(),
+                ),
               ),
-            ),
+              const SizedBox(width: 8),
+              Material(
+                color: _accent,
+                borderRadius: BorderRadius.circular(10),
+                child: InkWell(
+                  onTap: _loadingSearch ? null : _onSearch,
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    alignment: Alignment.center,
+                    child: _loadingSearch
+                        ? SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: _bg),
+                          )
+                        : const Text('搜索', style: TextStyle(
+                            color: Color(0xFF111215),
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12,
+                          )),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),

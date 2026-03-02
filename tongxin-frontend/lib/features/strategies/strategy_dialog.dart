@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/models.dart';
 import '../auth/login_page.dart';
@@ -14,32 +15,80 @@ void showStrategyDialog(
   required String currentUserId,
   required TeacherRepository repo,
   required void Function(String userName, String content) onCommentPosted,
+  bool initialShowComments = false,
 }) {
-  const accent = Color(0xFFD4AF37);
-  const bgCard = Color(0xFF0B0C0E);
-  const radius = 24.0;
-
+  final screenW = MediaQuery.of(context).size.width;
+  final maxW = (screenW > 420) ? 400.0 : (screenW - 40);
   showDialog(
     context: context,
     barrierColor: Colors.black54,
-    builder: (context) {
-      bool showComments = false;
-      Comment? replyToComment;
-      final dialogOptimistic = <Comment>[];
-      final screenW = MediaQuery.of(context).size.width;
-      final maxW = (screenW > 420) ? 400.0 : (screenW - 40);
-      return Dialog(
-        backgroundColor: Colors.transparent,
-        insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(maxWidth: maxW),
-          child: StatefulBuilder(
-            builder: (context, setState) {
-            final merged = [...comments, ...dialogOptimistic]
-              ..sort((a, b) => b.date.compareTo(a.date));
-            final maxHeight = MediaQuery.of(context).size.height * 0.75;
+    builder: (context) => Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: maxW),
+        child: _StrategyDialogContent(
+          text: text,
+          comments: comments,
+          teacherId: teacherId,
+          strategyId: strategyId,
+          currentUserId: currentUserId,
+          repo: repo,
+          onCommentPosted: onCommentPosted,
+          initialShowComments: initialShowComments,
+        ),
+      ),
+    ),
+  );
+}
 
-            /// 抖音式：父评论倒序，回复紧贴父评论下方、正序
+class _StrategyDialogContent extends StatefulWidget {
+  const _StrategyDialogContent({
+    required this.text,
+    required this.comments,
+    required this.teacherId,
+    this.strategyId,
+    required this.currentUserId,
+    required this.repo,
+    required this.onCommentPosted,
+    this.initialShowComments = false,
+  });
+
+  final String text;
+  final List<Comment> comments;
+  final String teacherId;
+  final String? strategyId;
+  final String currentUserId;
+  final TeacherRepository repo;
+  final void Function(String userName, String content) onCommentPosted;
+  final bool initialShowComments;
+
+  @override
+  State<_StrategyDialogContent> createState() => _StrategyDialogContentState();
+}
+
+class _StrategyDialogContentState extends State<_StrategyDialogContent> {
+  late bool showComments;
+  Comment? replyToComment;
+  final List<Comment> dialogOptimistic = [];
+  final Set<String> expandedReplies = {};
+
+  @override
+  void initState() {
+    super.initState();
+    showComments = widget.initialShowComments;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const accent = Color(0xFFD4AF37);
+    const bgCard = Color(0xFF0B0C0E);
+    const radius = 24.0;
+    final merged = [...widget.comments, ...dialogOptimistic]
+      ..sort((a, b) => b.date.compareTo(a.date));
+    final maxHeight = MediaQuery.of(context).size.height * 0.75;
+
+            /// 抖音式：父评论倒序，回复紧贴父评论下方、正序；默认只显示 1 条回复，可展开
             List<Widget> buildThreadedComments(
               List<Comment> list,
               void Function(Comment) onReplyTap,
@@ -72,12 +121,40 @@ void showStrategyDialog(
                         descendantIds.contains(c.replyToCommentId))
                     .toList()
                   ..sort((a, b) => a.date.compareTo(b.date));
-                for (final reply in replies) {
+                final isExpanded = expandedReplies.contains(parent.id);
+                final showCount = replies.length <= 1 ? replies.length : (isExpanded ? replies.length : 1);
+                for (var i = 0; i < showCount; i++) {
                   widgets.add(_CommentItem(
-                    comment: reply,
+                    comment: replies[i],
                     onReplyTap: onReplyTap,
                     isReply: true,
                   ));
+                }
+                if (replies.length > 1) {
+                  widgets.add(
+                    GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          if (isExpanded) {
+                            expandedReplies.remove(parent.id);
+                          } else {
+                            expandedReplies.add(parent.id);
+                          }
+                        });
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.only(left: 78, bottom: 12),
+                        child: Text(
+                          isExpanded ? '收起' : '展开 ${replies.length - 1} 条回复',
+                          style: TextStyle(
+                            color: accent.withOpacity(0.9),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
                 }
               }
               return widgets;
@@ -152,24 +229,17 @@ void showStrategyDialog(
                           const SizedBox(height: 16),
                           Container(
                             width: double.infinity,
-                            padding: const EdgeInsets.all(16),
+                            padding: const EdgeInsets.all(18),
                             decoration: BoxDecoration(
                               color: bgCard,
                               borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: accent.withOpacity(0.25), width: 0.8),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: accent.withOpacity(0.05),
-                                  blurRadius: 12,
-                                  offset: const Offset(0, 4),
-                                ),
-                              ],
+                              border: Border.all(color: accent.withOpacity(0.15), width: 0.5),
                             ),
                             child: Text(
-                              text,
+                              widget.text,
                               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                                 color: Colors.white.withOpacity(0.9),
-                                height: 1.65,
+                                height: 1.7,
                                 fontSize: 15,
                               ),
                             ),
@@ -188,38 +258,43 @@ void showStrategyDialog(
                                 ),
                                 label: Text(
                                   showComments ? '隐藏评论' : '查看评论',
-                                  style: const TextStyle(color: accent, fontWeight: FontWeight.w500),
+                                  style: TextStyle(
+                                    color: accent.withOpacity(0.95),
+                                    fontWeight: FontWeight.w500,
+                                    fontSize: 14,
+                                  ),
                                 ),
                               ),
                               const Spacer(),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: accent.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Text(
-                                  '${merged.length}条',
-                                  style: const TextStyle(color: accent, fontSize: 13, fontWeight: FontWeight.w500),
+                              Text(
+                                '${merged.length}条评论',
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.5),
+                                  fontSize: 13,
                                 ),
                               ),
                             ],
                           ),
                           if (showComments) ...[
-                            const Divider(height: 24, color: Color(0xFF2A2C31)),
+                            SizedBox(height: 20, child: Divider(height: 1, color: Colors.white.withOpacity(0.08))),
                             Expanded(
                               child: SingleChildScrollView(
+                                padding: const EdgeInsets.only(top: 8),
                                 child: merged.isEmpty
                                     ? const _EmptyHint(text: '暂无评论')
-                                    : Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: buildThreadedComments(merged, (c) {
-                                          setState(() {
-                                            showComments = true;
-                                            replyToComment = c;
-                                          });
-                                        }),
+                                    : Align(
+                                        alignment: Alignment.centerLeft,
+                                        widthFactor: 1,
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                                          children: buildThreadedComments(merged, (c) {
+                                            setState(() {
+                                              showComments = true;
+                                              replyToComment = c;
+                                            });
+                                          }),
+                                        ),
                                       ),
                               ),
                             ),
@@ -229,15 +304,15 @@ void showStrategyDialog(
                             AnimatedPadding(
                               duration: const Duration(milliseconds: 200),
                               padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-                              child: _CommentForm(
-                                teacherId: teacherId,
-                                strategyId: strategyId,
-                                currentUserId: currentUserId,
-                                repo: repo,
+                            child: _CommentForm(
+                              teacherId: widget.teacherId,
+                              strategyId: widget.strategyId,
+                              currentUserId: widget.currentUserId,
+                              repo: widget.repo,
                                 replyToComment: replyToComment,
                                 onReplyConsumed: () => setState(() => replyToComment = null),
                                 onPosted: (userName, content, {Comment? replyTo}) {
-                                  onCommentPosted(userName, content);
+                                  widget.onCommentPosted(userName, content);
                                   setState(() => replyToComment = null);
                                   final now = DateTime.now();
                                   final date = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} '
@@ -265,12 +340,7 @@ void showStrategyDialog(
                 ],
               ),
             );
-          },
-        ),
-        ),
-      );
-    },
-  );
+  }
 }
 
 class _EmptyHint extends StatelessWidget {
@@ -396,14 +466,16 @@ class _CommentFormState extends State<_CommentForm> {
 
   @override
   Widget build(BuildContext context) {
+    const accent = Color(0xFFD4AF37);
     return Container(
-      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
       decoration: BoxDecoration(
         color: const Color(0xFF111215),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFD4AF37), width: 0.4),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: accent.withOpacity(0.25), width: 0.5),
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           Expanded(
             child: TextField(
@@ -412,29 +484,43 @@ class _CommentFormState extends State<_CommentForm> {
               minLines: 1,
               maxLines: 3,
               enabled: !_submitting,
+              style: TextStyle(color: Colors.white.withOpacity(0.9),
+                  fontSize: 15),
               decoration: InputDecoration(
                 hintText: '写下你的评论…',
+                hintStyle: TextStyle(color: Colors.white.withOpacity(0.4)),
                 filled: true,
                 fillColor: const Color(0xFF0B0C0E),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide:
-                      const BorderSide(color: Color(0xFFD4AF37), width: 0.4),
+                  borderSide: BorderSide.none,
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide:
-                      const BorderSide(color: Color(0xFFD4AF37), width: 0.4),
+                  borderSide: BorderSide.none,
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: accent.withOpacity(0.4)),
                 ),
                 contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               ),
             ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 12),
           FilledButton(
             onPressed: _submitting ? null : _submit,
-            child: Text(_submitting ? '发表中…' : '发表'),
+            style: FilledButton.styleFrom(
+              backgroundColor: accent,
+              foregroundColor: const Color(0xFF111215),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: Text(_submitting ? '发表中…' : '发表',
+                style: const TextStyle(fontWeight: FontWeight.w600)),
           ),
         ],
       ),
@@ -464,7 +550,7 @@ class _CommentItem extends StatelessWidget {
       if (match.start > lastEnd) {
         spans.add(TextSpan(
           text: content.substring(lastEnd, match.start),
-          style: const TextStyle(color: Colors.white70),
+          style: TextStyle(color: Colors.white.withOpacity(0.88)),
         ));
       }
       spans.add(TextSpan(
@@ -476,13 +562,13 @@ class _CommentItem extends StatelessWidget {
     if (lastEnd < content.length) {
       spans.add(TextSpan(
         text: content.substring(lastEnd),
-        style: const TextStyle(color: Colors.white70),
+        style: TextStyle(color: Colors.white.withOpacity(0.88)),
       ));
     }
     if (spans.isEmpty) {
       spans.add(TextSpan(
         text: content,
-        style: const TextStyle(color: Colors.white70),
+        style: TextStyle(color: Colors.white.withOpacity(0.88)),
       ));
     }
     return spans;
@@ -491,21 +577,35 @@ class _CommentItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const accent = Color(0xFFD4AF37);
+    final initial = comment.userName.isNotEmpty
+        ? comment.userName.characters.first.toUpperCase()
+        : '?';
+    final hasAvatar = comment.avatarUrl != null &&
+        comment.avatarUrl!.trim().isNotEmpty;
     final content = Padding(
       padding: EdgeInsets.only(
-        bottom: 12,
-        left: isReply ? 44 : 0,
+        bottom: 16,
+        left: isReply ? 40 : 0,
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           CircleAvatar(
-            radius: isReply ? 12 : 16,
-            backgroundColor: accent,
-            child: Text(
-              comment.userName.characters.first,
-              style: const TextStyle(color: Color(0xFF111215)),
-            ),
+            radius: isReply ? 14 : 18,
+            backgroundColor: accent.withOpacity(0.2),
+            backgroundImage: hasAvatar
+                ? NetworkImage(comment.avatarUrl!.trim())
+                : null,
+            child: hasAvatar
+                ? null
+                : Text(
+                    initial,
+                    style: TextStyle(
+                      color: accent,
+                      fontSize: isReply ? 14 : 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -522,71 +622,50 @@ class _CommentItem extends StatelessWidget {
                       ),
                       overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(width: 8),
-                    if (onReplyTap != null)
-                      GestureDetector(
-                        onTap: () => onReplyTap!(comment),
-                        child: Text(
-                          '回复',
-                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color: accent.withOpacity(0.8),
-                            fontSize: 12,
-                          ),
-                        ),
+                    const Spacer(),
+                    Text(
+                      comment.date,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: Colors.white38,
+                        fontSize: 11,
                       ),
+                    ),
                   ],
                 ),
                 if (comment.replyToContent != null &&
                     comment.replyToContent!.isNotEmpty) ...[
                   const SizedBox(height: 4),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                     decoration: BoxDecoration(
-                      color: accent.withOpacity(0.08),
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: accent.withOpacity(0.3)),
+                      color: Colors.white.withOpacity(0.06),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border(
+                        left: BorderSide(color: accent.withOpacity(0.5), width: 3),
+                      ),
                     ),
-                    child: Row(
-                      children: [
-                        Text(
-                          '回复 ',
-                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color: accent.withOpacity(0.9),
-                            fontSize: 12,
-                          ),
-                        ),
-                        Expanded(
-                          child: Text(
-                            comment.replyToContent!,
-                            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                              color: Colors.white54,
-                              fontSize: 12,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                            maxLines: 1,
-                          ),
-                        ),
-                      ],
+                    child: Text(
+                      comment.replyToContent!,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: Colors.white54,
+                        fontSize: 12,
+                        fontStyle: FontStyle.italic,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ],
-                const SizedBox(height: 4),
+                const SizedBox(height: 6),
                 RichText(
                   maxLines: 5,
                   overflow: TextOverflow.ellipsis,
                   text: TextSpan(
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Colors.white70,
+                      color: Colors.white.withOpacity(0.88),
+                      height: 1.5,
                     ),
                     children: _buildContentSpans(comment.content, _mentionColor),
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  comment.date,
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: Colors.white54,
-                    fontSize: 11,
                   ),
                 ),
               ],
@@ -597,7 +676,10 @@ class _CommentItem extends StatelessWidget {
     );
     if (onReplyTap != null) {
       return GestureDetector(
-        onTap: () => onReplyTap!(comment),
+        onLongPress: () {
+          HapticFeedback.mediumImpact();
+          onReplyTap!(comment);
+        },
         behavior: HitTestBehavior.opaque,
         child: content,
       );

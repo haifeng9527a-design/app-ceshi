@@ -1,4 +1,5 @@
 -- Storage policies for teacher records bucket
+-- 路径格式：records/userId/xxx（交易记录）或 strategies/userId/xxx（策略配图）
 
 -- Allow authenticated users to upload only to their own folder.
 drop policy if exists teacher_records_upload on storage.objects;
@@ -8,7 +9,7 @@ for insert
 to authenticated
 with check (
   bucket_id = 'teacher-records'
-  and (storage.foldername(name))[1] = 'records'
+  and (storage.foldername(name))[1] in ('records', 'strategies')
   and (storage.foldername(name))[2] = auth.uid()::text
 );
 
@@ -20,7 +21,7 @@ for update
 to authenticated
 using (
   bucket_id = 'teacher-records'
-  and (storage.foldername(name))[1] = 'records'
+  and (storage.foldername(name))[1] in ('records', 'strategies')
   and (storage.foldername(name))[2] = auth.uid()::text
 );
 
@@ -31,6 +32,6 @@ for delete
 to authenticated
 using (
   bucket_id = 'teacher-records'
-  and (storage.foldername(name))[1] = 'records'
+  and (storage.foldername(name))[1] in ('records', 'strategies')
   and (storage.foldername(name))[2] = auth.uid()::text
 );

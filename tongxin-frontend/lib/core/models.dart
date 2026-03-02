@@ -148,6 +148,7 @@ class Comment {
     required this.date,
     this.replyToCommentId,
     this.replyToContent,
+    this.avatarUrl,
   });
 
   final String id;
@@ -158,6 +159,8 @@ class Comment {
   final String? replyToCommentId;
   /// 被回复评论的内容摘要
   final String? replyToContent;
+  /// 评论者头像 URL
+  final String? avatarUrl;
 }
 
 class RankingEntry {
