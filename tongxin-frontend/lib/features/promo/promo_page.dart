@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../home/home_page.dart';
 
 class PromoPage extends StatefulWidget {
@@ -16,23 +17,14 @@ class _PromoPageState extends State<PromoPage> {
   late final Timer _timer;
   int _currentIndex = 0;
 
-  final List<_PromoSlide> _slides = const [
-    _PromoSlide(
-      title: '量化与风控',
-      subtitle: '策略复盘 + 风控模型 + 实盘跟踪',
-      icon: Icons.insights,
-    ),
-    _PromoSlide(
-      title: '资产配置',
-      subtitle: '多维度资产组合，稳健增值',
-      icon: Icons.pie_chart_outline,
-    ),
-    _PromoSlide(
-      title: '导师陪跑',
-      subtitle: '每日策略解读与实操指导',
-      icon: Icons.groups_outlined,
-    ),
-  ];
+  List<_PromoSlide> _slides(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return [
+      _PromoSlide(title: l10n.promoSlide1Title, subtitle: l10n.promoSlide1Subtitle, icon: Icons.insights),
+      _PromoSlide(title: l10n.promoSlide2Title, subtitle: l10n.promoSlide2Subtitle, icon: Icons.pie_chart_outline),
+      _PromoSlide(title: l10n.promoSlide3Title, subtitle: l10n.promoSlide3Subtitle, icon: Icons.groups_outlined),
+    ];
+  }
 
   @override
   void initState() {
@@ -41,7 +33,7 @@ class _PromoPageState extends State<PromoPage> {
       if (!mounted) {
         return;
       }
-      final next = (_currentIndex + 1) % _slides.length;
+      final next = (_currentIndex + 1) % 3;
       _pageController.animateToPage(
         next,
         duration: const Duration(milliseconds: 500),
@@ -62,6 +54,8 @@ class _PromoPageState extends State<PromoPage> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final slides = _slides(context);
     return Scaffold(
       body: SafeArea(
         child: Padding(
@@ -72,7 +66,7 @@ class _PromoPageState extends State<PromoPage> {
               _BrandHeader(),
               const SizedBox(height: 24),
               Text(
-                '金融培训机构\n专注实盘与策略落地',
+                l10n.promoTitle,
                 style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                       fontWeight: FontWeight.w700,
                       height: 1.2,
@@ -80,26 +74,17 @@ class _PromoPageState extends State<PromoPage> {
               ),
               const SizedBox(height: 12),
               Text(
-                '资深导师带你建立策略体系，从认知到执行全面提升。',
+                l10n.promoSubtitle,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: const Color(0xFFE5E5E7),
                     ),
               ),
               const SizedBox(height: 20),
-              _FeatureRow(
-                icon: Icons.verified_outlined,
-                text: '导师认证与战绩公示',
-              ),
+              _FeatureRow(icon: Icons.verified_outlined, text: l10n.promoFeature1),
               const SizedBox(height: 10),
-              _FeatureRow(
-                icon: Icons.auto_graph,
-                text: '每日策略与持仓跟踪',
-              ),
+              _FeatureRow(icon: Icons.auto_graph, text: l10n.promoFeature2),
               const SizedBox(height: 10),
-              _FeatureRow(
-                icon: Icons.chat_bubble_outline,
-                text: '同学互助与社群交流',
-              ),
+              _FeatureRow(icon: Icons.chat_bubble_outline, text: l10n.promoFeature3),
               const Spacer(),
               _CarouselHeader(),
               const SizedBox(height: 12),
@@ -108,20 +93,18 @@ class _PromoPageState extends State<PromoPage> {
                 child: PageView.builder(
                   controller: _pageController,
                   onPageChanged: (index) {
-                    setState(() {
-                      _currentIndex = index;
-                    });
+                    setState(() => _currentIndex = index);
                   },
-                  itemCount: _slides.length,
+                  itemCount: slides.length,
                   itemBuilder: (context, index) {
-                    final slide = _slides[index];
+                    final slide = slides[index];
                     return _PromoCard(slide: slide);
                   },
                 ),
               ),
               const SizedBox(height: 10),
               _DotsIndicator(
-                count: _slides.length,
+                count: slides.length,
                 index: _currentIndex,
               ),
               const SizedBox(height: 16),
@@ -133,7 +116,7 @@ class _PromoPageState extends State<PromoPage> {
                       MaterialPageRoute(builder: (_) => const HomePage()),
                     );
                   },
-                  child: const Text('进入选择交易员'),
+                  child: Text(AppLocalizations.of(context)!.promoEnterSelectTrader),
                 ),
               ),
             ],
@@ -163,7 +146,7 @@ class _BrandHeader extends StatelessWidget {
         ),
         const SizedBox(width: 8),
         Text(
-          '金融培训机构',
+          AppLocalizations.of(context)!.promoBrand,
           style: Theme.of(context).textTheme.titleMedium?.copyWith(
                 color: const Color(0xFFD4AF37),
                 fontWeight: FontWeight.w600,
@@ -207,7 +190,7 @@ class _CarouselHeader extends StatelessWidget {
         ),
         const SizedBox(width: 8),
         Text(
-          '教学特色',
+          AppLocalizations.of(context)!.promoCarouselTitle,
           style: Theme.of(context).textTheme.titleMedium,
         ),
       ],

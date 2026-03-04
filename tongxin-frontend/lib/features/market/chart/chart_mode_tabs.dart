@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../l10n/app_localizations.dart';
 import 'chart_theme.dart';
 
 /// 分时/1分 Tab 图标：竖条（K线柱）+ 下拉箭头，参考同花顺等行情 App
@@ -37,11 +38,11 @@ class _IntradayTabIcon extends StatelessWidget {
   }
 }
 
-/// 周K/月K/年K 下拉选项
-const List<({String label, String interval})> extendedKlineOptions = [
-  (label: '周K', interval: '1week'),
-  (label: '月K', interval: '1month'),
-  (label: '年K', interval: '1year'),
+/// 周K/月K/年K 下拉选项（需在 build 中通过 l10n 获取 label）
+List<({String label, String interval})> _extendedKlineOptions(AppLocalizations l10n) => [
+  (label: l10n.chartWeekK, interval: '1week'),
+  (label: l10n.chartMonthK, interval: '1month'),
+  (label: l10n.chartYearK, interval: '1year'),
 ];
 
 /// 图表 Tab：股票详情 6 个（1分/5分/15分/30分/日K/周K），指数/外汇等 2 个（分时/日K）
@@ -74,20 +75,27 @@ class ChartModeTabs extends StatelessWidget {
   final String extendedKlineInterval;
   final ValueChanged<String>? onExtendedKlineChanged;
 
-  static const List<String> stockLabels = ['1分', '5分', '15分', '30分', '日K', '周K'];
-  static const List<String> genericLabels = ['分时', '日K'];
+  static List<String> stockLabels(AppLocalizations l10n) => [
+    l10n.chart1Min, l10n.chart5Min, l10n.chart15Min, l10n.chart30Min,
+    l10n.chartDayK, l10n.chartWeekK,
+  ];
+  static List<String> genericLabels(AppLocalizations l10n) => [
+    l10n.chartTimeshare, l10n.chartDayK,
+  ];
 
-  String _extendedLabel() {
-    final opt = extendedKlineOptions.firstWhere(
+  String _extendedLabel(AppLocalizations l10n) {
+    final opts = _extendedKlineOptions(l10n);
+    final opt = opts.firstWhere(
       (e) => e.interval == extendedKlineInterval,
-      orElse: () => extendedKlineOptions.first,
+      orElse: () => opts.first,
     );
     return opt.label;
   }
 
   @override
   Widget build(BuildContext context) {
-    final tabLabels = labels ?? stockLabels;
+    final l10n = AppLocalizations.of(context)!;
+    final tabLabels = labels ?? stockLabels(l10n);
     final hasExtendedDropdown = tabLabels.length >= 6 && onExtendedKlineChanged != null;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
@@ -123,7 +131,7 @@ class ChartModeTabs extends StatelessWidget {
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                               onOpened: () => onTabChanged(i),
                               onSelected: (interval) => onExtendedKlineChanged!(interval),
-                              itemBuilder: (context) => extendedKlineOptions
+                              itemBuilder: (context) => _extendedKlineOptions(l10n)
                                   .map((e) => PopupMenuItem<String>(
                                         value: e.interval,
                                         child: Text(e.label, style: const TextStyle(fontSize: 14)),
@@ -134,7 +142,7 @@ class ChartModeTabs extends StatelessWidget {
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Text(
-                                    _extendedLabel(),
+                                    _extendedLabel(l10n),
                                     style: TextStyle(
                                       color: selected ? ChartTheme.textPrimary : ChartTheme.textSecondary,
                                       fontSize: 14,

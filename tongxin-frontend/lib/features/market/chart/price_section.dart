@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../l10n/app_localizations.dart';
 import 'chart_theme.dart';
 
 /// 价格区（与特斯拉图完全一致）：价格+涨跌同行，指标 今开/最高/最低/昨收 | 成交额/换手率/振幅
@@ -31,10 +32,11 @@ class PriceSection extends StatelessWidget {
   final double? turnoverRate;
   final double? amplitude;
 
-  static String _formatLarge(double v) {
+  String _formatLarge(BuildContext context, double v) {
+    final isZh = Localizations.localeOf(context).languageCode == 'zh';
     if (v >= 1000000000) return '${(v / 1000000000).toStringAsFixed(1)}B';
-    if (v >= 100000000) return '${(v / 100000000).toStringAsFixed(2)}亿';
-    if (v >= 10000) return '${(v / 10000).toStringAsFixed(2)}万';
+    if (v >= 100000000) return isZh ? '${(v / 100000000).toStringAsFixed(2)}亿' : '${(v / 1000000).toStringAsFixed(1)}M';
+    if (v >= 10000) return isZh ? '${(v / 10000).toStringAsFixed(2)}万' : '${(v / 1000).toStringAsFixed(1)}K';
     return v.toStringAsFixed(0);
   }
 
@@ -84,21 +86,32 @@ class PriceSection extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 14),
-          Row(
-            children: [
-              _metric('今开', open),
-              _metric('最高', high, isUp: true),
-              _metric('最低', low, isUp: false),
-              _metric('昨收', prevClose),
-            ],
+          Builder(
+            builder: (ctx) {
+              final l10n = AppLocalizations.of(ctx)!;
+              return Row(
+                children: [
+                  _metric(l10n.chartPriceOpen, open),
+                  _metric(l10n.chartPriceHigh, high, isUp: true),
+                  _metric(l10n.chartPriceLow, low, isUp: false),
+                  _metric(l10n.chartPricePrevClose, prevClose),
+                ],
+              );
+            },
           ),
           const SizedBox(height: 6),
-          Row(
-            children: [
-              _metric('总成交', turnover != null ? _formatLarge(turnover!) : (marketCap != null ? _formatLarge(marketCap!) : null)),
-              _metric('换手率', turnoverRate != null ? '${turnoverRate!.toStringAsFixed(1)}%' : null),
-              _metric('振幅', amplitude != null ? '${amplitude!.toStringAsFixed(1)}%' : null),
-            ],
+          Builder(
+            builder: (ctx) {
+              final l10n = AppLocalizations.of(ctx)!;
+              final turnoverStr = turnover != null ? _formatLarge(ctx, turnover!) : (marketCap != null ? _formatLarge(ctx, marketCap!) : null);
+              return Row(
+                children: [
+                  _metric(l10n.chartPriceTotalTurnover, turnoverStr),
+                  _metric(l10n.chartPriceTurnoverRate, turnoverRate != null ? '${turnoverRate!.toStringAsFixed(1)}%' : null),
+                  _metric(l10n.chartPriceAmplitude, amplitude != null ? '${amplitude!.toStringAsFixed(1)}%' : null),
+                ],
+              );
+            },
           ),
         ],
       ),

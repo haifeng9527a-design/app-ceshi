@@ -1,22 +1,24 @@
-import 'package:cached_network_image/cached_network_image.dart';
+import 'dart:convert';
 import 'dart:io' show Platform;
+
+import 'package:cached_network_image/cached_network_image.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:supabase_flutter/supabase_flutter.dart' show FileOptions;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:permission_handler/permission_handler.dart';
 
+import '../../api/users_api.dart';
 import '../auth/auth_service.dart';
 import '../auth/login_page.dart';
+import '../../core/api_client.dart';
 import '../../core/firebase_bootstrap.dart';
 import '../../core/locale_provider.dart';
 import '../../l10n/app_localizations.dart';
 import '../../core/role_badge.dart';
-import '../../core/supabase_bootstrap.dart';
 import '../../core/notification_settings_guide.dart';
 import '../../core/notification_service.dart';
 import '../../core/user_restrictions.dart';
@@ -39,32 +41,17 @@ class UserRoleInfo {
 }
 
 Future<UserRoleInfo?> _fetchRoleInfo(String userId) async {
-  if (userId.isEmpty) {
-    return null;
-  }
-  if (!SupabaseBootstrap.isReady) {
-    return const UserRoleInfo(role: 'user', level: 0, teacherStatus: 'pending');
-  }
-  final up = await SupabaseBootstrap.client
-      .from('user_profiles')
-      .select('role, level, teacher_status')
-      .eq('user_id', userId)
-      .maybeSingle();
-  String teacherStatus = up?['teacher_status'] as String? ?? 'pending';
-  final tp = await SupabaseBootstrap.client
-      .from('teacher_profiles')
-      .select('status')
-      .eq('user_id', userId)
-      .maybeSingle();
-  if (tp != null && tp['status'] != null) {
-    teacherStatus = tp['status'] as String;
-  }
+  if (userId.isEmpty) return null;
+  if (!ApiClient.instance.isAvailable) return const UserRoleInfo(role: 'user', level: 0, teacherStatus: 'pending');
+  final p = await UsersApi.instance.getProfile(userId);
+  if (p == null) return const UserRoleInfo(role: 'user', level: 0, teacherStatus: 'pending');
   return UserRoleInfo(
-    role: up?['role'] as String? ?? 'user',
-    level: (up?['level'] as int?) ?? 0,
-    teacherStatus: teacherStatus,
+    role: p['role'] as String? ?? 'user',
+    level: (p['level'] as int?) ?? 0,
+    teacherStatus: p['teacher_status'] as String? ?? 'pending',
   );
 }
+
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -127,20 +114,14 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
     }
     _loadedUserId = userId;
     await _loadCachedProfile(userId);
-    if (!SupabaseBootstrap.isReady) {
-      return;
-    }
+    if (!ApiClient.instance.isAvailable) return;
     try {
-      final row = await SupabaseBootstrap.client
-          .from('user_profiles')
-          .select('avatar_url, signature, short_id')
-          .eq('user_id', userId)
-          .maybeSingle();
+      final p = await UsersApi.instance.getProfile(userId);
       if (!mounted) return;
       setState(() {
-        _avatarUrl = row?['avatar_url'] as String?;
-        _signature = row?['signature'] as String?;
-        _shortId = row?['short_id'] as String?;
+        _avatarUrl = p?['avatar_url'] as String?;
+        _signature = p?['signature'] as String?;
+        _shortId = p?['short_id'] as String?;
       });
       await _saveCachedProfile(
         userId: userId,
@@ -204,21 +185,13 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
   }
 
   Future<void> _requestShortId(String userId) async {
-    if (_requestingShortId || !SupabaseBootstrap.isReady) {
-      return;
-    }
+    if (_requestingShortId || !ApiClient.instance.isAvailable) return;
     _requestingShortId = true;
     try {
       await SupabaseUserSync().ensureShortId(userId);
-      final row = await SupabaseBootstrap.client
-          .from('user_profiles')
-          .select('short_id')
-          .eq('user_id', userId)
-          .maybeSingle();
+      final p = await UsersApi.instance.getProfile(userId);
       if (!mounted) return;
-      setState(() {
-        _shortId = row?['short_id'] as String?;
-      });
+      setState(() => _shortId = p?['short_id'] as String?);
       await _saveCachedProfile(userId: userId, shortId: _shortId);
     } finally {
       _requestingShortId = false;
@@ -226,10 +199,8 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
   }
 
   Future<void> _uploadAvatar(String userId) async {
-    if (_uploadingAvatar || userId.isEmpty) {
-      return;
-    }
-    if (!SupabaseBootstrap.isReady) {
+    if (_uploadingAvatar || userId.isEmpty) return;
+    if (!ApiClient.instance.isAvailable) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(AppLocalizations.of(context)!.profileAvatarUploadFailedNoSupabase)),
@@ -237,33 +208,18 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
       return;
     }
     final picked = await _picker.pickImage(source: ImageSource.gallery);
-    if (picked == null) {
-      return;
-    }
+    if (picked == null) return;
     setState(() => _uploadingAvatar = true);
     try {
       final bytes = await picked.readAsBytes();
-      // 仅保留安全字符，避免 storage 元数据写入时 22P02 类型错误
-      final rawName = picked.name.replaceAll(' ', '_');
-      final cleaned = rawName.replaceAll(RegExp(r'[^\w\-.]'), '');
-      final safeName = cleaned.isEmpty ? 'image.jpg' : cleaned;
-      final path =
-          'users/$userId/${DateTime.now().millisecondsSinceEpoch}_$safeName';
-      await SupabaseBootstrap.client.storage.from('avatars').uploadBinary(
-            path,
-            bytes,
-            fileOptions: FileOptions(
-              contentType: _guessImageContentType(picked.name),
-              upsert: true,
-            ),
-          );
-      final url =
-          SupabaseBootstrap.client.storage.from('avatars').getPublicUrl(path);
-      await SupabaseBootstrap.client.from('user_profiles').upsert({
-        'user_id': userId,
-        'avatar_url': url,
-        'updated_at': DateTime.now().toIso8601String(),
-      });
+      final base64 = base64Encode(bytes);
+      final contentType = _guessImageContentType(picked.name);
+      final url = await UsersApi.instance.uploadAvatar(
+        contentBase64: base64,
+        contentType: contentType,
+        fileName: picked.name,
+      );
+      if (url == null || url.isEmpty) throw StateError('上传失败');
       if (FirebaseBootstrap.isReady) {
         await FirebaseAuth.instance.currentUser?.updatePhotoURL(url);
         await FirebaseAuth.instance.currentUser?.reload();
@@ -320,11 +276,17 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
     setState(() => _savingSignature = true);
     try {
       final value = controller.text.trim();
-      await SupabaseBootstrap.client.from('user_profiles').upsert({
-        'user_id': userId,
-        'signature': value,
-        'updated_at': DateTime.now().toIso8601String(),
-      });
+      if (!ApiClient.instance.isAvailable) {
+        if (mounted) {
+          setState(() => _savingSignature = false);
+          ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+            SnackBar(content: Text(AppLocalizations.of(context)!.profileSignatureUpdateFailed)),
+          );
+        }
+        return;
+      }
+      final ok = await UsersApi.instance.updateMe({'signature': value});
+      if (!ok) throw StateError('更新失败');
       if (!mounted) return;
       setState(() => _signature = value);
       await _saveCachedProfile(userId: userId, signature: value);
@@ -570,6 +532,8 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                                                     width: 72,
                                                     height: 72,
                                                     fit: BoxFit.cover,
+                                                    fadeInDuration: Duration.zero,
+                                                    fadeOutDuration: Duration.zero,
                                                     placeholder: (_, __) =>
                                                         const SizedBox(
                                                       width: 72,

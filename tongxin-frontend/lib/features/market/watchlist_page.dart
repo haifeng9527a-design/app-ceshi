@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/app_localizations.dart';
 import 'generic_chart_page.dart';
 import 'market_repository.dart';
 import 'search_page.dart';
@@ -101,8 +102,8 @@ class _WatchlistPageState extends State<WatchlistPage> {
     return Scaffold(
       backgroundColor: _bg,
       appBar: AppBar(
-        title: const Text(
-          '自选',
+        title: Text(
+          AppLocalizations.of(context)!.watchlistTitle,
           style: TextStyle(
             color: _text,
             fontWeight: FontWeight.w700,
@@ -115,7 +116,7 @@ class _WatchlistPageState extends State<WatchlistPage> {
         actions: [
           IconButton(
             icon: const Icon(Icons.add_circle_outline),
-            tooltip: '添加',
+            tooltip: AppLocalizations.of(context)!.watchlistAdd,
             onPressed: _goSearch,
           ),
         ],
@@ -138,19 +139,19 @@ class _WatchlistPageState extends State<WatchlistPage> {
             Icon(Icons.star_border, size: 64, color: _muted.withValues(alpha: 0.5)),
             const SizedBox(height: 16),
             Text(
-              '暂无自选',
+              AppLocalizations.of(context)!.marketNoWatchlist,
               style: TextStyle(color: _muted, fontSize: 16),
             ),
             const SizedBox(height: 8),
             Text(
-              '点击右上角 + 去搜索添加',
+              AppLocalizations.of(context)!.marketAddWatchlistHint,
               style: TextStyle(color: _muted, fontSize: 13),
             ),
             const SizedBox(height: 24),
             FilledButton.icon(
               onPressed: _goSearch,
               icon: const Icon(Icons.search, size: 20),
-              label: const Text('去搜索'),
+              label: Text(AppLocalizations.of(context)!.marketGoSearch),
               style: FilledButton.styleFrom(
                 backgroundColor: _accent,
                 foregroundColor: _bg,
@@ -228,7 +229,7 @@ class _WatchlistPageState extends State<WatchlistPage> {
               ),
               IconButton(
                 icon: Icon(Icons.remove_circle_outline, color: _muted, size: 22),
-                tooltip: '移除自选',
+                tooltip: AppLocalizations.of(context)!.watchlistRemove,
                 onPressed: () => _remove(symbol),
               ),
               Icon(Icons.chevron_right, color: _muted, size: 20),

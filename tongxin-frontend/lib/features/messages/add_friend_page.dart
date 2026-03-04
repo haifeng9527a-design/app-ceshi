@@ -4,7 +4,10 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../core/network_error_helper.dart';
+import '../../l10n/app_localizations.dart';
 import '../../core/pc_dashboard_theme.dart';
+import '../../api/users_api.dart';
+import '../../core/api_client.dart';
 import '../../core/supabase_bootstrap.dart';
 import '../../core/user_restrictions.dart';
 import 'friend_models.dart';
@@ -47,7 +50,7 @@ class _AddFriendPageState extends State<AddFriendPage> {
         _showMessage('未找到该用户');
       }
     } catch (error) {
-      _showMessage(NetworkErrorHelper.messageForUser(error, prefix: '搜索失败'));
+      _showMessage(NetworkErrorHelper.messageForUser(error, prefix: AppLocalizations.of(context)!.msgSearchFailed, l10n: AppLocalizations.of(context)));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -67,7 +70,7 @@ class _AddFriendPageState extends State<AddFriendPage> {
         _showMessage('未找到该用户');
       }
     } catch (error) {
-      _showMessage(NetworkErrorHelper.messageForUser(error, prefix: '搜索失败'));
+      _showMessage(NetworkErrorHelper.messageForUser(error, prefix: AppLocalizations.of(context)!.msgSearchFailed, l10n: AppLocalizations.of(context)));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -94,7 +97,7 @@ class _AddFriendPageState extends State<AddFriendPage> {
     final restrictions = await UserRestrictions.getMyRestrictionRow();
     if (!UserRestrictions.canAddFriend(restrictions)) {
       UserRestrictions.clearCache();
-      _showMessage(UserRestrictions.getAccountStatusMessage(restrictions));
+      _showMessage(UserRestrictions.getAccountStatusMessage(restrictions, context));
       return;
     }
     setState(() => _loading = true);
@@ -111,10 +114,10 @@ class _AddFriendPageState extends State<AddFriendPage> {
       } else if (msg.contains('already_pending')) {
         _showMessage('已发送过申请，请等待对方处理');
       } else {
-        _showMessage(NetworkErrorHelper.messageForUser(e, prefix: '发送失败'));
+        _showMessage(NetworkErrorHelper.messageForUser(e, prefix: AppLocalizations.of(context)!.msgSendFailed, l10n: AppLocalizations.of(context)));
       }
     } catch (error) {
-      _showMessage(NetworkErrorHelper.messageForUser(error, prefix: '发送失败'));
+      _showMessage(NetworkErrorHelper.messageForUser(error, prefix: AppLocalizations.of(context)!.msgSendFailed, l10n: AppLocalizations.of(context)));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -131,7 +134,7 @@ class _AddFriendPageState extends State<AddFriendPage> {
     return Scaffold(
       backgroundColor: PcDashboardTheme.surface,
       appBar: AppBar(
-        title: Text('添加好友', style: PcDashboardTheme.titleMedium),
+        title: Text(AppLocalizations.of(context)!.messagesAddFriend, style: PcDashboardTheme.titleMedium),
         backgroundColor: PcDashboardTheme.surfaceVariant,
         foregroundColor: PcDashboardTheme.text,
         elevation: 0,
@@ -154,14 +157,14 @@ class _AddFriendPageState extends State<AddFriendPage> {
               keyboardType: TextInputType.emailAddress,
               style: PcDashboardTheme.bodyLarge,
               decoration: PcDashboardTheme.inputDecoration(
-                hintText: '请输入对方注册邮箱',
+                hintText: AppLocalizations.of(context)!.addFriendHintEmail,
               ).copyWith(labelText: '对方邮箱', labelStyle: PcDashboardTheme.bodyMedium),
             ),
             const SizedBox(height: 16),
             _SearchButton(
               loading: _loading,
               onPressed: _searchEmail,
-              label: '搜索',
+              label: AppLocalizations.of(context)!.commonSearch,
             ),
           ] else if (_tabIndex == 1) ...[
             TextField(
@@ -169,14 +172,14 @@ class _AddFriendPageState extends State<AddFriendPage> {
               keyboardType: TextInputType.number,
               style: PcDashboardTheme.bodyLarge,
               decoration: PcDashboardTheme.inputDecoration(
-                hintText: '请输入对方账号 ID',
+                hintText: AppLocalizations.of(context)!.addFriendHintId,
               ).copyWith(labelText: '账号 ID（6-9位数字）', labelStyle: PcDashboardTheme.bodyMedium),
             ),
             const SizedBox(height: 16),
             _SearchButton(
               loading: _loading,
               onPressed: _searchId,
-              label: '搜索',
+              label: AppLocalizations.of(context)!.commonSearch,
             ),
           ] else ...[
             SizedBox(
@@ -184,7 +187,7 @@ class _AddFriendPageState extends State<AddFriendPage> {
               child: OutlinedButton.icon(
                 onPressed: _openScanner,
                 icon: const Icon(Icons.qr_code_scanner, size: 20),
-                label: const Text('扫码添加'),
+                label: Text(AppLocalizations.of(context)!.addFriendScanQr),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: PcDashboardTheme.accent,
                   side: const BorderSide(color: PcDashboardTheme.accent),
@@ -240,7 +243,7 @@ class _AddFriendPageState extends State<AddFriendPage> {
                       backgroundColor: PcDashboardTheme.accent,
                       foregroundColor: PcDashboardTheme.surface,
                     ),
-                    child: const Text('添加'),
+                    child: Text(AppLocalizations.of(context)!.commonAdd),
                   ),
                 ],
               ),
@@ -387,10 +390,17 @@ class _MyQrCard extends StatelessWidget {
   const _MyQrCard();
 
   Future<String?> _loadShortId(String userId) async {
-    if (!SupabaseBootstrap.isReady) {
-      return null;
+    if (ApiClient.instance.isAvailable) {
+      final profile = await UsersApi.instance.getProfile(userId);
+      final shortId = profile?['short_id'] as String?;
+      if (shortId != null && shortId.trim().isNotEmpty) return shortId;
+      await SupabaseUserSync().ensureShortId(userId);
+      final refreshed = await UsersApi.instance.getProfile(userId);
+      return refreshed?['short_id'] as String?;
     }
-    final row = await SupabaseBootstrap.client
+    final client = SupabaseBootstrap.clientOrNull;
+    if (!SupabaseBootstrap.isReady || client == null) return null;
+    final row = await client
         .from('user_profiles')
         .select('short_id')
         .eq('user_id', userId)
@@ -400,7 +410,7 @@ class _MyQrCard extends StatelessWidget {
       return current;
     }
     await SupabaseUserSync().ensureShortId(userId);
-    final refreshed = await SupabaseBootstrap.client
+    final refreshed = await client
         .from('user_profiles')
         .select('short_id')
         .eq('user_id', userId)
@@ -423,7 +433,7 @@ class _MyQrCard extends StatelessWidget {
           padding: PcDashboardTheme.cardPadding,
           child: Column(
             children: [
-              Text('我的二维码', style: PcDashboardTheme.titleSmall),
+              Text(AppLocalizations.of(context)!.addFriendMyQrCode, style: PcDashboardTheme.titleSmall),
               const SizedBox(height: 16),
               if (shortId != null && shortId.isNotEmpty)
                 QrImageView(
@@ -475,7 +485,7 @@ class _QrScanPageState extends State<_QrScanPage> {
     return Scaffold(
       backgroundColor: PcDashboardTheme.surface,
       appBar: AppBar(
-        title: Text('扫码添加', style: PcDashboardTheme.titleMedium),
+        title: Text(AppLocalizations.of(context)!.addFriendScanQr, style: PcDashboardTheme.titleMedium),
         backgroundColor: PcDashboardTheme.surfaceVariant,
         foregroundColor: PcDashboardTheme.text,
         elevation: 0,

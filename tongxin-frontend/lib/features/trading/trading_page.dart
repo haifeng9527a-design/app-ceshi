@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../teachers/teacher_models.dart';
 import '../teachers/teacher_repository.dart';
 import 'trading_models.dart';
@@ -47,7 +48,7 @@ class _TradingPageState extends State<TradingPage> {
       backgroundColor: _bg,
       appBar: widget.showAppBar
           ? AppBar(
-              title: const Text('交易记录'),
+              title: Text(AppLocalizations.of(context)!.tradingRecords),
               backgroundColor: _bg,
               foregroundColor: Colors.white,
               elevation: 0,
@@ -79,7 +80,7 @@ class _TradingPageState extends State<TradingPage> {
                 Icon(Icons.pie_chart_outline, color: _accent, size: 20),
                 const SizedBox(width: 8),
                 Text(
-                  '当前持仓',
+                  AppLocalizations.of(context)!.tradingCurrentPositions,
                   style: TextStyle(
                     color: _accent,
                     fontWeight: FontWeight.w600,
@@ -121,7 +122,7 @@ class _TradingPageState extends State<TradingPage> {
                 Icon(Icons.list_alt, color: _accent, size: 20),
                 const SizedBox(width: 8),
                 Text(
-                  '我的交易记录',
+                  AppLocalizations.of(context)!.tradingMyRecords,
                   style: TextStyle(
                     color: _accent,
                     fontWeight: FontWeight.w600,
@@ -136,7 +137,7 @@ class _TradingPageState extends State<TradingPage> {
                 padding: const EdgeInsets.symmetric(vertical: 32),
                 alignment: Alignment.center,
                 child: Text(
-                  '暂无记录，点击右下角 + 添加',
+                  AppLocalizations.of(context)!.tradingNoRecordsAdd,
                   style: TextStyle(color: _muted, fontSize: 14),
                 ),
               )
@@ -168,7 +169,7 @@ class _TradingPageState extends State<TradingPage> {
               Icon(Icons.show_chart, color: _accent, size: 20),
               const SizedBox(width: 8),
               Text(
-                '实时行情',
+                AppLocalizations.of(context)!.tradingRealtimeQuote,
                 style: TextStyle(
                   color: _accent,
                   fontWeight: FontWeight.w600,
@@ -185,7 +186,7 @@ class _TradingPageState extends State<TradingPage> {
           const SizedBox(height: 16),
           TextField(
             decoration: InputDecoration(
-              hintText: '输入股票代码或名称',
+              hintText: AppLocalizations.of(context)!.tradingSymbolHint,
               hintStyle: const TextStyle(color: _muted),
               prefixIcon: const Icon(Icons.search, color: _muted, size: 20),
               filled: true,
@@ -205,11 +206,11 @@ class _TradingPageState extends State<TradingPage> {
           Row(
             children: [
               Expanded(
-                child: _priceChip('当前价', '--', null),
+                child: _priceChip(AppLocalizations.of(context)!.tradingCurrentPrice, '--', null),
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: _priceChip('涨跌幅', '--', null),
+                child: _priceChip(AppLocalizations.of(context)!.tradingChangePct, '--', null),
               ),
             ],
           ),
@@ -220,11 +221,11 @@ class _TradingPageState extends State<TradingPage> {
                 child: OutlinedButton.icon(
                   onPressed: () {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('买入功能待接入行情 API')),
+                      SnackBar(content: Text(AppLocalizations.of(context)!.tradingBuyApiPending)),
                     );
                   },
                   icon: const Icon(Icons.arrow_upward, size: 18),
-                  label: const Text('买入'),
+                  label: Text(AppLocalizations.of(context)!.tradingBuy),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.green,
                     side: const BorderSide(color: Colors.green),
@@ -236,11 +237,11 @@ class _TradingPageState extends State<TradingPage> {
                 child: OutlinedButton.icon(
                   onPressed: () {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('卖出功能待接入行情 API')),
+                      SnackBar(content: Text(AppLocalizations.of(context)!.tradingSellApiPending)),
                     );
                   },
                   icon: const Icon(Icons.arrow_downward, size: 18),
-                  label: const Text('卖出'),
+                  label: Text(AppLocalizations.of(context)!.tradingSell),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.red,
                     side: const BorderSide(color: Colors.red),
@@ -343,19 +344,19 @@ class _TradingPageState extends State<TradingPage> {
               if (!ctx.mounted) return;
               Navigator.of(ctx).pop();
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('已添加一条交易记录')),
+                SnackBar(content: Text(AppLocalizations.of(context)!.tradingRecordAdded)),
               );
             } catch (e) {
               if (!ctx.mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('保存失败：$e')),
+                SnackBar(content: Text('${AppLocalizations.of(context)!.teachersSaveFailed}：$e')),
               );
             }
           } else {
             setState(() => _records.insert(0, record));
             Navigator.of(ctx).pop();
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('已添加一条交易记录')),
+              SnackBar(content: Text(AppLocalizations.of(context)!.tradingRecordAdded)),
             );
           }
         },
@@ -427,16 +428,16 @@ class _RecordCard extends StatelessWidget {
                         context: context,
                         builder: (c) => AlertDialog(
                           backgroundColor: const Color(0xFF1A1C21),
-                          title: const Text('删除记录'),
-                          content: const Text('确定删除这条交易记录？'),
+                          title: Text(AppLocalizations.of(context)!.tradingDeleteRecord),
+                          content: Text(AppLocalizations.of(context)!.tradingConfirmDeleteRecord),
                           actions: [
                             TextButton(
                               onPressed: () => Navigator.of(c).pop(false),
-                              child: const Text('取消'),
+                              child: Text(AppLocalizations.of(context)!.commonCancel),
                             ),
                             FilledButton(
                               onPressed: () => Navigator.of(c).pop(true),
-                              child: const Text('删除'),
+                              child: Text(AppLocalizations.of(context)!.tradingDelete),
                             ),
                           ],
                         ),
@@ -450,28 +451,28 @@ class _RecordCard extends StatelessWidget {
             const SizedBox(height: 10),
             Row(
               children: [
-                _labelValue('买入', dateFmt.format(record.buyTime)),
+                _labelValue(AppLocalizations.of(context)!.tradingBuyTime, dateFmt.format(record.buyTime)),
                 const SizedBox(width: 16),
-                _labelValue('买入价', '${record.buyPrice}'),
+                _labelValue(AppLocalizations.of(context)!.tradingBuyPrice, '${record.buyPrice}'),
                 const SizedBox(width: 16),
-                _labelValue('数量', '${record.buyQty}'),
+                _labelValue(AppLocalizations.of(context)!.tradingQty, '${record.buyQty}'),
               ],
             ),
             const SizedBox(height: 6),
             Row(
               children: [
-                _labelValue('卖出', dateFmt.format(record.sellTime)),
+                _labelValue(AppLocalizations.of(context)!.tradingSellTime, dateFmt.format(record.sellTime)),
                 const SizedBox(width: 16),
-                _labelValue('卖出价', '${record.sellPrice}'),
+                _labelValue(AppLocalizations.of(context)!.tradingSellPrice, '${record.sellPrice}'),
                 const SizedBox(width: 16),
-                _labelValue('数量', '${record.sellQty}'),
+                _labelValue(AppLocalizations.of(context)!.tradingQty, '${record.sellQty}'),
               ],
             ),
             const SizedBox(height: 10),
             Align(
               alignment: Alignment.centerRight,
               child: Text(
-                '盈亏 ${pnl >= 0 ? '+' : ''}${pnl.toStringAsFixed(2)} (${record.pnlRatioPercent.toStringAsFixed(2)}%)',
+                '${AppLocalizations.of(context)!.tradingPnl} ${pnl >= 0 ? '+' : ''}${pnl.toStringAsFixed(2)} (${record.pnlRatioPercent.toStringAsFixed(2)}%)',
                 style: TextStyle(
                   color: pnlColor,
                   fontWeight: FontWeight.w600,
@@ -610,15 +611,15 @@ class _PositionCard extends StatelessWidget {
       final pnlColor = amount >= 0 ? Colors.green : Colors.red;
       final rows = <Widget>[
         if (position.buyTime != null)
-          _positionLine(dateFmt.format(position.buyTime!), prefix: '买入'),
+          _positionLine(dateFmt.format(position.buyTime!), prefix: AppLocalizations.of(context)!.tradingBuy),
         _positionInline([
-          ('成本', '${position.costPrice ?? position.buyPrice ?? '--'}'),
-          if (position.buyShares != null) ('数量', '${position.buyShares}'),
+          (AppLocalizations.of(context)!.tradingCost, '${position.costPrice ?? position.buyPrice ?? '--'}'),
+          if (position.buyShares != null) (AppLocalizations.of(context)!.tradingQty, '${position.buyShares}'),
         ]),
         if (position.sellTime != null || position.sellPrice != null)
           _positionInline([
-            if (position.sellTime != null) ('卖出', dateFmt.format(position.sellTime!)),
-            if (position.sellPrice != null) ('卖出价', position.sellPrice!.toStringAsFixed(2)),
+            if (position.sellTime != null) (AppLocalizations.of(context)!.tradingSell, dateFmt.format(position.sellTime!)),
+            if (position.sellPrice != null) (AppLocalizations.of(context)!.tradingSellPrice, position.sellPrice!.toStringAsFixed(2)),
           ]),
       ];
       return _buildCard(
@@ -634,11 +635,11 @@ class _PositionCard extends StatelessWidget {
     final pnlColor = pnl >= 0 ? Colors.green : Colors.red;
     final rows = <Widget>[
       if (position.buyTime != null)
-        _positionLine(dateFmt.format(position.buyTime!), prefix: '买入'),
+        _positionLine(dateFmt.format(position.buyTime!), prefix: AppLocalizations.of(context)!.tradingBuy),
       _positionInline([
-        ('成本', '${position.costPrice ?? position.buyPrice ?? '--'}'),
-        ('现价', '${position.currentPrice ?? '--'}'),
-        if (position.buyShares != null) ('数量', '${position.buyShares}'),
+        (AppLocalizations.of(context)!.tradingCost, '${position.costPrice ?? position.buyPrice ?? '--'}'),
+        (AppLocalizations.of(context)!.tradingCurrentPriceLabel, '${position.currentPrice ?? '--'}'),
+        if (position.buyShares != null) (AppLocalizations.of(context)!.tradingQty, '${position.buyShares}'),
       ]),
     ];
     return _buildCard(
@@ -714,14 +715,14 @@ class _AddRecordSheetState extends State<_AddRecordSheet> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      '添加交易记录',
+                      AppLocalizations.of(context)!.tradingAddRecord,
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
                             color: Colors.white,
                           ),
                     ),
                     TextButton(
                       onPressed: widget.onCancel,
-                      child: const Text('取消'),
+                      child: Text(AppLocalizations.of(context)!.commonCancel),
                     ),
                   ],
                 ),
@@ -731,28 +732,28 @@ class _AddRecordSheetState extends State<_AddRecordSheet> {
                   controller: scrollController,
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   children: [
-                    _field('股票代码', _symbolController, hint: '如 600519'),
+                    _field(AppLocalizations.of(context)!.tradingStockCode, _symbolController, hint: AppLocalizations.of(context)!.tradingHintStockCode),
                     const SizedBox(height: 12),
-                    _field('股票名称', _stockNameController,
-                        hint: '选填，如 贵州茅台'),
+                    _field(AppLocalizations.of(context)!.tradingStockName, _stockNameController,
+                        hint: AppLocalizations.of(context)!.tradingHintStockName),
                     const SizedBox(height: 12),
-                    _dateTimeTile('买入时机', _buyTime, (t) => setState(() => _buyTime = t)),
+                    _dateTimeTile(AppLocalizations.of(context)!.tradingBuyTime, _buyTime, (t) => setState(() => _buyTime = t)),
                     const SizedBox(height: 12),
-                    _field('买入价格', _buyPriceController,
-                        hint: '元', keyboardType: TextInputType.numberWithOptions(decimal: true)),
+                    _field(AppLocalizations.of(context)!.tradingBuyPrice, _buyPriceController,
+                        hint: AppLocalizations.of(context)!.tradingHintYuan, keyboardType: TextInputType.numberWithOptions(decimal: true)),
                     const SizedBox(height: 12),
-                    _field('买入数量', _buyQtyController,
-                        hint: '股/手',
+                    _field(AppLocalizations.of(context)!.tradingBuyQty, _buyQtyController,
+                        hint: AppLocalizations.of(context)!.tradingHintShares,
                         keyboardType: TextInputType.numberWithOptions(decimal: true)),
                     const SizedBox(height: 12),
-                    _dateTimeTile('卖出时间', _sellTime, (t) => setState(() => _sellTime = t)),
+                    _dateTimeTile(AppLocalizations.of(context)!.tradingSellTime, _sellTime, (t) => setState(() => _sellTime = t)),
                     const SizedBox(height: 12),
-                    _field('卖出价格', _sellPriceController,
-                        hint: '元',
+                    _field(AppLocalizations.of(context)!.tradingSellPrice, _sellPriceController,
+                        hint: AppLocalizations.of(context)!.tradingHintYuan,
                         keyboardType: TextInputType.numberWithOptions(decimal: true)),
                     const SizedBox(height: 12),
-                    _field('卖出数量', _sellQtyController,
-                        hint: '股/手',
+                    _field(AppLocalizations.of(context)!.tradingSellQty, _sellQtyController,
+                        hint: AppLocalizations.of(context)!.tradingHintShares,
                         keyboardType: TextInputType.numberWithOptions(decimal: true)),
                     const SizedBox(height: 24),
                     FilledButton(
@@ -762,7 +763,7 @@ class _AddRecordSheetState extends State<_AddRecordSheet> {
                         foregroundColor: const Color(0xFF111215),
                         padding: const EdgeInsets.symmetric(vertical: 14),
                       ),
-                      child: const Text('保存'),
+                      child: Text(AppLocalizations.of(context)!.commonSave),
                     ),
                     const SizedBox(height: 24),
                   ],
@@ -842,7 +843,7 @@ class _AddRecordSheetState extends State<_AddRecordSheet> {
     final symbol = _symbolController.text.trim();
     if (symbol.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请填写股票代码')),
+        SnackBar(content: Text(AppLocalizations.of(context)!.tradingFillSymbol)),
       );
       return;
     }
@@ -852,7 +853,7 @@ class _AddRecordSheetState extends State<_AddRecordSheet> {
     final sellQty = double.tryParse(_sellQtyController.text.trim()) ?? 0;
     if (buyPrice <= 0 || buyQty <= 0 || sellPrice <= 0 || sellQty <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请填写有效的价格与数量')),
+        SnackBar(content: Text(AppLocalizations.of(context)!.tradingFillPriceQty)),
       );
       return;
     }

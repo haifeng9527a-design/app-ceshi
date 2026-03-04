@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/models.dart';
+import '../../l10n/app_localizations.dart';
 import '../teachers/teacher_models.dart' as tmodels;
 import '../teachers/teacher_repository.dart';
 import 'strategy_dialog.dart';
@@ -18,7 +19,7 @@ class StrategiesPage extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('交易策略节目'),
+        title: Text(AppLocalizations.of(context)!.strategiesPageTitle),
       ),
       body: StreamBuilder<List<tmodels.TeacherStrategy>>(
         stream: repo.watchPublishedStrategies(teacher.id),
@@ -30,7 +31,7 @@ class StrategiesPage extends StatelessWidget {
           return ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              _SectionTitle(title: '今日投资策略'),
+              _SectionTitle(title: AppLocalizations.of(context)!.strategiesTodayStrategies),
               if (latest != null)
                 StreamBuilder<List<Comment>>(
                   stream: repo.watchStrategyComments(teacher.id, latest.id),
@@ -55,11 +56,11 @@ class StrategiesPage extends StatelessWidget {
                   ),
                 ),
               const SizedBox(height: 24),
-              _SectionTitle(title: '历史投资策略'),
+              _SectionTitle(title: AppLocalizations.of(context)!.strategiesHistoryStrategies),
               if (history.isEmpty)
                 _InfoCard(
                   child: Text(
-                    '暂无历史策略',
+                    AppLocalizations.of(context)!.strategiesNoHistory,
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: Colors.white54,
                     ),
@@ -155,7 +156,7 @@ class _StrategyCard extends StatelessWidget {
     final text = (strategy.content?.trim().isNotEmpty == true
             ? strategy.content!
             : (strategy.summary.trim().isNotEmpty ? strategy.summary : null)) ??
-        (fallbackText.trim().isNotEmpty ? fallbackText : '暂无策略内容');
+        (fallbackText.trim().isNotEmpty ? fallbackText : AppLocalizations.of(context)!.featuredNoStrategyContent);
 
     return InkWell(
       onTap: () {
@@ -231,7 +232,7 @@ class _StrategyCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              '点击查看完整投资策略',
+              AppLocalizations.of(context)!.featuredViewFullStrategy,
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
                 color: const Color(0xFFD4AF37),
               ),
@@ -242,7 +243,7 @@ class _StrategyCard extends StatelessWidget {
                 Icon(Icons.chat_bubble_outline, size: 14, color: Colors.white54),
                 const SizedBox(width: 4),
                 Text(
-                  '${comments.length}条评论',
+                  AppLocalizations.of(context)!.featuredCommentsCount(comments.length),
                   style: Theme.of(context).textTheme.labelSmall?.copyWith(
                     color: Colors.white54,
                   ),

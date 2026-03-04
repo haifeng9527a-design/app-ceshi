@@ -4,10 +4,11 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/firebase_bootstrap.dart';
+import '../../l10n/app_localizations.dart';
 import '../../core/notification_service.dart';
 import '../../core/pc_dashboard_page.dart';
 import '../../core/pc_shell.dart';
-import '../../core/supabase_bootstrap.dart';
+import '../../core/api_client.dart';
 import '../home/featured_teacher_page.dart';
 import '../messages/friends_repository.dart';
 import '../messages/message_models.dart';
@@ -90,7 +91,7 @@ class _HomePageState extends State<HomePage> {
     final user = FirebaseAuth.instance.currentUser;
     final userId = user?.uid ?? '';
     _incomingRequestsSubscription?.cancel();
-    if (userId.isEmpty || !SupabaseBootstrap.isReady) {
+    if (userId.isEmpty || !ApiClient.instance.isAvailable) {
       if (mounted) setState(() => _pendingFriendRequestCount = 0);
       return;
     }
@@ -110,7 +111,7 @@ class _HomePageState extends State<HomePage> {
         ? (FirebaseAuth.instance.currentUser?.uid ?? '')
         : '';
     final canLoadMessages =
-        userId.isNotEmpty && SupabaseBootstrap.isReady;
+        userId.isNotEmpty && ApiClient.instance.isAvailable;
     final width = MediaQuery.sizeOf(context).width;
     final useDesktopLayout = width >= _kDesktopBreakpoint;
 
@@ -175,32 +176,32 @@ class _HomePageState extends State<HomePage> {
               setState(() => _currentIndex = index == 4 ? 5 : index);
             },
             destinations: [
-              const NavigationDestination(
-                icon: Icon(Icons.home_outlined),
-                selectedIcon: Icon(Icons.home),
-                label: '主页',
+              NavigationDestination(
+                icon: const Icon(Icons.home_outlined),
+                selectedIcon: const Icon(Icons.home),
+                label: AppLocalizations.of(context)!.navMainPage,
               ),
-              const NavigationDestination(
-                icon: Icon(Icons.show_chart_outlined),
-                selectedIcon: Icon(Icons.show_chart),
-                label: '行情',
+              NavigationDestination(
+                icon: const Icon(Icons.show_chart_outlined),
+                selectedIcon: const Icon(Icons.show_chart),
+                label: AppLocalizations.of(context)!.navMarket,
               ),
-              const NavigationDestination(
-                icon: Icon(Icons.emoji_events_outlined),
-                selectedIcon: Icon(Icons.emoji_events),
-                label: '关注',
+              NavigationDestination(
+                icon: const Icon(Icons.emoji_events_outlined),
+                selectedIcon: const Icon(Icons.emoji_events),
+                label: AppLocalizations.of(context)!.navFollow,
               ),
               NavigationDestination(
                 icon: _wrapMessageIcon(context,
                     Icons.chat_bubble_outline, totalUnread),
                 selectedIcon: _wrapMessageIcon(context,
                     Icons.chat_bubble, totalUnread),
-                label: '消息',
+                label: AppLocalizations.of(context)!.navMessages,
               ),
-              const NavigationDestination(
-                icon: Icon(Icons.person_outline),
-                selectedIcon: Icon(Icons.person),
-                label: '我的',
+              NavigationDestination(
+                icon: const Icon(Icons.person_outline),
+                selectedIcon: const Icon(Icons.person),
+                label: AppLocalizations.of(context)!.navProfile,
               ),
             ],
           ),

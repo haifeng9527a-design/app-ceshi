@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/app_localizations.dart';
 import 'chart/chart_mode_tabs.dart';
 import 'chart/chart_theme.dart';
 import 'chart/detail_header.dart';
@@ -305,7 +306,7 @@ class _GenericChartPageState extends State<GenericChartPage>
             onNext: _prevNextIndex >= 0 && _prevNextIndex < _symbolListLength - 1 ? _switchToNext : null,
           ),
           ChartModeTabs(
-            labels: ChartModeTabs.genericLabels,
+            labels: ChartModeTabs.genericLabels(AppLocalizations.of(context)!),
             tabIndex: _tabController.index,
             onTabChanged: (i) => _tabController.animateTo(i),
             isIntraday: _tabController.index == 0,
@@ -342,7 +343,7 @@ class _GenericChartPageState extends State<GenericChartPage>
                 Widget chartContent;
                 if (_loading) {
                   chartContent = Center(
-                    child: Text('加载中…', style: TextStyle(color: ChartTheme.textSecondary, fontSize: 13)),
+                    child: Text(AppLocalizations.of(context)!.chartLoading, style: TextStyle(color: ChartTheme.textSecondary, fontSize: 13)),
                   );
                 } else if (_intraday.isEmpty && _daily.isEmpty) {
                   chartContent = _buildEmptyStateCard();
@@ -401,7 +402,7 @@ class _GenericChartPageState extends State<GenericChartPage>
                                           borderRadius: BorderRadius.circular(ChartTheme.radiusButton),
                                           child: Padding(
                                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                            child: Text('回最新', style: TextStyle(color: ChartTheme.accentGold, fontSize: 12, fontWeight: FontWeight.w600)),
+                                            child: Text(AppLocalizations.of(context)!.chartBackToLatest, style: TextStyle(color: ChartTheme.accentGold, fontSize: 12, fontWeight: FontWeight.w600)),
                                           ),
                                         ),
                                       ),
@@ -437,12 +438,13 @@ class _GenericChartPageState extends State<GenericChartPage>
   }
 
   String? _statusLabel() {
+    final l10n = AppLocalizations.of(context)!;
     final now = DateTime.now();
     final hour = now.hour;
     final minute = now.minute;
-    if (hour < 9 || (hour == 9 && minute < 30)) return '未开市';
-    if (hour > 16 || (hour == 16 && minute > 0)) return '已收盘';
-    return '盘中';
+    if (hour < 9 || (hour == 9 && minute < 30)) return l10n.chartPreMarket;
+    if (hour > 16 || (hour == 16 && minute > 0)) return l10n.chartClosed;
+    return l10n.chartIntraday;
   }
 
   /// 分时图上方摘要行：价 均 涨 涨跌幅 量 额（与股票详情一致，数据一目了然）
@@ -488,12 +490,12 @@ class _GenericChartPageState extends State<GenericChartPage>
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            _summaryBlock('价', price > 0 ? price.toStringAsFixed(2) : '—', null),
-            _summaryBlock('均', avgPrice != null ? avgPrice.toStringAsFixed(2) : '—', null),
-            _summaryBlock('涨', '${change >= 0 ? '+' : ''}${change.toStringAsFixed(2)}', changeColor),
-            _summaryBlock('涨跌幅', '${changePct >= 0 ? '+' : ''}${changePct.toStringAsFixed(2)}%', changeColor),
-            _summaryBlock('量', volStr, null),
-            _summaryBlock('额', turnStr, null),
+            _summaryBlock(AppLocalizations.of(context)!.chartPrice, price > 0 ? price.toStringAsFixed(2) : '—', null),
+            _summaryBlock(AppLocalizations.of(context)!.chartAvg, avgPrice != null ? avgPrice.toStringAsFixed(2) : '—', null),
+            _summaryBlock(AppLocalizations.of(context)!.chartChangeShort, '${change >= 0 ? '+' : ''}${change.toStringAsFixed(2)}', changeColor),
+            _summaryBlock(AppLocalizations.of(context)!.chartChangePercent, '${changePct >= 0 ? '+' : ''}${changePct.toStringAsFixed(2)}%', changeColor),
+            _summaryBlock(AppLocalizations.of(context)!.chartVol, volStr, null),
+            _summaryBlock(AppLocalizations.of(context)!.chartTurnover, turnStr, null),
           ],
         ),
       ),
@@ -527,7 +529,8 @@ class _GenericChartPageState extends State<GenericChartPage>
   }
 
   Widget _buildNoDataHint(bool isIntraday) {
-    final label = isIntraday ? '分时' : 'K线';
+    final l10n = AppLocalizations.of(context)!;
+    final label = isIntraday ? l10n.chartTimeshareLabel : l10n.chartKlineLabel;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -536,7 +539,7 @@ class _GenericChartPageState extends State<GenericChartPage>
           children: [
             SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 2, color: ChartTheme.accentGold)),
             const SizedBox(height: 12),
-            Text('正在拉取${label}数据…', style: TextStyle(color: ChartTheme.textPrimary, fontSize: 15, fontWeight: FontWeight.w500), textAlign: TextAlign.center),
+            Text(l10n.chartFetchingWithLabel(label), style: TextStyle(color: ChartTheme.textPrimary, fontSize: 15, fontWeight: FontWeight.w500), textAlign: TextAlign.center),
           ],
         ),
       ),
@@ -559,10 +562,10 @@ class _GenericChartPageState extends State<GenericChartPage>
           children: [
             Icon(Icons.show_chart_rounded, size: 48, color: ChartTheme.textTertiary),
             const SizedBox(height: 16),
-            Text('暂无数据', style: TextStyle(color: ChartTheme.textPrimary, fontSize: 17, fontWeight: FontWeight.w600), textAlign: TextAlign.center),
+            Text(AppLocalizations.of(context)!.chartNoData, style: TextStyle(color: ChartTheme.textPrimary, fontSize: 17, fontWeight: FontWeight.w600), textAlign: TextAlign.center),
             const SizedBox(height: 8),
             Text(
-              '分时与 K 线数据暂时无法加载，请稍后重试或检查数据源配置',
+              AppLocalizations.of(context)!.chartEmptyHint,
               style: TextStyle(color: ChartTheme.textTertiary, fontSize: 13),
               textAlign: TextAlign.center,
             ),
@@ -579,7 +582,7 @@ class _GenericChartPageState extends State<GenericChartPage>
                 hoverColor: ChartTheme.surfaceHover,
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                  child: Text('重试', style: TextStyle(color: ChartTheme.textPrimary, fontSize: 13, fontWeight: FontWeight.w500)),
+                  child: Text(AppLocalizations.of(context)!.chartRetry, style: TextStyle(color: ChartTheme.textPrimary, fontSize: 13, fontWeight: FontWeight.w500)),
                 ),
               ),
             ),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../../l10n/app_localizations.dart';
 import 'trading_models.dart';
 
 /// 当日委托 Tab：委托列表（标的、方向、委托价/量、已成交、状态、时间、撤单）
@@ -77,16 +78,16 @@ class _OrdersTabState extends State<OrdersTab> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('确认撤单'),
-        content: Text('确定要撤销 ${order.symbol} 的${order.isBuy ? "买入" : "卖出"}委托吗？'),
+        title: Text(AppLocalizations.of(context)!.ordersConfirmCancel),
+        content: Text(AppLocalizations.of(context)!.orderConfirmCancel(order.symbol, order.isBuy ? AppLocalizations.of(context)!.orderCancelBuy : AppLocalizations.of(context)!.orderCancelSell)),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('取消'),
+            child: Text(AppLocalizations.of(context)!.commonCancel),
           ),
           FilledButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('确认撤单'),
+            child: Text(AppLocalizations.of(context)!.ordersConfirmCancel),
           ),
         ],
       ),
@@ -112,22 +113,23 @@ class _OrdersTabState extends State<OrdersTab> {
           .toList();
     });
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('已撤单（模拟）')),
+      SnackBar(content: Text(AppLocalizations.of(context)!.orderCancelSuccess)),
     );
   }
 
-  String _statusText(OrderStatus s) {
+  String _statusText(BuildContext context, OrderStatus s) {
+    final l10n = AppLocalizations.of(context)!;
     switch (s) {
       case OrderStatus.pending:
-        return '待成交';
+        return l10n.ordersStatusPending;
       case OrderStatus.partial:
-        return '部分成交';
+        return l10n.ordersStatusPartial;
       case OrderStatus.filled:
-        return '已成交';
+        return l10n.ordersStatusFilled;
       case OrderStatus.cancelled:
-        return '已撤单';
+        return l10n.ordersStatusCancelled;
       case OrderStatus.rejected:
-        return '已拒绝';
+        return l10n.ordersStatusRejected;
     }
   }
 
@@ -143,7 +145,7 @@ class _OrdersTabState extends State<OrdersTab> {
               Icon(Icons.pending_actions, color: _accent, size: 20),
               const SizedBox(width: 8),
               Text(
-                '当日委托',
+                AppLocalizations.of(context)!.ordersTodayOrders,
                 style: TextStyle(
                   color: _accent,
                   fontWeight: FontWeight.w600,
@@ -163,14 +165,14 @@ class _OrdersTabState extends State<OrdersTab> {
             padding: const EdgeInsets.symmetric(vertical: 48),
             alignment: Alignment.center,
             child: Text(
-              '暂无当日委托',
+              AppLocalizations.of(context)!.ordersNoTodayOrders,
               style: TextStyle(color: _muted, fontSize: 14),
             ),
           )
         else
           ..._orders.map((o) => _OrderCard(
                 order: o,
-                statusText: _statusText(o.status),
+                statusText: _statusText(context, o.status),
                 onCancel: o.canCancel ? () => _cancelOrder(o) : null,
               )),
       ],
@@ -233,7 +235,7 @@ class _OrderCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Text(
-                    isBuy ? '买入' : '卖出',
+                    isBuy ? AppLocalizations.of(context)!.ordersBuy : AppLocalizations.of(context)!.ordersSell,
                     style: TextStyle(
                       color: isBuy ? Colors.green : Colors.red,
                       fontWeight: FontWeight.w600,
@@ -246,11 +248,11 @@ class _OrderCard extends StatelessWidget {
             const SizedBox(height: 10),
             Row(
               children: [
-                _labelValue('委托价', order.type == OrderType.market ? '市价' : order.price.toStringAsFixed(2)),
+                _labelValue(context, AppLocalizations.of(context)!.ordersOrderPrice, order.type == OrderType.market ? AppLocalizations.of(context)!.ordersMarket : order.price.toStringAsFixed(2)),
                 const SizedBox(width: 16),
-                _labelValue('数量', order.quantity.toStringAsFixed(0)),
+                _labelValue(context, AppLocalizations.of(context)!.ordersQuantity, order.quantity.toStringAsFixed(0)),
                 const SizedBox(width: 16),
-                _labelValue('已成交', order.filledQuantity.toStringAsFixed(0)),
+                _labelValue(context, AppLocalizations.of(context)!.ordersFilled, order.filledQuantity.toStringAsFixed(0)),
               ],
             ),
             const SizedBox(height: 8),
@@ -269,7 +271,7 @@ class _OrderCard extends StatelessWidget {
                 if (onCancel != null)
                   TextButton(
                     onPressed: onCancel,
-                    child: const Text('撤单'),
+                    child: Text(AppLocalizations.of(context)!.ordersCancelOrder),
                   ),
               ],
             ),
@@ -280,7 +282,7 @@ class _OrderCard extends StatelessWidget {
     );
   }
 
-  Widget _labelValue(String label, String value) {
+  Widget _labelValue(BuildContext context, String label, String value) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

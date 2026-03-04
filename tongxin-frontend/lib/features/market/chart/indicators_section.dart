@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../l10n/app_localizations.dart';
 import '../../trading/polygon_repository.dart';
 import 'chart_theme.dart';
 import '../indicators.dart';
@@ -46,22 +47,24 @@ class IndicatorsSection extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: [
-          _buildSelector(),
+          _buildSelector(context),
           if (candles.isNotEmpty) ...[
             const SizedBox(height: 12),
-            _buildValuesSection(),
+            _buildValuesSection(context),
           ],
         ],
       ),
     );
   }
 
-  Widget _buildSelector() {
+  Widget _buildSelector(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    String itemLabel(String id, String fallback) => id == 'none' ? l10n.chartIndicatorNone : fallback;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text('主图叠加', style: TextStyle(color: ChartTheme.textTertiary, fontSize: 11)),
+        Text(l10n.chartMainOverlay, style: TextStyle(color: ChartTheme.textTertiary, fontSize: 11)),
         const SizedBox(height: 6),
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
@@ -71,7 +74,7 @@ class IndicatorsSection extends StatelessWidget {
               return Padding(
                 padding: const EdgeInsets.only(right: 8),
                 child: FilterChip(
-                  label: Text(e.label, style: TextStyle(fontSize: 12)),
+                  label: Text(itemLabel(e.id, e.label), style: TextStyle(fontSize: 12)),
                   selected: selected,
                   onSelected: (_) => onOverlayChanged(e.id),
                   selectedColor: ChartTheme.accentGold.withValues(alpha: 0.3),
@@ -86,7 +89,7 @@ class IndicatorsSection extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 12),
-        Text('昨收线', style: TextStyle(color: ChartTheme.textTertiary, fontSize: 11)),
+        Text(l10n.chartPrevCloseLine, style: TextStyle(color: ChartTheme.textTertiary, fontSize: 11)),
         const SizedBox(height: 6),
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
@@ -95,7 +98,7 @@ class IndicatorsSection extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(right: 8),
                 child: FilterChip(
-                  label: const Text('有', style: TextStyle(fontSize: 12)),
+                  label: Text(l10n.chartIndicatorYes, style: TextStyle(fontSize: 12)),
                   selected: showPrevCloseLine,
                   onSelected: onShowPrevCloseLineChanged != null ? (_) => onShowPrevCloseLineChanged!(true) : null,
                   selectedColor: ChartTheme.accentGold.withValues(alpha: 0.3),
@@ -109,7 +112,7 @@ class IndicatorsSection extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(right: 8),
                 child: FilterChip(
-                  label: const Text('无', style: TextStyle(fontSize: 12)),
+                  label: Text(l10n.chartIndicatorNo, style: TextStyle(fontSize: 12)),
                   selected: !showPrevCloseLine,
                   onSelected: onShowPrevCloseLineChanged != null ? (_) => onShowPrevCloseLineChanged!(false) : null,
                   selectedColor: ChartTheme.accentGold.withValues(alpha: 0.3),
@@ -124,7 +127,7 @@ class IndicatorsSection extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 12),
-        Text('副图指标', style: TextStyle(color: ChartTheme.textTertiary, fontSize: 11)),
+        Text(l10n.chartSubIndicator, style: TextStyle(color: ChartTheme.textTertiary, fontSize: 11)),
         const SizedBox(height: 6),
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
@@ -134,7 +137,7 @@ class IndicatorsSection extends StatelessWidget {
             return Padding(
               padding: const EdgeInsets.only(right: 8),
               child: FilterChip(
-                label: Text(e.label, style: TextStyle(fontSize: 12)),
+                label: Text(itemLabel(e.id, e.label), style: TextStyle(fontSize: 12)),
                 selected: selected,
                 onSelected: (_) => onSubChartChanged(e.id),
                 selectedColor: ChartTheme.accentGold.withValues(alpha: 0.3),
@@ -152,7 +155,8 @@ class IndicatorsSection extends StatelessWidget {
     );
   }
 
-  Widget _buildValuesSection() {
+  Widget _buildValuesSection(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final closes = candles.map((c) => c.close).toList();
     final volumes = candles.map((c) => c.volume ?? 0).toList();
     final lastIdx = closes.length - 1;
@@ -194,7 +198,7 @@ class IndicatorsSection extends StatelessWidget {
     // 副图数值
     if (subChartIndicator == 'vol') {
       final vol = lastIdx < volumes.length ? volumes[lastIdx] : null;
-      rows.add(_valueRow('成交量', vol != null ? vol.toDouble() : null, ChartTheme.textPrimary));
+      rows.add(_valueRow(l10n.chartVol, vol != null ? vol.toDouble() : null, ChartTheme.textPrimary));
     } else if (subChartIndicator == 'macd') {
       final macdRes = macd(closes);
       final dif = lastIdx < macdRes.macdLine.length ? macdRes.macdLine[lastIdx] : null;
@@ -219,7 +223,7 @@ class IndicatorsSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text('当前数值', style: TextStyle(color: ChartTheme.textTertiary, fontSize: 11)),
+          Text(l10n.chartCurrentValue, style: TextStyle(color: ChartTheme.textTertiary, fontSize: 11)),
           const SizedBox(height: 8),
           Wrap(
             spacing: 16,

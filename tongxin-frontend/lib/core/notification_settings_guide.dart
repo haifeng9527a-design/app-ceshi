@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../l10n/app_localizations.dart';
 import 'notification_service.dart';
 
 /// 安装/首次启动时一次性请求应用所需全部权限（通知、后台运行、相机、麦克风、相册、悬浮窗等）。
@@ -66,7 +67,7 @@ class NotificationSettingsGuide {
     await NotificationService.openFullScreenIntentSettings();
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请在设置页开启「全屏 intent」开关')),
+        SnackBar(content: Text(AppLocalizations.of(context)!.notifFullScreenIntentHint)),
       );
     }
   }
@@ -89,28 +90,26 @@ class NotificationSettingsGuide {
       context: context,
       barrierDismissible: true,
       builder: (ctx) => AlertDialog(
-        title: const Text('通知未开启'),
-        content: const Text(
-          '您已拒绝通知权限，将无法收到新消息提醒。可点击「去授权」再次请求，或到系统设置中开启。',
-        ),
+        title: Text(AppLocalizations.of(context)!.notifNotEnabled),
+        content: Text(AppLocalizations.of(context)!.notifPermissionDenied),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('取消'),
+            child: Text(AppLocalizations.of(context)!.commonCancel),
           ),
           FilledButton(
             onPressed: () async {
               Navigator.of(ctx).pop();
               await _requestAllPermissions(context);
             },
-            child: const Text('去授权'),
+            child: Text(AppLocalizations.of(context)!.notifGoAuthorize),
           ),
           TextButton(
             onPressed: () async {
               Navigator.of(ctx).pop();
               await openAppSettings();
             },
-            child: const Text('去设置'),
+            child: Text(AppLocalizations.of(context)!.notifGoSettings),
           ),
         ],
       ),

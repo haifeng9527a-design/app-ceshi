@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../l10n/app_localizations.dart';
 import '../../trading/polygon_repository.dart';
 import 'chart_theme.dart';
 import 'indicators_section.dart';
@@ -35,10 +36,17 @@ class BottomDetailTabs extends StatefulWidget {
 class _BottomDetailTabsState extends State<BottomDetailTabs> {
   int _index = 0;
 
-  static const List<String> labels = ['盘口', '指标', '资金', '新闻', '公告'];
+  List<String> _labels(BuildContext context) => [
+    AppLocalizations.of(context)!.chartTabOrderBook,
+    AppLocalizations.of(context)!.chartTabIndicator,
+    AppLocalizations.of(context)!.chartTabCapital,
+    AppLocalizations.of(context)!.chartTabNews,
+    AppLocalizations.of(context)!.chartTabAnnouncement,
+  ];
 
   @override
   Widget build(BuildContext context) {
+    final labels = _labels(context);
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -108,23 +116,24 @@ class _BottomDetailTabsState extends State<BottomDetailTabs> {
           candles: widget.klineCandles,
         );
       case 2:
-        return _placeholder('资金');
+        return _placeholder(context, AppLocalizations.of(context)!.chartTabCapital);
       case 3:
-        return _placeholder('新闻');
+        return _placeholder(context, AppLocalizations.of(context)!.chartTabNews);
       case 4:
-        return _placeholder('公告');
+        return _placeholder(context, AppLocalizations.of(context)!.chartTabAnnouncement);
       default:
         return const SizedBox.shrink();
     }
   }
 
-  Widget _placeholder(String label) {
+  Widget _placeholder(BuildContext context, String label) {
+    final developing = AppLocalizations.of(context)!.commonFeatureDeveloping;
     return Container(
       key: ValueKey(label),
       padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 24),
       alignment: Alignment.center,
       child: Text(
-        '$label 功能开发中',
+        '$label - $developing',
         style: TextStyle(color: ChartTheme.textSecondary, fontSize: 14),
       ),
     );

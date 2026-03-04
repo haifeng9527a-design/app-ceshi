@@ -4,6 +4,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../market/market_colors.dart';
 import '../market/market_repository.dart';
 
@@ -27,7 +28,13 @@ class _MarketQuote {
 
 /// 整体行情预设标的
 const _overallSymbols = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA'];
-const _overallNames = {'AAPL': '苹果', 'MSFT': '微软', 'GOOGL': '谷歌', 'AMZN': '亚马逊', 'TSLA': '特斯拉'};
+Map<String, String> _overallNames(BuildContext context) => {
+  'AAPL': AppLocalizations.of(context)!.tradingApple,
+  'MSFT': AppLocalizations.of(context)!.tradingMicrosoft,
+  'GOOGL': AppLocalizations.of(context)!.tradingGoogle,
+  'AMZN': AppLocalizations.of(context)!.tradingAmazon,
+  'TSLA': AppLocalizations.of(context)!.tradingTesla,
+};
 
 class _MarketTradeTabState extends State<MarketTradeTab> {
   static const Color _accent = Color(0xFFD6B46A);
@@ -65,7 +72,11 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
 
   /// 搜索引导：股票 / 外汇 / 加密货币
   int _searchCategoryIndex = 0;
-  static const List<String> _searchCategories = ['股票', '外汇', '加密货币'];
+  List<String> _searchCategories(BuildContext context) => [
+    AppLocalizations.of(context)!.tradingStock,
+    AppLocalizations.of(context)!.tradingForex,
+    AppLocalizations.of(context)!.tradingCrypto,
+  ];
 
   PolygonRealtime? _realtime;
   StreamSubscription<PolygonTradeUpdate>? _realtimeSub;
@@ -252,7 +263,7 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
           _lastUpdate = DateTime.now(); // 失败也推进更新时间，让用户看到在尝试
         });
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          SnackBar(content: Text('行情刷新失败: ${e.toString().replaceAll(RegExp(r'^Exception:\s*'), '')}')),
+          SnackBar(content: Text(AppLocalizations.of(context)!.tradingQuoteRefreshFailedWithError(e.toString().replaceAll(RegExp(r'^Exception:\s*'), '')))),
         );
       }
     }
@@ -292,7 +303,7 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
   void _openOrderSheet(bool isBuy) {
     if (_selectedSymbol == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请先搜索并选择标的')),
+        SnackBar(content: Text(AppLocalizations.of(context)!.tradingSearchAndSelectFirst)),
       );
       return;
     }
@@ -324,7 +335,10 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(
-                  '${isBuy ? "买入" : "卖出"} ${_selectedSymbol} 已提交（模拟，接口待接入）',
+                  AppLocalizations.of(context)!.tradingBuySellSubmitted(
+                    isBuy ? AppLocalizations.of(context)!.tradingBuy : AppLocalizations.of(context)!.tradingSell,
+                    _selectedSymbol!,
+                  ),
                 ),
               ),
             );
@@ -429,7 +443,7 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
           ),
           if (_volume != null && _volume! > 0) ...[
             const SizedBox(height: 6),
-            Text('成交量 $_volume', style: TextStyle(color: _muted, fontSize: 11)),
+            Text('${AppLocalizations.of(context)!.tradingVolume} $_volume', style: TextStyle(color: _muted, fontSize: 11)),
           ],
           const SizedBox(height: 12),
           _buildChartSection(inCard: true),
@@ -454,12 +468,12 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
             Icon(Icons.touch_app_rounded, color: _muted.withValues(alpha: 0.6), size: 40),
             const SizedBox(height: 12),
             Text(
-              '选择上方涨幅榜或搜索标的',
+              AppLocalizations.of(context)!.tradingSelectGainersOrSearch,
               style: TextStyle(color: _muted, fontSize: 13),
             ),
             const SizedBox(height: 4),
             Text(
-              '查看实时行情与图表',
+              AppLocalizations.of(context)!.tradingViewRealtimeQuote,
               style: TextStyle(color: _muted.withValues(alpha: 0.8), fontSize: 12),
             ),
           ],
@@ -478,23 +492,23 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
           children: [
             Icon(Icons.trending_up, color: _accent, size: 18),
             const SizedBox(width: 6),
-            Text('涨幅榜', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14)),
+            Text(AppLocalizations.of(context)!.tradingGainersList, style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14)),
             const Spacer(),
             if (hasApi && _loadingGainers)
               SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: _accent))
             else if (_lastUpdate != null)
-              Text('更新 ${_formatTime(_lastUpdate!)}', style: TextStyle(color: _muted, fontSize: 10)),
+              Text(AppLocalizations.of(context)!.tradingUpdateTimeValue(_formatTime(_lastUpdate!)), style: TextStyle(color: _muted, fontSize: 10)),
           ],
         ),
         if (!hasApi)
           Padding(
             padding: const EdgeInsets.only(top: 8),
-            child: Text('请配置 POLYGON_API_KEY', style: TextStyle(fontSize: 11, color: _muted)),
+            child: Text(AppLocalizations.of(context)!.tradingConfigurePolygonApiKey, style: TextStyle(fontSize: 11, color: _muted)),
           )
         else if (_gainers.isEmpty && !_loadingGainers)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 12),
-            child: Center(child: Text('暂无数据', style: TextStyle(color: _muted, fontSize: 12))),
+            child: Center(child: Text(AppLocalizations.of(context)!.tradingNoData, style: TextStyle(color: _muted, fontSize: 12))),
           )
         else ...[
           const SizedBox(height: 10),
@@ -577,11 +591,13 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
   }
 
   Widget _buildSearchSection() {
+    final l10n = AppLocalizations.of(context)!;
     final hintByCategory = [
-      '股票代码或名称',
-      '外汇代码如 EUR/USD',
-      '加密货币如 BTC、ETH',
+      l10n.tradingStockCodeOrName,
+      l10n.tradingForexCodeExample,
+      l10n.tradingCryptoExample,
     ];
+    final categories = _searchCategories(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
@@ -599,10 +615,10 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            children: List.generate(_searchCategories.length, (i) {
+            children: List.generate(categories.length, (i) {
               final selected = _searchCategoryIndex == i;
               return Padding(
-                padding: EdgeInsets.only(right: i < _searchCategories.length - 1 ? 8 : 0),
+                padding: EdgeInsets.only(right: i < categories.length - 1 ? 8 : 0),
                 child: GestureDetector(
                   onTap: () => setState(() => _searchCategoryIndex = i),
                   child: Container(
@@ -616,7 +632,7 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
                       ),
                     ),
                     child: Text(
-                      _searchCategories[i],
+                      categories[i],
                       style: TextStyle(
                         color: selected ? _accent : _muted,
                         fontSize: 12,
@@ -666,7 +682,7 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
                             height: 16,
                             child: CircularProgressIndicator(strokeWidth: 2, color: _bg),
                           )
-                        : const Text('搜索', style: TextStyle(
+                        : Text(AppLocalizations.of(context)!.commonSearch, style: const TextStyle(
                             color: Color(0xFF111215),
                             fontWeight: FontWeight.w600,
                             fontSize: 12,
@@ -689,9 +705,9 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
           Row(
             children: [
               SegmentedButton<bool>(
-                segments: const [
-                  ButtonSegment(value: false, label: Text('分时', style: TextStyle(fontSize: 11))),
-                  ButtonSegment(value: true, label: Text('K线', style: TextStyle(fontSize: 11))),
+                segments: [
+                  ButtonSegment(value: false, label: Text(AppLocalizations.of(context)!.tradingIntraday, style: const TextStyle(fontSize: 11))),
+                  ButtonSegment(value: true, label: Text(AppLocalizations.of(context)!.tradingKline, style: const TextStyle(fontSize: 11))),
                 ],
                 selected: {_chartKLine},
                 onSelectionChanged: (s) {
@@ -711,14 +727,14 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
             child: _chartLoading
                 ? Center(
                     child: Text(
-                      '加载中…',
+                      AppLocalizations.of(context)!.commonLoading,
                       style: TextStyle(color: _muted, fontSize: 12),
                     ),
                   )
                 : _candles.isEmpty
                     ? Center(
                         child: Text(
-                          '暂无图表数据',
+                          AppLocalizations.of(context)!.tradingNoChartData,
                           style: TextStyle(color: _muted, fontSize: 12),
                         ),
                       )
@@ -897,7 +913,7 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
                     Icon(Icons.arrow_upward_rounded, color: enabled ? Colors.white : _muted, size: 18),
                     const SizedBox(width: 6),
                     Text(
-                      '买入',
+                      AppLocalizations.of(context)!.tradingBuy,
                       style: TextStyle(
                         color: enabled ? Colors.white : _muted,
                         fontWeight: FontWeight.w600,
@@ -926,7 +942,7 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
                     Icon(Icons.arrow_downward_rounded, color: enabled ? Colors.white : _muted, size: 18),
                     const SizedBox(width: 6),
                     Text(
-                      '卖出',
+                      AppLocalizations.of(context)!.tradingSell,
                       style: TextStyle(
                         color: enabled ? Colors.white : _muted,
                         fontWeight: FontWeight.w600,
@@ -997,7 +1013,7 @@ class _OrderSheetState extends State<_OrderSheet> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              '${widget.isBuy ? "买入" : "卖出"} ${widget.symbol}',
+              '${widget.isBuy ? AppLocalizations.of(context)!.tradingBuy : AppLocalizations.of(context)!.tradingSell} ${widget.symbol}',
               style: const TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w600,
@@ -1005,9 +1021,9 @@ class _OrderSheetState extends State<_OrderSheet> {
             ),
             const SizedBox(height: 16),
             SegmentedButton<bool>(
-              segments: const [
-                ButtonSegment(value: true, label: Text('限价')),
-                ButtonSegment(value: false, label: Text('市价')),
+              segments: [
+                ButtonSegment(value: true, label: Text(AppLocalizations.of(context)!.tradingLimitOrder)),
+                ButtonSegment(value: false, label: Text(AppLocalizations.of(context)!.tradingMarketOrder)),
               ],
               selected: {_orderTypeLimit},
               onSelectionChanged: (s) => setState(() => _orderTypeLimit = s.first),
@@ -1018,7 +1034,7 @@ class _OrderSheetState extends State<_OrderSheet> {
                 controller: widget.priceController,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 decoration: InputDecoration(
-                  labelText: '价格',
+                  labelText: AppLocalizations.of(context)!.tradingPriceLabel,
                   filled: true,
                   fillColor: _bg,
                   border: OutlineInputBorder(
@@ -1032,7 +1048,7 @@ class _OrderSheetState extends State<_OrderSheet> {
               controller: widget.qtyController,
               keyboardType: TextInputType.number,
               decoration: InputDecoration(
-                labelText: '数量',
+                labelText: AppLocalizations.of(context)!.tradingQuantityLabel,
                 filled: true,
                 fillColor: _bg,
                 border: OutlineInputBorder(
@@ -1047,7 +1063,7 @@ class _OrderSheetState extends State<_OrderSheet> {
                 Expanded(
                   child: OutlinedButton(
                     onPressed: widget.onCancel,
-                    child: const Text('取消'),
+                    child: Text(AppLocalizations.of(context)!.commonCancel),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -1059,7 +1075,7 @@ class _OrderSheetState extends State<_OrderSheet> {
                       final qty = double.tryParse(qtyStr);
                       if (qty == null || qty <= 0) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('请输入有效数量（大于 0）')),
+                          SnackBar(content: Text(AppLocalizations.of(context)!.tradingEnterValidQuantity)),
                         );
                         return;
                       }
@@ -1068,7 +1084,7 @@ class _OrderSheetState extends State<_OrderSheet> {
                         final price = double.tryParse(priceStr);
                         if (price == null || price <= 0) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('限价单请输入有效价格（大于 0）')),
+                            SnackBar(content: Text(AppLocalizations.of(context)!.tradingEnterValidPriceForLimit)),
                           );
                           return;
                         }
@@ -1078,7 +1094,7 @@ class _OrderSheetState extends State<_OrderSheet> {
                     style: FilledButton.styleFrom(
                       backgroundColor: widget.isBuy ? Colors.green : Colors.red,
                     ),
-                    child: Text(widget.isBuy ? '确认买入' : '确认卖出'),
+                    child: Text(widget.isBuy ? AppLocalizations.of(context)!.tradingConfirmBuy : AppLocalizations.of(context)!.tradingConfirmSell),
                   ),
                 ),
               ],

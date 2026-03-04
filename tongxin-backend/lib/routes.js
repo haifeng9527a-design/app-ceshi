@@ -18,6 +18,7 @@ const {
 } = require('./config');
 const quoteFetcher = require('./quoteFetcher');
 const supabaseQuoteCache = require('./supabaseQuoteCache');
+const supabaseClient = require('./supabaseClient');
 
 const toQuoteSnapshot = quoteFetcher.toQuoteSnapshot;
 
@@ -387,6 +388,51 @@ async function handleSplits(req, res, polygonKey) {
   }
 }
 
+const MARKET_SNAPSHOTS_TABLE = 'market_snapshots';
+
+/** GET /api/market/snapshots?type=gainers|losers|indices|forex|crypto — 从 Supabase 读取行情快照 */
+async function handleMarketSnapshotsGet(req, res) {
+  const type = req.query.type?.trim();
+  if (!type) return res.status(400).json({ error: 'missing type' });
+  const supabase = supabaseClient.getClient();
+  if (!supabase) return res.status(503).json({ error: 'Supabase 未配置' });
+  try {
+    const { data, error } = await supabase
+      .from(MARKET_SNAPSHOTS_TABLE)
+      .select('payload')
+      .eq('type', type)
+      .maybeSingle();
+    if (error) return res.status(502).json({ error: String(error.message) });
+    const payload = data?.payload;
+    if (!payload) return res.json([]);
+    return res.json(Array.isArray(payload) ? payload : [payload]);
+  } catch (e) {
+    return res.status(502).json({ error: String(e.message || e) });
+  }
+}
+
+/** PUT /api/market/snapshots — 写入行情快照，body: { type, payload } */
+async function handleMarketSnapshotsPut(req, res) {
+  const { type, payload } = req.body || {};
+  if (!type || typeof type !== 'string' || !payload) {
+    return res.status(400).json({ error: 'missing type or payload' });
+  }
+  const supabase = supabaseClient.getClient();
+  if (!supabase) return res.status(503).json({ error: 'Supabase 未配置' });
+  try {
+    const { error } = await supabase
+      .from(MARKET_SNAPSHOTS_TABLE)
+      .upsert(
+        { type: type.trim(), payload, updated_at: new Date().toISOString() },
+        { onConflict: 'type' },
+      );
+    if (error) return res.status(502).json({ error: String(error.message) });
+    return res.json({ ok: true });
+  } catch (e) {
+    return res.status(502).json({ error: String(e.message || e) });
+  }
+}
+
 /** GET /api/tickers-from-cache — 从 Supabase stock_quote_cache 取 symbol+name 列表，秒开美股列表 */
 async function handleTickersFromCache(req, res) {
   if (!supabaseQuoteCache.isConfigured()) {
@@ -403,6 +449,8 @@ async function handleTickersFromCache(req, res) {
 
 function registerRoutes(app, polygonKey, twelveKey) {
   rateLimiter.init(require('./config').POLYGON_RATE_LIMIT_PER_SEC);
+  app.get('/api/market/snapshots', handleMarketSnapshotsGet);
+  app.put('/api/market/snapshots', handleMarketSnapshotsPut);
   app.get('/api/tickers-from-cache', handleTickersFromCache);
   app.get('/api/quotes', (req, res) => handleQuotes(req, res, polygonKey, twelveKey));
   app.get('/api/candles', (req, res) => handleCandles(req, res, polygonKey, twelveKey));

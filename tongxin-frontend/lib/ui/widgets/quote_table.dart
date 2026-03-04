@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../tv_theme.dart';
 import '../../features/trading/polygon_repository.dart';
 import '../../features/market/market_colors.dart';
@@ -30,9 +31,10 @@ class _TvQuoteTableState extends State<TvQuoteTable> {
     return v.toStringAsFixed(4);
   }
 
-  static String _formatTurnover(double v) {
-    if (v >= 100000000) return '${(v / 100000000).toStringAsFixed(2)}亿';
-    if (v >= 10000) return '${(v / 10000).toStringAsFixed(2)}万';
+  String _formatTurnover(BuildContext context, double v) {
+    final isZh = Localizations.localeOf(context).languageCode == 'zh';
+    if (v >= 100000000) return isZh ? '${(v / 100000000).toStringAsFixed(2)}亿' : '${(v / 1000000).toStringAsFixed(1)}M';
+    if (v >= 10000) return isZh ? '${(v / 10000).toStringAsFixed(2)}万' : '${(v / 1000).toStringAsFixed(1)}K';
     return v.toStringAsFixed(0);
   }
 
@@ -42,13 +44,14 @@ class _TvQuoteTableState extends State<TvQuoteTable> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
-        _buildHeader(),
-        ...widget.rows.asMap().entries.map((e) => _buildRow(e.key, e.value)),
+        _buildHeader(context),
+        ...widget.rows.asMap().entries.map((e) => _buildRow(context, e.key, e.value)),
       ],
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildHeader(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Container(
       height: TvTheme.tableHeaderHeight,
       padding: const EdgeInsets.symmetric(horizontal: TvTheme.innerPadding),
@@ -58,11 +61,11 @@ class _TvQuoteTableState extends State<TvQuoteTable> {
       ),
       child: Row(
         children: [
-          _headerCell('代码', flex: 1, align: TextAlign.left),
-          _headerCell('最新价', width: 88),
-          _headerCell('涨跌额', width: 80),
-          _headerCell('涨跌幅', width: 76),
-          _headerCell('成交额', width: 84),
+          _headerCell(l10n.marketCode, flex: 1, align: TextAlign.left),
+          _headerCell(l10n.marketLatestPrice, width: 88),
+          _headerCell(l10n.marketChangeAmount, width: 80),
+          _headerCell(l10n.marketChangePct, width: 76),
+          _headerCell(l10n.marketTurnover, width: 84),
         ],
       ),
     );
@@ -76,7 +79,7 @@ class _TvQuoteTableState extends State<TvQuoteTable> {
     return Expanded(flex: flex == 0 ? 1 : flex, child: child);
   }
 
-  Widget _buildRow(int index, PolygonGainer g) {
+  Widget _buildRow(BuildContext context, int index, PolygonGainer g) {
     final isHovered = index == _hoveredIndex;
     final isSelected = g.ticker == widget.selectedSymbol;
     final color = MarketColors.forChangePercent(g.todaysChangePerc);
@@ -164,7 +167,7 @@ class _TvQuoteTableState extends State<TvQuoteTable> {
                 SizedBox(
                   width: 84,
                   child: Text(
-                    turnover != null && turnover > 0 ? _formatTurnover(turnover) : '—',
+                    turnover != null && turnover > 0 ? _formatTurnover(context, turnover) : '—',
                     style: TvTheme.metaTertiary.copyWith(fontFamily: TvTheme.fontMono),
                     textAlign: TextAlign.right,
                     maxLines: 1,

@@ -2,7 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../api/teachers_api.dart';
+import '../../core/api_client.dart';
 import '../../core/supabase_bootstrap.dart';
+import '../../l10n/app_localizations.dart';
 import '../teachers/teacher_models.dart';
 import '../teachers/teacher_public_page.dart';
 
@@ -18,10 +21,14 @@ class _RankingsPageState extends State<RankingsPage> {
   int _streamKey = 0;
 
   Stream<List<TeacherProfile>> _rankingsStream() {
-    if (!SupabaseBootstrap.isReady) {
+    if (ApiClient.instance.isAvailable) {
+      return TeachersApi.instance.watchRankings();
+    }
+    final client = SupabaseBootstrap.clientOrNull;
+    if (!SupabaseBootstrap.isReady || client == null) {
       return Stream.value(<TeacherProfile>[]);
     }
-    return SupabaseBootstrap.client
+    return client
         .from('teacher_profiles')
         .stream(primaryKey: ['user_id'])
         .map(
@@ -166,7 +173,7 @@ class _RankingsPageState extends State<RankingsPage> {
             TextButton.icon(
               onPressed: onRetry,
               icon: const Icon(Icons.refresh),
-              label: const Text('重试'),
+              label: Text(AppLocalizations.of(context)!.commonRetry),
               style: TextButton.styleFrom(
                 foregroundColor: const Color(0xFFD4AF37),
               ),
@@ -295,16 +302,16 @@ class _RankingCard extends StatelessWidget {
                   Row(
                     children: [
                       Expanded(
-                        child: _StatPill(label: '胜', value: '$wins'),
+                        child: _StatPill(label: AppLocalizations.of(context)!.featuredWins, value: '$wins'),
                       ),
                       const SizedBox(width: 4),
                       Expanded(
-                        child: _StatPill(label: '败', value: '$losses'),
+                        child: _StatPill(label: AppLocalizations.of(context)!.featuredLosses, value: '$losses'),
                       ),
                       const SizedBox(width: 4),
                       Expanded(
                         child: _StatPill(
-                            label: '胜率', value: '$winRatePct%'),
+                            label: AppLocalizations.of(context)!.featuredWinRate, value: '$winRatePct%'),
                       ),
                     ],
                   ),
@@ -417,9 +424,9 @@ class _TopThreeCard extends StatelessWidget {
                     spacing: 4,
                     runSpacing: 4,
                     children: [
-                      _StatPill(label: '胜', value: '$wins'),
-                      _StatPill(label: '败', value: '$losses'),
-                      _StatPill(label: '胜率', value: '$winRatePct%'),
+                      _StatPill(label: AppLocalizations.of(context)!.featuredWins, value: '$wins'),
+                      _StatPill(label: AppLocalizations.of(context)!.featuredLosses, value: '$losses'),
+                      _StatPill(label: AppLocalizations.of(context)!.featuredWinRate, value: '$winRatePct%'),
                     ],
                   ),
                 ],
@@ -547,15 +554,15 @@ class _RankIntro extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _PromoCarousel(),
+        _PromoCarousel(),
         const SizedBox(height: 16),
         Wrap(
           spacing: 8,
           runSpacing: 8,
-          children: const [
-            _IntroPill(icon: Icons.verified_outlined, text: '导师实名认证'),
-            _IntroPill(icon: Icons.auto_graph, text: '策略与收益可追踪'),
-            _IntroPill(icon: Icons.groups_outlined, text: '学员互动与社群支持'),
+          children: [
+            _IntroPill(icon: Icons.verified_outlined, text: AppLocalizations.of(context)!.rankingsMentorVerified),
+            _IntroPill(icon: Icons.auto_graph, text: AppLocalizations.of(context)!.rankingsStrategyTraceable),
+            _IntroPill(icon: Icons.groups_outlined, text: AppLocalizations.of(context)!.rankingsCommunitySupport),
           ],
         ),
         const SizedBox(height: 6),
@@ -569,6 +576,7 @@ class _RankListTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Padding(
       padding: const EdgeInsets.only(top: 2, bottom: 8),
       child: Row(
@@ -576,7 +584,7 @@ class _RankListTitle extends StatelessWidget {
           Icon(Icons.emoji_events, color: const Color(0xFFD4AF37), size: 16),
           const SizedBox(width: 6),
           Text(
-            '本月收益排行榜',
+            l10n.rankingsMonthProfitRank,
             style: Theme.of(context).textTheme.titleSmall?.copyWith(
                   color: const Color(0xFFE8D5A3),
                   fontWeight: FontWeight.w700,
@@ -584,7 +592,7 @@ class _RankListTitle extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           Text(
-            '实时 · 透明',
+            l10n.rankingsRealtimeTransparent,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: const Color(0xFF6B6B70),
                   fontSize: 11,
@@ -608,26 +616,29 @@ class _PromoCarouselState extends State<_PromoCarousel> {
   int _index = 0;
   late final Timer _timer;
 
-  static const _slides = [
-    _PromoSlide(
-      title: '跟对导师，收益可见',
-      subtitle: '策略透明 · 实盘可跟 · 每月收益一目了然',
-      gradient: [Color(0xFF1A1625), Color(0xFF2D1B3D), Color(0xFF1A0F26)],
-      accent: Color(0xFFD4AF37),
-    ),
-    _PromoSlide(
-      title: '真人实盘，有据可查',
-      subtitle: '实名认证导师 · 胜率与盈亏全程可追踪',
-      gradient: [Color(0xFF0F1A1F), Color(0xFF1A2F2A), Color(0xFF0D1612)],
-      accent: Color(0xFF2E8B6E),
-    ),
-    _PromoSlide(
-      title: '每月榜单，谁在领跑',
-      subtitle: '本月收益排行 · 一键关注 · 跟单不迷路',
-      gradient: [Color(0xFF1F1510), Color(0xFF2A1F15), Color(0xFF1A120D)],
-      accent: Color(0xFFC9A227),
-    ),
-  ];
+  List<_PromoSlide> _slides(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return [
+      _PromoSlide(
+        title: l10n.rankingsPromo1Title,
+        subtitle: l10n.rankingsPromo1Subtitle,
+        gradient: const [Color(0xFF1A1625), Color(0xFF2D1B3D), Color(0xFF1A0F26)],
+        accent: const Color(0xFFD4AF37),
+      ),
+      _PromoSlide(
+        title: l10n.rankingsPromo2Title,
+        subtitle: l10n.rankingsPromo2Subtitle,
+        gradient: const [Color(0xFF0F1A1F), Color(0xFF1A2F2A), Color(0xFF0D1612)],
+        accent: const Color(0xFF2E8B6E),
+      ),
+      _PromoSlide(
+        title: l10n.rankingsPromo3Title,
+        subtitle: l10n.rankingsPromo3Subtitle,
+        gradient: const [Color(0xFF1F1510), Color(0xFF2A1F15), Color(0xFF1A120D)],
+        accent: const Color(0xFFC9A227),
+      ),
+    ];
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -637,10 +648,10 @@ class _PromoCarouselState extends State<_PromoCarousel> {
           height: 168,
           child: PageView.builder(
             controller: _controller,
-            itemCount: _slides.length,
+            itemCount: _slides(context).length,
             onPageChanged: (value) => setState(() => _index = value),
             itemBuilder: (context, index) {
-              return _PromoCard(slide: _slides[index]);
+              return _PromoCard(slide: _slides(context)[index]);
             },
           ),
         ),
@@ -648,7 +659,7 @@ class _PromoCarouselState extends State<_PromoCarousel> {
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: List.generate(
-            _slides.length,
+            _slides(context).length,
             (i) => AnimatedContainer(
               duration: const Duration(milliseconds: 280),
               margin: const EdgeInsets.symmetric(horizontal: 5),
@@ -672,7 +683,8 @@ class _PromoCarouselState extends State<_PromoCarousel> {
     super.initState();
     _timer = Timer.periodic(const Duration(seconds: 4), (_) {
       if (!mounted) return;
-      final next = (_index + 1) % _slides.length;
+      final slides = _slides(context);
+      final next = (_index + 1) % slides.length;
       _controller.animateToPage(
         next,
         duration: const Duration(milliseconds: 450),
@@ -772,7 +784,7 @@ class _PromoCard extends StatelessWidget {
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      '了解更多',
+                      AppLocalizations.of(context)!.rankingsLearnMore,
                       style: Theme.of(context).textTheme.labelMedium?.copyWith(
                             color: slide.accent,
                             fontWeight: FontWeight.w600,

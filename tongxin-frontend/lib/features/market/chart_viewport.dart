@@ -2,6 +2,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../trading/polygon_repository.dart';
 import 'chart/chart_theme.dart';
 import 'chart_viewport_controller.dart';
@@ -339,10 +340,10 @@ class _ChartViewportState extends State<ChartViewport> {
                     style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600),
                   ),
                   const SizedBox(height: 2),
-                  Text('量 $volStr', style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 11)),
+                  Text('${AppLocalizations.of(context)!.chartVol} $volStr', style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 11)),
                   const SizedBox(height: 4),
                   Text(
-                    '点击图表关闭',
+                    AppLocalizations.of(context)!.chartClickToClose,
                     style: TextStyle(color: const Color(0xFF9CA3AF).withValues(alpha: 0.8), fontSize: 10),
                   ),
                 ],
@@ -384,8 +385,8 @@ class _ChartViewportState extends State<ChartViewport> {
     final (vStart, vEnd) = widget.controller.visibleRange(widget.candles.length);
     final candles = _visibleCandles;
     if (widget.candles.isEmpty) {
-      return const Center(
-        child: Text('No chart data', style: TextStyle(color: Color(0xFF9CA3AF))),
+      return Center(
+        child: Text(AppLocalizations.of(context)!.chartNoKlineData, style: TextStyle(color: Color(0xFF9CA3AF))),
       );
     }
     if (candles.isEmpty) {
@@ -402,8 +403,8 @@ class _ChartViewportState extends State<ChartViewport> {
                 colors: [Color(0xFF0F172A), Color(0xFF111827)],
               ),
             ),
-            child: const Center(
-              child: Text('暂无K线数据', style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 13)),
+            child: Center(
+              child: Text(AppLocalizations.of(context)!.chartNoKlineData, style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 13)),
             ),
           ),
         ),

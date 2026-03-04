@@ -9,6 +9,7 @@ import 'package:flutter/foundation.dart';
 import 'dart:io';
 
 import '../../core/notification_service.dart';
+import '../../l10n/app_localizations.dart';
 import 'agora_config.dart';
 import 'agora_call_page.dart';
 import 'call_invitation_repository.dart';
@@ -99,7 +100,7 @@ class _IncomingCallScreenState extends State<_IncomingCallScreen>
         Navigator.of(context).pop();
         widget.onDismiss();
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('对方已取消')),
+          SnackBar(content: Text(AppLocalizations.of(context)!.callOtherCancelled)),
         );
       }
     });
@@ -197,7 +198,7 @@ class _IncomingCallScreenState extends State<_IncomingCallScreen>
                     children: [
                       const SizedBox(height: 24),
                       Text(
-                        widget.isVideo ? '视频通话' : '语音通话',
+                        widget.isVideo ? AppLocalizations.of(context)!.callVideoCall : AppLocalizations.of(context)!.callVoiceCall,
                         style: TextStyle(
                           color: Colors.grey[400],
                           fontSize: 16,
@@ -253,6 +254,8 @@ class _IncomingCallScreenState extends State<_IncomingCallScreen>
                                 ? CachedNetworkImage(
                                     imageUrl: widget.fromAvatarUrl!.trim(),
                                     fit: BoxFit.cover,
+                                    fadeInDuration: Duration.zero,
+                                    fadeOutDuration: Duration.zero,
                                     placeholder: (_, __) => _avatarPlaceholder(initial),
                                     errorWidget: (_, __, ___) => _avatarPlaceholder(initial),
                                   )
@@ -271,7 +274,7 @@ class _IncomingCallScreenState extends State<_IncomingCallScreen>
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        '邀请你${widget.isVideo ? '视频' : '语音'}通话',
+                        widget.isVideo ? AppLocalizations.of(context)!.callInviteVideoCall : AppLocalizations.of(context)!.callInviteVoiceCall,
                         style: TextStyle(
                           color: Colors.grey[500],
                           fontSize: 16,
@@ -285,13 +288,13 @@ class _IncomingCallScreenState extends State<_IncomingCallScreen>
                           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                           children: [
                             _CallActionButton(
-                              label: '拒绝',
+                              label: AppLocalizations.of(context)!.callDecline,
                               icon: Icons.call_end,
                               color: Colors.red,
                               onPressed: _reject,
                             ),
                             _CallActionButton(
-                              label: '接听',
+                              label: AppLocalizations.of(context)!.callAnswer,
                               icon: Icons.call,
                               color: const Color(0xFF34C759),
                               onPressed: _accept,

@@ -49,5 +49,16 @@ class SupabaseBootstrap {
     }
   }
 
-  static SupabaseClient get client => Supabase.instance.client;
+  static SupabaseClient get client {
+    if (!isReady) {
+      throw StateError(
+        'Supabase 未配置：已迁移至后端代理，请配置 TONGXIN_API_URL 并确保后端运行',
+      );
+    }
+    return Supabase.instance.client;
+  }
+
+  /// 未配置时返回 null，供 Repository 安全降级（返回空数据）
+  static SupabaseClient? get clientOrNull =>
+      isReady ? Supabase.instance.client : null;
 }

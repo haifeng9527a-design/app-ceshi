@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../l10n/app_localizations.dart';
 import 'chart_theme.dart';
 
 /// 指标区（仅 K 线模式）：MA/EMA + VOL/MACD/RSI 切换，卡片样式
@@ -52,10 +53,11 @@ class IndicatorsPanel extends StatelessWidget {
             final selected = e.isOverlay
                 ? overlayIndicator == e.id
                 : subChartIndicator == e.id;
+            final label = e.id == 'none' ? AppLocalizations.of(context)!.chartIndicatorNone : e.label;
             return Padding(
               padding: const EdgeInsets.only(right: 8),
               child: FilterChip(
-                label: Text(e.label),
+                label: Text(label),
                 selected: selected,
                 onSelected: (_) {
                   if (e.isOverlay) {
@@ -77,12 +79,12 @@ class IndicatorsPanel extends StatelessWidget {
           ),
           if (onShowPrevCloseLineChanged != null) ...[
             const SizedBox(height: 8),
-            Text('昨收线', style: TextStyle(color: ChartTheme.textTertiary, fontSize: 11)),
+            Text(AppLocalizations.of(context)!.chartPrevCloseLine, style: TextStyle(color: ChartTheme.textTertiary, fontSize: 11)),
             const SizedBox(height: 4),
             Row(
               children: [
                 FilterChip(
-                  label: const Text('有', style: TextStyle(fontSize: 12)),
+                  label: Text(AppLocalizations.of(context)!.chartIndicatorYes, style: TextStyle(fontSize: 12)),
                   selected: showPrevCloseLine,
                   onSelected: (_) => onShowPrevCloseLineChanged!(true),
                   selectedColor: ChartTheme.accentGold.withValues(alpha: 0.3),
@@ -94,7 +96,7 @@ class IndicatorsPanel extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 FilterChip(
-                  label: const Text('无', style: TextStyle(fontSize: 12)),
+                  label: Text(AppLocalizations.of(context)!.chartIndicatorNo, style: TextStyle(fontSize: 12)),
                   selected: !showPrevCloseLine,
                   onSelected: (_) => onShowPrevCloseLineChanged!(false),
                   selectedColor: ChartTheme.accentGold.withValues(alpha: 0.3),

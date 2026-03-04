@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../l10n/app_localizations.dart';
 import 'chart_theme.dart';
 
 /// 底部数据带：固定高度单行，横向滚动，不随窗口变化溢出；每项 label(Meta 灰) + value(Body/Title)，右对齐、等宽数字
@@ -51,9 +52,10 @@ class ChartStatsBar extends StatelessWidget {
     return v.toString();
   }
 
-  static String _formatTurnover(double v) {
-    if (v >= 100000000) return '${(v / 100000000).toStringAsFixed(2)}亿';
-    if (v >= 10000) return '${(v / 10000).toStringAsFixed(2)}万';
+  String _formatTurnover(BuildContext context, double v) {
+    final isZh = Localizations.localeOf(context).languageCode == 'zh';
+    if (v >= 100000000) return isZh ? '${(v / 100000000).toStringAsFixed(2)}亿' : '${(v / 1000000).toStringAsFixed(1)}M';
+    if (v >= 10000) return isZh ? '${(v / 10000).toStringAsFixed(2)}万' : '${(v / 1000).toStringAsFixed(1)}K';
     return v.toStringAsFixed(0);
   }
 
@@ -63,24 +65,25 @@ class ChartStatsBar extends StatelessWidget {
     final hasAny = displayClose != null || open != null || volume != null;
     if (!hasAny) return const SizedBox.shrink();
 
+    final l10n = AppLocalizations.of(context)!;
     final items = <_StatItem>[
-      _StatItem('开', _v(open), null),
-      _StatItem('高', _v(high), true),
-      _StatItem('低', _v(low), false),
-      _StatItem('收', _v(displayClose), null, highlight: true),
-      _StatItem('昨收', _v(prevClose), null),
-      _StatItem('涨跌', _v(change, isChange: true), change != null ? (change! >= 0) : null),
-      _StatItem('涨跌幅', _v(changePercent, isPercent: true), changePercent != null ? (changePercent! >= 0) : null, highlight: true),
-      _StatItem('振幅', _v(amplitude, isPercent: true), null),
-      _StatItem('均价', _v(avgPrice), null),
-      _StatItem('成交量', volume != null ? _formatVol(volume!) : '—', null),
-      _StatItem('成交额', turnover != null ? _formatTurnover(turnover!) : '—', null),
+      _StatItem(l10n.chartStatsOpen, _v(open), null),
+      _StatItem(l10n.chartStatsHigh, _v(high), true),
+      _StatItem(l10n.chartStatsLow, _v(low), false),
+      _StatItem(l10n.chartStatsClose, _v(displayClose), null, highlight: true),
+      _StatItem(l10n.chartStatsPrevClose, _v(prevClose), null),
+      _StatItem(l10n.chartStatsChange, _v(change, isChange: true), change != null ? (change! >= 0) : null),
+      _StatItem(l10n.chartStatsChangePct, _v(changePercent, isPercent: true), changePercent != null ? (changePercent! >= 0) : null, highlight: true),
+      _StatItem(l10n.chartStatsAmplitude, _v(amplitude, isPercent: true), null),
+      _StatItem(l10n.chartStatsAvgPrice, _v(avgPrice), null),
+      _StatItem(l10n.chartStatsVolume, volume != null ? _formatVol(volume!) : '—', null),
+      _StatItem(l10n.chartStatsTurnover, turnover != null ? _formatTurnover(context, turnover!) : '—', null),
       _StatItem(
-        dividendYieldPercent != null ? '股息率' : '换手率',
+        dividendYieldPercent != null ? l10n.chartStatsDividendYield : l10n.chartStatsTurnoverRate,
         turnoverRate != null ? '${turnoverRate!.toStringAsFixed(2)}%' : (dividendYieldPercent != null ? '${dividendYieldPercent!.toStringAsFixed(2)}%' : '—'),
         null,
       ),
-      _StatItem('市盈率TTM', peTtm != null ? peTtm!.toStringAsFixed(2) : '—', null),
+      _StatItem(l10n.chartStatsPeTtm, peTtm != null ? peTtm!.toStringAsFixed(2) : '—', null),
     ];
 
     return Container(

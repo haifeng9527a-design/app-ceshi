@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../auth/login_page.dart';
 import '../../core/network_error_helper.dart';
 import '../home/featured_teacher_page.dart';
@@ -43,9 +44,9 @@ class TeacherPublicPage extends StatelessWidget {
           icon: const Icon(Icons.arrow_back_ios_new, color: _accent, size: 20),
           onPressed: () => Navigator.of(context).pop(),
         ),
-        title: const Text(
-          '交易员资料',
-          style: TextStyle(color: _accent, fontWeight: FontWeight.w600),
+        title: Text(
+          AppLocalizations.of(context)!.teachersProfileTitle,
+          style: const TextStyle(color: _accent, fontWeight: FontWeight.w600),
         ),
         centerTitle: true,
       ),
@@ -54,7 +55,7 @@ class TeacherPublicPage extends StatelessWidget {
         builder: (context, snapshot) {
           final profile = snapshot.data;
           if (profile == null) {
-            return const Center(child: Text('暂无交易员信息', style: TextStyle(color: _muted)));
+            return Center(child: Text(AppLocalizations.of(context)!.teachersNoTeacherInfo, style: const TextStyle(color: _muted)));
           }
           final isApproved = (profile.status ?? '') == 'approved';
           final listChildren = [
@@ -67,7 +68,7 @@ class TeacherPublicPage extends StatelessWidget {
               _StatsBlock(profile: profile),
               const SizedBox(height: 24),
               _SectionBlock(
-                title: '个人介绍',
+                title: AppLocalizations.of(context)!.teachersPersonalIntro,
                 child: _BioCard(
                   bio: profile.bio?.trim().isNotEmpty == true
                       ? profile.bio!
@@ -75,22 +76,22 @@ class TeacherPublicPage extends StatelessWidget {
                 ),
               ),
               _SectionBlock(
-                title: '擅长品种',
+                title: AppLocalizations.of(context)!.teachersExpertiseProducts,
                 child: _SpecialtiesWrap(specialties: profile.specialties),
               ),
               if (isApproved) ...[
                 _SectionBlock(
-                  title: '交易策略',
+                  title: AppLocalizations.of(context)!.teachersStrategySection,
                   child: StreamBuilder<List<TeacherStrategy>>(
                     stream: repository.watchPublishedStrategies(teacherId),
                     builder: (context, strategySnapshot) {
                       final items =
                           strategySnapshot.data ?? const <TeacherStrategy>[];
                       if (items.isEmpty) {
-                        return const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 12),
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
                           child: Text(
-                            '暂无公开策略',
+                            AppLocalizations.of(context)!.teachersNoPublicStrategy,
                             style: TextStyle(color: _muted, fontSize: 14),
                           ),
                         );
@@ -159,17 +160,17 @@ class TeacherPublicPage extends StatelessWidget {
               ],
               if (isOwner && isApproved) ...[
                 _SectionBlock(
-                  title: '我的交易记录',
+                  title: AppLocalizations.of(context)!.teachersMyTradeRecords,
                   child: StreamBuilder<List<TradeRecord>>(
                     stream: repository.watchTradeRecords(teacherId),
                     builder: (context, recordSnapshot) {
                       final items =
                           recordSnapshot.data ?? const <TradeRecord>[];
                       if (items.isEmpty) {
-                        return const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 12),
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
                           child: Text(
-                            '暂无交易记录',
+                            AppLocalizations.of(context)!.teachersNoTradeRecords,
                             style: TextStyle(color: _muted, fontSize: 14),
                           ),
                         );
@@ -264,7 +265,7 @@ class TeacherPublicPage extends StatelessWidget {
                     ? profile.displayName!
                     : (profile.realName?.trim().isNotEmpty == true
                         ? profile.realName!
-                        : '交易员'),
+                        : AppLocalizations.of(context)!.profileTeacher),
                 currentUserId: currentUserId,
                 isOwner: isOwner,
                 isAlreadyFriend: isAlreadyFriend,
@@ -338,7 +339,7 @@ class _BottomFollowBarState extends State<_BottomFollowBar> {
       if (context.mounted) {
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(
           SnackBar(
-            content: Text(NetworkErrorHelper.messageForUser(e, prefix: '打开私聊失败')),
+            content: Text(NetworkErrorHelper.messageForUser(e, prefix: AppLocalizations.of(context)!.msgOpenChatFailedPrefix, l10n: AppLocalizations.of(context))),
           ),
         );
       }
@@ -388,8 +389,8 @@ class _BottomFollowBarState extends State<_BottomFollowBar> {
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                  child: const Text(
-                    '进入交易策略中心',
+                  child: Text(
+                    AppLocalizations.of(context)!.teachersEnterStrategyCenter,
                     style: TextStyle(
                       fontWeight: FontWeight.w600,
                       fontSize: 16,
@@ -414,7 +415,7 @@ class _BottomFollowBarState extends State<_BottomFollowBar> {
                     );
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('已发送好友申请')),
+                        SnackBar(content: Text(AppLocalizations.of(context)!.msgFriendRequestSent)),
                       );
                     }
                   } catch (e) {
@@ -422,12 +423,12 @@ class _BottomFollowBarState extends State<_BottomFollowBar> {
                       final msg = e.toString();
                       String displayMsg;
                       if (msg.contains('already_friends')) {
-                        displayMsg = '你们已是好友';
+                        displayMsg = AppLocalizations.of(context)!.msgAlreadyFriends;
                         if (mounted) setState(() => _overrideIsFriend = true);
                       } else if (msg.contains('already_pending')) {
-                        displayMsg = '已发送过申请，请等待对方处理';
+                        displayMsg = AppLocalizations.of(context)!.msgAlreadyPending;
                       } else {
-                        displayMsg = NetworkErrorHelper.messageForUser(e, prefix: '加好友失败');
+                        displayMsg = NetworkErrorHelper.messageForUser(e, prefix: AppLocalizations.of(context)!.msgAddFriendFailed, l10n: AppLocalizations.of(context));
                       }
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(content: Text(displayMsg)),
@@ -443,8 +444,8 @@ class _BottomFollowBarState extends State<_BottomFollowBar> {
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-                child: const Text(
-                  '加好友',
+                child: Text(
+                  AppLocalizations.of(context)!.msgAddFriend,
                   style: TextStyle(
                     fontWeight: FontWeight.w600,
                     fontSize: 16,
@@ -480,7 +481,7 @@ class _HeaderBlock extends StatelessWidget {
         ? profile.displayName!
         : ((profile.realName?.trim().isNotEmpty == true)
             ? profile.realName!
-            : '交易员');
+            : AppLocalizations.of(context)!.profileTeacher);
     // 个性签名优先用 user_profiles.signature（与「我的」页同步），无则用 teacher_profiles.title
     final signature = (profile.signature?.trim().isNotEmpty == true
             ? profile.signature
@@ -535,7 +536,7 @@ class _HeaderBlock extends StatelessWidget {
                         builder: (context, countSnapshot) {
                           final count = countSnapshot.data ?? 0;
                           return Text(
-                            '关注 $count',
+                            AppLocalizations.of(context)!.teachersFollowingCount(count),
                             style: const TextStyle(
                               color: _muted,
                               fontSize: 12,
@@ -547,8 +548,8 @@ class _HeaderBlock extends StatelessWidget {
                   ),
                   if (signature != null) ...[
                     const SizedBox(height: 4),
-                    const Text(
-                      '个性签名',
+                    Text(
+                      AppLocalizations.of(context)!.teachersSignatureLabel,
                       style: TextStyle(color: _muted, fontSize: 11),
                     ),
                     const SizedBox(height: 2),
@@ -580,17 +581,17 @@ class _HeaderBlock extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _InfoRow(
-                label: '执照/注册编号',
+                label: AppLocalizations.of(context)!.teachersLicenseNoLabel,
                 value: profile.licenseNo,
               ),
               const SizedBox(height: 10),
               _InfoRow(
-                label: '主要市场',
+                label: AppLocalizations.of(context)!.teachersMainMarket,
                 value: profile.markets,
               ),
               const SizedBox(height: 10),
               _InfoRow(
-                label: '交易风格',
+                label: AppLocalizations.of(context)!.teachersTradingStyleShort,
                 value: profile.style,
               ),
             ],
@@ -683,8 +684,8 @@ class _StatsBlock extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              const Text(
-                '战绩与收益',
+              Text(
+                AppLocalizations.of(context)!.teachersRecordAndEarnings,
                 style: TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w600,
@@ -699,19 +700,19 @@ class _StatsBlock extends StatelessWidget {
               Expanded(
                 child: _StatItem(
                   value: _formatPnl(total),
-                  label: '总收益',
+                  label: AppLocalizations.of(context)!.teachersTotalEarnings,
                 ),
               ),
               Expanded(
                 child: _StatItem(
                   value: _formatPnl(month),
-                  label: '月收益',
+                  label: AppLocalizations.of(context)!.teachersMonthlyEarnings,
                 ),
               ),
               Expanded(
                 child: _StatItem(
                   value: _formatPnl(current),
-                  label: '浮动盈亏',
+                  label: AppLocalizations.of(context)!.featuredFloatingPnl,
                 ),
               ),
             ],
@@ -722,25 +723,25 @@ class _StatsBlock extends StatelessWidget {
               Expanded(
                 child: _StatItem(
                   value: '$wins',
-                  label: '胜场',
+                  label: AppLocalizations.of(context)!.featuredWins,
                 ),
               ),
               Expanded(
                 child: _StatItem(
                   value: '$losses',
-                  label: '败场',
+                  label: AppLocalizations.of(context)!.featuredLosses,
                 ),
               ),
               Expanded(
                 child: _StatItem(
                   value: '$winRate%',
-                  label: '胜率',
+                  label: AppLocalizations.of(context)!.featuredWinRate,
                 ),
               ),
               Expanded(
                 child: _StatItem(
                   value: '$rating',
-                  label: '评分',
+                  label: AppLocalizations.of(context)!.teachersRatingLabel,
                 ),
               ),
             ],
@@ -811,7 +812,7 @@ class _BioCard extends StatelessWidget {
         border: Border.all(color: Colors.white.withOpacity(0.06)),
       ),
       child: Text(
-        bio ?? '暂无介绍',
+        bio ?? AppLocalizations.of(context)!.teachersNoIntro,
         style: TextStyle(
           color: bio != null ? Colors.white.withOpacity(0.88) : _muted,
           fontSize: 14,
@@ -845,8 +846,8 @@ class _SpecialtiesWrap extends StatelessWidget {
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: Colors.white.withOpacity(0.06)),
         ),
-        child: const Center(
-          child: Text('暂无', style: TextStyle(color: _muted, fontSize: 14)),
+        child: Center(
+          child: Text(AppLocalizations.of(context)!.commonNone, style: TextStyle(color: _muted, fontSize: 14)),
         ),
       );
     }

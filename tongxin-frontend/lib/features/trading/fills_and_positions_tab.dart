@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../teachers/teacher_models.dart';
 import '../teachers/teacher_repository.dart';
 import 'trading_models.dart';
@@ -51,17 +52,17 @@ class FillsAndPositionsTab extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        _sectionTitle('成交记录'),
+        _sectionTitle(context, AppLocalizations.of(context)!.tradesFillsRecord),
         const SizedBox(height: 8),
         Container(
           padding: const EdgeInsets.only(bottom: 8),
           child: Text(
-            '（模拟数据）',
+            AppLocalizations.of(context)!.orderSimulated,
             style: TextStyle(fontSize: 12, color: _muted),
           ),
         ),
         if (fills.isEmpty)
-          _emptyHint('暂无成交记录')
+          _emptyHint(AppLocalizations.of(context)!.tradesNoFills)
         else
           ...fills.map((f) => Card(
                 margin: const EdgeInsets.only(bottom: 8),
@@ -84,7 +85,7 @@ class FillsAndPositionsTab extends StatelessWidget {
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Text(
-                      f.isBuy ? '买入' : '卖出',
+                      f.isBuy ? AppLocalizations.of(context)!.tradingBuy : AppLocalizations.of(context)!.tradingSell,
                       style: TextStyle(
                         color: f.isBuy ? Colors.green : Colors.red,
                         fontWeight: FontWeight.w600,
@@ -95,7 +96,7 @@ class FillsAndPositionsTab extends StatelessWidget {
                 ),
               )),
         const SizedBox(height: 24),
-        _sectionTitle('当前持仓'),
+        _sectionTitle(context, AppLocalizations.of(context)!.tradesCurrentPositions),
         const SizedBox(height: 12),
         StreamBuilder<List<TeacherPosition>>(
           stream: repo.watchPositions(teacherId),
@@ -109,7 +110,7 @@ class FillsAndPositionsTab extends StatelessWidget {
                       Icon(Icons.error_outline, size: 40, color: _muted),
                       const SizedBox(height: 8),
                       Text(
-                        '加载持仓失败',
+                        AppLocalizations.of(context)!.tradesLoadPositionsFailed,
                         style: TextStyle(color: _muted, fontSize: 14),
                       ),
                     ],
@@ -124,7 +125,7 @@ class FillsAndPositionsTab extends StatelessWidget {
               );
             }
             final positions = snapshot.data ?? const <TeacherPosition>[];
-            if (positions.isEmpty) return _emptyHint('暂无持仓');
+            if (positions.isEmpty) return _emptyHint(AppLocalizations.of(context)!.tradesNoPosition);
             return Column(
               children: positions.map((p) => _PositionCard(position: p)).toList(),
             );
@@ -134,11 +135,12 @@ class FillsAndPositionsTab extends StatelessWidget {
     );
   }
 
-  Widget _sectionTitle(String text) {
+  Widget _sectionTitle(BuildContext context, String text) {
+    final l10n = AppLocalizations.of(context)!;
     return Row(
       children: [
         Icon(
-          text == '成交记录' ? Icons.receipt_long : Icons.pie_chart_outline,
+          text == l10n.tradesFillsRecord ? Icons.receipt_long : Icons.pie_chart_outline,
           color: _accent,
           size: 20,
         ),
@@ -193,7 +195,7 @@ class _PositionCard extends StatelessWidget {
       child: InkWell(
         onTap: () {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('快捷卖出 ${position.asset}（待接入）')),
+            SnackBar(content: Text(AppLocalizations.of(context)!.tradesQuickSellPending(position.asset))),
           );
         },
         borderRadius: BorderRadius.circular(10),
@@ -215,7 +217,7 @@ class _PositionCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '持仓 $amountText  盈亏 ${pnl >= 0 ? "+" : ""}${pnl.toStringAsFixed(2)}',
+                      '${AppLocalizations.of(context)!.tradesPositionShares} $amountText  ${AppLocalizations.of(context)!.tradesPnl} ${pnl >= 0 ? "+" : ""}${pnl.toStringAsFixed(2)}',
                       style: TextStyle(color: _muted, fontSize: 12),
                     ),
                     if (ratioText != null)
@@ -237,10 +239,10 @@ class _PositionCard extends StatelessWidget {
                   TextButton(
                     onPressed: () {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('卖出 ${position.asset}（待接入）')),
+                        SnackBar(content: Text(AppLocalizations.of(context)!.tradesSellPending(position.asset))),
                       );
                     },
-                    child: const Text('卖出'),
+                    child: Text(AppLocalizations.of(context)!.tradingSell),
                   ),
                 ],
               ),

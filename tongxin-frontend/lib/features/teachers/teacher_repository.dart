@@ -1,7 +1,10 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../api/teachers_api.dart';
+import '../../core/api_client.dart';
 import '../../core/models.dart' as core_models;
 import '../../core/supabase_bootstrap.dart';
 import 'teacher_models.dart';
@@ -47,11 +50,15 @@ class TeacherRepository {
   static const String _avatarBucket = 'avatars';
   static const String _verifyBucket = 'teacher-verify';
 
+  SupabaseClient? get _client => SupabaseBootstrap.clientOrNull;
+  bool get _hasClient => _client != null && SupabaseBootstrap.isReady;
+  bool get _useApi => ApiClient.instance.isAvailable;
+
   Future<TeacherProfile?> fetchProfile(String userId) async {
-    if (userId.isEmpty) {
-      return null;
-    }
-    final row = await SupabaseBootstrap.client
+    if (userId.isEmpty) return null;
+    if (_useApi) return TeachersApi.instance.getProfile(userId);
+    if (!_hasClient) return null;
+    final row = await _client!
         .from('teacher_profiles')
         .select()
         .eq('user_id', userId)
@@ -60,7 +67,7 @@ class TeacherRepository {
       return null;
     }
     // 个性签名与「我的」页同步，从 user_profiles 读取
-    final userRow = await SupabaseBootstrap.client
+    final userRow = await _client!
         .from('user_profiles')
         .select('signature')
         .eq('user_id', userId)
@@ -73,88 +80,137 @@ class TeacherRepository {
   }
 
   Future<void> upsertProfile(TeacherProfile profile) async {
-    await SupabaseBootstrap.client
+    if (!_hasClient) return;
+    await _client!
         .from('teacher_profiles')
         .upsert(profile.toMap());
   }
 
   Stream<List<TeacherStrategy>> watchStrategies(String teacherId) {
-    return SupabaseBootstrap.client
+    if (teacherId.isEmpty) return Stream.value(const []);
+    if (_useApi) {
+      return Stream.periodic(const Duration(seconds: 10), (_) => null)
+          .asyncMap((_) => TeachersApi.instance.getStrategies(teacherId))
+          .map((list) => list..sort((a, b) => b.createdAt.compareTo(a.createdAt)));
+    }
+    if (!_hasClient) return Stream.value(const []);
+    return _client!
         .from('trade_strategies')
-        .stream(primaryKey: ['id'])
-        .map(
-          (rows) => rows
-              .where((row) => row['teacher_id'] == teacherId)
-              .map((row) => TeacherStrategy.fromMap(row))
-              .toList()
-            ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
-        );
+        .stream(primaryKey: ['id']).map(
+      (rows) => rows
+          .where((row) => row['teacher_id'] == teacherId)
+          .map((row) => TeacherStrategy.fromMap(row))
+          .toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
+    );
   }
 
   Stream<List<TeacherStrategy>> watchPublishedStrategies(String teacherId) {
-    return SupabaseBootstrap.client
+    if (teacherId.isEmpty) return Stream.value(const []);
+    if (_useApi) {
+      return Stream.periodic(const Duration(seconds: 10), (_) => null)
+          .asyncMap((_) => TeachersApi.instance.getStrategies(teacherId))
+          .map((list) => list.where((s) => s.status == 'published').toList()
+            ..sort((a, b) => b.createdAt.compareTo(a.createdAt)));
+    }
+    if (!_hasClient) return Stream.value(const []);
+    return _client!
         .from('trade_strategies')
-        .stream(primaryKey: ['id'])
-        .map(
-          (rows) => rows
-              .where((row) =>
-                  row['teacher_id'] == teacherId &&
-                  (row['status'] as String? ?? '') == 'published')
-              .map((row) => TeacherStrategy.fromMap(row))
-              .toList()
-            ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
-        );
+        .stream(primaryKey: ['id']).map(
+      (rows) => rows
+          .where((row) =>
+              row['teacher_id'] == teacherId &&
+              (row['status'] as String? ?? '') == 'published')
+          .map((row) => TeacherStrategy.fromMap(row))
+          .toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
+    );
+  }
+
+  static List<core_models.Comment> _commentRowsToComments(List<Map<String, dynamic>> rows) {
+    final list = rows.map((row) {
+      final id = row['id'] as String? ?? '';
+      final userName = row['user_name'] as String? ?? '用户';
+      final content = row['content'] as String? ?? '';
+      final replyToId = row['reply_to_comment_id']?.toString();
+      final replyToContent = row['reply_to_content'] as String?;
+      final avatarUrl = (row['avatar_url'] as String?)?.trim();
+      final ts = row['comment_time'] ?? row['created_at'];
+      DateTime? dt;
+      if (ts != null) {
+        if (ts is DateTime) dt = ts;
+        else if (ts is String) dt = DateTime.tryParse(ts);
+      }
+      final date = dt != null
+          ? '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')} '
+              '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}'
+          : '';
+      return MapEntry(dt ?? DateTime.fromMillisecondsSinceEpoch(0), core_models.Comment(
+        id: id,
+        userName: userName,
+        content: content,
+        date: date,
+        replyToCommentId: replyToId,
+        replyToContent: replyToContent,
+        avatarUrl: avatarUrl?.isNotEmpty == true ? avatarUrl : null,
+      ));
+    }).toList();
+    list.sort((a, b) => b.key.compareTo(a.key));
+    return list.map((e) => e.value).toList();
   }
 
   /// 监听指定交易员的评论（全部，用于兼容）
   Stream<List<core_models.Comment>> watchTeacherComments(String teacherId) {
-    if (teacherId.isEmpty) {
-      return Stream.value(const []);
+    if (teacherId.isEmpty) return Stream.value(const []);
+    if (_useApi) {
+      return Stream.periodic(const Duration(seconds: 5), (_) => null)
+          .asyncMap((_) => TeachersApi.instance.getComments(teacherId))
+          .map(_commentRowsToComments);
     }
-    return SupabaseBootstrap.client
+    if (!_hasClient) return Stream.value(const []);
+    return _client!
         .from('teacher_comments')
-        .stream(primaryKey: ['id'])
-        .map(
-          (rows) {
-            final list = rows
-                .where((row) =>
-                    row['teacher_id'] == teacherId &&
-                    row['strategy_id'] == null)
-                .map((row) {
-                  final id = row['id'] as String? ?? '';
-                  final userName = row['user_name'] as String? ?? '用户';
-                  final content = row['content'] as String? ?? '';
-                  final replyToId = row['reply_to_comment_id']?.toString();
-                  final replyToContent = row['reply_to_content'] as String?;
-                  final avatarUrl = (row['avatar_url'] as String?)?.trim();
-                  final ts = row['comment_time'] ?? row['created_at'];
-                  DateTime? dt;
-                  if (ts != null) {
-                    if (ts is DateTime) dt = ts;
-                    else if (ts is String) dt = DateTime.tryParse(ts);
-                  }
-                  final date = dt != null
-                      ? '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')} '
-                          '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}'
-                      : '';
-                  return MapEntry(
-                    dt ?? DateTime.fromMillisecondsSinceEpoch(0),
-                    core_models.Comment(
-                      id: id,
-                      userName: userName,
-                      content: content,
-                      date: date,
-                      replyToCommentId: replyToId,
-                      replyToContent: replyToContent,
-                      avatarUrl: avatarUrl?.isNotEmpty == true ? avatarUrl : null,
-                    ),
-                  );
-                })
-                .toList();
-            list.sort((a, b) => b.key.compareTo(a.key));
-            return list.map((e) => e.value).toList();
-          },
-        );
+        .stream(primaryKey: ['id']).map(
+      (rows) {
+        final list = rows
+            .where((row) =>
+                row['teacher_id'] == teacherId && row['strategy_id'] == null)
+            .map((row) {
+          final id = row['id'] as String? ?? '';
+          final userName = row['user_name'] as String? ?? '用户';
+          final content = row['content'] as String? ?? '';
+          final replyToId = row['reply_to_comment_id']?.toString();
+          final replyToContent = row['reply_to_content'] as String?;
+
+          final avatarUrl = (row['avatar_url'] as String?)?.trim();
+          final ts = row['comment_time'] ?? row['created_at'];
+          DateTime? dt;
+          if (ts != null) {
+            if (ts is DateTime)
+              dt = ts;
+            else if (ts is String) dt = DateTime.tryParse(ts);
+          }
+          final date = dt != null
+              ? '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')} '
+                  '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}'
+              : '';
+          return MapEntry(
+            dt ?? DateTime.fromMillisecondsSinceEpoch(0),
+            core_models.Comment(
+              id: id,
+              userName: userName,
+              content: content,
+              date: date,
+              replyToCommentId: replyToId,
+              replyToContent: replyToContent,
+              avatarUrl: avatarUrl?.isNotEmpty == true ? avatarUrl : null,
+            ),
+          );
+        }).toList();
+        list.sort((a, b) => b.key.compareTo(a.key));
+        return list.map((e) => e.value).toList();
+      },
+    );
   }
 
   /// 监听指定策略的评论
@@ -162,64 +218,66 @@ class TeacherRepository {
     String teacherId,
     String strategyId,
   ) {
-    if (teacherId.isEmpty || strategyId.isEmpty) {
-      return Stream.value(const []);
+    if (teacherId.isEmpty || strategyId.isEmpty) return Stream.value(const []);
+    if (_useApi) {
+      return Stream.periodic(const Duration(seconds: 5), (_) => null)
+          .asyncMap((_) => TeachersApi.instance.getComments(teacherId, strategyId: strategyId))
+          .map(_commentRowsToComments);
     }
-    return SupabaseBootstrap.client
+    if (!_hasClient) return Stream.value(const []);
+    return _client!
         .from('teacher_comments')
-        .stream(primaryKey: ['id'])
-        .map(
-          (rows) {
-            final list = rows
-                .where((row) =>
-                    row['teacher_id'] == teacherId &&
-                    row['strategy_id'] == strategyId)
-                .map((row) {
-                  final id = row['id'] as String? ?? '';
-                  final userName = row['user_name'] as String? ?? '用户';
-                  final content = row['content'] as String? ?? '';
-                  final replyToId = row['reply_to_comment_id']?.toString();
-                  final replyToContent = row['reply_to_content'] as String?;
-                  final avatarUrl = (row['avatar_url'] as String?)?.trim();
-                  final ts = row['comment_time'] ?? row['created_at'];
-                  DateTime? dt;
-                  if (ts != null) {
-                    if (ts is DateTime) dt = ts;
-                    else if (ts is String) dt = DateTime.tryParse(ts);
-                  }
-                  final date = dt != null
-                      ? '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')} '
-                          '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}'
-                      : '';
-                  return MapEntry(
-                    dt ?? DateTime.fromMillisecondsSinceEpoch(0),
-                    core_models.Comment(
-                      id: id,
-                      userName: userName,
-                      content: content,
-                      date: date,
-                      replyToCommentId: replyToId,
-                      replyToContent: replyToContent,
-                      avatarUrl: avatarUrl?.isNotEmpty == true ? avatarUrl : null,
-                    ),
-                  );
-                })
-                .toList();
-            list.sort((a, b) => b.key.compareTo(a.key));
-            return list.map((e) => e.value).toList();
-          },
-        );
+        .stream(primaryKey: ['id']).map(
+      (rows) {
+        final list = rows
+            .where((row) =>
+                row['teacher_id'] == teacherId &&
+                row['strategy_id'] == strategyId)
+            .map((row) {
+          final id = row['id'] as String? ?? '';
+          final userName = row['user_name'] as String? ?? '用户';
+          final content = row['content'] as String? ?? '';
+          final replyToId = row['reply_to_comment_id']?.toString();
+          final replyToContent = row['reply_to_content'] as String?;
+          final avatarUrl = (row['avatar_url'] as String?)?.trim();
+          final ts = row['comment_time'] ?? row['created_at'];
+          DateTime? dt;
+          if (ts != null) {
+            if (ts is DateTime)
+              dt = ts;
+            else if (ts is String) dt = DateTime.tryParse(ts);
+          }
+          final date = dt != null
+              ? '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')} '
+                  '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}'
+              : '';
+          return MapEntry(
+            dt ?? DateTime.fromMillisecondsSinceEpoch(0),
+            core_models.Comment(
+              id: id,
+              userName: userName,
+              content: content,
+              date: date,
+              replyToCommentId: replyToId,
+              replyToContent: replyToContent,
+              avatarUrl: avatarUrl?.isNotEmpty == true ? avatarUrl : null,
+            ),
+          );
+        }).toList();
+        list.sort((a, b) => b.key.compareTo(a.key));
+        return list.map((e) => e.value).toList();
+      },
+    );
   }
 
   /// 监听指定交易员策略的点赞数
   Stream<int> watchTeacherLikesCount(String teacherId) {
-    if (teacherId.isEmpty) return Stream.value(0);
-    return SupabaseBootstrap.client
+    if (teacherId.isEmpty || !_hasClient) return Stream.value(0);
+    return _client!
         .from('teacher_strategy_likes')
-        .stream(primaryKey: ['teacher_id', 'user_id'])
-        .map(
-          (rows) => rows.where((r) => r['teacher_id'] == teacherId).length,
-        );
+        .stream(primaryKey: ['teacher_id', 'user_id']).map(
+      (rows) => rows.where((r) => r['teacher_id'] == teacherId).length,
+    );
   }
 
   /// 当前用户是否已点赞
@@ -227,16 +285,14 @@ class TeacherRepository {
     required String teacherId,
     required String userId,
   }) {
-    if (teacherId.isEmpty || userId.isEmpty) return Stream.value(false);
-    return SupabaseBootstrap.client
+    if (teacherId.isEmpty || userId.isEmpty || !_hasClient) return Stream.value(false);
+    return _client!
         .from('teacher_strategy_likes')
-        .stream(primaryKey: ['teacher_id', 'user_id'])
-        .map(
-          (rows) => rows.any(
-            (r) =>
-                r['teacher_id'] == teacherId && r['user_id'] == userId,
-          ),
-        );
+        .stream(primaryKey: ['teacher_id', 'user_id']).map(
+      (rows) => rows.any(
+        (r) => r['teacher_id'] == teacherId && r['user_id'] == userId,
+      ),
+    );
   }
 
   /// 点赞/取消点赞
@@ -244,21 +300,21 @@ class TeacherRepository {
     required String teacherId,
     required String userId,
   }) async {
-    if (teacherId.isEmpty || userId.isEmpty) return;
-    final existing = await SupabaseBootstrap.client
+    if (teacherId.isEmpty || userId.isEmpty || !_hasClient) return;
+    final existing = await _client!
         .from('teacher_strategy_likes')
         .select('teacher_id')
         .eq('teacher_id', teacherId)
         .eq('user_id', userId)
         .maybeSingle();
     if (existing != null) {
-      await SupabaseBootstrap.client
+      await _client!
           .from('teacher_strategy_likes')
           .delete()
           .eq('teacher_id', teacherId)
           .eq('user_id', userId);
     } else {
-      await SupabaseBootstrap.client.from('teacher_strategy_likes').insert({
+      await _client!.from('teacher_strategy_likes').insert({
         'teacher_id': teacherId,
         'user_id': userId,
       });
@@ -280,10 +336,21 @@ class TeacherRepository {
     if (teacherId.isEmpty || userId.isEmpty || content.trim().isEmpty) {
       return '用户';
     }
+    if (_useApi) {
+      final name = await TeachersApi.instance.insertComment(
+        teacherId: teacherId,
+        content: content,
+        strategyId: strategyId,
+        replyToCommentId: replyToCommentId,
+        replyToContent: replyToContent,
+      );
+      return name ?? '用户';
+    }
+    if (!_hasClient) return '用户';
     String userName = '用户';
     String? avatarUrl;
     try {
-      final profile = await SupabaseBootstrap.client
+      final profile = await _client!
           .from('user_profiles')
           .select('display_name, avatar_url')
           .eq('user_id', userId)
@@ -308,28 +375,32 @@ class TeacherRepository {
     if (strategyId != null && strategyId.isNotEmpty) {
       data['strategy_id'] = strategyId;
     }
-    if (replyToCommentId != null && replyToCommentId!.isNotEmpty) {
+    if (replyToCommentId != null && replyToCommentId.isNotEmpty) {
       data['reply_to_comment_id'] = replyToCommentId;
-      if (replyToContent != null && replyToContent!.isNotEmpty) {
+      if (replyToContent != null && replyToContent.isNotEmpty) {
         data['reply_to_content'] = replyToContent.length > 50
             ? '${replyToContent.substring(0, 50)}…'
             : replyToContent;
       }
     }
-    await SupabaseBootstrap.client.from('teacher_comments').insert(data);
+    await _client!.from('teacher_comments').insert(data);
     return userName;
   }
 
   Stream<List<TeacherProfile>> watchPublicProfiles() {
-    return SupabaseBootstrap.client
+    if (_useApi) {
+      return Stream.periodic(const Duration(seconds: 15), (_) => null)
+          .asyncMap((_) => TeachersApi.instance.getTeachers());
+    }
+    if (!_hasClient) return Stream.value(const []);
+    return _client!
         .from('teacher_profiles')
-        .stream(primaryKey: ['user_id'])
-        .map(
-          (rows) => rows
-              .where((row) => (row['status'] as String? ?? '') != 'blocked')
-              .map((row) => TeacherProfile.fromMap(row))
-              .toList(),
-        );
+        .stream(primaryKey: ['user_id']).map(
+      (rows) => rows
+          .where((row) => (row['status'] as String? ?? '') != 'blocked')
+          .map((row) => TeacherProfile.fromMap(row))
+          .toList(),
+    );
   }
 
   /// 一次性查询当前用户是否已关注该交易员（不依赖 Realtime，适合按钮点击时用）
@@ -338,7 +409,9 @@ class TeacherRepository {
     required String userId,
   }) async {
     if (teacherId.isEmpty || userId.isEmpty) return false;
-    final rows = await SupabaseBootstrap.client
+    if (_useApi) return TeachersApi.instance.getFollowStatus(teacherId, userId);
+    if (!_hasClient) return false;
+    final rows = await _client!
         .from('teacher_follows')
         .select('id')
         .eq('teacher_id', teacherId)
@@ -350,11 +423,14 @@ class TeacherRepository {
     required String teacherId,
     required String userId,
   }) {
-    if (teacherId.isEmpty || userId.isEmpty) {
-      return Stream.value(false);
+    if (teacherId.isEmpty || userId.isEmpty) return Stream.value(false);
+    if (_useApi) {
+      return Stream.periodic(const Duration(seconds: 5), (_) => null)
+          .asyncMap((_) => TeachersApi.instance.getFollowStatus(teacherId, userId));
     }
+    if (!_hasClient) return Stream.value(false);
     // Realtime 只支持单列 eq，按 teacher_id 订阅后在本端再按 user_id 过滤
-    return SupabaseBootstrap.client
+    return _client!
         .from('teacher_follows')
         .stream(primaryKey: ['id'])
         .eq('teacher_id', teacherId)
@@ -366,17 +442,16 @@ class TeacherRepository {
   }
 
   Stream<int> watchFollowerCount(String teacherId) {
-    if (teacherId.isEmpty) {
-      return Stream.value(0);
+    if (teacherId.isEmpty) return Stream.value(0);
+    if (_useApi) {
+      return Stream.periodic(const Duration(seconds: 10), (_) => null)
+          .asyncMap((_) => TeachersApi.instance.getFollowerCount(teacherId));
     }
-    return SupabaseBootstrap.client
+    return _client!
         .from('teacher_follows')
-        .stream(primaryKey: ['id'])
-        .map(
-          (rows) => rows
-              .where((row) => row['teacher_id'] == teacherId)
-              .length,
-        );
+        .stream(primaryKey: ['id']).map(
+      (rows) => rows.where((row) => row['teacher_id'] == teacherId).length,
+    );
   }
 
   /// 关注交易员。若已关注过（重复插入）则静默视为成功，不抛错。
@@ -384,11 +459,14 @@ class TeacherRepository {
     required String teacherId,
     required String userId,
   }) async {
-    if (teacherId.isEmpty || userId.isEmpty) {
+    if (teacherId.isEmpty || userId.isEmpty) return;
+    if (_useApi) {
+      await TeachersApi.instance.follow(teacherId, userId);
       return;
     }
+    if (!_hasClient) return;
     try {
-      await SupabaseBootstrap.client.from('teacher_follows').insert({
+      await _client!.from('teacher_follows').insert({
         'teacher_id': teacherId,
         'user_id': userId,
         'created_at': DateTime.now().toIso8601String(),
@@ -408,10 +486,13 @@ class TeacherRepository {
     required String teacherId,
     required String userId,
   }) async {
-    if (teacherId.isEmpty || userId.isEmpty) {
+    if (teacherId.isEmpty || userId.isEmpty) return;
+    if (_useApi) {
+      await TeachersApi.instance.unfollow(teacherId, userId);
       return;
     }
-    await SupabaseBootstrap.client
+    if (!_hasClient) return;
+    await _client!
         .from('teacher_follows')
         .delete()
         .eq('teacher_id', teacherId)
@@ -420,10 +501,10 @@ class TeacherRepository {
 
   /// 当前用户关注的交易员 ID 列表（按关注时间倒序，最近关注的在前）
   Future<List<String>> getFollowedTeacherIds(String userId) async {
-    if (userId.isEmpty || !SupabaseBootstrap.isReady) {
-      return [];
-    }
-    final rows = await SupabaseBootstrap.client
+    if (userId.isEmpty) return [];
+    if (_useApi) return TeachersApi.instance.getFollowedTeacherIds(userId);
+    if (!_hasClient) return [];
+    final rows = await _client!
         .from('teacher_follows')
         .select('teacher_id')
         .eq('user_id', userId)
@@ -436,19 +517,17 @@ class TeacherRepository {
 
   /// 排名第一的交易员（已通过、按本月盈亏降序取第一条）
   Future<TeacherProfile?> getRankOneTeacherProfile() async {
-    if (!SupabaseBootstrap.isReady) {
-      return null;
-    }
-    final rows = await SupabaseBootstrap.client
+    if (_useApi) return TeachersApi.instance.getRankOne();
+    if (!_hasClient) return null;
+    final rows = await _client!
         .from('teacher_profiles')
         .select()
         .eq('status', 'approved')
         .order('pnl_month', ascending: false)
         .limit(1);
-    if (rows == null || rows is! List || rows.isEmpty) {
-      return null;
-    }
-    return TeacherProfile.fromMap(rows.first as Map<String, dynamic>);
+    final list = rows as List;
+    if (list.isEmpty) return null;
+    return TeacherProfile.fromMap(Map<String, dynamic>.from(list.first as Map));
   }
 
   /// 上传策略配图，返回公开 URL
@@ -458,10 +537,11 @@ class TeacherRepository {
     required Uint8List bytes,
     required String contentType,
   }) async {
+    if (!_hasClient) throw StateError('Supabase 未配置');
     final safeName = fileName.replaceAll(' ', '_');
     final path =
         'strategies/$teacherId/${DateTime.now().millisecondsSinceEpoch}_$safeName';
-    await SupabaseBootstrap.client.storage.from(_recordBucket).uploadBinary(
+    await _client!.storage.from(_recordBucket).uploadBinary(
           path,
           bytes,
           fileOptions: FileOptions(
@@ -469,7 +549,9 @@ class TeacherRepository {
             upsert: true,
           ),
         );
-    return SupabaseBootstrap.client.storage.from(_recordBucket).getPublicUrl(path);
+    return _client!.storage
+        .from(_recordBucket)
+        .getPublicUrl(path);
   }
 
   Future<void> addStrategy({
@@ -479,7 +561,8 @@ class TeacherRepository {
     required String content,
     List<String> imageUrls = const [],
   }) async {
-    await SupabaseBootstrap.client.from('trade_strategies').insert({
+    if (!_hasClient) return;
+    await _client!.from('trade_strategies').insert({
       'teacher_id': teacherId,
       'title': title,
       'summary': summary,
@@ -494,55 +577,61 @@ class TeacherRepository {
     required String strategyId,
     required String status,
   }) async {
-    await SupabaseBootstrap.client
-        .from('trade_strategies')
-        .update({
-          'status': status,
-          'updated_at': DateTime.now().toIso8601String(),
-        })
-        .eq('id', strategyId);
+    if (!_hasClient) return;
+    await _client!.from('trade_strategies').update({
+      'status': status,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', strategyId);
   }
 
   Stream<List<TradeRecord>> watchTradeRecords(String teacherId) {
-    return SupabaseBootstrap.client
+    if (!_hasClient) return Stream.value(const []);
+    return _client!
         .from('trade_records')
-        .stream(primaryKey: ['id'])
-        .map(
-          (rows) => rows
-              .where((row) => row['teacher_id'] == teacherId)
-              .map((row) => TradeRecord.fromMap(row))
-              .toList()
-            ..sort((a, b) {
-              final aTime = a.sellTime ?? a.tradeTime ?? DateTime.fromMillisecondsSinceEpoch(0);
-              final bTime = b.sellTime ?? b.tradeTime ?? DateTime.fromMillisecondsSinceEpoch(0);
-              return bTime.compareTo(aTime);
-            }),
-        );
+        .stream(primaryKey: ['id']).map(
+      (rows) => rows
+          .where((row) => row['teacher_id'] == teacherId)
+          .map((row) => TradeRecord.fromMap(row))
+          .toList()
+        ..sort((a, b) {
+          final aTime = a.sellTime ??
+              a.tradeTime ??
+              DateTime.fromMillisecondsSinceEpoch(0);
+          final bTime = b.sellTime ??
+              b.tradeTime ??
+              DateTime.fromMillisecondsSinceEpoch(0);
+          return bTime.compareTo(aTime);
+        }),
+    );
   }
 
   Stream<List<TeacherPosition>> watchPositions(String teacherId) {
-    return SupabaseBootstrap.client
+    if (!_hasClient) return Stream.value(const []);
+    return _client!
         .from('teacher_positions')
-        .stream(primaryKey: ['id'])
-        .map(
-          (rows) => rows
-              .where((row) => row['teacher_id'] == teacherId && (row['is_history'] as bool? ?? false) == false)
-              .map((row) => TeacherPosition.fromMap(row))
-              .toList(),
-        );
+        .stream(primaryKey: ['id']).map(
+      (rows) => rows
+          .where((row) =>
+              row['teacher_id'] == teacherId &&
+              (row['is_history'] as bool? ?? false) == false)
+          .map((row) => TeacherPosition.fromMap(row))
+          .toList(),
+    );
   }
 
   /// 历史持仓（is_history = true），供关注页实时同步
   Stream<List<TeacherPosition>> watchHistoryPositions(String teacherId) {
-    return SupabaseBootstrap.client
+    if (!_hasClient) return Stream.value(const []);
+    return _client!
         .from('teacher_positions')
-        .stream(primaryKey: ['id'])
-        .map(
-          (rows) => rows
-              .where((row) => row['teacher_id'] == teacherId && (row['is_history'] as bool? ?? false) == true)
-              .map((row) => TeacherPosition.fromMap(row))
-              .toList(),
-        );
+        .stream(primaryKey: ['id']).map(
+      (rows) => rows
+          .where((row) =>
+              row['teacher_id'] == teacherId &&
+              (row['is_history'] as bool? ?? false) == true)
+          .map((row) => TeacherPosition.fromMap(row))
+          .toList(),
+    );
   }
 
   Future<void> addTradeRecordDetail({
@@ -556,8 +645,9 @@ class TeacherRepository {
     required double sellPrice,
     required double sellQty,
   }) async {
+    if (!_hasClient) return;
     final pnlAmount = (sellPrice - buyPrice) * sellQty;
-    await SupabaseBootstrap.client.from('trade_records').insert({
+    await _client!.from('trade_records').insert({
       'teacher_id': teacherId,
       'symbol': symbol,
       'side': 'buy',
@@ -593,9 +683,10 @@ class TeacherRepository {
     if (attachmentUrl != null && attachmentUrl.isNotEmpty) {
       payload['attachment_url'] = attachmentUrl;
     }
-    await SupabaseBootstrap.client.from('trade_records').insert(payload);
+    if (!_hasClient) return;
+    await _client!.from('trade_records').insert(payload);
     if (attachmentUrl != null && attachmentUrl.isNotEmpty) {
-      await SupabaseBootstrap.client.from('trade_record_files').insert({
+      await _client!.from('trade_record_files').insert({
         'teacher_id': teacherId,
         'file_url': attachmentUrl,
         'file_type': 'image',
@@ -610,10 +701,11 @@ class TeacherRepository {
     required Uint8List bytes,
     required String contentType,
   }) async {
+    if (!_hasClient) throw StateError('Supabase 未配置');
     final safeName = fileName.replaceAll(' ', '_');
     final path =
         'records/$teacherId/${DateTime.now().millisecondsSinceEpoch}_$safeName';
-    await SupabaseBootstrap.client.storage.from(_recordBucket).uploadBinary(
+    await _client!.storage.from(_recordBucket).uploadBinary(
           path,
           bytes,
           fileOptions: FileOptions(
@@ -621,7 +713,9 @@ class TeacherRepository {
             upsert: true,
           ),
         );
-    return SupabaseBootstrap.client.storage.from(_recordBucket).getPublicUrl(path);
+    return _client!.storage
+        .from(_recordBucket)
+        .getPublicUrl(path);
   }
 
   Future<String> uploadTeacherAvatar({
@@ -630,10 +724,11 @@ class TeacherRepository {
     required Uint8List bytes,
     required String contentType,
   }) async {
+    if (!_hasClient) throw StateError('Supabase 未配置');
     final safeName = fileName.replaceAll(' ', '_');
     final path =
         'teachers/$teacherId/${DateTime.now().millisecondsSinceEpoch}_$safeName';
-    await SupabaseBootstrap.client.storage.from(_avatarBucket).uploadBinary(
+    await _client!.storage.from(_avatarBucket).uploadBinary(
           path,
           bytes,
           fileOptions: FileOptions(
@@ -641,7 +736,9 @@ class TeacherRepository {
             upsert: true,
           ),
         );
-    return SupabaseBootstrap.client.storage.from(_avatarBucket).getPublicUrl(path);
+    return _client!.storage
+        .from(_avatarBucket)
+        .getPublicUrl(path);
   }
 
   Future<String> uploadTeacherVerification({
@@ -651,10 +748,11 @@ class TeacherRepository {
     required String contentType,
     required String category,
   }) async {
+    if (!_hasClient) throw StateError('Supabase 未配置');
     final safeName = fileName.replaceAll(' ', '_');
     final path =
         'teachers/$teacherId/$category/${DateTime.now().millisecondsSinceEpoch}_$safeName';
-    await SupabaseBootstrap.client.storage.from(_verifyBucket).uploadBinary(
+    await _client!.storage.from(_verifyBucket).uploadBinary(
           path,
           bytes,
           fileOptions: FileOptions(
@@ -662,6 +760,8 @@ class TeacherRepository {
             upsert: true,
           ),
         );
-    return SupabaseBootstrap.client.storage.from(_verifyBucket).getPublicUrl(path);
+    return _client!.storage
+        .from(_verifyBucket)
+        .getPublicUrl(path);
   }
 }

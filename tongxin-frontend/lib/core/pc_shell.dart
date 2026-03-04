@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/app_localizations.dart';
 import 'pc_dashboard_theme.dart';
 import 'pc_sidebar.dart';
 import 'pc_topbar.dart';
@@ -24,20 +25,21 @@ class PcShell extends StatelessWidget {
   /// 内容区内边距；null 时使用 contentPadding。行情等页传 EdgeInsets.zero 可铺满全屏
   final EdgeInsets? contentPadding;
 
-  static const List<String> _pageTitles = [
-    '首页',
-    '行情',
-    '自选',
-    '消息',
-    '排行榜',
-    '我的',
+  static List<String> _pageTitles(BuildContext context) => [
+    AppLocalizations.of(context)!.navHome,
+    AppLocalizations.of(context)!.navMarket,
+    AppLocalizations.of(context)!.navWatchlist,
+    AppLocalizations.of(context)!.navMessages,
+    AppLocalizations.of(context)!.navRankings,
+    AppLocalizations.of(context)!.navProfile,
   ];
 
   @override
   Widget build(BuildContext context) {
-    final title = currentIndex >= 0 && currentIndex < _pageTitles.length
-        ? _pageTitles[currentIndex]
-        : '首页';
+    final titles = _pageTitles(context);
+    final title = currentIndex >= 0 && currentIndex < titles.length
+        ? titles[currentIndex]
+        : AppLocalizations.of(context)!.navHome;
     return ColoredBox(
       color: PcDashboardTheme.surface,
       child: Row(

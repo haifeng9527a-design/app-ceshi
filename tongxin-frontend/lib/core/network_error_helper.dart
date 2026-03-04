@@ -1,3 +1,5 @@
+import '../l10n/app_localizations.dart';
+
 /// 将网络相关异常转为用户可读的友好提示，避免直接展示 SocketException 等堆栈。
 class NetworkErrorHelper {
   NetworkErrorHelper._();
@@ -64,8 +66,14 @@ class NetworkErrorHelper {
   }
 
   /// 根据异常返回友好提示。若为网络类错误返回 [noNetworkMessage]，认证错误返回 [authErrorMessage]，权限错误返回 [permissionErrorMessage]，否则返回 null。
-  static String? friendlyMessage(Object? error) {
+  static String? friendlyMessage(Object? error, {AppLocalizations? l10n}) {
     if (error == null) return null;
+    if (l10n != null) {
+      if (isNetworkError(error)) return l10n.networkNoConnection;
+      if (isAuthError(error)) return l10n.networkAuthExpired;
+      if (isPermissionError(error)) return l10n.networkPermissionDenied;
+      return l10n.networkTryAgain;
+    }
     if (isNetworkError(error)) return noNetworkMessage;
     if (isAuthError(error)) return authErrorMessage;
     if (isPermissionError(error)) return permissionErrorMessage;
@@ -74,16 +82,17 @@ class NetworkErrorHelper {
 
   /// 得到最终要展示给用户的文案。
   /// [prefix] 如 "搜索失败"、"发送失败"、"撤回失败" 等；为 null 时仅返回友好/通用文案，不拼接前缀。
+  /// [l10n] 传入时使用本地化文案。
   /// 非网络/认证错误时不展示原始异常，统一用 [tryAgainLaterMessage]。
   /// 调试时可在 logcat/控制台搜 [NetworkError] 查看真实异常。
-  static String messageForUser(Object? error, {String? prefix}) {
+  static String messageForUser(Object? error, {String? prefix, AppLocalizations? l10n}) {
     // 便于排查：打印真实错误（release 也可用 logcat 查看）
     if (error != null) {
       // ignore: avoid_print
       print('[NetworkError] ${prefix ?? "error"}: $error');
     }
-    final friendly = friendlyMessage(error);
-    final content = friendly ?? tryAgainLaterMessage;
+    final friendly = friendlyMessage(error, l10n: l10n);
+    final content = friendly ?? (l10n?.networkTryAgain ?? tryAgainLaterMessage);
     if (prefix != null && prefix.isNotEmpty) {
       return '$prefix：$content';
     }

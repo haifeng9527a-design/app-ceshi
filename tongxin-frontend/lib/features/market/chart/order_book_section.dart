@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../l10n/app_localizations.dart';
 import 'chart_theme.dart';
 
 /// 盘口/委托簿（与特斯拉图完全一致）：卖价/数量/买价/数量，卖档红底渐变、买档绿底渐变
@@ -37,7 +38,7 @@ class OrderBookSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _headerRow(),
+          _headerRow(context),
           const SizedBox(height: 8),
           for (var i = 0; i < 5; i++) _orderRow(
             sellPrice: i < mockAsks.length ? mockAsks[i].$1 : null,
@@ -51,13 +52,14 @@ class OrderBookSection extends StatelessWidget {
     );
   }
 
-  Widget _headerRow() {
+  Widget _headerRow(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Row(
       children: [
-        Expanded(child: _headerCell('卖一')),
-        Expanded(child: _headerCell('数量')),
-        Expanded(child: _headerCell('买一')),
-        Expanded(child: _headerCell('数量')),
+        Expanded(child: _headerCell(l10n.chartOrderBookSell)),
+        Expanded(child: _headerCell(l10n.chartOrderBookQty)),
+        Expanded(child: _headerCell(l10n.chartOrderBookBuy)),
+        Expanded(child: _headerCell(l10n.chartOrderBookQty)),
       ],
     );
   }

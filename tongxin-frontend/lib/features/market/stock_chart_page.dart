@@ -4,6 +4,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../trading/trading_cache.dart';
 import 'chart/bottom_detail_tabs.dart';
 import 'chart/chart_theme.dart';
@@ -795,7 +796,7 @@ class _StockChartPageState extends State<StockChartPage>
                 Widget chartContent;
                 if (_chartLoading) {
                   chartContent = Center(
-                    child: Text('加载中…', style: TextStyle(color: ChartTheme.textSecondary, fontSize: 13)),
+                    child: Text(AppLocalizations.of(context)!.chartLoading, style: TextStyle(color: ChartTheme.textSecondary, fontSize: 13)),
                   );
                 } else if (_candlesIntraday.isEmpty && _candlesKLine.isEmpty) {
                   chartContent = _buildEmptyStateCard();
@@ -857,13 +858,13 @@ class _StockChartPageState extends State<StockChartPage>
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('公司行动', style: TextStyle(color: ChartTheme.textSecondary, fontSize: 11, fontWeight: FontWeight.w600)),
+            Text(AppLocalizations.of(context)!.chartCompanyActions, style: TextStyle(color: ChartTheme.textSecondary, fontSize: 11, fontWeight: FontWeight.w600)),
             const SizedBox(height: 6),
             if (_dividends.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(bottom: 4),
                 child: Text(
-                  '分红: ${_dividends.take(3).map((d) => '${d['ex_dividend_date'] ?? d['pay_date']} \$${d['cash_amount']}').join(' · ')}${_dividends.length > 3 ? ' …' : ''}',
+                  '${AppLocalizations.of(context)!.chartDividends}: ${_dividends.take(3).map((d) => '${d['ex_dividend_date'] ?? d['pay_date']} \$${d['cash_amount']}').join(' · ')}${_dividends.length > 3 ? ' …' : ''}',
                   style: TextStyle(color: ChartTheme.textPrimary, fontSize: 12),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
@@ -871,7 +872,7 @@ class _StockChartPageState extends State<StockChartPage>
               ),
             if (_splits.isNotEmpty)
               Text(
-                '拆股: ${_splits.take(3).map((s) => '${s['execution_date']} ${s['split_from']}:${s['split_to']}').join(' · ')}${_splits.length > 3 ? ' …' : ''}',
+                '${AppLocalizations.of(context)!.chartSplits}: ${_splits.take(3).map((s) => '${s['execution_date']} ${s['split_from']}:${s['split_to']}').join(' · ')}${_splits.length > 3 ? ' …' : ''}',
                 style: TextStyle(color: ChartTheme.textPrimary, fontSize: 12),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
@@ -883,11 +884,12 @@ class _StockChartPageState extends State<StockChartPage>
   }
 
   /// 美股交易时段按美东时间：9:30–16:00（EST/EDT）
-  String? _statusLabel() {
+  String? _statusLabel(BuildContext context) {
     final (hour, minute) = _usEasternHourMinute();
-    if (hour < 9 || (hour == 9 && minute < 30)) return '未开市';
-    if (hour > 16 || (hour == 16 && minute > 0)) return '已收盘';
-    return '盘中';
+    final l10n = AppLocalizations.of(context)!;
+    if (hour < 9 || (hour == 9 && minute < 30)) return l10n.chartPreMarket;
+    if (hour > 16 || (hour == 16 && minute > 0)) return l10n.chartClosed;
+    return l10n.chartIntraday;
   }
 
   /// 当前美东时间（小时、分），近似 EST/EDT（3 月第 2 个周日–11 月第 1 个周日为 EDT）
@@ -1026,7 +1028,7 @@ class _StockChartPageState extends State<StockChartPage>
                   borderRadius: BorderRadius.circular(ChartTheme.radiusButton),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    child: Text('回最新', style: TextStyle(color: ChartTheme.accentGold, fontSize: 12, fontWeight: FontWeight.w600)),
+                    child: Text(AppLocalizations.of(context)!.chartBackToLatest, style: TextStyle(color: ChartTheme.accentGold, fontSize: 12, fontWeight: FontWeight.w600)),
                   ),
                 ),
               ),
@@ -1051,7 +1053,7 @@ class _StockChartPageState extends State<StockChartPage>
         children: [
           Icon(Icons.info_outline, size: 18, color: ChartTheme.accentGold),
           const SizedBox(width: 8),
-          Text('模拟数据，仅作展示', style: TextStyle(color: ChartTheme.textPrimary, fontSize: 12)),
+          Text(AppLocalizations.of(context)!.chartMockDataHint, style: TextStyle(color: ChartTheme.textPrimary, fontSize: 12)),
         ],
       ),
     );
@@ -1099,12 +1101,12 @@ class _StockChartPageState extends State<StockChartPage>
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            _summaryBlock('价', price > 0 ? price.toStringAsFixed(2) : '—', null),
-            _summaryBlock('均', avgPrice != null ? avgPrice!.toStringAsFixed(2) : '—', null),
-            _summaryBlock('涨', open != null ? '${change >= 0 ? '+' : ''}${change.toStringAsFixed(2)}' : '—', changeColor),
-            _summaryBlock('涨跌幅', '${changePct >= 0 ? '+' : ''}${changePct.toStringAsFixed(2)}%', changeColor),
-            _summaryBlock('量', volStr, null),
-            _summaryBlock('额', turnStr, null),
+            _summaryBlock(AppLocalizations.of(context)!.chartPrice, price > 0 ? price.toStringAsFixed(2) : '—', null),
+            _summaryBlock(AppLocalizations.of(context)!.chartAvg, avgPrice != null ? avgPrice!.toStringAsFixed(2) : '—', null),
+            _summaryBlock(AppLocalizations.of(context)!.chartChangeShort, open != null ? '${change >= 0 ? '+' : ''}${change.toStringAsFixed(2)}' : '—', changeColor),
+            _summaryBlock(AppLocalizations.of(context)!.chartChangePercent, '${changePct >= 0 ? '+' : ''}${changePct.toStringAsFixed(2)}%', changeColor),
+            _summaryBlock(AppLocalizations.of(context)!.chartVol, volStr, null),
+            _summaryBlock(AppLocalizations.of(context)!.chartTurnover, turnStr, null),
           ],
         ),
       ),
@@ -1139,7 +1141,8 @@ class _StockChartPageState extends State<StockChartPage>
 
   /// 分时/K线单一为空时：加载中或暂无数据+重试
   Widget _buildNoDataHint(bool? isIntraday, {bool stillLoading = true, String? klineError, VoidCallback? onRetry}) {
-    final label = isIntraday == false ? 'K线' : isIntraday == true ? '分时' : '图表';
+    final l10n = AppLocalizations.of(context)!;
+    final label = isIntraday == false ? l10n.chartKlineLabel : isIntraday == true ? l10n.chartTimeshareLabel : l10n.chartTimeshareLabel;
     final isIntradayEmpty = isIntraday == true && !stillLoading;
     final isKlineEmpty = isIntraday == false && !stillLoading;
     final content = Center(
@@ -1151,22 +1154,22 @@ class _StockChartPageState extends State<StockChartPage>
             if (stillLoading) SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 2, color: ChartTheme.accentGold)),
             if (stillLoading) const SizedBox(height: 12),
             Text(
-              isIntradayEmpty ? '暂无分时数据' : (isKlineEmpty ? '暂无K线数据' : '正在拉取${label}实时数据…'),
+              isIntradayEmpty ? l10n.chartNoIntradayData : (isKlineEmpty ? l10n.chartNoKlineData : l10n.chartFetchingWithLabel(label)),
               style: TextStyle(color: ChartTheme.textPrimary, fontSize: 15, fontWeight: FontWeight.w500),
               textAlign: TextAlign.center,
             ),
             if (stillLoading) const SizedBox(height: 4),
-            if (stillLoading) Text('每秒更新报价，图表每10秒刷新', style: TextStyle(color: ChartTheme.textSecondary, fontSize: 11), textAlign: TextAlign.center),
+            if (stillLoading) Text(l10n.chartQuoteRefreshHint, style: TextStyle(color: ChartTheme.textSecondary, fontSize: 11), textAlign: TextAlign.center),
             if (isIntradayEmpty) const SizedBox(height: 6),
-            if (isIntradayEmpty) Text('下方为当日开、高、低、收等行情', style: TextStyle(color: ChartTheme.textSecondary, fontSize: 12), textAlign: TextAlign.center),
+            if (isIntradayEmpty) Text(l10n.chartOhlcHint, style: TextStyle(color: ChartTheme.textSecondary, fontSize: 12), textAlign: TextAlign.center),
             if (isKlineEmpty && klineError != null && klineError.isNotEmpty) ...[
               const SizedBox(height: 10),
-              Text('请求失败: $klineError', style: TextStyle(color: ChartTheme.down, fontSize: 12), textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis),
+              Text(l10n.chartRequestFailed(klineError), style: TextStyle(color: ChartTheme.down, fontSize: 12), textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis),
             ],
             if (isKlineEmpty) const SizedBox(height: 8),
-            if (isKlineEmpty) Text('点击刷新重试', style: TextStyle(color: ChartTheme.accentGold, fontSize: 13), textAlign: TextAlign.center),
+            if (isKlineEmpty) Text(l10n.chartClickRetry, style: TextStyle(color: ChartTheme.accentGold, fontSize: 13), textAlign: TextAlign.center),
             if (isKlineEmpty) const SizedBox(height: 4),
-            if (isKlineEmpty) Text('若仍无数据：请确认后端已启动；真机/模拟器将 .env 中 TONGXIN_API_URL 改为本机 IP', style: TextStyle(color: ChartTheme.textTertiary, fontSize: 11), textAlign: TextAlign.center),
+            if (isKlineEmpty) Text(l10n.chartNoDataTroubleshoot, style: TextStyle(color: ChartTheme.textTertiary, fontSize: 11), textAlign: TextAlign.center),
           ],
         ),
       ),
@@ -1195,13 +1198,13 @@ class _StockChartPageState extends State<StockChartPage>
             Icon(Icons.show_chart_rounded, size: 48, color: ChartTheme.textTertiary),
             const SizedBox(height: 16),
             Text(
-              '暂无数据',
+              AppLocalizations.of(context)!.chartNoData,
               style: TextStyle(color: ChartTheme.textPrimary, fontSize: 17, fontWeight: FontWeight.w600),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 8),
             Text(
-              '分时与 K 线数据暂时无法加载，请稍后重试或切换数据源',
+              AppLocalizations.of(context)!.chartEmptyHint,
               style: TextStyle(color: ChartTheme.textTertiary, fontSize: 13),
               textAlign: TextAlign.center,
             ),
@@ -1209,14 +1212,14 @@ class _StockChartPageState extends State<StockChartPage>
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                _emptyStateButton('重试', onPressed: () {
+                _emptyStateButton(AppLocalizations.of(context)!.chartRetry, onPressed: () {
                   setState(() => _chartLoading = true);
                   _loadIntraday().then((_) => _loadKLine()).then((_) {
                     if (mounted) setState(() => _chartLoading = false);
                   });
                 }),
                 const SizedBox(width: 12),
-                _emptyStateButton('切换数据源', onPressed: () {}),
+                _emptyStateButton(AppLocalizations.of(context)!.chartSwitchDataSource, onPressed: () {}),
               ],
             ),
           ],
@@ -1274,7 +1277,7 @@ class _StockChartPageState extends State<StockChartPage>
   }
 
   Widget _buildKLineWithMaAndVolume(List<ChartCandle> candles) {
-    if (candles.isEmpty) return Center(child: Text('暂无图表数据', style: TextStyle(color: ChartTheme.textSecondary)));
+    if (candles.isEmpty) return Center(child: Text(AppLocalizations.of(context)!.chartNoChartData, style: TextStyle(color: ChartTheme.textSecondary)));
     double minY = candles.first.low;
     double maxY = candles.first.high;
     for (final c in candles) {

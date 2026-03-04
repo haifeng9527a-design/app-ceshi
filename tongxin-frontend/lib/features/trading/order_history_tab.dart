@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../../l10n/app_localizations.dart';
 import 'trading_models.dart';
 
 /// 历史委托 Tab：历史委托列表，支持按日期/标的筛选与分页（先 mock，分页占位）
@@ -105,18 +106,19 @@ class _OrderHistoryTabState extends State<OrderHistoryTab> {
     return list;
   }
 
-  String _statusText(OrderStatus s) {
+  String _statusText(BuildContext context, OrderStatus s) {
+    final l10n = AppLocalizations.of(context)!;
     switch (s) {
       case OrderStatus.pending:
-        return '待成交';
+        return l10n.orderStatusPending;
       case OrderStatus.partial:
-        return '部分成交';
+        return l10n.orderStatusPartial;
       case OrderStatus.filled:
-        return '已成交';
+        return l10n.orderFilled;
       case OrderStatus.cancelled:
-        return '已撤单';
+        return l10n.orderStatusCancelled;
       case OrderStatus.rejected:
-        return '已拒绝';
+        return l10n.orderStatusRejected;
     }
   }
 
@@ -136,7 +138,7 @@ class _OrderHistoryTabState extends State<OrderHistoryTab> {
               Icon(Icons.history, color: _accent, size: 20),
               const SizedBox(width: 8),
               Text(
-                '历史委托',
+                AppLocalizations.of(context)!.teachersHistoryOrderTab,
                 style: TextStyle(
                   color: _accent,
                   fontWeight: FontWeight.w600,
@@ -145,7 +147,7 @@ class _OrderHistoryTabState extends State<OrderHistoryTab> {
               ),
               const Spacer(),
               Text(
-                '（模拟数据）',
+                AppLocalizations.of(context)!.orderSimulated,
                 style: TextStyle(fontSize: 12, color: _muted),
               ),
             ],
@@ -165,7 +167,7 @@ class _OrderHistoryTabState extends State<OrderHistoryTab> {
                   if (picked != null) setState(() => _filterDate = picked);
                 },
                 icon: const Icon(Icons.calendar_today, size: 16),
-                label: Text(_filterDate != null ? dateFmt.format(_filterDate!) : '日期'),
+                label: Text(_filterDate != null ? dateFmt.format(_filterDate!) : AppLocalizations.of(context)!.orderDate),
               ),
             ),
             const SizedBox(width: 8),
@@ -173,7 +175,7 @@ class _OrderHistoryTabState extends State<OrderHistoryTab> {
               child: TextField(
                 onChanged: (v) => setState(() => _filterSymbol = v),
                 decoration: InputDecoration(
-                  hintText: '标的',
+                  hintText: AppLocalizations.of(context)!.tradingSymbolLabel,
                   hintStyle: const TextStyle(color: _muted),
                   isDense: true,
                   contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -190,7 +192,7 @@ class _OrderHistoryTabState extends State<OrderHistoryTab> {
                 _filterDate = null;
                 _filterSymbol = '';
               }),
-              child: const Text('清除'),
+              child: Text(AppLocalizations.of(context)!.orderClear),
             ),
           ],
         ),
@@ -200,7 +202,7 @@ class _OrderHistoryTabState extends State<OrderHistoryTab> {
             padding: const EdgeInsets.symmetric(vertical: 48),
             alignment: Alignment.center,
             child: Text(
-              '暂无历史委托',
+              AppLocalizations.of(context)!.orderNoHistory,
               style: TextStyle(color: _muted, fontSize: 14),
             ),
           )
@@ -239,7 +241,7 @@ class _OrderHistoryTabState extends State<OrderHistoryTab> {
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Text(
-                              o.isBuy ? '买入' : '卖出',
+                              o.isBuy ? AppLocalizations.of(context)!.tradingBuy : AppLocalizations.of(context)!.tradingSell,
                               style: TextStyle(
                                 color: o.isBuy ? Colors.green : Colors.red,
                                 fontWeight: FontWeight.w600,
@@ -252,18 +254,18 @@ class _OrderHistoryTabState extends State<OrderHistoryTab> {
                       const SizedBox(height: 10),
                       Row(
                         children: [
-                          _labelValue('委托价', o.type == OrderType.market ? '市价' : o.price.toStringAsFixed(2)),
+                          _labelValue(AppLocalizations.of(context)!.orderPrice, o.type == OrderType.market ? AppLocalizations.of(context)!.tradingMarketOrder : o.price.toStringAsFixed(2)),
                           const SizedBox(width: 16),
-                          _labelValue('数量', o.quantity.toStringAsFixed(0)),
+                          _labelValue(AppLocalizations.of(context)!.tradingQuantityLabel, o.quantity.toStringAsFixed(0)),
                           const SizedBox(width: 16),
-                          _labelValue('已成交', o.filledQuantity.toStringAsFixed(0)),
+                          _labelValue(AppLocalizations.of(context)!.orderFilled, o.filledQuantity.toStringAsFixed(0)),
                         ],
                       ),
                       const SizedBox(height: 6),
                       Row(
                         children: [
                           Text(
-                            _statusText(o.status),
+                            _statusText(context, o.status),
                             style: TextStyle(color: _muted, fontSize: 13),
                           ),
                           const SizedBox(width: 12),

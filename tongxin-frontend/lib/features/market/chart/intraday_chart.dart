@@ -1,6 +1,7 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 
+import '../../../l10n/app_localizations.dart';
 import '../../trading/polygon_repository.dart';
 import 'chart_theme.dart';
 
@@ -227,7 +228,7 @@ class IntradayChart extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (candles.isEmpty) {
-      return Center(child: Text('暂无图表数据', style: TextStyle(color: ChartTheme.textSecondary)));
+      return Center(child: Text(AppLocalizations.of(context)!.chartNoIntradayData, style: TextStyle(color: ChartTheme.textSecondary)));
     }
     final axisStyle = TextStyle(color: ChartTheme.textSecondary, fontSize: ChartTheme.fontSizeAxis, fontFamily: ChartTheme.fontMono);
     final basePrice = prevClose ?? candles.first.open;
