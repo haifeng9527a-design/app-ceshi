@@ -107,19 +107,20 @@ class RealtimeQuoteService {
     _subscribeForQuotes(prioritySymbols: prioritySymbols);
   }
 
+  /// 仅订阅可见区域 WebSocket（无初始报价时也可订阅，收到推送会创建报价）
+  void subscribeToSymbols(List<String> symbols) {
+    if (symbols.isEmpty) return;
+    _subscribeForQuotes(prioritySymbols: symbols);
+  }
+
   void _subscribeForQuotes({List<String>? prioritySymbols}) {
     final apiKey = _apiKey;
     if (apiKey == null || apiKey.isEmpty) return;
 
     List<String> symbols;
     if (prioritySymbols != null && prioritySymbols.isNotEmpty) {
-      symbols = prioritySymbols
-          .where((s) {
-            final q = _quotes[s];
-            return q != null && !q.hasError && q.price > 0;
-          })
-          .take(_maxSubscribeSymbols)
-          .toList();
+      // 优先订阅可见区域，即使暂无报价也订阅，WebSocket 推送时可创建新报价
+      symbols = prioritySymbols.take(_maxSubscribeSymbols).toList();
     } else {
       symbols = _quotes.keys
           .where((s) {
@@ -140,26 +141,54 @@ class RealtimeQuoteService {
 
   void _onQuotesTrade(PolygonTradeUpdate u) {
     if (u.symbol == null || u.price <= 0) return;
-    final q = _quotes[u.symbol!];
-    if (q == null || q.hasError) return;
+    final sym = u.symbol!;
+    final q = _quotes[sym];
 
-    final prevClose = q.change != 0 ? q.price - q.change : q.price;
-    if (prevClose <= 0) return;
-
-    final newChange = u.price - prevClose;
-    final newChangePct = (newChange / prevClose) * 100;
-    final updated = MarketQuote(
-      symbol: q.symbol,
-      name: q.name,
-      price: u.price,
-      change: newChange,
-      changePercent: newChangePct,
-      open: q.open,
-      high: q.high,
-      low: q.low,
-      volume: q.volume,
-    );
-    _quotes[u.symbol!] = updated;
+    MarketQuote updated;
+    if (q != null && !q.hasError) {
+      final prevClose = q.change != 0 ? q.price - q.change : q.price;
+      if (prevClose > 0) {
+        final newChange = u.price - prevClose;
+        final newChangePct = (newChange / prevClose) * 100;
+        updated = MarketQuote(
+          symbol: q.symbol,
+          name: q.name,
+          price: u.price,
+          change: newChange,
+          changePercent: newChangePct,
+          open: q.open,
+          high: q.high,
+          low: q.low,
+          volume: q.volume,
+        );
+      } else {
+        updated = MarketQuote(
+          symbol: q.symbol,
+          name: q.name,
+          price: u.price,
+          change: 0,
+          changePercent: 0,
+          open: q.open,
+          high: q.high,
+          low: q.low,
+          volume: q.volume,
+        );
+      }
+    } else {
+      // 无初始报价时，WebSocket 推送创建新报价（仅价格，涨跌为 0）
+      updated = MarketQuote(
+        symbol: sym,
+        name: null,
+        price: u.price,
+        change: 0,
+        changePercent: 0,
+        open: null,
+        high: null,
+        low: null,
+        volume: null,
+      );
+    }
+    _quotes[sym] = updated;
     if (!_quotesController.isClosed) _quotesController.add(_quotes);
   }
 

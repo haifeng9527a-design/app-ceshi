@@ -6,6 +6,8 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import '../trading/backend_market_client.dart';
 import '../trading/market_snapshot_repository.dart';
+
+import 'market_db.dart';
 import '../trading/polygon_realtime.dart';
 import '../trading/polygon_repository.dart';
 import '../trading/stock_quote_cache_repository.dart';
@@ -559,6 +561,31 @@ class MarketRepository {
 
   static const _usTickersCacheKey = 'us_tickers';
   static const _usTickersCacheMaxAge = Duration(days: 7);
+
+  /// 将报价写入本地 DB（拉取到新数据后调用，供下次秒开）
+  Future<void> persistQuotesToLocalDb(Map<String, MarketQuote> quotes) async {
+    if (quotes.isEmpty) return;
+    try {
+      await MarketDb.instance.upsertQuotes(quotes);
+    } catch (_) {}
+  }
+
+  /// 从本地 DB 读取美股列表+报价（优先，有则秒开）
+  Future<({List<MarketSearchResult> tickers, Map<String, MarketQuote> quotes})?> getTickersFromLocalDb({
+    String? sortColumn,
+    bool sortAscending = false,
+  }) async {
+    try {
+      final result = await MarketDb.instance.getTickersAndQuotes(
+        sortColumn: sortColumn,
+        sortAscending: sortAscending,
+      );
+      if (result.tickers.isEmpty) return null;
+      return result;
+    } catch (_) {
+      return null;
+    }
+  }
 
   /// 从后端 stock_quote_cache 读取美股列表（后端代理，避免前端直连 Supabase）
   /// 返回空列表表示后端未配置或表无数据；成功时写入本地缓存供下次秒开

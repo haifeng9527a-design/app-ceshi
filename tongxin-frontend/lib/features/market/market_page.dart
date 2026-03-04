@@ -16,7 +16,9 @@ import '../trading/trading_cache.dart';
 import 'gainers_losers_page.dart';
 import 'generic_chart_page.dart';
 import 'market_colors.dart';
+import 'market_db.dart';
 import 'market_repository.dart';
+import 'market_sync_service.dart';
 import 'quote_row.dart';
 import 'search_page.dart';
 import 'stock_chart_page.dart';
@@ -47,6 +49,7 @@ class _MarketPageState extends State<MarketPage>
   void initState() {
     super.initState();
     _tabController = TabController(length: _tabCount, vsync: this);
+    MarketSyncService.instance.syncOnEnter();
   }
 
   @override
@@ -2439,6 +2442,7 @@ class _UsStocksTabState extends State<_UsStocksTab> {
   final _watchlist = WatchlistRepository.instance;
   final _realtime = RealtimeQuoteService();
   StreamSubscription<Map<String, MarketQuote>>? _quotesSub;
+  StreamSubscription<void>? _syncCompleteSub;
   static final _cache = TradingCache.instance;
   /// 美股列表报价本地缓存 key，切换页/滑动后再回来可先展示
   static const _usListQuotesCacheKey = 'us_list_quotes';
@@ -2481,7 +2485,9 @@ class _UsStocksTabState extends State<_UsStocksTab> {
   }
 
   /// 全部列表排序后的展示顺序（点击表头排序时使用）
+  /// 使用 DB 时 _allTickers 已按 SQL 排序，直接返回；否则内存排序
   List<MarketSearchResult> get _sortedTickers {
+    if (_useDbForAll) return _allTickers;
     final list = _displayTickers;
     if (_sortColumn == null || list.isEmpty) return list;
     final q = _quotes;
@@ -2614,13 +2620,23 @@ class _UsStocksTabState extends State<_UsStocksTab> {
   int? _lastVisibleEnd;
   Timer? _quoteRefreshTimer;
 
+  Timer? _persistDebounceTimer;
+
   @override
   void initState() {
     super.initState();
+    _syncCompleteSub = MarketSyncService.onSyncComplete.listen((_) {
+      if (mounted && _listMode == 0 && _allTickers.isNotEmpty) {
+        _reloadFromServerAfterSync();
+      }
+    });
     _quotesSub = _realtime.quotesStream.listen((q) {
-      if (mounted) setState(() {
-        for (final e in q.entries) _quotes[e.key] = e.value;
-      });
+      if (mounted && q.isNotEmpty) {
+        setState(() {
+          _quotes = Map<String, MarketQuote>.from(_quotes)..addAll(q);
+        });
+        _debouncedPersistQuotes(_quotes);
+      }
     });
     widget.tabController.addListener(_onMarketTabChanged);
     _loadCachedThenRefresh();
@@ -2628,10 +2644,38 @@ class _UsStocksTabState extends State<_UsStocksTab> {
     _allListScrollController.addListener(_onAllListScroll);
   }
 
+  /// WebSocket 推送后防抖写入本地 DB（避免频繁写）
+  void _debouncedPersistQuotes(Map<String, MarketQuote> q) {
+    _persistDebounceTimer?.cancel();
+    _persistDebounceTimer = Timer(const Duration(milliseconds: 500), () {
+      _persistDebounceTimer = null;
+      _market.persistQuotesToLocalDb(q);
+    });
+  }
+
+  /// 服务端同步完成后刷新列表（从本地 DB 重新加载，syncOnEnter 已写入）
+  Future<void> _reloadFromServerAfterSync() async {
+    try {
+      final fromDb = await _market.getTickersFromLocalDb(
+        sortColumn: _sortColumn,
+        sortAscending: _sortAscending,
+      );
+      if (fromDb != null && fromDb.tickers.isNotEmpty && mounted) {
+        setState(() {
+          _allTickers = fromDb.tickers;
+          _quotes = {..._quotes, ...fromDb.quotes};
+        });
+      }
+    } catch (_) {}
+  }
+
   @override
   void dispose() {
+    _persistDebounceTimer?.cancel();
+    _syncCompleteSub?.cancel();
     _quotesSub?.cancel();
     _realtime.dispose();
+    MarketSyncService.instance.stopPeriodicSync();
     widget.tabController.removeListener(_onMarketTabChanged);
     _allListScrollController.removeListener(_onAllListScroll);
     _allListScrollController.dispose();
@@ -2664,6 +2708,12 @@ class _UsStocksTabState extends State<_UsStocksTab> {
     if (_lastVisibleStart == start && _lastVisibleEnd == end) return;
     _lastVisibleStart = start;
     _lastVisibleEnd = end;
+    final visibleSymbols = display.sublist(start, end + 1).map((t) => t.symbol).toList();
+    if (_quotes.isNotEmpty) {
+      _realtime.updateQuotes(_quotes, prioritySymbols: visibleSymbols);
+    } else {
+      _realtime.subscribeToSymbols(visibleSymbols);
+    }
     _loadQuotesForVisibleRange(start, end);
   }
 
@@ -2745,7 +2795,7 @@ class _UsStocksTabState extends State<_UsStocksTab> {
     } catch (_) {}
   }
 
-  /// 将当前 _quotes 写入本地缓存（异步，不阻塞 UI；最多存 3000 条避免文件过大）
+  /// 将当前 _quotes 写入本地缓存与 DB（异步，不阻塞 UI；最多存 3000 条避免文件过大）
   Future<void> _persistQuotesToCache() async {
     try {
       final map = _quotes;
@@ -2754,16 +2804,39 @@ class _UsStocksTabState extends State<_UsStocksTab> {
       final data = <String, dynamic>{};
       for (final e in entries) data[e.key] = e.value.toSnapshotMap();
       await _cache.set(_usListQuotesCacheKey, data);
+      await _market.persistQuotesToLocalDb(Map.fromEntries(entries.map((e) => MapEntry(e.key, e.value))));
     } catch (_) {}
   }
 
-  /// 加载全量美股列表：缓存 → 内置兜底 → 数据库，任一有数据即秒开
+  /// 是否使用本地 DB 作为「全部」列表数据源（有则排序用 SQL，无则内存排序）
+  bool _useDbForAll = false;
+
+  /// 加载全量美股列表：本地 DB → 缓存 → 内置兜底 → 后端，任一有数据即秒开
   Future<void> _loadAllTickers() async {
     if (!mounted) return;
     setState(() => _loading = true);
-    // 1. 先读本地缓存，有则立即展示
+    // 1. 优先读本地 DB（含报价，SQL 排序，秒开）
+    final fromDb = await _market.getTickersFromLocalDb(
+      sortColumn: _sortColumn,
+      sortAscending: _sortAscending,
+    );
+    if (fromDb != null && fromDb.tickers.isNotEmpty && mounted) {
+      setState(() {
+        _allTickers = fromDb.tickers;
+        _quotes = fromDb.quotes;
+        _useDbForAll = true;
+        _loading = false;
+        _error = null;
+      });
+      if (_quotes.isEmpty) await _restoreQuotesFromCache();
+      _loadFirstVisibleQuotesAndStartTimer();
+      MarketSyncService.instance.startPeriodicSync();
+      _syncTickersAndQuotesInBackground();
+      return;
+    }
+    _useDbForAll = false;
+    // 2. 无 DB 时读本地缓存
     var list = await _market.getCachedUsTickers();
-    // 2. 无缓存时读内置 S&P 500 兜底（首次安装秒开）
     if (list == null || list.isEmpty) {
       list = await _market.getBundledUsTickers();
     }
@@ -2777,7 +2850,7 @@ class _UsStocksTabState extends State<_UsStocksTab> {
       await _restoreQuotesFromCache();
       _loadFirstVisibleQuotesAndStartTimer();
     }
-    // 3. 后台从数据库刷新，有数据则静默替换；无数据时仅在没有兜底数据时才报错
+    // 3. 后台从后端刷新，有数据则静默替换并写入 DB
     try {
       final fresh = await _market.getTickersFromStockQuoteCache();
       if (!mounted) return;
@@ -2786,12 +2859,12 @@ class _UsStocksTabState extends State<_UsStocksTab> {
           _allTickers = fresh;
           _error = null;
         } else {
-          // 数据库空时，仅当没有任何兜底数据才显示 STOCK_QUOTE_CACHE_EMPTY
           _error = _allTickers.isEmpty ? 'STOCK_QUOTE_CACHE_EMPTY' : null;
         }
         _loading = false;
       });
       if (fresh.isNotEmpty) {
+        MarketDb.instance.upsertTickers(fresh);
         await _restoreQuotesFromCache();
         _loadFirstVisibleQuotesAndStartTimer();
       }
@@ -2806,6 +2879,14 @@ class _UsStocksTabState extends State<_UsStocksTab> {
     }
   }
 
+  /// 后台同步 tickers 并分批拉取报价写入 DB
+  Future<void> _syncTickersAndQuotesInBackground() async {
+    if (!_useDbForAll || _allTickers.isEmpty) return;
+    try {
+      await MarketSyncService.instance.syncTickers();
+    } catch (_) {}
+  }
+
   /// 首屏可见范围（约 0 到 400/44 + buffer），拉取报价并启动定时刷新；仅当美股 Tab 可见时刷新
   void _loadFirstVisibleQuotesAndStartTimer() {
     if (_allTickers.isEmpty) return;
@@ -2815,6 +2896,12 @@ class _UsStocksTabState extends State<_UsStocksTab> {
     final end = (sorted.isEmpty ? 0 : endIndex.clamp(0, sorted.length - 1));
     _lastVisibleStart = 0;
     _lastVisibleEnd = end;
+    final visibleSymbols = sorted.isEmpty ? <String>[] : sorted.sublist(0, end + 1).map((t) => t.symbol).toList();
+    if (_quotes.isNotEmpty) {
+      _realtime.updateQuotes(_quotes, prioritySymbols: visibleSymbols);
+    } else {
+      _realtime.subscribeToSymbols(visibleSymbols);
+    }
     _loadQuotesForVisibleRange(0, end);
     _startQuoteRefreshTimer();
     _prefetchAllQuotesInChunks();
@@ -3166,8 +3253,8 @@ class _UsStocksTabState extends State<_UsStocksTab> {
               ),
               child: Row(
                 children: [
-                  Expanded(flex: 1, child: InkWell(onTap: () { setState(() { if (_sortColumn == 'code') _sortAscending = !_sortAscending; else { _sortColumn = 'code'; _sortAscending = true; } }); }, child: Row(mainAxisSize: MainAxisSize.min, children: [Text(AppLocalizations.of(context)!.marketCode, style: TvTheme.meta, maxLines: 1, overflow: TextOverflow.ellipsis), if (_sortColumn == 'code') Icon(_sortAscending ? Icons.arrow_drop_up : Icons.arrow_drop_down, size: 18, color: TvTheme.positive)]))),
-                  Expanded(flex: 2, child: InkWell(onTap: () { setState(() { if (_sortColumn == 'name') _sortAscending = !_sortAscending; else { _sortColumn = 'name'; _sortAscending = true; } }); }, child: Row(mainAxisSize: MainAxisSize.min, children: [Text(AppLocalizations.of(context)!.marketName, style: TvTheme.meta, maxLines: 1, overflow: TextOverflow.ellipsis), if (_sortColumn == 'name') Icon(_sortAscending ? Icons.arrow_drop_up : Icons.arrow_drop_down, size: 18, color: TvTheme.positive)]))),
+                  Expanded(flex: 1, child: InkWell(onTap: () => _onSortColumnTap('code'), child: Row(mainAxisSize: MainAxisSize.min, children: [Text(AppLocalizations.of(context)!.marketCode, style: TvTheme.meta, maxLines: 1, overflow: TextOverflow.ellipsis), if (_sortColumn == 'code') Icon(_sortAscending ? Icons.arrow_drop_up : Icons.arrow_drop_down, size: 18, color: TvTheme.positive)]))),
+                  Expanded(flex: 2, child: InkWell(onTap: () => _onSortColumnTap('name'), child: Row(mainAxisSize: MainAxisSize.min, children: [Text(AppLocalizations.of(context)!.marketName, style: TvTheme.meta, maxLines: 1, overflow: TextOverflow.ellipsis), if (_sortColumn == 'name') Icon(_sortAscending ? Icons.arrow_drop_up : Icons.arrow_drop_down, size: 18, color: TvTheme.positive)]))),
                   _sortableHeader(AppLocalizations.of(context)!.marketChangePct, 'pct', width: colPct),
                   _sortableHeader(AppLocalizations.of(context)!.marketLatestPrice, 'price', width: colPrice),
                   _sortableHeader(AppLocalizations.of(context)!.marketChangeAmount, 'change', width: colChange),
@@ -3343,21 +3430,40 @@ class _UsStocksTabState extends State<_UsStocksTab> {
     );
   }
 
+  void _onSortColumnTap(String columnId) {
+    setState(() {
+      if (_sortColumn == columnId) {
+        _sortAscending = !_sortAscending;
+      } else {
+        _sortColumn = columnId;
+        _sortAscending = columnId == 'code' || columnId == 'name' || columnId == 'vol';
+      }
+    });
+    if (_useDbForAll) _reloadFromDbWithSort();
+  }
+
+  Future<void> _reloadFromDbWithSort() async {
+    if (!_useDbForAll) return;
+    try {
+      final fromDb = await _market.getTickersFromLocalDb(
+        sortColumn: _sortColumn,
+        sortAscending: _sortAscending,
+      );
+      if (fromDb != null && fromDb.tickers.isNotEmpty && mounted) {
+        setState(() {
+          _allTickers = fromDb.tickers;
+          _quotes = {..._quotes, ...fromDb.quotes};
+        });
+      }
+    } catch (_) {}
+  }
+
   Widget _sortableHeader(String label, String columnId, {required double width, TextAlign align = TextAlign.right}) {
     final isActive = _sortColumn == columnId;
     return SizedBox(
       width: width,
       child: InkWell(
-        onTap: () {
-          setState(() {
-            if (_sortColumn == columnId) {
-              _sortAscending = !_sortAscending;
-            } else {
-              _sortColumn = columnId;
-              _sortAscending = columnId == 'code' || columnId == 'name' || columnId == 'vol';
-            }
-          });
-        },
+        onTap: () => _onSortColumnTap(columnId),
         child: Row(
           mainAxisAlignment: align == TextAlign.right ? MainAxisAlignment.end : MainAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
@@ -3407,8 +3513,8 @@ class _UsStocksTabState extends State<_UsStocksTab> {
               ),
               child: Row(
                 children: [
-                  Expanded(flex: 1, child: InkWell(onTap: () { setState(() { if (_sortColumn == 'code') _sortAscending = !_sortAscending; else { _sortColumn = 'code'; _sortAscending = true; } }); }, child: Row(mainAxisSize: MainAxisSize.min, children: [Text(AppLocalizations.of(context)!.marketCode, style: TvTheme.meta, maxLines: 1, overflow: TextOverflow.ellipsis), if (_sortColumn == 'code') Icon(_sortAscending ? Icons.arrow_drop_up : Icons.arrow_drop_down, size: 18, color: TvTheme.positive)]))),
-                  Expanded(flex: 2, child: InkWell(onTap: () { setState(() { if (_sortColumn == 'name') _sortAscending = !_sortAscending; else { _sortColumn = 'name'; _sortAscending = true; } }); }, child: Row(mainAxisSize: MainAxisSize.min, children: [Text(AppLocalizations.of(context)!.marketName, style: TvTheme.meta, maxLines: 1, overflow: TextOverflow.ellipsis), if (_sortColumn == 'name') Icon(_sortAscending ? Icons.arrow_drop_up : Icons.arrow_drop_down, size: 18, color: TvTheme.positive)]))),
+                  Expanded(flex: 1, child: InkWell(onTap: () => _onSortColumnTap('code'), child: Row(mainAxisSize: MainAxisSize.min, children: [Text(AppLocalizations.of(context)!.marketCode, style: TvTheme.meta, maxLines: 1, overflow: TextOverflow.ellipsis), if (_sortColumn == 'code') Icon(_sortAscending ? Icons.arrow_drop_up : Icons.arrow_drop_down, size: 18, color: TvTheme.positive)]))),
+                  Expanded(flex: 2, child: InkWell(onTap: () => _onSortColumnTap('name'), child: Row(mainAxisSize: MainAxisSize.min, children: [Text(AppLocalizations.of(context)!.marketName, style: TvTheme.meta, maxLines: 1, overflow: TextOverflow.ellipsis), if (_sortColumn == 'name') Icon(_sortAscending ? Icons.arrow_drop_up : Icons.arrow_drop_down, size: 18, color: TvTheme.positive)]))),
                   _sortableHeader(AppLocalizations.of(context)!.marketChangePct, 'pct', width: colPct),
                   _sortableHeader(AppLocalizations.of(context)!.marketLatestPrice, 'price', width: colPrice),
                   _sortableHeader(AppLocalizations.of(context)!.marketChangeAmount, 'change', width: colChange),
