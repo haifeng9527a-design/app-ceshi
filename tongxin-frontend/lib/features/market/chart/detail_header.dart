@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../../../l10n/app_localizations.dart';
+import '../watchlist_repository.dart';
 import 'chart_theme.dart';
 
-/// 详情页顶栏（参考主流行情 App）：左 返回 | 中 股票代码+左右箭头切换 | 右 分享
+/// 详情页顶栏（参考主流行情 App）：左 返回 | 中 股票代码+左右箭头切换 | 右 加入自选
 /// 支持在股票代码区域左右滑动切换上一只/下一只
 class DetailHeader extends StatefulWidget {
   const DetailHeader({
@@ -36,6 +38,49 @@ class DetailHeader extends StatefulWidget {
 
 class _DetailHeaderState extends State<DetailHeader> {
   static const double _swipeThreshold = 100.0;
+  bool _inWatchlist = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkWatchlist();
+  }
+
+  @override
+  void didUpdateWidget(covariant DetailHeader oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.symbol != widget.symbol) {
+      _checkWatchlist();
+    }
+  }
+
+  Future<void> _checkWatchlist() async {
+    final list = await WatchlistRepository.instance.getWatchlist();
+    if (mounted) {
+      setState(() => _inWatchlist = list.contains(widget.symbol.trim()));
+    }
+  }
+
+  Future<void> _toggleWatchlist() async {
+    final s = widget.symbol.trim();
+    if (s.isEmpty) return;
+    if (_inWatchlist) {
+      await WatchlistRepository.instance.removeWatchlist(s);
+    } else {
+      await WatchlistRepository.instance.addWatchlist(s);
+    }
+    if (mounted) {
+      setState(() => _inWatchlist = !_inWatchlist);
+      final l10n = AppLocalizations.of(context)!;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_inWatchlist ? l10n.searchAddedToWatchlist(s) : l10n.watchlistRemove),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -110,10 +155,16 @@ class _DetailHeaderState extends State<DetailHeader> {
                       ),
                     ),
                   ),
-                  _iconButton(
-                    icon: Icons.share_outlined,
-                    size: 20,
-                    onPressed: widget.onShare ?? () {},
+                  Tooltip(
+                    message: _inWatchlist
+                        ? AppLocalizations.of(context)!.watchlistRemove
+                        : AppLocalizations.of(context)!.searchAddWatchlist,
+                    child: _iconButton(
+                      icon: _inWatchlist ? Icons.star : Icons.star_border_outlined,
+                      size: 22,
+                      color: _inWatchlist ? ChartTheme.accentGold : ChartTheme.textPrimary,
+                      onPressed: _toggleWatchlist,
+                    ),
                   ),
                 ],
               ),
@@ -128,6 +179,7 @@ class _DetailHeaderState extends State<DetailHeader> {
     required IconData icon,
     required double size,
     required VoidCallback onPressed,
+    Color? color,
   }) {
     return Material(
       color: Colors.transparent,
@@ -138,7 +190,7 @@ class _DetailHeaderState extends State<DetailHeader> {
           width: 32,
           height: 32,
           child: Center(
-            child: Icon(icon, size: size, color: ChartTheme.textPrimary),
+            child: Icon(icon, size: size, color: color ?? ChartTheme.textPrimary),
           ),
         ),
       ),

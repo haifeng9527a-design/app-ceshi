@@ -1,25 +1,32 @@
-import 'package:cached_network_image/cached_network_image.dart';
+import 'dart:convert';
 import 'dart:io' show Platform;
+
+import 'package:cached_network_image/cached_network_image.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:supabase_flutter/supabase_flutter.dart' show FileOptions;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:permission_handler/permission_handler.dart';
 
+import '../../api/users_api.dart';
 import '../auth/auth_service.dart';
 import '../auth/login_page.dart';
+import '../../core/api_client.dart';
 import '../../core/firebase_bootstrap.dart';
+import '../../core/locale_provider.dart';
+import '../../l10n/app_localizations.dart';
 import '../../core/role_badge.dart';
-import '../../core/supabase_bootstrap.dart';
 import '../../core/notification_settings_guide.dart';
 import '../../core/notification_service.dart';
 import '../../core/user_restrictions.dart';
+import '../home/featured_teacher_page.dart';
 import '../teachers/teacher_center_page.dart';
+import '../messages/customer_service_workbench_page.dart';
 import '../messages/supabase_user_sync.dart';
+import 'report_page.dart';
 
 class UserRoleInfo {
   const UserRoleInfo({
@@ -34,32 +41,17 @@ class UserRoleInfo {
 }
 
 Future<UserRoleInfo?> _fetchRoleInfo(String userId) async {
-  if (userId.isEmpty) {
-    return null;
-  }
-  if (!SupabaseBootstrap.isReady) {
-    return const UserRoleInfo(role: 'user', level: 0, teacherStatus: 'pending');
-  }
-  final up = await SupabaseBootstrap.client
-      .from('user_profiles')
-      .select('role, level, teacher_status')
-      .eq('user_id', userId)
-      .maybeSingle();
-  String teacherStatus = up?['teacher_status'] as String? ?? 'pending';
-  final tp = await SupabaseBootstrap.client
-      .from('teacher_profiles')
-      .select('status')
-      .eq('user_id', userId)
-      .maybeSingle();
-  if (tp != null && tp['status'] != null) {
-    teacherStatus = tp['status'] as String;
-  }
+  if (userId.isEmpty) return null;
+  if (!ApiClient.instance.isAvailable) return const UserRoleInfo(role: 'user', level: 0, teacherStatus: 'pending');
+  final p = await UsersApi.instance.getProfile(userId);
+  if (p == null) return const UserRoleInfo(role: 'user', level: 0, teacherStatus: 'pending');
   return UserRoleInfo(
-    role: up?['role'] as String? ?? 'user',
-    level: (up?['level'] as int?) ?? 0,
-    teacherStatus: teacherStatus,
+    role: p['role'] as String? ?? 'user',
+    level: (p['level'] as int?) ?? 0,
+    teacherStatus: p['teacher_status'] as String? ?? 'pending',
   );
 }
+
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -122,20 +114,14 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
     }
     _loadedUserId = userId;
     await _loadCachedProfile(userId);
-    if (!SupabaseBootstrap.isReady) {
-      return;
-    }
+    if (!ApiClient.instance.isAvailable) return;
     try {
-      final row = await SupabaseBootstrap.client
-          .from('user_profiles')
-          .select('avatar_url, signature, short_id')
-          .eq('user_id', userId)
-          .maybeSingle();
+      final p = await UsersApi.instance.getProfile(userId);
       if (!mounted) return;
       setState(() {
-        _avatarUrl = row?['avatar_url'] as String?;
-        _signature = row?['signature'] as String?;
-        _shortId = row?['short_id'] as String?;
+        _avatarUrl = p?['avatar_url'] as String?;
+        _signature = p?['signature'] as String?;
+        _shortId = p?['short_id'] as String?;
       });
       await _saveCachedProfile(
         userId: userId,
@@ -199,21 +185,13 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
   }
 
   Future<void> _requestShortId(String userId) async {
-    if (_requestingShortId || !SupabaseBootstrap.isReady) {
-      return;
-    }
+    if (_requestingShortId || !ApiClient.instance.isAvailable) return;
     _requestingShortId = true;
     try {
       await SupabaseUserSync().ensureShortId(userId);
-      final row = await SupabaseBootstrap.client
-          .from('user_profiles')
-          .select('short_id')
-          .eq('user_id', userId)
-          .maybeSingle();
+      final p = await UsersApi.instance.getProfile(userId);
       if (!mounted) return;
-      setState(() {
-        _shortId = row?['short_id'] as String?;
-      });
+      setState(() => _shortId = p?['short_id'] as String?);
       await _saveCachedProfile(userId: userId, shortId: _shortId);
     } finally {
       _requestingShortId = false;
@@ -221,41 +199,27 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
   }
 
   Future<void> _uploadAvatar(String userId) async {
-    if (_uploadingAvatar || userId.isEmpty) {
-      return;
-    }
-    if (!SupabaseBootstrap.isReady) {
+    if (_uploadingAvatar || userId.isEmpty) return;
+    if (!ApiClient.instance.isAvailable) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('头像上传失败：未配置 Supabase')),
+        SnackBar(content: Text(AppLocalizations.of(context)!.profileAvatarUploadFailedNoSupabase)),
       );
       return;
     }
     final picked = await _picker.pickImage(source: ImageSource.gallery);
-    if (picked == null) {
-      return;
-    }
+    if (picked == null) return;
     setState(() => _uploadingAvatar = true);
     try {
       final bytes = await picked.readAsBytes();
-      final name = picked.name.replaceAll(' ', '_');
-      final path =
-          'users/$userId/${DateTime.now().millisecondsSinceEpoch}_$name';
-      await SupabaseBootstrap.client.storage.from('avatars').uploadBinary(
-            path,
-            bytes,
-            fileOptions: FileOptions(
-              contentType: _guessImageContentType(name),
-              upsert: true,
-            ),
-          );
-      final url =
-          SupabaseBootstrap.client.storage.from('avatars').getPublicUrl(path);
-      await SupabaseBootstrap.client.from('user_profiles').upsert({
-        'user_id': userId,
-        'avatar_url': url,
-        'updated_at': DateTime.now().toIso8601String(),
-      });
+      final base64 = base64Encode(bytes);
+      final contentType = _guessImageContentType(picked.name);
+      final url = await UsersApi.instance.uploadAvatar(
+        contentBase64: base64,
+        contentType: contentType,
+        fileName: picked.name,
+      );
+      if (url == null || url.isEmpty) throw StateError('上传失败');
       if (FirebaseBootstrap.isReady) {
         await FirebaseAuth.instance.currentUser?.updatePhotoURL(url);
         await FirebaseAuth.instance.currentUser?.reload();
@@ -265,12 +229,12 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
       await _saveCachedProfile(userId: userId, avatarUrl: url);
       if (!mounted) return;
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        const SnackBar(content: Text('头像已更新')),
+        SnackBar(content: Text(AppLocalizations.of(context)!.profileAvatarUpdated)),
       );
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text('头像上传失败：$error')),
+        SnackBar(content: Text('${AppLocalizations.of(context)!.profileAvatarUploadFailed}: $error')),
       );
     } finally {
       if (mounted) setState(() => _uploadingAvatar = false);
@@ -286,20 +250,20 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('编辑个性签名'),
+          title: Text(AppLocalizations.of(context)!.profileEditSignature),
           content: TextField(
             controller: controller,
             maxLines: 2,
-            decoration: const InputDecoration(hintText: '写点什么吧…'),
+            decoration: InputDecoration(hintText: AppLocalizations.of(context)!.profileSignatureHint),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('取消'),
+              child: Text(AppLocalizations.of(context)!.commonCancel),
             ),
             FilledButton(
               onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('保存'),
+              child: Text(AppLocalizations.of(context)!.commonSave),
             ),
           ],
         );
@@ -312,22 +276,28 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
     setState(() => _savingSignature = true);
     try {
       final value = controller.text.trim();
-      await SupabaseBootstrap.client.from('user_profiles').upsert({
-        'user_id': userId,
-        'signature': value,
-        'updated_at': DateTime.now().toIso8601String(),
-      });
+      if (!ApiClient.instance.isAvailable) {
+        if (mounted) {
+          setState(() => _savingSignature = false);
+          ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+            SnackBar(content: Text(AppLocalizations.of(context)!.profileSignatureUpdateFailed)),
+          );
+        }
+        return;
+      }
+      final ok = await UsersApi.instance.updateMe({'signature': value});
+      if (!ok) throw StateError('更新失败');
       if (!mounted) return;
       setState(() => _signature = value);
       await _saveCachedProfile(userId: userId, signature: value);
       if (!mounted) return;
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        const SnackBar(content: Text('签名已更新')),
+        SnackBar(content: Text(AppLocalizations.of(context)!.profileSignatureUpdated)),
       );
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text('签名更新失败：$error')),
+        SnackBar(content: Text('${AppLocalizations.of(context)!.profileSignatureUpdateFailed}: $error')),
       );
     } finally {
       controller.dispose();
@@ -346,17 +316,19 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
     return 'image/jpeg';
   }
 
-  String _formatIdentityTag({
+  String _formatIdentityTag(
+    BuildContext context, {
     required bool verified,
     required String role,
     required String teacherStatus,
   }) {
+    final l10n = AppLocalizations.of(context)!;
     final r = role.toString().trim().toLowerCase();
     final status = teacherStatus.toString().trim().toLowerCase();
-    if (r == 'admin') return '管理员';
-    if (r == 'vip') return '会员';
-    if (r == 'teacher' || status == 'approved') return '交易员';
-    return '普通用户';
+    if (r == 'admin') return l10n.profileAdmin;
+    if (r == 'vip') return l10n.profileVip;
+    if (r == 'teacher' || status == 'approved') return l10n.profileTeacher;
+    return l10n.profileNormalUser;
   }
 
   Widget _buildLevelTag(String text) {
@@ -377,7 +349,7 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('我的'),
+        title: Text(AppLocalizations.of(context)!.profileMy),
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
@@ -390,8 +362,8 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: const Color(0xFFD4AF37), width: 0.4),
               ),
-              child: const Text(
-                '尚未配置 Firebase，登录与消息功能暂不可用。',
+              child: Text(
+                AppLocalizations.of(context)!.profileFirebaseNotConfigured,
               ),
             ),
           StreamBuilder<User?>(
@@ -409,23 +381,23 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                   children: [
                     ListTile(
                       leading: const CircleAvatar(child: Icon(Icons.person)),
-                      title: const Text('学员账号'),
-                      subtitle: const Text('未登录'),
+                      title: Text(AppLocalizations.of(context)!.profileStudentAccount),
+                      subtitle: Text(AppLocalizations.of(context)!.profileNotLoggedIn),
                       trailing: TextButton(
                         onPressed: () {
                           Navigator.of(context).push(
                             MaterialPageRoute(builder: (_) => const LoginPage()),
                           );
                         },
-                        child: const Text('登录/注册'),
+                        child: Text(AppLocalizations.of(context)!.authLoginOrRegister),
                       ),
                     ),
                     const SizedBox(height: 16),
                     Card(
                       child: ListTile(
                         leading: const Icon(Icons.star_border),
-                        title: const Text('成为交易员'),
-                        subtitle: const Text('登录后可提交资料'),
+                        title: Text(AppLocalizations.of(context)!.profileBecomeTeacher),
+                        subtitle: Text(AppLocalizations.of(context)!.profileLoginToSubmit),
                         trailing: const Icon(Icons.chevron_right),
                         onTap: () {
                           Navigator.of(context).push(
@@ -450,7 +422,7 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                       if (row == null || !UserRestrictions.hasAnyRestriction(row)) {
                         return const SizedBox.shrink();
                       }
-                      final msg = UserRestrictions.getAccountStatusMessage(row);
+                      final msg = UserRestrictions.getAccountStatusMessage(row, context);
                       final isBanned = UserRestrictions.isBannedOrFrozen(row);
                       return Container(
                         width: double.infinity,
@@ -509,7 +481,7 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                           const SizedBox(width: 10),
                           Expanded(
                             child: Text(
-                              '通知未开启，可能收不到新消息提醒',
+                              AppLocalizations.of(context)!.profileNotificationNotEnabled,
                               style: TextStyle(
                                 color: Colors.orange.shade100,
                                 fontSize: 13,
@@ -521,7 +493,7 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                               await NotificationSettingsGuide.showIfPermissionDenied(context);
                               _checkNotificationPermission();
                             },
-                            child: const Text('去开启'),
+                            child: Text(AppLocalizations.of(context)!.commonGoToEnable),
                           ),
                         ],
                       ),
@@ -560,6 +532,8 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                                                     width: 72,
                                                     height: 72,
                                                     fit: BoxFit.cover,
+                                                    fadeInDuration: Duration.zero,
+                                                    fadeOutDuration: Duration.zero,
                                                     placeholder: (_, __) =>
                                                         const SizedBox(
                                                       width: 72,
@@ -638,7 +612,7 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                                                   Text(
                                                     name == null ||
                                                             name.isEmpty
-                                                        ? '学员账号'
+                                                        ? AppLocalizations.of(context)!.profileStudentAccount
                                                         : name,
                                                     style: Theme.of(context)
                                                         .textTheme
@@ -650,8 +624,8 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                                                             _shortId!
                                                                 .trim()
                                                                 .isEmpty
-                                                        ? '账号ID --'
-                                                        : '账号ID ${_shortId!.trim()}',
+                                                        ? AppLocalizations.of(context)!.profileAccountIdDash
+                                                        : AppLocalizations.of(context)!.profileAccountIdValue(_shortId!.trim()),
                                                     style: const TextStyle(
                                                       fontSize: 12,
                                                       color: Color(0xFF6C6F77),
@@ -666,6 +640,7 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                                               children: [
                                                 RoleBadge(
                                                   roleLabel: _formatIdentityTag(
+                                                    context,
                                                     verified: verified,
                                                     role: role.role,
                                                     teacherStatus: role.teacherStatus,
@@ -685,7 +660,7 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                                                 _signature?.trim().isNotEmpty ==
                                                         true
                                                     ? _signature!.trim()
-                                                    : '这个人很懒，什么都没写',
+                                                    : AppLocalizations.of(context)!.profileLazySignature,
                                                 style: const TextStyle(
                                                   color: Color(0xFF6C6F77),
                                                 ),
@@ -720,13 +695,13 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                                   ),
                                   title: Text(
                                     role.teacherStatus.toString().trim().toLowerCase() == 'approved'
-                                        ? '交易员中心'
-                                        : '成为交易员',
+                                        ? AppLocalizations.of(context)!.profileTeacherCenter
+                                        : AppLocalizations.of(context)!.profileBecomeTeacher,
                                   ),
                                   subtitle: Text(
                                     role.teacherStatus.toString().trim().toLowerCase() == 'approved'
-                                        ? '管理策略与交易记录'
-                                        : '提交资料，发布策略与交易记录',
+                                        ? AppLocalizations.of(context)!.profileManageStrategyAndRecords
+                                        : AppLocalizations.of(context)!.profileSubmitProfileAndPublish,
                                   ),
                                   trailing: const Icon(Icons.chevron_right),
                                   onTap: () {
@@ -738,6 +713,24 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                                   },
                                 ),
                               ),
+                              if (role.role.toString().trim().toLowerCase() == 'customer_service') ...[
+                                const SizedBox(height: 16),
+                                Card(
+                                  child: ListTile(
+                                    leading: const Icon(Icons.support_agent_outlined),
+                                    title: Text(AppLocalizations.of(context)!.profileCsWorkbench),
+                                    subtitle: Text(AppLocalizations.of(context)!.profileCsWorkbenchSubtitle),
+                                    trailing: const Icon(Icons.chevron_right),
+                                    onTap: () {
+                                      Navigator.of(context).push(
+                                        MaterialPageRoute(
+                                          builder: (_) => const CustomerServiceWorkbenchPage(),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ],
                             ],
                           );
                         },
@@ -751,115 +744,49 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
           const SizedBox(height: 16),
           Card(
             child: ListTile(
-              leading: const Icon(Icons.bookmark_border),
-              title: const Text('我的关注'),
+              leading: const Icon(Icons.people_outline),
+              title: Text(AppLocalizations.of(context)!.profileTraderFriends),
+              subtitle: Text(AppLocalizations.of(context)!.profileTraderFriendsSubtitle),
               trailing: const Icon(Icons.chevron_right),
-              onTap: () {},
-            ),
-          ),
-          if (_showAdminEntry)
-            Column(
-              children: [
-                const SizedBox(height: 16),
-                Card(
-                  child: ListTile(
-                    leading: const Icon(Icons.admin_panel_settings_outlined),
-                    title: const Text('后台管理（PC）'),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () {
-                      Navigator.of(context).pushNamed('/admin');
-                    },
-                  ),
-                ),
-              ],
-            ),
-          const SizedBox(height: 16),
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.notifications_active_outlined),
-              title: const Text('收不到推送？'),
-              subtitle: const Text('查看通知与自启动设置说明'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () async {
-                if (!kIsWeb && Platform.isAndroid) {
-                  final status = await Permission.notification.status;
-                  if (!status.isGranted) {
-                    await NotificationSettingsGuide.showIfPermissionDenied(context);
-                    _checkNotificationPermission();
-                    return;
-                  }
-                }
-                if (!mounted) return;
-                showDialog<void>(
-                  context: context,
-                  builder: (ctx) => AlertDialog(
-                    title: const Text('确保收到新消息'),
-                    content: const SingleChildScrollView(
-                      child: Text(
-                        '1. 请允许本应用的「通知」和「后台运行」权限。\n\n'
-                        '2. 华为/荣耀用户：若后台收不到消息，请到\n'
-                        '   设置 → 应用 → Tongxin\n'
-                        '   开启「自启动」，并在「手动管理」中允许后台活动。\n\n'
-                        '3. 华为/荣耀用户：若来电时没有弹出接听界面（只在通知栏看到），请到\n'
-                        '   设置 → 应用 → Tongxin → 权限\n'
-                        '   开启「后台弹窗」或「悬浮窗」，以便在桌面/其他 App 时也能弹出通话窗口。\n\n'
-                        '4. 若需要桌面图标显示未读数字，请到\n'
-                        '   设置 → 应用 → Tongxin → 通知管理\n'
-                        '   开启「桌面角标」。',
-                        style: TextStyle(height: 1.4),
-                      ),
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.of(ctx).pop(),
-                        child: const Text('知道了'),
-                      ),
-                      FilledButton(
-                        onPressed: () async {
-                          Navigator.of(ctx).pop();
-                          await NotificationSettingsGuide.requestAllPermissionsNow(context);
-                        },
-                        child: const Text('重新请求权限'),
-                      ),
-                      FilledButton(
-                        onPressed: () {
-                          Navigator.of(ctx).pop();
-                          openAppSettings();
-                        },
-                        child: const Text('去设置'),
-                      ),
-                    ],
-                  ),
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const FeaturedTeacherPage()),
                 );
               },
             ),
           ),
-          if (!kIsWeb && Platform.isAndroid)
-            Card(
-              child: ListTile(
-                leading: const Icon(Icons.call_outlined),
-                title: const Text('来电全屏接听'),
-                subtitle: const Text('后台或锁屏时直接弹出接听界面（Android 14+ 需开启全屏意图）'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () async {
-                  final canUse = await NotificationService.canUseFullScreenIntent();
-                  if (canUse && context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('已开启，来电时将全屏弹出')),
-                    );
-                    return;
-                  }
-                  await NotificationSettingsGuide.showFullScreenIntentPermissionGuide(context);
-                  if (context.mounted) {
-                    await NotificationSettingsGuide.showCallFullScreenPermissionGuide(context);
-                  }
-                },
-              ),
-            ),
+          const SizedBox(height: 16),
           Card(
             child: ListTile(
-              leading: const Icon(Icons.settings_outlined),
-              title: const Text('设置'),
+              leading: const Icon(Icons.help_outline),
+              title: Text(AppLocalizations.of(context)!.profileHelp),
+              subtitle: Text(AppLocalizations.of(context)!.profileNotificationGuideSubtitle),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => _showHelpSheet(context),
+            ),
+          ),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.privacy_tip_outlined),
+              title: Text(AppLocalizations.of(context)!.profilePrivacyPolicy),
+              subtitle: Text(AppLocalizations.of(context)!.profilePrivacyPolicySubtitle),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => _showPrivacyPolicy(context),
+            ),
+          ),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.flag_outlined),
+              title: Text(AppLocalizations.of(context)!.profileReport),
+              subtitle: Text(AppLocalizations.of(context)!.profileReportSubtitle),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => _showReport(context),
+            ),
+          ),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.logout_outlined),
+              title: Text(AppLocalizations.of(context)!.profileLogout),
               trailing: const Icon(Icons.chevron_right),
               onTap: () async {
                 final authService = AuthService();
@@ -868,7 +795,7 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                     : null;
                 if (currentUser == null) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('当前未登录')),
+                    SnackBar(content: Text(AppLocalizations.of(context)!.profileCurrentNotLoggedIn)),
                   );
                   return;
                 }
@@ -887,20 +814,20 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             Text(
-                              currentUser.email ?? '已登录',
+                              currentUser.email ?? AppLocalizations.of(context)!.profileLoggedIn,
                               style: Theme.of(context).textTheme.titleMedium,
                             ),
                             const SizedBox(height: 12),
                             OutlinedButton(
                               onPressed: () =>
                                   Navigator.of(context).pop(false),
-                              child: const Text('取消'),
+                              child: Text(AppLocalizations.of(context)!.commonCancel),
                             ),
                             const SizedBox(height: 8),
                             FilledButton(
                               onPressed: () =>
                                   Navigator.of(context).pop(true),
-                              child: const Text('退出登录'),
+                              child: Text(AppLocalizations.of(context)!.profileLogout),
                             ),
                           ],
                         ),
@@ -914,22 +841,244 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
               },
             ),
           ),
+          StreamBuilder<User?>(
+            stream: FirebaseBootstrap.isReady
+                ? FirebaseAuth.instance.authStateChanges()
+                : Stream.value(null),
+            builder: (context, snapshot) {
+              final user = snapshot.data;
+              if (user == null) return const SizedBox.shrink();
+              return Card(
+                child: ListTile(
+                  leading: Icon(Icons.person_off_outlined, color: Colors.red.shade300),
+                  title: Text(
+                    AppLocalizations.of(context)!.profileAccountDeletion,
+                    style: TextStyle(color: Colors.red.shade300),
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => _showAccountDeletion(context, user),
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 16),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.language_outlined),
+              title: Text(AppLocalizations.of(context)!.settingsLanguage),
+              subtitle: Text(
+                LocaleProvider.instance.locale?.languageCode == 'en'
+                    ? AppLocalizations.of(context)!.settingsLanguageEnglish
+                    : AppLocalizations.of(context)!.settingsLanguageChinese,
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () async {
+                final l10n = AppLocalizations.of(context)!;
+                final choice = await showModalBottomSheet<String>(
+                  context: context,
+                  backgroundColor: const Color(0xFF111215),
+                  shape: const RoundedRectangleBorder(
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                  ),
+                  builder: (context) {
+                    return SafeArea(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Text(
+                              l10n.settingsLanguage,
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                            const SizedBox(height: 12),
+                            ListTile(
+                              title: Text(l10n.settingsLanguageChinese),
+                              onTap: () => Navigator.of(context).pop('zh'),
+                            ),
+                            ListTile(
+                              title: Text(l10n.settingsLanguageEnglish),
+                              onTap: () => Navigator.of(context).pop('en'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                );
+                if (choice != null && context.mounted) {
+                  await LocaleProvider.instance.setLocale(Locale(choice));
+                }
+              },
+            ),
+          ),
         ],
       ),
     );
   }
+
+  void _showHelpSheet(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF111215),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  l10n.profileHelpTitle,
+                  style: Theme.of(ctx).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 16),
+                ListTile(
+                  leading: const Icon(Icons.notifications_active_outlined),
+                  title: Text(l10n.profilePushNotificationGuide),
+                  subtitle: Text(l10n.profileNotificationGuideSubtitle),
+                  onTap: () async {
+                    Navigator.of(ctx).pop();
+                    if (!kIsWeb && Platform.isAndroid) {
+                      final status = await Permission.notification.status;
+                      if (!status.isGranted) {
+                        await NotificationSettingsGuide.showIfPermissionDenied(context);
+                        _checkNotificationPermission();
+                        return;
+                      }
+                    }
+                    if (!context.mounted) return;
+                    showDialog<void>(
+                      context: context,
+                      builder: (dctx) => AlertDialog(
+                        title: Text(l10n.profileEnsureReceiveMessages),
+                        content: SingleChildScrollView(
+                          child: Text(
+                            l10n.profileNotificationPermissionGuide,
+                            style: const TextStyle(height: 1.4),
+                          ),
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.of(dctx).pop(),
+                            child: Text(l10n.commonKnowIt),
+                          ),
+                          FilledButton(
+                            onPressed: () async {
+                              Navigator.of(dctx).pop();
+                              await NotificationSettingsGuide.requestAllPermissionsNow(context);
+                            },
+                            child: Text(l10n.profileReRequestPermission),
+                          ),
+                          FilledButton(
+                            onPressed: () {
+                              Navigator.of(dctx).pop();
+                              openAppSettings();
+                            },
+                            child: Text(l10n.commonGoToSettings),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+                if (!kIsWeb && Platform.isAndroid)
+                  ListTile(
+                    leading: const Icon(Icons.call_outlined),
+                    title: Text(l10n.profileIncomingCallFullScreen),
+                    subtitle: Text(l10n.profileIncomingCallFullScreenSubtitle),
+                    onTap: () async {
+                      Navigator.of(ctx).pop();
+                      final canUse = await NotificationService.canUseFullScreenIntent();
+                      if (canUse && context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text(l10n.profileFullScreenIntentEnabled)),
+                        );
+                        return;
+                      }
+                      await NotificationSettingsGuide.showFullScreenIntentPermissionGuide(context);
+                      if (context.mounted) {
+                        await NotificationSettingsGuide.showCallFullScreenPermissionGuide(context);
+                      }
+                    },
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showPrivacyPolicy(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(l10n.profilePrivacyPolicy),
+        content: SingleChildScrollView(
+          child: Text(
+            l10n.profilePrivacyPolicyContent,
+            style: const TextStyle(height: 1.5),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text(l10n.commonKnowIt),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showReport(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const ReportPage()),
+    );
+  }
+
+  Future<void> _showAccountDeletion(BuildContext context, User user) async {
+    final l10n = AppLocalizations.of(context)!;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(l10n.profileAccountDeletion),
+        content: Text(l10n.profileAccountDeletionConfirm),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(l10n.commonCancel),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(l10n.profileAccountDeletion),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await user.delete();
+      if (!mounted) return;
+      await AuthService().signOut();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l10n.profileDeletionSuccess)),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${l10n.profileAccountDeletion}: $e')),
+      );
+    }
+  }
 }
 
-bool get _showAdminEntry {
-  if (kIsWeb) {
-    return true;
-  }
-  switch (defaultTargetPlatform) {
-    case TargetPlatform.windows:
-    case TargetPlatform.macOS:
-    case TargetPlatform.linux:
-      return true;
-    default:
-      return false;
-  }
-}

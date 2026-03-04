@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/app_localizations.dart';
+
 /// 角色徽章：普通用户、交易员、管理员、会员 四种角色，各带图标与独立配色
 class RoleBadge extends StatelessWidget {
   const RoleBadge({
@@ -12,14 +14,17 @@ class RoleBadge extends StatelessWidget {
   /// true 时更小间距，用于会话列表等紧凑布局
   final bool compact;
 
-  static const String _normal = '普通用户';
-  static const String _trader = '交易员';
-  static const String _admin = '管理员';
-  static const String _vip = '会员';
+  /// 将后端返回的角色标识映射为样式 key（支持中英文）
+  static String _toStyleKey(String label) {
+    if (label == '交易员' || label == 'Trader' || label == 'trader') return '_trader';
+    if (label == '管理员' || label == 'Admin' || label == 'admin') return '_admin';
+    if (label == '会员' || label == 'Member' || label == 'member' || label == 'VIP' || label == 'vip') return '_vip';
+    return '_normal';
+  }
 
-  static ({IconData icon, Color color, Color? bgColor, List<Color>? gradientColors, FontWeight fontWeight}) _style(String label) {
-    switch (label) {
-      case _trader:
+  static ({IconData icon, Color color, Color? bgColor, List<Color>? gradientColors, FontWeight fontWeight}) _style(String key) {
+    switch (key) {
+      case '_trader':
         return (
           icon: Icons.trending_up_rounded,
           color: Colors.white,
@@ -27,7 +32,7 @@ class RoleBadge extends StatelessWidget {
           gradientColors: [const Color(0xFF0284C7), const Color(0xFF059669)],
           fontWeight: FontWeight.w600,
         );
-      case _admin:
+      case '_admin':
         return (
           icon: Icons.admin_panel_settings_rounded,
           color: const Color(0xFF5C9EFF),
@@ -35,7 +40,7 @@ class RoleBadge extends StatelessWidget {
           gradientColors: null,
           fontWeight: FontWeight.w700,
         );
-      case _vip:
+      case '_vip':
         return (
           icon: Icons.workspace_premium_rounded,
           color: const Color(0xFFB388FF),
@@ -43,7 +48,7 @@ class RoleBadge extends StatelessWidget {
           gradientColors: null,
           fontWeight: FontWeight.w600,
         );
-      case _normal:
+      case '_normal':
       default:
         return (
           icon: Icons.person_outline_rounded,
@@ -57,9 +62,16 @@ class RoleBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final label = roleLabel?.trim() ?? '';
-    if (label.isEmpty) return const SizedBox.shrink();
-    final s = _style(label);
+    final raw = roleLabel?.trim() ?? '';
+    if (raw.isEmpty) return const SizedBox.shrink();
+    final l10n = AppLocalizations.of(context)!;
+    final displayLabel = switch (_toStyleKey(raw)) {
+      '_trader' => l10n.roleTrader,
+      '_admin' => l10n.roleAdmin,
+      '_vip' => l10n.roleVip,
+      _ => l10n.roleNormal,
+    };
+    final s = _style(_toStyleKey(raw));
     final padding = compact
         ? const EdgeInsets.symmetric(horizontal: 6, vertical: 3)
         : const EdgeInsets.symmetric(horizontal: 8, vertical: 4);
@@ -98,7 +110,7 @@ class RoleBadge extends StatelessWidget {
           Icon(s.icon, size: iconSize, color: s.color),
           SizedBox(width: compact ? 3 : 4),
           Text(
-            label,
+            displayLabel,
             style: TextStyle(
               color: s.color,
               fontSize: fontSize,

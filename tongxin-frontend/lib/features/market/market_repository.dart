@@ -1,8 +1,13 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import '../trading/backend_market_client.dart';
 import '../trading/market_snapshot_repository.dart';
+
+import 'market_db.dart';
 import '../trading/polygon_realtime.dart';
 import '../trading/polygon_repository.dart';
 import '../trading/stock_quote_cache_repository.dart';
@@ -252,28 +257,10 @@ class MarketRepository {
   }
 
   /// 批量报价（经 SymbolResolver；失败项返回带 errorReason 的 MarketQuote，键为原始 symbol）
-  /// 有后端且均为美股时：先从 Supabase stock_quote_cache 取缓存，再对缺失/无效的用后端补全
+  /// 有后端时统一走后端 /api/quotes（后端已含 stock_quote_cache 兜底）
   Future<Map<String, MarketQuote>> getQuotes(List<String> symbols) async {
     if (symbols.isEmpty) return {};
-    if (_backend != null) {
-      final allUsStocks = symbols.every((s) => _isUsStock(s));
-      if (allUsStocks && _quoteCacheRepo.isAvailable) {
-        final fromSupabase = await _quoteCacheRepo.getBySymbols(symbols);
-        final missing = symbols.where((s) {
-          final q = fromSupabase[s];
-          return q == null || q.hasError || (q.price <= 0 && (q.errorReason == null || q.errorReason!.isEmpty));
-        }).toList();
-        final out = Map<String, MarketQuote>.from(fromSupabase);
-        if (missing.isNotEmpty) {
-          final fromBackend = await _backend!.getQuotes(missing);
-          for (final e in fromBackend.entries) {
-            out[e.key] = e.value;
-          }
-        }
-        return out;
-      }
-      return _backend!.getQuotes(symbols);
-    }
+    if (_backend != null) return _backend!.getQuotes(symbols);
     final out = <String, MarketQuote>{};
     final twelveRequest = <String>[];
     for (final s in symbols) {
@@ -575,13 +562,77 @@ class MarketRepository {
   static const _usTickersCacheKey = 'us_tickers';
   static const _usTickersCacheMaxAge = Duration(days: 7);
 
-  /// 优先从 stock_quote_cache 获取美股列表（后端有 Supabase 时秒开），否则返回 null
-  Future<List<MarketSearchResult>?> getTickersFromBackendCache() async {
-    if (_backend == null) return null;
-    return _backend!.getTickersFromCache();
+  /// 将报价写入本地 DB（拉取到新数据后调用，供下次秒开）
+  Future<void> persistQuotesToLocalDb(Map<String, MarketQuote> quotes) async {
+    if (quotes.isEmpty) return;
+    try {
+      await MarketDb.instance.upsertQuotes(quotes);
+    } catch (_) {}
+  }
+
+  /// 从本地 DB 读取美股列表+报价（优先，有则秒开）
+  Future<({List<MarketSearchResult> tickers, Map<String, MarketQuote> quotes})?> getTickersFromLocalDb({
+    String? sortColumn,
+    bool sortAscending = false,
+  }) async {
+    try {
+      final result = await MarketDb.instance.getTickersAndQuotes(
+        sortColumn: sortColumn,
+        sortAscending: sortAscending,
+      );
+      if (result.tickers.isEmpty) return null;
+      return result;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 从后端 stock_quote_cache 读取美股列表（后端代理，避免前端直连 Supabase）
+  /// 返回空列表表示后端未配置或表无数据；成功时写入本地缓存供下次秒开
+  Future<List<MarketSearchResult>> getTickersFromStockQuoteCache() async {
+    if (_backend != null) {
+      final list = await _backend!.getTickersFromCache();
+      if (list != null && list.isNotEmpty) {
+        final payload = list.map((r) => {'s': r.symbol, 'n': r.name, 'm': r.market}).toList();
+        await TradingCache.instance.setList(_usTickersCacheKey, payload);
+        return list;
+      }
+      return [];
+    }
+    final list = await _quoteCacheRepo.getAllTickers();
+    if (list.isNotEmpty) {
+      final payload = list.map((r) => {'s': r.symbol, 'n': r.name, 'm': r.market}).toList();
+      await TradingCache.instance.setList(_usTickersCacheKey, payload);
+    }
+    return list;
+  }
+
+  static const _bundledTickersAsset = 'assets/us_tickers_fallback.json';
+
+  /// 从应用内置资源读取美股列表（S&P 500），用于首次进入无缓存时的秒开
+  Future<List<MarketSearchResult>> getBundledUsTickers() async {
+    try {
+      final raw = await rootBundle.loadString(_bundledTickersAsset);
+      final list = jsonDecode(raw) as List<dynamic>?;
+      if (list == null || list.isEmpty) return [];
+      final result = <MarketSearchResult>[];
+      for (final e in list) {
+        if (e is! Map<String, dynamic>) continue;
+        final s = e['s'] as String?;
+        final n = e['n'] as String?;
+        if (s == null || s.isEmpty) continue;
+        result.add(MarketSearchResult(symbol: s, name: n ?? s, market: null));
+      }
+      result.sort((a, b) => a.symbol.compareTo(b.symbol));
+      return result;
+    } catch (e) {
+      if (kDebugMode) debugPrint('MarketRepository getBundledUsTickers: $e');
+      return [];
+    }
   }
 
   /// 从本地缓存读取全量美股列表（若有且未过期），用于首屏秒开
+  /// 按 symbol 排序以保证与 getAllUsTickers 一致（旧缓存可能未排序）
   Future<List<MarketSearchResult>?> getCachedUsTickers() async {
     final raw = await TradingCache.instance.getList(_usTickersCacheKey, maxAge: _usTickersCacheMaxAge);
     if (raw == null || raw.isEmpty) return null;
@@ -593,13 +644,17 @@ class MarketRepository {
       if (s == null || s.isEmpty) continue;
       list.add(MarketSearchResult(symbol: s, name: n ?? s, market: e['m'] as String?));
     }
-    return list.isEmpty ? null : list;
+    if (list.isEmpty) return null;
+    list.sort((a, b) => a.symbol.compareTo(b.symbol));
+    return list;
   }
 
   /// 全量美股列表（Polygon v3 reference tickers，market=stocks 含各 type，约 8000+ 条）；结果写入本地缓存
+  /// 按 symbol 排序以保证跨会话/设备/语言的一致性
   Future<List<MarketSearchResult>> getAllUsTickers() async {
     final list = await _polygon.getAllUsTickers();
     final result = list.map((r) => MarketSearchResult(symbol: r.ticker, name: r.name, market: r.market)).toList();
+    result.sort((a, b) => a.symbol.compareTo(b.symbol));
     if (result.isNotEmpty) {
       final payload = result.map((r) => {'s': r.symbol, 'n': r.name, 'm': r.market}).toList();
       await TradingCache.instance.setList(_usTickersCacheKey, payload);
@@ -668,15 +723,24 @@ class MarketRepository {
 
   // ---------- Polygon 直通（仅用于仍需 snapshot/aggregates 精细控制的场景，UI 尽量用上面接口） ----------
 
-  /// 美股前收（详情页涨跌幅等），数据来源：Polygon /v2/aggs/ticker/{sym}/prev
+  /// 美股前收（详情页涨跌幅等），有后端时从 quote 反推，否则 Polygon /prev
   Future<double?> getPreviousClose(String symbol) async {
     if (!_isUsStock(symbol)) return null;
+    if (_backend != null) {
+      final m = await _backend!.getQuotes([symbol.trim()], realtime: true);
+      final q = m[symbol.trim()];
+      if (q != null && !q.hasError && q.price > 0 && q.change != 0) {
+        return q.price - q.change;
+      }
+      return null;
+    }
     return _polygon.getPreviousClose(symbol);
   }
 
-  /// 当日 OHLC + 成交量 + 昨收：详情页直连 Polygon Snapshot，保证实时数据不绕后端
+  /// 当日 OHLC + 成交量 + 昨收：有后端时走后端，否则 Polygon Snapshot
   Future<PolygonGainer?> getDaySnapshot(String symbol) async {
     if (!_isUsStock(symbol)) return null;
+    if (_backend != null) return _backend!.getDaySnapshot(symbol.trim());
     final resolved = SymbolResolver.forPolygon(symbol.trim());
     if (resolved.isEmpty) return null;
     return _polygon.getTickerSnapshot(resolved);
@@ -743,6 +807,10 @@ class MarketQuote {
     this.high,
     this.low,
     this.volume,
+    this.bid,
+    this.ask,
+    this.bidSize,
+    this.askSize,
     this.errorReason,
   });
   final String symbol;
@@ -754,6 +822,14 @@ class MarketQuote {
   final double? high;
   final double? low;
   final int? volume;
+  /// 买一价（Polygon lastQuote，需 Stocks Quote 权限）
+  final double? bid;
+  /// 卖一价
+  final double? ask;
+  /// 买一量
+  final int? bidSize;
+  /// 卖一量
+  final int? askSize;
   /// 非空表示加载失败，UI 可显示「加载失败·点重试」
   final String? errorReason;
 
@@ -784,6 +860,10 @@ class MarketQuote {
       high: _toDouble(m['high']),
       low: _toDouble(m['low']),
       volume: _toInt(m['volume']),
+      bid: _toDouble(m['bid']),
+      ask: _toDouble(m['ask']),
+      bidSize: _toInt(m['bidSize']),
+      askSize: _toInt(m['askSize']),
       errorReason: m['error_reason'] as String?,
     );
   }
@@ -799,6 +879,10 @@ class MarketQuote {
         if (high != null) 'high': high,
         if (low != null) 'low': low,
         if (volume != null) 'volume': volume,
+        if (bid != null) 'bid': bid,
+        if (ask != null) 'ask': ask,
+        if (bidSize != null) 'bidSize': bidSize,
+        if (askSize != null) 'askSize': askSize,
         if (errorReason != null) 'error_reason': errorReason,
       };
 

@@ -126,6 +126,13 @@ async function getTickerSnapshot(apiKey, symbol) {
   }
   const volume = vol != null ? Number(vol) : null;
   const hasValidPrice = close != null && Number(close) > 0;
+  // lastQuote：买一/卖一（需 Polygon Stocks Quote 权限，无则为空）
+  // Polygon: p=bid price, P=ask price, s=bid size, S=ask size
+  const lastQuote = ticker.lastQuote || {};
+  const bid = lastQuote.p ?? lastQuote.bp ?? null;
+  const ask = lastQuote.P ?? lastQuote.ap ?? null;
+  const bidSize = lastQuote.s ?? lastQuote.bs ?? null;
+  const askSize = lastQuote.S ?? lastQuote.as ?? null;
   return {
     symbol,
     price: close,
@@ -135,6 +142,10 @@ async function getTickerSnapshot(apiKey, symbol) {
     high: high ?? null,
     low: low ?? null,
     volume: Number.isFinite(volume) ? volume : null,
+    bid: bid != null ? Number(bid) : null,
+    ask: ask != null ? Number(ask) : null,
+    bidSize: bidSize != null ? Number(bidSize) : null,
+    askSize: askSize != null ? Number(askSize) : null,
     ...(hasValidPrice ? {} : { error_reason: 'Polygon Snapshot 无当日/昨收数据' }),
   };
 }
@@ -434,6 +445,7 @@ module.exports = {
   V2_SNAPSHOT_BATCH_SIZE,
   V3_SNAPSHOT_BATCH_SIZE,
   getQuote,
+  getPrevDayBar,
   getTickerSnapshot,
   getLastTrade,
   getPreviousClose,

@@ -6,6 +6,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import 'package:cached_network_image/cached_network_image.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../core/app_download.dart';
 import '../../core/network_error_helper.dart';
 import '../../core/supabase_bootstrap.dart';
@@ -76,12 +77,12 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> {
           );
         });
       } else {
-        setState(() => _error = '无法加载群信息');
+        setState(() => _error = AppLocalizations.of(context)!.groupLoadError);
       }
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = NetworkErrorHelper.messageForUser(e, prefix: '加载失败');
+          _error = NetworkErrorHelper.messageForUser(e, prefix: AppLocalizations.of(context)!.groupLoadFailedPrefix, l10n: AppLocalizations.of(context));
         });
       }
     } finally {
@@ -135,12 +136,12 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                '邀请好友进群',
+                AppLocalizations.of(context)!.groupInviteFriends,
                 style: Theme.of(ctx).textTheme.titleLarge,
               ),
               const SizedBox(height: 8),
               Text(
-                '好友打开链接或扫描二维码即可申请加入「$groupName」',
+                AppLocalizations.of(context)!.groupInviteFriendHintWithName(groupName),
                 style: TextStyle(
                   color: Theme.of(ctx).colorScheme.onSurface.withOpacity(0.8),
                   fontSize: 14,
@@ -149,28 +150,28 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> {
               const SizedBox(height: 20),
               ListTile(
                 leading: const Icon(Icons.copy),
-                title: const Text('复制邀请链接'),
+                title: Text(AppLocalizations.of(context)!.groupCopyInviteLink),
                 onTap: () {
                   Clipboard.setData(ClipboardData(
-                    text: '点击此链接加入群：$link',
+                    text: AppLocalizations.of(context)!.groupClickLinkToJoin(link),
                   ));
                   Navigator.of(ctx).pop();
-                  _showToast('链接已复制，好友点击链接即可加入群');
+                  _showToast(AppLocalizations.of(context)!.groupLinkCopied);
                 },
               ),
               ListTile(
                 leading: const Icon(Icons.qr_code_2),
-                title: const Text('二维码邀请'),
+                title: Text(AppLocalizations.of(context)!.groupQrInvite),
                 onTap: () {
                   Navigator.of(ctx).pop();
-                  _showToast('扫码加入群');
+                  _showToast(AppLocalizations.of(context)!.groupQrCopied);
                   _showQrDialog(context, link, groupName);
                 },
               ),
               ListTile(
                 leading: const Icon(Icons.download_outlined),
-                title: const Text('未安装 App？前往下载'),
-                subtitle: const Text('好友未安装时可引导其下载'),
+                title: Text(AppLocalizations.of(context)!.groupAppNotInstalled),
+                subtitle: Text(AppLocalizations.of(context)!.groupAppNotInstalledSubtitle),
                 onTap: () {
                   Navigator.of(ctx).pop();
                   openAppDownloadPage(context);
@@ -188,7 +189,7 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF1A1C21),
-        title: Text('扫码加入「$groupName」'),
+        title: Text(AppLocalizations.of(context)!.groupScanToJoin(groupName)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -206,7 +207,7 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> {
             ),
             const SizedBox(height: 12),
             Text(
-              '好友使用本 App 扫一扫即可进群',
+              AppLocalizations.of(context)!.groupScanWithApp,
               style: TextStyle(
                 fontSize: 13,
                 color: Theme.of(ctx).colorScheme.onSurface.withOpacity(0.7),
@@ -217,7 +218,7 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('关闭'),
+            child: Text(AppLocalizations.of(context)!.groupClose),
           ),
         ],
       ),
@@ -229,7 +230,7 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> {
       return m.displayName!.trim();
     }
     if (m.shortId != null && m.shortId!.trim().isNotEmpty) {
-      return 'ID ${m.shortId!.trim()}';
+      return AppLocalizations.of(context)!.profileAccountIdValue(m.shortId!.trim());
     }
     return m.userId;
   }
@@ -238,14 +239,14 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> {
     final owner = info.members.where((m) => m.isOwner).toList();
     final admins = info.members.where((m) => m.role == 'admin').toList();
     if (owner.isEmpty) return const SizedBox.shrink();
-    final ownerName = owner.map(_memberDisplayName).firstOrNull ?? '群主';
+    final ownerName = owner.map(_memberDisplayName).firstOrNull ?? AppLocalizations.of(context)!.groupRoleOwner;
     final adminNames = admins.map(_memberDisplayName).toList();
     final subtitle = adminNames.isEmpty
         ? ownerName
-        : '$ownerName · ${adminNames.join('、')}';
+        : '$ownerName · ${adminNames.join(AppLocalizations.of(context)!.commonListSeparator)}';
     return ListTile(
       leading: const Icon(Icons.person_pin_outlined),
-      title: const Text('群主'),
+      title: Text(AppLocalizations.of(context)!.groupRoleOwner),
       subtitle: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
     );
   }
@@ -258,7 +259,7 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> {
     final inGroup = _info!.members.map((e) => e.userId).toSet();
     final candidates = friends.where((f) => !inGroup.contains(f.userId)).toList();
     if (candidates.isEmpty) {
-      _showToast('没有可邀请的好友');
+      _showToast(AppLocalizations.of(context)!.groupNoFriendsToInvite);
       return;
     }
     if (!mounted) return;
@@ -281,10 +282,10 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> {
           userIds: selected,
           userIdToDisplayName: userIdToDisplayName,
         );
-        _showToast('已邀请 ${selected.length} 人');
+        _showToast(AppLocalizations.of(context)!.groupInvitedCount(selected.length));
         _load();
       } catch (e) {
-        _showToast(NetworkErrorHelper.messageForUser(e, prefix: '邀请失败'));
+        _showToast(NetworkErrorHelper.messageForUser(e, prefix: AppLocalizations.of(context)!.groupInviteFailedPrefix, l10n: AppLocalizations.of(context)));
       }
     }
   }
@@ -295,18 +296,18 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> {
     final result = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('修改群名称'),
+        title: Text(AppLocalizations.of(context)!.groupEditName),
         content: TextField(
           controller: c,
-          decoration: const InputDecoration(
-            hintText: '群名称',
+          decoration: InputDecoration(
+            hintText: AppLocalizations.of(context)!.groupNameHint,
             border: OutlineInputBorder(),
           ),
           autofocus: true,
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('取消')),
-          FilledButton(onPressed: () => Navigator.of(ctx).pop(c.text.trim()), child: const Text('保存')),
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: Text(AppLocalizations.of(ctx)!.commonCancel)),
+          FilledButton(onPressed: () => Navigator.of(ctx).pop(c.text.trim()), child: Text(AppLocalizations.of(ctx)!.commonSave)),
         ],
       ),
     );
@@ -316,17 +317,17 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> {
         conversationId: widget.conversation.id,
         title: result,
       );
-      _showToast('群名称已更新');
+      _showToast(AppLocalizations.of(context)!.groupNameUpdated);
       _load();
     } catch (e) {
-      _showToast(NetworkErrorHelper.messageForUser(e, prefix: '保存失败'));
+      _showToast(NetworkErrorHelper.messageForUser(e, prefix: AppLocalizations.of(context)!.groupSaveFailed));
     }
   }
 
   Future<void> _toggleMuted(bool muted) async {
     await _localStore.setConversationMuted(widget.conversation.id, muted);
     if (mounted) setState(() => _muted = muted);
-    _showToast(muted ? '已开启消息免打扰' : '已关闭消息免打扰');
+    _showToast(muted ? AppLocalizations.of(context)!.groupMuteOn : AppLocalizations.of(context)!.groupMuteOff);
   }
 
   static String _guessImageContentType(String name) {
@@ -340,7 +341,7 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> {
   Future<void> _editGroupAvatar() async {
     if (_info == null || !_info!.canManage || _uploadingAvatar) return;
     if (!SupabaseBootstrap.isReady) {
-      _showToast('未配置 Supabase，无法上传');
+      _showToast(AppLocalizations.of(context)!.groupNoSupabaseUpload);
       return;
     }
     final picked = await _picker.pickImage(source: ImageSource.gallery);
@@ -361,11 +362,11 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> {
         avatarUrl: url,
       );
       if (!mounted) return;
-      _showToast('群头像已更新');
+      _showToast(AppLocalizations.of(context)!.groupAvatarUpdated);
       _load();
     } catch (e) {
       if (mounted) {
-        _showToast(NetworkErrorHelper.messageForUser(e, prefix: '上传失败'));
+        _showToast(NetworkErrorHelper.messageForUser(e, prefix: AppLocalizations.of(context)!.groupUploadFailedPrefix, l10n: AppLocalizations.of(context)));
       }
     } finally {
       if (mounted) setState(() => _uploadingAvatar = false);
@@ -378,18 +379,18 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> {
     final result = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('群公告'),
+        title: Text(AppLocalizations.of(context)!.groupEditAnnouncement),
         content: TextField(
           controller: c,
           maxLines: 4,
-          decoration: const InputDecoration(
-            hintText: '输入群公告',
+          decoration: InputDecoration(
+            hintText: AppLocalizations.of(context)!.groupAnnouncementHint,
             border: OutlineInputBorder(),
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('取消')),
-          FilledButton(onPressed: () => Navigator.of(ctx).pop(c.text.trim()), child: const Text('保存')),
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: Text(AppLocalizations.of(ctx)!.commonCancel)),
+          FilledButton(onPressed: () => Navigator.of(ctx).pop(c.text.trim()), child: Text(AppLocalizations.of(ctx)!.commonSave)),
         ],
       ),
     );
@@ -399,22 +400,23 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> {
         conversationId: widget.conversation.id,
         announcement: result.isEmpty ? null : result,
       );
-      _showToast('群公告已更新');
+      _showToast(AppLocalizations.of(context)!.groupAnnouncementUpdated);
       _load();
     } catch (e) {
-      _showToast(NetworkErrorHelper.messageForUser(e, prefix: '保存失败'));
+      _showToast(NetworkErrorHelper.messageForUser(e, prefix: AppLocalizations.of(context)!.groupSaveFailed));
     }
   }
 
   Future<void> _leaveGroup() async {
+    final l10n = AppLocalizations.of(context)!;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('退出群聊'),
-        content: const Text('确定退出该群聊？'),
+        title: Text(l10n.groupLeave),
+        content: Text(l10n.groupLeaveConfirm),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('取消')),
-          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('退出')),
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: Text(l10n.commonCancel)),
+          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: Text(l10n.commonLeave)),
         ],
       ),
     );
@@ -424,7 +426,7 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> {
     if (userId.isEmpty) return;
     final leaveUserName = user?.displayName?.trim().isNotEmpty == true
         ? user!.displayName!.trim()
-        : user?.email?.split('@').first ?? '某用户';
+        : user?.email?.split('@').first ?? AppLocalizations.of(context)!.groupSomeUser;
     try {
       await _messagesRepository.leaveGroup(
         conversationId: widget.conversation.id,
@@ -432,23 +434,24 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> {
         leaveUserName: leaveUserName,
       );
       if (!mounted) return;
-      _showToast('已退出群聊');
+      _showToast(AppLocalizations.of(context)!.groupLeaveSuccess);
       Navigator.of(context).popUntil((r) => r.isFirst);
     } catch (e) {
-      _showToast(NetworkErrorHelper.messageForUser(e, prefix: '退出失败'));
+      _showToast(NetworkErrorHelper.messageForUser(e, prefix: AppLocalizations.of(context)!.groupLeaveFailed, l10n: AppLocalizations.of(context)));
     }
   }
 
   Future<void> _dismissGroup() async {
     if (_info == null || !_info!.isOwner) return;
+    final l10n = AppLocalizations.of(context)!;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('解散群聊'),
-        content: const Text('确定解散该群聊？所有成员将退出，聊天记录将无法恢复。'),
+        title: Text(l10n.groupDismiss),
+        content: Text(l10n.groupDismissConfirm),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('取消')),
-          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('解散')),
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: Text(l10n.commonCancel)),
+          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: Text(l10n.commonDismiss)),
         ],
       ),
     );
@@ -456,10 +459,10 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> {
     try {
       await _messagesRepository.dismissGroup(conversationId: widget.conversation.id);
       if (!mounted) return;
-      _showToast('群聊已解散');
+      _showToast(AppLocalizations.of(context)!.groupDismissSuccess);
       Navigator.of(context).popUntil((r) => r.isFirst);
     } catch (e) {
-      _showToast(NetworkErrorHelper.messageForUser(e, prefix: '解散失败'));
+      _showToast(NetworkErrorHelper.messageForUser(e, prefix: AppLocalizations.of(context)!.groupDismissFailed, l10n: AppLocalizations.of(context)));
     }
   }
 
@@ -467,13 +470,13 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> {
   Widget build(BuildContext context) {
     if (_loading) {
       return Scaffold(
-        appBar: AppBar(title: const Text('群设置')),
+        appBar: AppBar(title: Text(AppLocalizations.of(context)!.groupSettingsTitle)),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
     if (_error != null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('群设置')),
+        appBar: AppBar(title: Text(AppLocalizations.of(context)!.groupSettingsTitle)),
         body: Center(child: Text(_error!)),
       );
     }
@@ -481,7 +484,7 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> {
     final showAvatar =
         info.avatarUrl != null && info.avatarUrl!.trim().isNotEmpty;
     return Scaffold(
-      appBar: AppBar(title: const Text('群设置')),
+      appBar: AppBar(title: Text(AppLocalizations.of(context)!.groupSettingsTitle)),
       body: ListView(
         children: [
           const SizedBox(height: 16),
@@ -505,9 +508,11 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> {
                                   width: 80,
                                   height: 80,
                                   fit: BoxFit.cover,
+                                  fadeInDuration: Duration.zero,
+                                  fadeOutDuration: Duration.zero,
                                   placeholder: (_, __) => Center(
                                     child: Text(
-                                      info.title.isNotEmpty ? info.title[0] : '群',
+                                      info.title.isNotEmpty ? info.title[0] : AppLocalizations.of(context)!.groupShortLabel,
                                       style: const TextStyle(
                                           fontSize: 32,
                                           color: Color(0xFFD4AF37),
@@ -516,7 +521,7 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> {
                                   ),
                                   errorWidget: (_, __, ___) => Center(
                                     child: Text(
-                                      info.title.isNotEmpty ? info.title[0] : '群',
+                                      info.title.isNotEmpty ? info.title[0] : AppLocalizations.of(context)!.groupShortLabel,
                                       style: const TextStyle(
                                           fontSize: 32,
                                           color: Color(0xFFD4AF37),
@@ -526,7 +531,7 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> {
                                 ),
                               )
                             : Text(
-                                info.title.isNotEmpty ? info.title[0] : '群',
+                                info.title.isNotEmpty ? info.title[0] : AppLocalizations.of(context)!.groupShortLabel,
                                 style: const TextStyle(
                                     fontSize: 32,
                                     color: Color(0xFFD4AF37),
@@ -561,7 +566,7 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> {
           const SizedBox(height: 12),
           ListTile(
             leading: const Icon(Icons.badge_outlined),
-            title: const Text('群名称'),
+            title: Text(AppLocalizations.of(context)!.groupGroupName),
             subtitle: info.title.isNotEmpty ? Text(info.title) : null,
             trailing: info.canManage
                 ? const Icon(Icons.chevron_right)
@@ -572,7 +577,7 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> {
           if (info.announcement != null && info.announcement!.trim().isNotEmpty)
             ListTile(
               leading: const Icon(Icons.campaign_outlined),
-              title: const Text('群公告'),
+              title: Text(AppLocalizations.of(context)!.groupAnnouncement),
               subtitle: Text(
                 info.announcement!.trim(),
                 maxLines: 2,
@@ -584,33 +589,33 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> {
           else if (info.canManage)
             ListTile(
               leading: const Icon(Icons.campaign_outlined),
-              title: const Text('群公告'),
+              title: Text(AppLocalizations.of(context)!.groupAnnouncement),
               trailing: const Icon(Icons.chevron_right),
               onTap: _editAnnouncement,
             ),
           const Divider(),
           SwitchListTile(
             secondary: const Icon(Icons.notifications_off_outlined),
-            title: const Text('消息免打扰'),
+            title: Text(AppLocalizations.of(context)!.groupMute),
             value: _muted,
             onChanged: _toggleMuted,
           ),
           const Divider(),
           ListTile(
             leading: const Icon(Icons.person_add_outlined),
-            title: const Text('邀请新成员'),
+            title: Text(AppLocalizations.of(context)!.groupInviteMembers),
             trailing: const Icon(Icons.chevron_right),
             onTap: _inviteMembers,
           ),
           ListTile(
             leading: const Icon(Icons.link),
-            title: const Text('群邀请链接'),
+            title: Text(AppLocalizations.of(context)!.groupInviteLink),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => _showGroupInviteOptions(context, info.title),
           ),
           ListTile(
             leading: const Icon(Icons.people_outline),
-            title: Text('群成员 (${info.memberCount})'),
+            title: Text(AppLocalizations.of(context)!.groupMembersCount(info.memberCount)),
             trailing: const Icon(Icons.chevron_right),
             onTap: () {
               Navigator.of(context).push(
@@ -627,13 +632,13 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> {
           const Divider(),
           ListTile(
             leading: const Icon(Icons.exit_to_app),
-            title: const Text('退出群聊'),
+            title: Text(AppLocalizations.of(context)!.groupLeave),
             onTap: _leaveGroup,
           ),
           if (info.isOwner) ...[
             ListTile(
               leading: const Icon(Icons.delete_forever, color: Colors.red),
-              title: const Text('解散群聊', style: TextStyle(color: Colors.red)),
+              title: Text(AppLocalizations.of(context)!.groupDismiss, style: const TextStyle(color: Colors.red)),
               onTap: _dismissGroup,
             ),
           ],
@@ -665,13 +670,13 @@ class _InviteGroupMembersPageState extends State<InviteGroupMembersPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('邀请新成员'),
+        title: Text(AppLocalizations.of(context)!.groupInviteNewMembers),
         actions: [
           TextButton(
             onPressed: _selected.isEmpty
                 ? null
                 : () => Navigator.of(context).pop(_selected.toList()),
-            child: Text('确定(${_selected.length})'),
+            child: Text(AppLocalizations.of(context)!.groupConfirmCountShort(_selected.length)),
           ),
         ],
       ),
@@ -693,7 +698,7 @@ class _InviteGroupMembersPageState extends State<InviteGroupMembersPage> {
               });
             },
             title: Text(name),
-            subtitle: f.shortId?.trim().isNotEmpty == true ? Text('账号ID ${f.shortId!.trim()}') : null,
+            subtitle: f.shortId?.trim().isNotEmpty == true ? Text(AppLocalizations.of(context)!.profileAccountIdValue(f.shortId!.trim())) : null,
           );
         },
       ),
@@ -718,15 +723,15 @@ class GroupMemberListPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
     return Scaffold(
-      appBar: AppBar(title: Text('群成员 (${groupInfo.memberCount})')),
+      appBar: AppBar(title: Text(AppLocalizations.of(context)!.groupMemberListTitle(groupInfo.memberCount))),
       body: ListView.builder(
         itemCount: groupInfo.members.length,
         itemBuilder: (context, index) {
           final m = groupInfo.members[index];
           final name = (m.displayName?.trim() ?? '').isEmpty
-              ? (m.shortId != null && m.shortId!.trim().isNotEmpty ? 'ID ${m.shortId!.trim()}' : m.userId)
+              ? (m.shortId != null && m.shortId!.trim().isNotEmpty ? AppLocalizations.of(context)!.profileAccountIdValue(m.shortId!.trim()) : m.userId)
               : (m.displayName ?? m.userId);
-          final roleLabel = m.isOwner ? '群主' : (m.role == 'admin' ? '管理员' : null);
+          final roleLabel = m.isOwner ? AppLocalizations.of(context)!.groupRoleOwner : (m.role == 'admin' ? AppLocalizations.of(context)!.groupRoleAdmin : null);
           final canShowActions = groupInfo.canManage &&
               !m.isOwner &&
               m.userId != currentUserId;
@@ -748,6 +753,8 @@ class GroupMemberListPage extends StatelessWidget {
                         width: 40,
                         height: 40,
                         fit: BoxFit.cover,
+                        fadeInDuration: Duration.zero,
+                        fadeOutDuration: Duration.zero,
                         placeholder: (_, __) => Center(
                           child: Text(name.isEmpty ? '?' : name[0],
                               style: const TextStyle(color: Color(0xFFD4AF37))),
@@ -787,7 +794,7 @@ class GroupMemberListPage extends StatelessWidget {
             ),
             subtitle: canShowActions
                 ? Text(
-                    '点击右侧 ⋮ 可移出、转让群主、设管理员',
+                    AppLocalizations.of(context)!.groupMemberHint,
                     style: TextStyle(
                       fontSize: 11,
                       color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
@@ -815,14 +822,14 @@ class GroupMemberListPage extends StatelessWidget {
                     },
                     itemBuilder: (ctx) {
                       final items = <PopupMenuEntry<String>>[
-                        const PopupMenuItem(value: 'remove', child: Text('移除（踢出群聊）')),
+                        PopupMenuItem(value: 'remove', child: Text(AppLocalizations.of(ctx)!.groupRemove)),
                       ];
                       if (isOwner) {
-                        items.add(const PopupMenuItem(value: 'transfer', child: Text('转让群主')));
+                        items.add(PopupMenuItem(value: 'transfer', child: Text(AppLocalizations.of(ctx)!.groupTransferOwner)));
                         if (m.role == 'member') {
-                          items.add(const PopupMenuItem(value: 'set_admin', child: Text('设为管理员')));
+                          items.add(PopupMenuItem(value: 'set_admin', child: Text(AppLocalizations.of(ctx)!.groupSetAdmin)));
                         } else if (m.role == 'admin') {
-                          items.add(const PopupMenuItem(value: 'unset_admin', child: Text('取消管理员')));
+                          items.add(PopupMenuItem(value: 'unset_admin', child: Text(AppLocalizations.of(ctx)!.groupUnsetAdmin)));
                         }
                       }
                       return items;
@@ -839,11 +846,11 @@ class GroupMemberListPage extends StatelessWidget {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('转让群主'),
-        content: Text('确定将群主转让给 $targetName？转让后您将变为管理员。'),
+        title: Text(AppLocalizations.of(ctx)!.groupTransferOwner),
+        content: Text(AppLocalizations.of(ctx)!.groupConfirmTransfer(targetName)),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('取消')),
-          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('转让')),
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: Text(AppLocalizations.of(ctx)!.commonCancel)),
+          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: Text(AppLocalizations.of(ctx)!.groupTransferOwner)),
         ],
       ),
     );
@@ -858,30 +865,31 @@ class GroupMemberListPage extends StatelessWidget {
         targetUserId: targetUserId,
       );
       if (context.mounted) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(const SnackBar(content: Text('已转让群主')));
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(AppLocalizations.of(context)!.groupTransferSuccess)));
         onUpdated();
         Navigator.of(context).pop();
       }
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          SnackBar(content: Text(NetworkErrorHelper.messageForUser(e, prefix: '操作失败'))),
+          SnackBar(content: Text(NetworkErrorHelper.messageForUser(e, prefix: AppLocalizations.of(context)!.groupOperationFailed, l10n: AppLocalizations.of(context)))),
         );
       }
     }
   }
 
   Future<void> _setMemberRole(BuildContext context, String userId, String role, String displayName) async {
-    final label = role == 'admin' ? '设为管理员' : '取消管理员';
+    final l10n = AppLocalizations.of(context)!;
+    final label = role == 'admin' ? l10n.groupSetAdmin : l10n.groupUnsetAdmin;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(label),
         content: Text(role == 'admin'
-            ? '确定将 $displayName 设为管理员？'
-            : '确定取消 $displayName 的管理员身份？'),
+            ? l10n.groupSetAdminConfirm(displayName)
+            : l10n.groupUnsetAdminConfirm(displayName)),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('取消')),
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: Text(l10n.commonCancel)),
           FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: Text(label)),
         ],
       ),
@@ -891,13 +899,13 @@ class GroupMemberListPage extends StatelessWidget {
       final repo = MessagesRepository();
       await repo.updateMemberRole(conversationId: conversationId, userId: userId, role: role);
       if (context.mounted) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text('$label 成功')));
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text('$label ${l10n.commonSuccess}')));
         onUpdated();
       }
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          SnackBar(content: Text(NetworkErrorHelper.messageForUser(e, prefix: '操作失败'))),
+          SnackBar(content: Text(NetworkErrorHelper.messageForUser(e, prefix: AppLocalizations.of(context)!.groupOperationFailed, l10n: AppLocalizations.of(context)))),
         );
       }
     }
@@ -907,11 +915,11 @@ class GroupMemberListPage extends StatelessWidget {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('移除成员'),
-        content: const Text('确定将该成员移出群聊？'),
+        title: Text(AppLocalizations.of(context)!.groupRemoveMember),
+        content: Text(AppLocalizations.of(context)!.groupRemoveConfirm),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('取消')),
-          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('移除')),
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: Text(AppLocalizations.of(ctx)!.commonCancel)),
+          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: Text(AppLocalizations.of(ctx)!.groupRemoveAction)),
         ],
       ),
     );
@@ -924,13 +932,13 @@ class GroupMemberListPage extends StatelessWidget {
         leaveUserName: leaveUserName,
       );
       if (context.mounted) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(const SnackBar(content: Text('已移出群聊')));
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(AppLocalizations.of(context)!.groupMemberRemoved)));
         onUpdated();
       }
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          SnackBar(content: Text(NetworkErrorHelper.messageForUser(e, prefix: '操作失败'))),
+          SnackBar(content: Text(NetworkErrorHelper.messageForUser(e, prefix: AppLocalizations.of(context)!.groupOperationFailed, l10n: AppLocalizations.of(context)))),
         );
       }
     }

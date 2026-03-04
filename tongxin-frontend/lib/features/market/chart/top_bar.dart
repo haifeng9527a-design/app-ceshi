@@ -129,7 +129,7 @@ class ChartTopBar extends StatelessWidget {
       children: [
         if (currentPrice != null)
           Text(
-            currentPrice!.toStringAsFixed(2),
+            ChartTheme.formatPrice(currentPrice!),
             style: const TextStyle(
               color: ChartTheme.textPrimary,
               fontSize: 16,
@@ -140,7 +140,7 @@ class ChartTopBar extends StatelessWidget {
         if (changeVal != null) ...[
           const SizedBox(width: 8),
           Text(
-            '${changeVal >= 0 ? '+' : ''}${changeVal.toStringAsFixed(2)}',
+            '${changeVal >= 0 ? '+' : ''}${ChartTheme.formatPrice(changeVal)}',
             style: TextStyle(color: color, fontSize: 13, fontWeight: FontWeight.w600, fontFamily: ChartTheme.fontMono),
           ),
         ],

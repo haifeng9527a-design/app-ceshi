@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../l10n/app_localizations.dart';
 import 'generic_chart_page.dart';
 import 'market_repository.dart';
 import 'stock_chart_page.dart';
@@ -95,18 +96,19 @@ class _SearchPageState extends State<SearchPage> {
     }
   }
 
-  String _marketLabel(String? market) {
+  String _marketLabel(BuildContext context, String? market) {
     if (market == null || market.isEmpty) return '—';
+    final l10n = AppLocalizations.of(context)!;
     switch (market.toLowerCase()) {
       case 'stocks':
-        return '美股';
+        return l10n.searchUsStock;
       case 'crypto':
-        return '加密货币';
+        return l10n.searchCrypto;
       case 'fx':
       case 'forex':
-        return '外汇';
+        return l10n.searchForex;
       case 'indices':
-        return '指数';
+        return l10n.searchIndex;
       default:
         return market;
     }
@@ -126,8 +128,8 @@ class _SearchPageState extends State<SearchPage> {
     return Scaffold(
       backgroundColor: _bg,
       appBar: AppBar(
-        title: const Text(
-          '搜索',
+        title: Text(
+          AppLocalizations.of(context)!.commonSearch,
           style: TextStyle(
             color: _text,
             fontWeight: FontWeight.w700,
@@ -146,7 +148,7 @@ class _SearchPageState extends State<SearchPage> {
               focusNode: _focusNode,
               style: const TextStyle(color: Colors.white, fontSize: 16),
               decoration: InputDecoration(
-                hintText: '股票或加密货币名称、代码',
+                hintText: AppLocalizations.of(context)!.searchHint,
                 hintStyle: TextStyle(color: _muted, fontSize: 14),
                 prefixIcon: Icon(Icons.search, color: _muted, size: 22),
                 filled: true,
@@ -169,11 +171,11 @@ class _SearchPageState extends State<SearchPage> {
           ),
         ),
       ),
-      body: _buildBody(),
+      body: _buildBody(context),
     );
   }
 
-  Widget _buildBody() {
+  Widget _buildBody(BuildContext context) {
     if (_loading) {
       return const Center(
         child: CircularProgressIndicator(color: _accent),
@@ -182,7 +184,7 @@ class _SearchPageState extends State<SearchPage> {
     if (_query.isEmpty) {
       return Center(
         child: Text(
-          '输入股票或加密货币名称、代码搜索',
+          AppLocalizations.of(context)!.searchInputHint,
           style: TextStyle(color: _muted, fontSize: 14),
         ),
       );
@@ -195,7 +197,7 @@ class _SearchPageState extends State<SearchPage> {
             Icon(Icons.search_off, size: 48, color: _muted.withValues(alpha: 0.6)),
             const SizedBox(height: 12),
             Text(
-              '未找到「$_query」相关标的',
+              AppLocalizations.of(context)!.searchNotFound(_query),
               style: const TextStyle(color: _muted, fontSize: 14),
             ),
           ],
@@ -251,7 +253,7 @@ class _SearchPageState extends State<SearchPage> {
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Text(
-                      _marketLabel(item.market),
+                      _marketLabel(context, item.market),
                       style: const TextStyle(
                         color: _accent,
                         fontSize: 12,
@@ -263,13 +265,13 @@ class _SearchPageState extends State<SearchPage> {
                   IconButton(
                     icon: const Icon(Icons.add_circle_outline, size: 22),
                     color: _accent,
-                    tooltip: '加自选',
+                    tooltip: AppLocalizations.of(context)!.searchAddWatchlist,
                     onPressed: () async {
                       await WatchlistRepository.instance.addWatchlist(item.symbol);
                       if (!context.mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
-                          content: Text('已添加 ${item.symbol} 到自选'),
+                          content: Text(AppLocalizations.of(context)!.searchAddedToWatchlist(item.symbol)),
                           backgroundColor: _surface,
                           behavior: SnackBarBehavior.floating,
                         ),

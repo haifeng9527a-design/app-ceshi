@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/app_localizations.dart';
 import 'pc_dashboard_theme.dart';
 
 /// 极简侧栏：仅图标，细选中条，无装饰
@@ -18,13 +19,13 @@ class PcSidebar extends StatefulWidget {
 
   static const double width = 72;
 
-  static const List<_NavItem> _items = [
-    _NavItem(icon: Icons.dashboard_outlined, tooltip: '首页'),
-    _NavItem(icon: Icons.candlestick_chart_outlined, tooltip: '行情'),
-    _NavItem(icon: Icons.star_outline, tooltip: '自选'),
-    _NavItem(icon: Icons.chat_bubble_outline, tooltip: '消息'),
-    _NavItem(icon: Icons.leaderboard_outlined, tooltip: '排行榜'),
-    _NavItem(icon: Icons.person_outline, tooltip: '我的'),
+  static List<_NavItem> _items(BuildContext context) => [
+    _NavItem(icon: Icons.dashboard_outlined, tooltip: AppLocalizations.of(context)!.navHome),
+    _NavItem(icon: Icons.candlestick_chart_outlined, tooltip: AppLocalizations.of(context)!.navMarket),
+    _NavItem(icon: Icons.star_outline, tooltip: AppLocalizations.of(context)!.navWatchlist),
+    _NavItem(icon: Icons.chat_bubble_outline, tooltip: AppLocalizations.of(context)!.navMessages),
+    _NavItem(icon: Icons.leaderboard_outlined, tooltip: AppLocalizations.of(context)!.navRankings),
+    _NavItem(icon: Icons.person_outline, tooltip: AppLocalizations.of(context)!.navProfile),
   ];
 
   @override
@@ -45,8 +46,8 @@ class _PcSidebarState extends State<PcSidebar> {
             const SizedBox(height: 20),
             _AppMark(),
             const SizedBox(height: 28),
-            ...List.generate(PcSidebar._items.length, (i) {
-              final item = PcSidebar._items[i];
+            ...List.generate(PcSidebar._items(context).length, (i) {
+              final item = PcSidebar._items(context)[i];
               final selected = widget.currentIndex == i;
               final hover = _hovered == i;
               final badgeCount = (i == 3) ? widget.messageUnreadCount : 0;
@@ -63,7 +64,7 @@ class _PcSidebarState extends State<PcSidebar> {
             const Spacer(),
             _NavItemTile(
               icon: Icons.settings_outlined,
-              tooltip: '设置',
+              tooltip: AppLocalizations.of(context)!.navSettings,
               selected: false,
               hover: _hovered == -2,
               onTap: () {},

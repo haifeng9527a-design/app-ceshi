@@ -25,9 +25,12 @@ import 'package:open_filex/open_filex.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/last_online_service.dart';
+import '../../l10n/app_localizations.dart';
 import '../../core/network_error_helper.dart';
 import '../../core/notification_service.dart';
 import '../../core/role_badge.dart';
+import '../../api/messages_api.dart';
+import '../../core/api_client.dart';
 import '../../core/supabase_bootstrap.dart';
 import '../../core/user_restrictions.dart';
 import 'friend_models.dart';
@@ -35,6 +38,7 @@ import 'message_models.dart';
 import 'messages_local_store.dart';
 import 'messages_repository.dart';
 import 'friends_repository.dart';
+import 'customer_service_repository.dart';
 import 'group_join_link_handler.dart';
 import 'group_settings_page.dart';
 import 'user_profile_page.dart';
@@ -49,30 +53,48 @@ class ChatDetailPage extends StatefulWidget {
     required this.conversation,
     required this.initialMessages,
     this.onCloseForEmbed,
+
+    /// 客服工作台：以系统客服身份发送与展示，传系统客服的 user_id 和 display_name
+    this.overrideSenderId,
+    this.overrideSenderName,
   });
 
   final Conversation conversation;
   final List<ChatMessage> initialMessages;
+
   /// PC 端内嵌时传入，点击返回会调用此回调而非 Navigator.pop
   final VoidCallback? onCloseForEmbed;
+
+  /// 客服工作台回复时使用：发送者 ID（系统客服）
+  final String? overrideSenderId;
+
+  /// 客服工作台回复时使用：发送者名称
+  final String? overrideSenderName;
 
   @override
   State<ChatDetailPage> createState() => _ChatDetailPageState();
 }
 
-class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStateMixin {
+class _ChatDetailPageState extends State<ChatDetailPage>
+    with TickerProviderStateMixin {
   final _textController = TextEditingController();
   final _focusNode = FocusNode();
   final _scrollController = ScrollController();
   final _repository = MessagesRepository();
   final _friendsRepository = FriendsRepository();
+  final _csRepository = CustomerServiceRepository();
   final _picker = ImagePicker();
   final _recorder = AudioRecorder();
   final _localStore = MessagesLocalStore();
   late final String _userId;
   late final String _userName;
+
+  /// 客服工作台时：用于发送、展示、mark read 的有效身份（系统客服）
+  String get _effectiveUserId => widget.overrideSenderId ?? _userId;
+  String get _effectiveUserName => widget.overrideSenderName ?? _userName;
   String? _peerId;
   final List<ChatMessage> _pendingMessages = [];
+
   /// 发送失败的本条消息 localId，用于在气泡旁显示感叹号（不弹 toast）
   final Set<String> _failedLocalIds = {};
   Map<String, String> _friendRemarks = {};
@@ -83,12 +105,16 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
   String? _groupTitle;
   String? _groupAnnouncement;
   String _myGroupRole = 'member';
+
   /// 群成员 userId -> avatarUrl，用于聊天气泡头像
   final Map<String, String?> _memberAvatarUrls = {};
+
   /// 群成员列表（含 displayName），用于 @ 提及 选择
   List<GroupMember> _groupMembersWithNames = [];
+
   /// @ 提及：输入框内从 @ 到光标的内容，用于过滤成员列表；非 null 时显示成员选择
   String? _mentionQuery;
+
   /// @ 在输入框中的起始偏移，选择成员后替换该段
   int _mentionStartOffset = 0;
   String? _myAvatarUrl;
@@ -107,23 +133,26 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
   final Set<String> _prefetchedMediaIds = {};
   final Map<String, String> _localMediaByUrl = {};
   int _lastMessageCount = 0;
-  final ValueNotifier<bool> _shouldAutoScrollNotifier = ValueNotifier<bool>(true);
+  final ValueNotifier<bool> _shouldAutoScrollNotifier =
+      ValueNotifier<bool>(true);
   Timer? _draftSaveTimer;
   Timer? _markReadTimer;
   List<ChatMessage>? _cachedMessages;
   bool _cacheLoadComplete = false;
   late final Stream<List<ChatMessage>> _messageStream;
   ChatMessage? _replyingToMessage;
+
   /// 与当前单聊对象的通话记录（仅单聊时加载，用于在聊天时间线中展示呼叫记录）
   List<CallRecord>? _callRecords;
+
   /// 文件上传进度：localId -> null=进行中(无具体进度)，0.0~1.0=进度值，上传完成后移除
   final Map<String, double?> _fileUploadProgress = {};
 
   void _doMarkConversationRead() {
-    if (_userId.isEmpty) return;
+    if (_effectiveUserId.isEmpty) return;
     _repository.markConversationRead(
       conversationId: widget.conversation.id,
-      userId: _userId,
+      userId: _effectiveUserId,
     );
   }
 
@@ -135,7 +164,8 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
     _userId = user?.uid ?? '';
     _userName = user?.displayName?.trim().isNotEmpty == true
         ? user!.displayName!.trim()
-        : (user?.email?.split('@').first ?? '我');
+        : (user?.email?.split('@').first ??
+            AppLocalizations.of(context)!.commonMe);
     _peerId = widget.conversation.peerId;
     _ensurePeerId();
     _textController.addListener(_handleTextChanged);
@@ -182,15 +212,30 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
       });
       WidgetsBinding.instance.addPostFrameCallback((_) => _refreshGroupInfo());
     }
-    if (!widget.conversation.isGroup && (_peerId != null && _peerId!.isNotEmpty)) {
+    if (!widget.conversation.isGroup &&
+        (_peerId != null && _peerId!.isNotEmpty)) {
       _loadPeerProfile(_peerId!);
       _loadCallRecords();
+      if (widget.overrideSenderId == null) {
+        _csRepository.trySendWelcomeMessage(
+          conversationId: widget.conversation.id,
+          peerId: _peerId!,
+        );
+      }
     } else {
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         final pid = await _ensurePeerId();
         if (pid != null && pid.isNotEmpty && mounted) {
           _loadPeerProfile(pid);
-          if (!widget.conversation.isGroup) _loadCallRecords();
+          if (!widget.conversation.isGroup) {
+            _loadCallRecords();
+            if (widget.overrideSenderId == null) {
+              _csRepository.trySendWelcomeMessage(
+                conversationId: widget.conversation.id,
+                peerId: pid,
+              );
+            }
+          }
         }
       });
     }
@@ -237,7 +282,8 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
     List<ChatMessage>? latest;
     Timer? timer;
     var isFirst = true;
-    final controller = StreamController<List<ChatMessage>>.broadcast(sync: true);
+    final controller =
+        StreamController<List<ChatMessage>>.broadcast(sync: true);
     void emitLatest() {
       if (latest != null) {
         controller.add(latest!);
@@ -245,10 +291,11 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
       }
       timer = null;
     }
+
     sub = _repository
         .watchMessages(
           conversationId: widget.conversation.id,
-          currentUserId: _userId,
+          currentUserId: _effectiveUserId,
         )
         .listen(
           (data) {
@@ -291,15 +338,16 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
   }
 
   Future<void> _loadCachedMessages() async {
-    if (_userId.isEmpty) return;
+    if (_effectiveUserId.isEmpty) return;
     final list = await _localStore.loadCachedMessages(
       conversationId: widget.conversation.id,
-      currentUserId: _userId,
+      currentUserId: _effectiveUserId,
     );
     final peer = await _localStore.loadConversationPeer(widget.conversation.id);
     Map<String, dynamic>? groupAvatarCache;
     if (widget.conversation.isGroup) {
-      groupAvatarCache = await _localStore.loadGroupAvatarCache(widget.conversation.id);
+      groupAvatarCache =
+          await _localStore.loadGroupAvatarCache(widget.conversation.id);
     }
     if (!mounted) return;
     setState(() {
@@ -349,9 +397,9 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
     LastOnlineService.updateLastOnlineNow();
     _markReadTimer?.cancel();
     _markReadTimer = null;
-    if (_userId.isNotEmpty) {
+    if (_effectiveUserId.isNotEmpty) {
       final cid = widget.conversation.id;
-      final uid = _userId;
+      final uid = _effectiveUserId;
       Future.microtask(() {
         _repository.markConversationRead(
           conversationId: cid,
@@ -407,7 +455,20 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
       return _peerId;
     }
     try {
-      final members = await SupabaseBootstrap.client
+      if (ApiClient.instance.isAvailable) {
+        final peerId = await MessagesApi.instance
+            .getPeerId(widget.conversation.id, _userId);
+        if (peerId != null && peerId.isNotEmpty) {
+          if (!mounted)
+            _peerId = peerId;
+          else
+            setState(() => _peerId = peerId);
+        }
+        return _peerId;
+      }
+      final client = SupabaseBootstrap.clientOrNull;
+      if (client == null) return _peerId;
+      final members = await client
           .from('chat_members')
           .select('user_id')
           .eq('conversation_id', widget.conversation.id);
@@ -435,9 +496,8 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
       return;
     }
     _remarkSubscription?.cancel();
-    _remarkSubscription = _friendsRepository
-        .watchRemarks(userId: _userId)
-        .listen((remarks) {
+    _remarkSubscription =
+        _friendsRepository.watchRemarks(userId: _userId).listen((remarks) {
       if (!mounted) return;
       setState(() {
         _friendRemarks = remarks;
@@ -474,7 +534,8 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
         ? _groupMembersWithNames
         : _groupMembersWithNames.where((m) {
             final name = (m.displayName ?? m.userId).toLowerCase();
-            return name.contains(query) || m.userId.toLowerCase().contains(query);
+            return name.contains(query) ||
+                m.userId.toLowerCase().contains(query);
           }).toList();
     if (list.isEmpty) {
       return Container(
@@ -484,9 +545,9 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: const Color(0xFF2A2D34)),
         ),
-        child: const Text(
-          '暂无匹配成员',
-          style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 13),
+        child: Text(
+          AppLocalizations.of(context)!.chatNoMatchingMembers,
+          style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 13),
         ),
       );
     }
@@ -513,15 +574,17 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
               child: InkWell(
                 onTap: () => _onSelectMentionMember(m),
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   child: Row(
                     children: [
                       CircleAvatar(
                         radius: 16,
                         backgroundColor: const Color(0xFF2A2D34),
-                        backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
-                            ? NetworkImage(avatarUrl)
-                            : null,
+                        backgroundImage:
+                            avatarUrl != null && avatarUrl.isNotEmpty
+                                ? NetworkImage(avatarUrl)
+                                : null,
                         child: avatarUrl == null || avatarUrl.isEmpty
                             ? Text(
                                 displayName.isNotEmpty ? displayName[0] : '?',
@@ -628,14 +691,14 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
   void _sendMessage() {
     if (_isSendingNotifier.value) return;
     final text = _textController.text.trim();
-    if (text.isEmpty || _userId.isEmpty) return;
+    if (text.isEmpty || _effectiveUserId.isEmpty) return;
 
     final localId = 'local-${DateTime.now().microsecondsSinceEpoch}';
     final replying = _replyingToMessage;
     final pending = ChatMessage(
       id: localId,
-      senderId: _userId,
-      senderName: _userName,
+      senderId: _effectiveUserId,
+      senderName: _effectiveUserName,
       content: text,
       messageType: 'text',
       time: DateTime.now(),
@@ -678,9 +741,11 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
   /// 将刚发送的消息追加到本地缓存（不阻塞 UI）
   void _appendSentMessageToCache(ChatMessage pending) {
     final cid = widget.conversation.id;
-    final uid = _userId;
+    final uid = _effectiveUserId;
     if (cid.isEmpty || uid.isEmpty) return;
-    _localStore.loadCachedMessages(conversationId: cid, currentUserId: uid).then((list) {
+    _localStore
+        .loadCachedMessages(conversationId: cid, currentUserId: uid)
+        .then((list) {
       final next = [...list, pending];
       _localStore.saveCachedMessages(
         conversationId: cid,
@@ -709,37 +774,42 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
             _failedLocalIds.remove(localId);
           });
           _textController.text = text;
-          _textController.selection = TextSelection.fromPosition(TextPosition(offset: text.length));
+          _textController.selection =
+              TextSelection.fromPosition(TextPosition(offset: text.length));
           _localStore.saveDraft(widget.conversation.id, text);
-          _showToast(UserRestrictions.getAccountStatusMessage(restrictions));
+          _showToast(
+              UserRestrictions.getAccountStatusMessage(restrictions, context));
         }
         return;
       }
       if (!widget.conversation.isGroup) {
         final receiverId = await _ensurePeerId();
-        final isFriend = await _friendsRepository.isFriend(
-          userId: _userId,
-          friendId: receiverId ?? '',
-        );
-        if (!isFriend) {
-          if (mounted) {
-            setState(() {
-              _pendingMessages.removeWhere((item) => item.id == localId);
-              _failedLocalIds.remove(localId);
-            });
-            _textController.text = text;
-            _textController.selection = TextSelection.fromPosition(
-              TextPosition(offset: text.length),
-            );
-            _localStore.saveDraft(widget.conversation.id, text);
-            _showToast('已不是好友，无法发送');
+        final isCsStaff = widget.overrideSenderId != null;
+        if (!isCsStaff) {
+          final isFriend = await _friendsRepository.isFriend(
+            userId: _userId,
+            friendId: receiverId ?? '',
+          );
+          if (!isFriend) {
+            if (mounted) {
+              setState(() {
+                _pendingMessages.removeWhere((item) => item.id == localId);
+                _failedLocalIds.remove(localId);
+              });
+              _textController.text = text;
+              _textController.selection = TextSelection.fromPosition(
+                TextPosition(offset: text.length),
+              );
+              _localStore.saveDraft(widget.conversation.id, text);
+              _showToast(AppLocalizations.of(context)!.chatNotFriendCannotSend);
+            }
+            return;
           }
-          return;
         }
         await _repository.sendMessage(
           conversationId: widget.conversation.id,
-          senderId: _userId,
-          senderName: _userName,
+          senderId: _effectiveUserId,
+          senderName: _effectiveUserName,
           content: text,
           messageType: 'text',
           receiverId: receiverId,
@@ -748,15 +818,16 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
           replyToContent: replyToContent,
         );
       } else {
-        final members = await _repository.fetchGroupMembers(widget.conversation.id);
+        final members =
+            await _repository.fetchGroupMembers(widget.conversation.id);
         final receiverIds = members
             .map((m) => m.userId)
-            .where((id) => id.isNotEmpty && id != _userId)
+            .where((id) => id.isNotEmpty && id != _effectiveUserId)
             .toList();
         await _repository.sendMessage(
           conversationId: widget.conversation.id,
-          senderId: _userId,
-          senderName: _userName,
+          senderId: _effectiveUserId,
+          senderName: _effectiveUserName,
           content: text,
           messageType: 'text',
           receiverIds: receiverIds,
@@ -849,7 +920,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
       return;
     }
     if (kIsWeb) {
-      _showToast('Web 暂不支持录音');
+      _showToast(AppLocalizations.of(context)!.chatWebRecordingNotSupported);
       return;
     }
     if (_isRecording) {
@@ -862,10 +933,9 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
       }
       int? durationMs;
       if (_recordStart != null) {
-        durationMs =
-            DateTime.now().difference(_recordStart!).inMilliseconds;
+        durationMs = DateTime.now().difference(_recordStart!).inMilliseconds;
         if (durationMs < 900) {
-          _showToast('录音时间太短');
+          _showToast(AppLocalizations.of(context)!.chatRecordingTooShort);
           return;
         }
       }
@@ -883,7 +953,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
 
     final hasPermission = await _recorder.hasPermission();
     if (!hasPermission) {
-      _showToast('请授予麦克风权限');
+      _showToast(AppLocalizations.of(context)!.chatGrantMicPermission);
       return;
     }
     final tempDir = await getTemporaryDirectory();
@@ -1036,18 +1106,19 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
     int? durationMs,
   }) async {
     if (!SupabaseBootstrap.isReady) {
-      _showToast('未配置 Supabase，无法发送媒体');
+      _showToast(AppLocalizations.of(context)!.chatNoSupabaseCannotSendMedia);
       return;
     }
     // 与文本发送一致：后台限制发消息时禁止发送图片/语音/视频
     final restrictions = await UserRestrictions.getMyRestrictionRow();
     if (!UserRestrictions.canSendMessage(restrictions)) {
       UserRestrictions.clearCache();
-      _showToast(UserRestrictions.getAccountStatusMessage(restrictions));
+      _showToast(
+          UserRestrictions.getAccountStatusMessage(restrictions, context));
       return;
     }
     if (bytes.isEmpty) {
-      _showToast('文件为空，无法发送');
+      _showToast(AppLocalizations.of(context)!.chatFileEmptyCannotSend);
       return;
     }
     try {
@@ -1060,11 +1131,12 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
           friendId: receiverId ?? '',
         );
         if (!isFriend) {
-          _showToast('已不是好友，无法发送');
+          _showToast(AppLocalizations.of(context)!.chatNotFriendCannotSend);
           return;
         }
       } else {
-        final members = await _repository.fetchGroupMembers(widget.conversation.id);
+        final members =
+            await _repository.fetchGroupMembers(widget.conversation.id);
         receiverIds = members
             .map((m) => m.userId)
             .where((id) => id.isNotEmpty && id != _userId)
@@ -1079,9 +1151,9 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
       );
       await _repository.sendMessage(
         conversationId: widget.conversation.id,
-        senderId: _userId,
-        senderName: _userName,
-        content: type == 'file' ? fileName : _typeLabel(type),
+        senderId: _effectiveUserId,
+        senderName: _effectiveUserName,
+        content: type == 'file' ? fileName : _typeLabel(context, type),
         messageType: type,
         mediaUrl: url,
         localPath: localPath,
@@ -1096,20 +1168,23 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
       }
     } catch (error) {
       debugPrint('send media failed: $error');
-      _showToast(NetworkErrorHelper.messageForUser(error, prefix: '发送失败'));
+      _showToast(NetworkErrorHelper.messageForUser(error,
+          prefix: AppLocalizations.of(context)!.chatSendFailedPrefix,
+          l10n: AppLocalizations.of(context)));
     }
   }
 
-  String _typeLabel(String type) {
+  String _typeLabel(BuildContext context, String type) {
+    final l10n = AppLocalizations.of(context)!;
     switch (type) {
       case 'image':
-        return '[图片]';
+        return l10n.chatTypeImage;
       case 'video':
-        return '[视频]';
+        return l10n.chatTypeVideo;
       case 'audio':
-        return '[语音]';
+        return l10n.chatTypeAudio;
       case 'file':
-        return '[文件]';
+        return l10n.chatTypeFile;
       default:
         return '';
     }
@@ -1139,9 +1214,11 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
     const map = {
       'pdf': 'application/pdf',
       'doc': 'application/msword',
-      'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'docx':
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       'xls': 'application/vnd.ms-excel',
-      'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'xlsx':
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'txt': 'text/plain',
       'zip': 'application/zip',
       'apk': 'application/vnd.android.package-archive',
@@ -1198,7 +1275,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
               children: [
                 _ActionTile(
                   icon: Icons.photo_library_outlined,
-                  label: '相册',
+                  label: AppLocalizations.of(context)!.messagesAlbum,
                   onTap: () {
                     Navigator.of(context).pop();
                     _showAlbumSourcePicker();
@@ -1206,7 +1283,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
                 ),
                 _ActionTile(
                   icon: Icons.camera_alt_outlined,
-                  label: '拍摄',
+                  label: AppLocalizations.of(context)!.messagesCamera,
                   onTap: () {
                     Navigator.of(context).pop();
                     _showCameraSourcePicker();
@@ -1214,16 +1291,18 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
                 ),
                 _ActionTile(
                   icon: Icons.insert_drive_file_outlined,
-                  label: '文件',
+                  label: AppLocalizations.of(context)!.messagesFileLabel,
                   onTap: () {
                     Navigator.of(context).pop();
                     _pickFile();
                   },
                 ),
-                if (!widget.conversation.isGroup && _peerId != null && _peerId!.isNotEmpty)
+                if (!widget.conversation.isGroup &&
+                    _peerId != null &&
+                    _peerId!.isNotEmpty)
                   _ActionTile(
                     icon: Icons.call_outlined,
-                    label: '通话',
+                    label: AppLocalizations.of(context)!.chatCallLabel,
                     onTap: () {
                       Navigator.of(context).pop();
                       _showCallTypePicker();
@@ -1254,7 +1333,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
               children: [
                 ListTile(
                   leading: const Icon(Icons.image_outlined),
-                  title: const Text('图片'),
+                  title: Text(AppLocalizations.of(context)!.messagesImage),
                   onTap: () {
                     Navigator.of(ctx).pop();
                     _pickImage();
@@ -1262,7 +1341,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
                 ),
                 ListTile(
                   leading: const Icon(Icons.videocam_outlined),
-                  title: const Text('视频'),
+                  title: Text(AppLocalizations.of(context)!.messagesVideo),
                   onTap: () {
                     Navigator.of(ctx).pop();
                     _pickVideo();
@@ -1293,7 +1372,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
               children: [
                 ListTile(
                   leading: const Icon(Icons.photo_camera_outlined),
-                  title: const Text('拍照'),
+                  title: Text(AppLocalizations.of(context)!.messagesTakePhoto),
                   onTap: () {
                     Navigator.of(ctx).pop();
                     _pickImageFromCamera();
@@ -1301,7 +1380,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
                 ),
                 ListTile(
                   leading: const Icon(Icons.videocam_outlined),
-                  title: const Text('拍视频'),
+                  title: Text(AppLocalizations.of(context)!.messagesTakeVideo),
                   onTap: () {
                     Navigator.of(ctx).pop();
                     _pickVideoFromCamera();
@@ -1317,7 +1396,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
 
   Future<void> _pickFile() async {
     if (kIsWeb) {
-      _showToast('Web 暂不支持发送文件');
+      _showToast(AppLocalizations.of(context)!.chatWebFileNotSupported);
       return;
     }
     try {
@@ -1338,7 +1417,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
         }
       }
       if (bytes == null || bytes.isEmpty) {
-        _showToast('无法读取该文件');
+        _showToast(AppLocalizations.of(context)!.chatCannotReadFile);
         return;
       }
       final fileName = platformFile.name;
@@ -1346,8 +1425,8 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
       final localId = 'local-file-${DateTime.now().microsecondsSinceEpoch}';
       final pending = ChatMessage(
         id: localId,
-        senderId: _userId,
-        senderName: _userName,
+        senderId: _effectiveUserId,
+        senderName: _effectiveUserName,
         content: fileName,
         messageType: 'file',
         time: DateTime.now(),
@@ -1362,7 +1441,9 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
       _shouldAutoScrollNotifier.value = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (_scrollController.hasClients) {
-          _scrollController.animateTo(0.0, duration: const Duration(milliseconds: 180), curve: Curves.easeOut);
+          _scrollController.animateTo(0.0,
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOut);
         }
       });
       _uploadFileInBackground(
@@ -1372,7 +1453,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
         contentType: contentType,
       );
     } catch (e) {
-      _showToast('选择文件失败');
+      _showToast(AppLocalizations.of(context)!.chatSelectFileFailed);
     }
   }
 
@@ -1392,7 +1473,8 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
             _pendingMessages.removeWhere((m) => m.id == localId);
             _fileUploadProgress.remove(localId);
           });
-          _showToast(UserRestrictions.getAccountStatusMessage(restrictions));
+          _showToast(
+              UserRestrictions.getAccountStatusMessage(restrictions, context));
         }
         return;
       }
@@ -1409,11 +1491,12 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
             _pendingMessages.removeWhere((m) => m.id == localId);
             _fileUploadProgress.remove(localId);
           });
-          _showToast('已不是好友，无法发送');
+          _showToast(AppLocalizations.of(context)!.chatNotFriendCannotSend);
           return;
         }
       } else {
-        final members = await _repository.fetchGroupMembers(widget.conversation.id);
+        final members =
+            await _repository.fetchGroupMembers(widget.conversation.id);
         receiverIds = members
             .map((m) => m.userId)
             .where((id) => id.isNotEmpty && id != _userId)
@@ -1430,8 +1513,8 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
       if (mounted) setState(() => _fileUploadProgress[localId] = 1.0);
       await _repository.sendMessage(
         conversationId: widget.conversation.id,
-        senderId: _userId,
-        senderName: _userName,
+        senderId: _effectiveUserId,
+        senderName: _effectiveUserName,
         content: fileName,
         messageType: 'file',
         mediaUrl: url,
@@ -1448,7 +1531,9 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
           _pendingMessages.removeWhere((m) => m.id == localId);
           _fileUploadProgress.remove(localId);
         });
-        _showToast(NetworkErrorHelper.messageForUser(e, prefix: '文件发送失败'));
+        _showToast(NetworkErrorHelper.messageForUser(e,
+            prefix: AppLocalizations.of(context)!.chatFileSendFailedPrefix,
+            l10n: AppLocalizations.of(context)));
       }
     }
   }
@@ -1476,7 +1561,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
             children: [
               ListTile(
                 leading: const Icon(Icons.reply_outlined),
-                title: const Text('回复'),
+                title: Text(AppLocalizations.of(context)!.messagesReply),
                 onTap: () {
                   Navigator.of(context).pop();
                   setState(() => _replyingToMessage = message);
@@ -1484,25 +1569,26 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
               ),
               ListTile(
                 leading: const Icon(Icons.copy_all_outlined),
-                title: const Text('复制'),
+                title: Text(AppLocalizations.of(context)!.messagesCopy),
                 onTap: () {
                   Navigator.of(context).pop();
                   Clipboard.setData(ClipboardData(text: message.content));
-                  _showToast('已复制');
+                  _showToast(AppLocalizations.of(context)!.commonCopied);
                 },
               ),
               ListTile(
                 leading: const Icon(Icons.forward_to_inbox_outlined),
-                title: const Text('转发'),
+                title: Text(AppLocalizations.of(context)!.messagesForward),
                 onTap: () {
                   Navigator.of(context).pop();
-                  _showToast('转发功能正在开发中');
+                  _showToast(
+                      AppLocalizations.of(context)!.chatForwardInDevelopment);
                 },
               ),
               if (message.isMine && !message.isLocal)
                 ListTile(
                   leading: const Icon(Icons.undo, color: Colors.redAccent),
-                  title: const Text('撤回'),
+                  title: Text(AppLocalizations.of(context)!.messagesRecall),
                   onTap: () {
                     Navigator.of(context).pop();
                     _confirmRecall(message);
@@ -1520,16 +1606,17 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          title: const Text('撤回消息'),
-          content: const Text('确定撤回这条消息吗？'),
+          title: Text(AppLocalizations.of(context)!.messagesRecallMessage),
+          content:
+              Text(AppLocalizations.of(context)!.messagesConfirmRecallMessage),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('取消'),
+              child: Text(AppLocalizations.of(context)!.commonCancel),
             ),
             FilledButton(
               onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('撤回'),
+              child: Text(AppLocalizations.of(context)!.messagesRecall),
             ),
           ],
         );
@@ -1539,10 +1626,12 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
     try {
       await _repository.deleteMessage(messageId: message.id);
       if (!mounted) return;
-      _showToast('已撤回');
+      _showToast(AppLocalizations.of(context)!.chatRecalled);
     } catch (error) {
       if (!mounted) return;
-      _showToast(NetworkErrorHelper.messageForUser(error, prefix: '撤回失败'));
+      _showToast(NetworkErrorHelper.messageForUser(error,
+          prefix: AppLocalizations.of(context)!.chatRecallFailedPrefix,
+          l10n: AppLocalizations.of(context)));
     }
   }
 
@@ -1565,7 +1654,8 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
 
   /// 返回 (剩余待发列表, 服务端消息 id -> 对应原 pending 的 id，用于稳定 key 防闪)
   /// 匹配条件：发送者一致、内容一致、且（服务端消息时间与 pending 时间相近，或服务端消息为“刚收到”的我方消息），避免同一条显示两次。
-  (List<ChatMessage>, Map<String, String>) _reconcilePendingWithKeys(List<ChatMessage> messages) {
+  (List<ChatMessage>, Map<String, String>) _reconcilePendingWithKeys(
+      List<ChatMessage> messages) {
     if (_pendingMessages.isEmpty) {
       return (_pendingMessages, const {});
     }
@@ -1585,7 +1675,8 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
         if (message.messageType != pending.messageType) continue;
         if (usedServerIds.contains(message.id)) continue;
         final diff = message.time.difference(pendingTime).abs();
-        final isRecentFromMe = message.isMine && now.difference(message.time).abs() < timeWindow;
+        final isRecentFromMe =
+            message.isMine && now.difference(message.time).abs() < timeWindow;
         if (diff > timeWindow && !isRecentFromMe) continue;
         matchedMessage = message;
         usedServerIds.add(message.id);
@@ -1614,8 +1705,8 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
   }
 
   String _resolveSenderName(ChatMessage message) {
-    if (message.senderId == _userId) {
-      return _userName;
+    if (message.senderId == _effectiveUserId) {
+      return _effectiveUserName;
     }
     final remark = _friendRemarks['id:${message.senderId}'] ??
         _friendRemarks[message.senderId];
@@ -1625,12 +1716,16 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
     return message.senderName;
   }
 
-  void _openUserProfile(BuildContext context, String userId, String displayName, String? avatarUrl) {
-    openUserProfile(context, userId: userId, displayName: displayName, avatarUrl: avatarUrl);
+  void _openUserProfile(BuildContext context, String userId, String displayName,
+      String? avatarUrl) {
+    openUserProfile(context,
+        userId: userId, displayName: displayName, avatarUrl: avatarUrl);
   }
 
   String _resolveConversationTitle() {
-    if (widget.conversation.isGroup && _groupTitle != null && _groupTitle!.trim().isNotEmpty) {
+    if (widget.conversation.isGroup &&
+        _groupTitle != null &&
+        _groupTitle!.trim().isNotEmpty) {
       return _groupTitle!.trim();
     }
     final title = widget.conversation.title;
@@ -1647,11 +1742,13 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
       final name = _peerProfile!.displayName.trim();
       if (name.isNotEmpty) return name;
     }
-    if (peerId != null && _cachedPeerDisplayName != null && _cachedPeerDisplayName!.trim().isNotEmpty) {
+    if (peerId != null &&
+        _cachedPeerDisplayName != null &&
+        _cachedPeerDisplayName!.trim().isNotEmpty) {
       return _cachedPeerDisplayName!.trim();
     }
     if (peerId != null && title.trim() == _userName.trim()) {
-      return '好友';
+      return AppLocalizations.of(context)!.commonFriend;
     }
     return title;
   }
@@ -1663,7 +1760,8 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
       builder: (ctx) {
         return Dialog(
           backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 48),
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 24, vertical: 48),
           child: GestureDetector(
             onTap: () => Navigator.of(ctx).pop(),
             child: Column(
@@ -1680,9 +1778,12 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
                             imageUrl: avatarUrl.trim(),
                             cacheManager: ChatMediaCache.instance,
                             fit: BoxFit.cover,
+                            fadeInDuration: Duration.zero,
+                            fadeOutDuration: Duration.zero,
                             placeholder: (_, __) => const Center(
                                 child: CircularProgressIndicator()),
-                            errorWidget: (_, __, ___) => _avatarPlaceholder(name),
+                            errorWidget: (_, __, ___) =>
+                                _avatarPlaceholder(name),
                           )
                         : _avatarPlaceholder(name),
                   ),
@@ -1731,7 +1832,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
             children: [
               ListTile(
                 leading: const Icon(Icons.call, color: Color(0xFFD4AF37)),
-                title: const Text('语音通话'),
+                title: Text(AppLocalizations.of(context)!.messagesVoiceCall),
                 onTap: () {
                   Navigator.of(ctx).pop();
                   _startCall(isVideo: false);
@@ -1739,7 +1840,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
               ),
               ListTile(
                 leading: const Icon(Icons.videocam, color: Color(0xFFD4AF37)),
-                title: const Text('视频通话'),
+                title: Text(AppLocalizations.of(context)!.messagesVideoCall),
                 onTap: () {
                   Navigator.of(ctx).pop();
                   _startCall(isVideo: true);
@@ -1758,7 +1859,9 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
     if (!AgoraConfig.isAvailable) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('未配置 Agora，无法发起通话')),
+          SnackBar(
+              content: Text(
+                  AppLocalizations.of(context)!.messagesNoAgoraCannotCall)),
         );
       }
       return;
@@ -1772,7 +1875,9 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
       if (!ok && mounted) {
         await openAppSettings();
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('需要麦克风权限才能通话，请先开启')),
+          SnackBar(
+              content:
+                  Text(AppLocalizations.of(context)!.messagesNeedMicForCall)),
         );
         return;
       }
@@ -1786,7 +1891,9 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
         if (!ok && mounted) {
           await openAppSettings();
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('需要相机权限才能视频通话，请先开启')),
+            SnackBar(
+                content: Text(
+                    AppLocalizations.of(context)!.messagesNeedCameraForVideo)),
           );
           return;
         }
@@ -1795,12 +1902,14 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
     final fromUserId = _userId;
     final fromUserName = _userName;
     final toUserName = _cachedPeerDisplayName ?? widget.conversation.title;
-    final channelId = (AgoraConfig.token != null && AgoraConfig.token!.isNotEmpty)
+    final channelId = (AgoraConfig.token != null &&
+            AgoraConfig.token!.isNotEmpty)
         ? 'haifeng'
         : 'c_${DateTime.now().millisecondsSinceEpoch}_${fromUserId.hashCode.abs().toRadixString(16)}_${toUserId.hashCode.abs().toRadixString(16)}';
     // 先弹出等待接听画面，邀请在通话页内创建，避免等待 createInvitation 网络导致 2～3 秒延迟
     if (!mounted) return;
-    Navigator.of(context).push(
+    Navigator.of(context)
+        .push(
       MaterialPageRoute<void>(
         builder: (_) => AgoraCallPage(
           channelId: channelId,
@@ -1817,14 +1926,16 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
           ),
         ),
       ),
-    ).then((_) {
+    )
+        .then((_) {
       if (mounted) _loadCallRecords();
     });
   }
 
   void _showChatOptionsMenu() {
     final peerId = _peerId ?? widget.conversation.peerId;
-    final canSetRemark = peerId != null && peerId.isNotEmpty && !widget.conversation.isGroup;
+    final canSetRemark =
+        peerId != null && peerId.isNotEmpty && !widget.conversation.isGroup;
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: const Color(0xFF0E0F14),
@@ -1839,14 +1950,18 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
               if (widget.conversation.isGroup)
                 ListTile(
                   leading: const Icon(Icons.groups),
-                  title: const Text('群设置'),
+                  title:
+                      Text(AppLocalizations.of(context)!.messagesGroupSettings),
                   onTap: () {
                     Navigator.of(ctx).pop();
-                    Navigator.of(context).push(
+                    Navigator.of(context)
+                        .push(
                       MaterialPageRoute(
-                        builder: (_) => GroupSettingsPage(conversation: widget.conversation),
+                        builder: (_) => GroupSettingsPage(
+                            conversation: widget.conversation),
                       ),
-                    ).then((_) async {
+                    )
+                        .then((_) async {
                       if (!mounted) return;
                       await _refreshGroupInfo();
                     });
@@ -1855,7 +1970,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
               if (canSetRemark)
                 ListTile(
                   leading: const Icon(Icons.edit_note),
-                  title: const Text('设置备注'),
+                  title: Text(AppLocalizations.of(context)!.messagesSetRemark),
                   onTap: () {
                     Navigator.of(ctx).pop();
                     _showSetRemarkDialog();
@@ -1863,7 +1978,8 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
                 ),
               ListTile(
                 leading: const Icon(Icons.pin_outlined),
-                title: const Text('置顶会话'),
+                title:
+                    Text(AppLocalizations.of(context)!.messagesPinConversation),
                 onTap: () {
                   Navigator.of(ctx).pop();
                   _togglePinConversation();
@@ -1871,7 +1987,8 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
               ),
               ListTile(
                 leading: const Icon(Icons.delete_sweep_outlined),
-                title: const Text('清空聊天记录'),
+                title: Text(
+                    AppLocalizations.of(context)!.messagesClearChatHistory),
                 onTap: () {
                   Navigator.of(ctx).pop();
                   _confirmClearChat();
@@ -1880,7 +1997,8 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
               if (peerId != null && peerId.isNotEmpty)
                 ListTile(
                   leading: const Icon(Icons.person_outline),
-                  title: const Text('查看个人资料'),
+                  title:
+                      Text(AppLocalizations.of(context)!.messagesViewProfile),
                   onTap: () {
                     Navigator.of(ctx).pop();
                     Navigator.of(context).push(
@@ -1909,12 +2027,12 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          title: const Text('设置备注'),
+          title: Text(AppLocalizations.of(context)!.messagesSetRemark),
           content: TextField(
             controller: controller,
-            decoration: const InputDecoration(
-              hintText: '输入备注名',
-              border: OutlineInputBorder(),
+            decoration: InputDecoration(
+              hintText: AppLocalizations.of(context)!.messagesRemarkHint,
+              border: const OutlineInputBorder(),
             ),
             autofocus: true,
             onSubmitted: (v) => Navigator.of(dialogContext).pop(v),
@@ -1922,11 +2040,11 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('取消'),
+              child: Text(AppLocalizations.of(context)!.commonCancel),
             ),
             FilledButton(
               onPressed: () => Navigator.of(dialogContext).pop(controller.text),
-              child: const Text('保存'),
+              child: Text(AppLocalizations.of(context)!.commonSave),
             ),
           ],
         );
@@ -1945,7 +2063,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
           ..[key] = result
           ..[peerId] = result;
       });
-      _showToast('备注已保存');
+      _showToast(AppLocalizations.of(context)!.chatRemarkSaved);
       await _localStore.saveFriendRemark(
         peerId,
         result,
@@ -1953,7 +2071,10 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
         email: _peerProfile?.email,
       );
     } catch (e) {
-      if (mounted) _showToast(NetworkErrorHelper.messageForUser(e, prefix: '保存失败'));
+      if (mounted)
+        _showToast(NetworkErrorHelper.messageForUser(e,
+            prefix: AppLocalizations.of(context)!.groupSaveFailed,
+            l10n: AppLocalizations.of(context)));
     }
   }
 
@@ -1962,10 +2083,10 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
     final next = Set<String>.from(pins);
     if (next.contains(widget.conversation.id)) {
       next.remove(widget.conversation.id);
-      _showToast('已取消置顶');
+      _showToast(AppLocalizations.of(context)!.chatUnpinned);
     } else {
       next.add(widget.conversation.id);
-      _showToast('已置顶会话');
+      _showToast(AppLocalizations.of(context)!.chatPinned);
     }
     await _localStore.savePinnedConversations(next);
   }
@@ -1975,17 +2096,17 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          title: const Text('清空聊天记录'),
-          content: const Text('确定清空本会话的所有聊天记录吗？此操作不可恢复。'),
+          title: Text(AppLocalizations.of(context)!.messagesClearChatHistory),
+          content: Text(AppLocalizations.of(context)!.messagesConfirmClearChat),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('取消'),
+              child: Text(AppLocalizations.of(context)!.commonCancel),
             ),
             FilledButton(
               onPressed: () => Navigator.of(dialogContext).pop(true),
               style: FilledButton.styleFrom(backgroundColor: Colors.red),
-              child: const Text('清空'),
+              child: Text(AppLocalizations.of(context)!.messagesClear),
             ),
           ],
         );
@@ -1996,12 +2117,15 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
       await _repository.deleteMessagesByConversation(widget.conversation.id);
       await _localStore.saveCachedMessages(
         conversationId: widget.conversation.id,
-        currentUserId: _userId,
+        currentUserId: _effectiveUserId,
         messages: [],
       );
-      if (mounted) _showToast('已清空聊天记录');
+      if (mounted) _showToast(AppLocalizations.of(context)!.chatHistoryCleared);
     } catch (e) {
-      if (mounted) _showToast(NetworkErrorHelper.messageForUser(e, prefix: '清空失败'));
+      if (mounted)
+        _showToast(NetworkErrorHelper.messageForUser(e,
+            prefix: AppLocalizations.of(context)!.chatClearFailedPrefix,
+            l10n: AppLocalizations.of(context)));
     }
   }
 
@@ -2038,12 +2162,14 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
     } catch (_) {}
   }
 
-  Future<Map<String, String?>> _fillMemberAvatarUrls(List<GroupMember> members) async {
+  Future<Map<String, String?>> _fillMemberAvatarUrls(
+      List<GroupMember> members) async {
     final out = <String, String?>{};
     for (final m in members) {
       try {
         final p = await _friendsRepository.findById(m.userId);
-        out[m.userId] = p?.avatarUrl?.trim().isNotEmpty == true ? p!.avatarUrl : null;
+        out[m.userId] =
+            p?.avatarUrl?.trim().isNotEmpty == true ? p!.avatarUrl : null;
       } catch (_) {
         out[m.userId] = null;
       }
@@ -2052,7 +2178,8 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
   }
 
   /// 为群成员补全 displayName，供 @ 提及 列表展示
-  Future<List<GroupMember>> _fillMemberDisplayNames(List<GroupMember> members) async {
+  Future<List<GroupMember>> _fillMemberDisplayNames(
+      List<GroupMember> members) async {
     final list = <GroupMember>[];
     for (final m in members) {
       String? displayName;
@@ -2108,8 +2235,13 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(msg.senderName, style: const TextStyle(color: Color(0xFFD4AF37), fontSize: 12)),
-                Text(preview, style: const TextStyle(color: Colors.white70, fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis),
+                Text(msg.senderName,
+                    style: const TextStyle(
+                        color: Color(0xFFD4AF37), fontSize: 12)),
+                Text(preview,
+                    style: const TextStyle(color: Colors.white70, fontSize: 12),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
               ],
             ),
           ),
@@ -2136,21 +2268,31 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
         decoration: BoxDecoration(
           color: const Color(0xFFD4AF37).withOpacity(0.15),
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: const Color(0xFFD4AF37).withOpacity(0.5), width: 1),
+          border: Border.all(
+              color: const Color(0xFFD4AF37).withOpacity(0.5), width: 1),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Icon(Icons.campaign_outlined, size: 18, color: Color(0xFFD4AF37)),
+            const Icon(Icons.campaign_outlined,
+                size: 18, color: Color(0xFFD4AF37)),
             const SizedBox(width: 8),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text('群公告', style: TextStyle(color: Color(0xFFD4AF37), fontSize: 12, fontWeight: FontWeight.w600)),
+                  Text(AppLocalizations.of(context)!.messagesGroupAnnouncement,
+                      style: const TextStyle(
+                          color: Color(0xFFD4AF37),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600)),
                   const SizedBox(height: 4),
-                  Text(text, style: const TextStyle(color: Colors.white70, fontSize: 13), maxLines: 3, overflow: TextOverflow.ellipsis),
+                  Text(text,
+                      style:
+                          const TextStyle(color: Colors.white70, fontSize: 13),
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis),
                 ],
               ),
             ),
@@ -2169,28 +2311,33 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
     return content;
   }
 
-  static String _formatLastOnline(DateTime lastOnline) {
+  String _formatLastOnline(DateTime lastOnline) {
+    final l10n = AppLocalizations.of(context)!;
     final local = lastOnline.isUtc ? lastOnline.toLocal() : lastOnline;
     final now = DateTime.now();
     final diff = now.difference(local);
-    if (diff.inMinutes < 1) return '刚刚';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}分钟前';
+    if (diff.inMinutes < 1) return l10n.chatJustNow;
+    if (diff.inMinutes < 60) return l10n.chatMinutesAgo(diff.inMinutes);
     final today = DateTime(now.year, now.month, now.day);
     final lastDay = DateTime(local.year, local.month, local.day);
     final days = today.difference(lastDay).inDays;
-    final hm = '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
-    if (days == 0) return '今天 $hm';
-    if (days == 1) return '昨天 $hm';
-    if (days < 7) return '${days}天前';
-    if (local.year == now.year) return '${local.month}月${local.day}日 $hm';
-    return '${local.year}年${local.month}月${local.day}日';
+    final hm =
+        '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
+    if (days == 0) return l10n.chatTodayAt(hm);
+    if (days == 1) return l10n.chatYesterdayAt(hm);
+    if (days < 7) return l10n.chatDaysAgo(days);
+    if (local.year == now.year)
+      return l10n.chatDateMonthDay(local.month, local.day, hm);
+    return l10n.chatDateFull(local.year, local.month, local.day);
   }
 
   Widget _buildAppBarTitle() {
     final name = _resolveConversationTitle();
     final hasProfile = _peerProfile != null;
     final avatarUrl = widget.conversation.isGroup
-        ? (_groupAvatarUrl ?? widget.conversation.avatarUrl ?? _cachedPeerAvatarUrl)
+        ? (_groupAvatarUrl ??
+            widget.conversation.avatarUrl ??
+            _cachedPeerAvatarUrl)
         : (_peerProfile?.avatarUrl ?? _cachedPeerAvatarUrl);
     final showAvatar = avatarUrl?.trim().isNotEmpty == true;
     final levelLabel = hasProfile ? 'Lv ${_peerProfile!.level}' : null;
@@ -2202,7 +2349,8 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
         GestureDetector(
           onTap: () => _showAvatarFullScreen(
             avatarUrl: avatarUrl,
-            name: name.isEmpty ? '未知' : name,
+            name:
+                name.isEmpty ? AppLocalizations.of(context)!.chatUnknown : name,
           ),
           child: CircleAvatar(
             radius: 18,
@@ -2215,6 +2363,8 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
                       width: 36,
                       height: 36,
                       fit: BoxFit.cover,
+                      fadeInDuration: Duration.zero,
+                      fadeOutDuration: Duration.zero,
                       placeholder: (_, __) => Center(
                         child: Text(
                           name.isEmpty ? '?' : name[0],
@@ -2257,12 +2407,15 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
                 children: [
                   Flexible(
                     child: Text(
-                      name.isEmpty ? '未知' : name,
+                      name.isEmpty
+                          ? AppLocalizations.of(context)!.chatUnknown
+                          : name,
                       style: const TextStyle(fontSize: 16),
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  if (levelLabel != null || (roleLabel != null && roleLabel.isNotEmpty)) ...[
+                  if (levelLabel != null ||
+                      (roleLabel != null && roleLabel.isNotEmpty)) ...[
                     Text(
                       ' · ',
                       style: TextStyle(fontSize: 14, color: Colors.grey[600]),
@@ -2270,9 +2423,11 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
                     if (roleLabel != null && roleLabel.isNotEmpty)
                       RoleBadge(roleLabel: roleLabel, compact: true),
                     if (levelLabel != null) ...[
-                      if (roleLabel != null && roleLabel.isNotEmpty) const SizedBox(width: 4),
+                      if (roleLabel != null && roleLabel.isNotEmpty)
+                        const SizedBox(width: 4),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 1),
                         decoration: BoxDecoration(
                           color: const Color(0x1AD4AF37),
                           borderRadius: BorderRadius.circular(10),
@@ -2290,10 +2445,11 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
                 ],
               ),
               // 第二行：最后上线时间
-              if (!widget.conversation.isGroup && _peerProfile?.lastOnlineAt != null) ...[
+              if (!widget.conversation.isGroup &&
+                  _peerProfile?.lastOnlineAt != null) ...[
                 const SizedBox(height: 2),
                 Text(
-                  '最后上线：${_formatLastOnline(_peerProfile!.lastOnlineAt!)}',
+                  '${AppLocalizations.of(context)!.chatLastOnlineLabel}${_formatLastOnline(_peerProfile!.lastOnlineAt!)}',
                   style: const TextStyle(
                     fontSize: 11,
                     color: Color(0xFF8A8A8A),
@@ -2341,206 +2497,250 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
               stream: _messageStream,
               initialData: _cachedMessages,
               builder: (context, snapshot) {
-          final hasValidStream = snapshot.connectionState == ConnectionState.active && !snapshot.hasError;
-          final messages = (hasValidStream && snapshot.data != null)
-              ? snapshot.data!
-              : (_cachedMessages ?? widget.initialMessages);
-          // 服务端列表按 id 去重，避免 realtime 或缓存导致同一条出现两次
-          final messagesById = <String, ChatMessage>{};
-          for (final m in messages) {
-            if (!m.isLocal) messagesById[m.id] = m;
-            else messagesById['local:${m.id}'] = m;
-          }
-          final dedupedMessages = messagesById.values.toList();
-          if (hasValidStream && dedupedMessages.isNotEmpty && _userId.isNotEmpty) {
-            _localStore.saveCachedMessages(
-              conversationId: widget.conversation.id,
-              currentUserId: _userId,
-              messages: dedupedMessages,
-            );
-          }
-          dedupedMessages.sort((a, b) => a.time.compareTo(b.time));
-
-          final (reconciledPending, serverIdToPendingId) = _reconcilePendingWithKeys(dedupedMessages);
-          // 仅同步内存中的待发列表，不触发 setState，避免服务端消息到达后整页再闪一次
-          if (!_pendingEquals(reconciledPending)) {
-            _pendingMessages
-              ..clear()
-              ..addAll(reconciledPending);
-          }
-          // 展示前再过滤：若服务端已有“同一条”（同人、同内容、同类型且 5 分钟内），不再展示对应 pending，避免发一条出现两条
-          const recentWindow = Duration(minutes: 5);
-          final now = DateTime.now();
-          final pendingToShow = reconciledPending.where((p) {
-            final hasSame = dedupedMessages.any((m) =>
-                !m.isLocal &&
-                m.senderId == p.senderId &&
-                m.content == p.content &&
-                m.messageType == p.messageType &&
-                now.difference(m.time).abs() < recentWindow);
-            return !hasSame;
-          }).toList();
-          final combined = [...dedupedMessages, ...pendingToShow];
-          combined.sort((a, b) => a.time.compareTo(b.time));
-          final displayMessages = combined.where((m) {
-            if (!m.isSystemLeave) return true;
-            return _myGroupRole == 'owner' || _myGroupRole == 'admin';
-          }).toList();
-          // 单聊：把通话记录并入时间线，按时间排序
-          final callRecords = widget.conversation.isGroup ? <CallRecord>[] : (_callRecords ?? []);
-          final timelineEntries = <_TimelineEntry>[];
-          for (final m in displayMessages) {
-            timelineEntries.add(_TimelineEntry(time: m.time, message: m, call: null));
-          }
-          for (final c in callRecords) {
-            timelineEntries.add(_TimelineEntry(time: c.createdAt, message: null, call: c));
-          }
-          timelineEntries.sort((a, b) => a.time.compareTo(b.time));
-          final displayEntries = timelineEntries;
-          _prefetchRemoteMedia(dedupedMessages);
-          if (dedupedMessages.length != _lastMessageCount) {
-            _lastMessageCount = dedupedMessages.length;
-            if (_userId.isNotEmpty) {
-              _repository.markConversationRead(
-                conversationId: widget.conversation.id,
-                userId: _userId,
-              );
-            }
-            if (_shouldAutoScrollNotifier.value) {
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (_scrollController.hasClients) {
-                  _scrollController.animateTo(
-                    0.0,
-                    duration: const Duration(milliseconds: 160),
-                    curve: Curves.easeOut,
+                final hasValidStream =
+                    snapshot.connectionState == ConnectionState.active &&
+                        !snapshot.hasError;
+                final messages = (hasValidStream && snapshot.data != null)
+                    ? snapshot.data!
+                    : (_cachedMessages ?? widget.initialMessages);
+                // 服务端列表按 id 去重，避免 realtime 或缓存导致同一条出现两次
+                final messagesById = <String, ChatMessage>{};
+                for (final m in messages) {
+                  if (!m.isLocal)
+                    messagesById[m.id] = m;
+                  else
+                    messagesById['local:${m.id}'] = m;
+                }
+                final dedupedMessages = messagesById.values.toList();
+                if (hasValidStream &&
+                    dedupedMessages.isNotEmpty &&
+                    _userId.isNotEmpty) {
+                  _localStore.saveCachedMessages(
+                    conversationId: widget.conversation.id,
+                    currentUserId: _userId,
+                    messages: dedupedMessages,
                   );
                 }
-              });
-            }
-          }
-          if (displayEntries.isEmpty) {
-            final noStreamYet = !hasValidStream && !_cacheLoadComplete;
-            if (noStreamYet) {
-              return const Center(child: CircularProgressIndicator(color: Color(0xFFD4AF37)));
-            }
-            final offlineEmpty = !hasValidStream && _cacheLoadComplete;
-            return Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(
-                    Icons.chat_bubble_outline,
-                    color: Color(0xFF2A2D34),
-                    size: 56,
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    offlineEmpty ? '无网络，暂无本地缓存' : '还没有聊天记录',
-                    style: const TextStyle(color: Color(0xFF6C6F77)),
-                  ),
-                ],
-              ),
-            );
-          }
-          final listView = RepaintBoundary(
-            child: ListView.builder(
-              key: ValueKey(widget.conversation.id),
-              reverse: true,
-              controller: _scrollController,
-              physics: const ClampingScrollPhysics(),
-              padding: EdgeInsets.fromLTRB(16, _emojiOpen ? 300 : 84, 16, 12),
-              itemCount: displayEntries.length,
-            itemBuilder: (context, index) {
-              final entry = displayEntries[displayEntries.length - 1 - index];
-              if (entry.call != null) {
-                final record = entry.call!;
-                final isMyAction = record.isActionByMe(_userId);
-                return Padding(
-                  key: ValueKey('call_${record.id}'),
-                  padding: const EdgeInsets.symmetric(vertical: 6),
-                  child: Align(
-                    alignment: isMyAction ? Alignment.centerRight : Alignment.centerLeft,
-                    child: _CallRecordTile(
-                      record: record,
-                      currentUserId: _userId,
-                      isRightAligned: isMyAction,
+                dedupedMessages.sort((a, b) => a.time.compareTo(b.time));
+
+                final (reconciledPending, serverIdToPendingId) =
+                    _reconcilePendingWithKeys(dedupedMessages);
+                // 仅同步内存中的待发列表，不触发 setState，避免服务端消息到达后整页再闪一次
+                if (!_pendingEquals(reconciledPending)) {
+                  _pendingMessages
+                    ..clear()
+                    ..addAll(reconciledPending);
+                }
+                // 展示前再过滤：若服务端已有“同一条”（同人、同内容、同类型且 5 分钟内），不再展示对应 pending，避免发一条出现两条
+                const recentWindow = Duration(minutes: 5);
+                final now = DateTime.now();
+                final pendingToShow = reconciledPending.where((p) {
+                  final hasSame = dedupedMessages.any((m) =>
+                      !m.isLocal &&
+                      m.senderId == p.senderId &&
+                      m.content == p.content &&
+                      m.messageType == p.messageType &&
+                      now.difference(m.time).abs() < recentWindow);
+                  return !hasSame;
+                }).toList();
+                final combined = [...dedupedMessages, ...pendingToShow];
+                combined.sort((a, b) => a.time.compareTo(b.time));
+                final displayMessages = combined.where((m) {
+                  if (!m.isSystemLeave) return true;
+                  return _myGroupRole == 'owner' || _myGroupRole == 'admin';
+                }).toList();
+                // 单聊：把通话记录并入时间线，按时间排序
+                final callRecords = widget.conversation.isGroup
+                    ? <CallRecord>[]
+                    : (_callRecords ?? []);
+                final timelineEntries = <_TimelineEntry>[];
+                for (final m in displayMessages) {
+                  timelineEntries.add(
+                      _TimelineEntry(time: m.time, message: m, call: null));
+                }
+                for (final c in callRecords) {
+                  timelineEntries.add(_TimelineEntry(
+                      time: c.createdAt, message: null, call: c));
+                }
+                timelineEntries.sort((a, b) => a.time.compareTo(b.time));
+                final displayEntries = timelineEntries;
+                _prefetchRemoteMedia(dedupedMessages);
+                if (dedupedMessages.length != _lastMessageCount) {
+                  _lastMessageCount = dedupedMessages.length;
+                  if (_userId.isNotEmpty) {
+                    _repository.markConversationRead(
+                      conversationId: widget.conversation.id,
+                      userId: _userId,
+                    );
+                  }
+                  if (_shouldAutoScrollNotifier.value) {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (_scrollController.hasClients) {
+                        _scrollController.animateTo(
+                          0.0,
+                          duration: const Duration(milliseconds: 160),
+                          curve: Curves.easeOut,
+                        );
+                      }
+                    });
+                  }
+                }
+                if (displayEntries.isEmpty) {
+                  final noStreamYet = !hasValidStream && !_cacheLoadComplete;
+                  if (noStreamYet) {
+                    return const Center(
+                        child: CircularProgressIndicator(
+                            color: Color(0xFFD4AF37)));
+                  }
+                  final offlineEmpty = !hasValidStream && _cacheLoadComplete;
+                  return Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.chat_bubble_outline,
+                          color: Color(0xFF2A2D34),
+                          size: 56,
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          offlineEmpty
+                              ? AppLocalizations.of(context)!
+                                  .chatNoNetworkNoCache
+                              : AppLocalizations.of(context)!.chatNoMessagesYet,
+                          style: const TextStyle(color: Color(0xFF6C6F77)),
+                        ),
+                      ],
                     ),
+                  );
+                }
+                final listView = RepaintBoundary(
+                  child: ListView.builder(
+                    key: ValueKey(widget.conversation.id),
+                    reverse: true,
+                    controller: _scrollController,
+                    physics: const ClampingScrollPhysics(),
+                    padding:
+                        EdgeInsets.fromLTRB(16, _emojiOpen ? 300 : 84, 16, 12),
+                    itemCount: displayEntries.length,
+                    itemBuilder: (context, index) {
+                      final entry =
+                          displayEntries[displayEntries.length - 1 - index];
+                      if (entry.call != null) {
+                        final record = entry.call!;
+                        final isMyAction = record.isActionByMe(_userId);
+                        return Padding(
+                          key: ValueKey('call_${record.id}'),
+                          padding: const EdgeInsets.symmetric(vertical: 6),
+                          child: Align(
+                            alignment: isMyAction
+                                ? Alignment.centerRight
+                                : Alignment.centerLeft,
+                            child: _CallRecordTile(
+                              record: record,
+                              currentUserId: _userId,
+                              isRightAligned: isMyAction,
+                            ),
+                          ),
+                        );
+                      }
+                      final message = entry.message!;
+                      if (message.isSystem) {
+                        final l10n = AppLocalizations.of(context)!;
+                        final systemText = message.isSystemJoin
+                            ? l10n.msgJoinedGroup(message.senderName)
+                            : l10n.msgExitedGroup(message.senderName);
+                        return Padding(
+                          key: ValueKey(message.id),
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          child: Center(
+                            child: Text(
+                              systemText,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurface
+                                    .withOpacity(0.6),
+                              ),
+                            ),
+                          ),
+                        );
+                      }
+                      final resolvedLocalPath = message.localPath ??
+                          (message.mediaUrl == null
+                              ? null
+                              : _localMediaByUrl[message.mediaUrl!]);
+                      final displaySender = _resolveSenderName(message);
+                      final stableKey =
+                          serverIdToPendingId[message.id] ?? message.id;
+                      final isGroup = widget.conversation.isGroup;
+                      final senderAvatarUrl = isGroup
+                          ? (message.isMine
+                              ? _myAvatarUrl
+                              : _memberAvatarUrls[message.senderId])
+                          : null;
+                      final sendFailed = message.isMine &&
+                          message.isLocal &&
+                          _failedLocalIds.contains(message.id);
+                      final showFileProgress = message.isLocal &&
+                          message.isFile &&
+                          _fileUploadProgress.containsKey(message.id);
+                      final fileUploadProgress = showFileProgress
+                          ? _fileUploadProgress[message.id]
+                          : null;
+                      final bubble = _ChatBubble(
+                        key: ValueKey(stableKey),
+                        message: message,
+                        localPathOverride: resolvedLocalPath,
+                        displaySenderName: displaySender,
+                        onLongPress: () => _showMessageActions(message),
+                        isGroup: isGroup,
+                        onAvatarTap: isGroup
+                            ? (message.isMine
+                                ? () => _openUserProfile(
+                                    context, _userId, _userName, _myAvatarUrl)
+                                : () => _openUserProfile(
+                                    context,
+                                    message.senderId,
+                                    message.senderName,
+                                    senderAvatarUrl))
+                            : null,
+                        senderAvatarUrl: senderAvatarUrl,
+                        sendFailed: sendFailed,
+                        onRetry: sendFailed
+                            ? () => _retrySendMessage(message)
+                            : null,
+                      );
+                      if (!showFileProgress) {
+                        return bubble;
+                      }
+                      return Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: message.isMine
+                            ? CrossAxisAlignment.end
+                            : CrossAxisAlignment.start,
+                        children: [
+                          bubble,
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 240),
+                              child: LinearProgressIndicator(
+                                value: fileUploadProgress,
+                                backgroundColor: const Color(0xFF2A2D34),
+                                valueColor: const AlwaysStoppedAnimation<Color>(
+                                    Color(0xFFD4AF37)),
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+                    },
                   ),
                 );
-              }
-              final message = entry.message!;
-              if (message.isSystem) {
-                return Padding(
-                  key: ValueKey(message.id),
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Center(
-                    child: Text(
-                      message.content,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
-                      ),
-                    ),
-                  ),
-                );
-              }
-              final resolvedLocalPath = message.localPath ??
-                  (message.mediaUrl == null
-                      ? null
-                      : _localMediaByUrl[message.mediaUrl!]);
-              final displaySender = _resolveSenderName(message);
-              final stableKey = serverIdToPendingId[message.id] ?? message.id;
-              final isGroup = widget.conversation.isGroup;
-              final senderAvatarUrl = isGroup
-                  ? (message.isMine ? _myAvatarUrl : _memberAvatarUrls[message.senderId])
-                  : null;
-              final sendFailed = message.isMine && message.isLocal && _failedLocalIds.contains(message.id);
-              final showFileProgress = message.isLocal &&
-                  message.isFile &&
-                  _fileUploadProgress.containsKey(message.id);
-              final fileUploadProgress = showFileProgress ? _fileUploadProgress[message.id] : null;
-              final bubble = _ChatBubble(
-                key: ValueKey(stableKey),
-                message: message,
-                localPathOverride: resolvedLocalPath,
-                displaySenderName: displaySender,
-                onLongPress: () => _showMessageActions(message),
-                isGroup: isGroup,
-                onAvatarTap: isGroup
-                    ? (message.isMine
-                        ? () => _openUserProfile(context, _userId, _userName, _myAvatarUrl)
-                        : () => _openUserProfile(context, message.senderId, message.senderName, senderAvatarUrl))
-                    : null,
-                senderAvatarUrl: senderAvatarUrl,
-                sendFailed: sendFailed,
-                onRetry: sendFailed ? () => _retrySendMessage(message) : null,
-              );
-              if (!showFileProgress) {
-                return bubble;
-              }
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: message.isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-                children: [
-                  bubble,
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 240),
-                      child: LinearProgressIndicator(
-                        value: fileUploadProgress,
-                        backgroundColor: const Color(0xFF2A2D34),
-                        valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFD4AF37)),
-                      ),
-                    ),
-                  ),
-                ],
-              );
-            },
-            ),
-          );
-          return listView;
-        },
+                return listView;
+              },
             ),
           ),
         ],
@@ -2577,11 +2777,12 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
                   ),
                 ),
               if (_isRecording)
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 6),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
                   child: Text(
-                    '录音中…松开发送',
-                    style: TextStyle(color: Colors.redAccent, fontSize: 12),
+                    AppLocalizations.of(context)!.chatRecordingReleaseToSend,
+                    style:
+                        const TextStyle(color: Colors.redAccent, fontSize: 12),
                   ),
                 ),
               if (_replyingToMessage != null)
@@ -2597,7 +2798,9 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
               Row(
                 children: [
                   IconButton(
-                    tooltip: _useVoiceInput ? '键盘' : '语音',
+                    tooltip: _useVoiceInput
+                        ? AppLocalizations.of(context)!.chatKeyboard
+                        : AppLocalizations.of(context)!.chatVoice,
                     onPressed: _toggleInputMode,
                     icon: Icon(
                       _useVoiceInput ? Icons.keyboard : Icons.mic_none,
@@ -2618,7 +2821,11 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
                                     Border.all(color: const Color(0xFF2A2D34)),
                               ),
                               child: Text(
-                                _isRecording ? '松开发送' : '按住 说话',
+                                _isRecording
+                                    ? AppLocalizations.of(context)!
+                                        .chatReleaseToSend
+                                    : AppLocalizations.of(context)!
+                                        .chatHoldToSpeak,
                                 style: const TextStyle(color: Colors.white70),
                               ),
                             ),
@@ -2633,7 +2840,8 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
                               setState(() {
                                 if (_emojiOpen) _emojiOpen = false;
                               });
-                              if (_groupAnnouncementVisible) _hideGroupAnnouncement();
+                              if (_groupAnnouncementVisible)
+                                _hideGroupAnnouncement();
                             },
                             onSubmitted: (_) {
                               if (!_isSendingNotifier.value) {
@@ -2641,25 +2849,31 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
                               }
                             },
                             decoration: InputDecoration(
-                              hintText: '输入消息',
+                              hintText: AppLocalizations.of(context)!
+                                  .messagesInputHint,
                               isDense: true,
                               filled: true,
                               fillColor: const Color(0xFF171B22),
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(8),
-                                borderSide: const BorderSide(color: Color(0xFF2A2D34)),
+                                borderSide:
+                                    const BorderSide(color: Color(0xFF2A2D34)),
                               ),
                               enabledBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(8),
-                                borderSide: const BorderSide(color: Color(0xFF2A2D34)),
+                                borderSide:
+                                    const BorderSide(color: Color(0xFF2A2D34)),
                               ),
                               focusedBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(8),
-                                borderSide: const BorderSide(color: Color(0xFFD4AF37), width: 1),
+                                borderSide: const BorderSide(
+                                    color: Color(0xFFD4AF37), width: 1),
                               ),
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                              contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 10),
                             ),
-                            style: const TextStyle(color: Color(0xFFE5E7EB), fontSize: 15),
+                            style: const TextStyle(
+                                color: Color(0xFFE5E7EB), fontSize: 15),
                           ),
                   ),
                   IconButton(
@@ -2672,14 +2886,18 @@ class _ChatDetailPageState extends State<ChatDetailPage> with TickerProviderStat
                       return ValueListenableBuilder<bool>(
                         valueListenable: _isSendingNotifier,
                         builder: (_, isSending, __) {
-                          final hasContent = hasText || _textController.text.trim().isNotEmpty;
-                          final sendingOrUploading = _isUploading || _isRecording || isSending;
+                          final hasContent =
+                              hasText || _textController.text.trim().isNotEmpty;
+                          final sendingOrUploading =
+                              _isUploading || _isRecording || isSending;
                           if (hasContent)
                             return Padding(
                               padding: const EdgeInsets.only(left: 4),
                               child: FilledButton(
-                                onPressed: sendingOrUploading ? null : _sendMessage,
-                                child: const Text('发送'),
+                                onPressed:
+                                    sendingOrUploading ? null : _sendMessage,
+                                child: Text(
+                                    AppLocalizations.of(context)!.messagesSend),
                               ),
                             );
                           return IconButton(
@@ -2736,6 +2954,8 @@ class _MessageAvatar extends StatelessWidget {
                 width: 36,
                 height: 36,
                 fit: BoxFit.cover,
+                fadeInDuration: Duration.zero,
+                fadeOutDuration: Duration.zero,
                 placeholder: (_, __) => _avatarInitial(initial),
                 errorWidget: (_, __, ___) => _avatarInitial(initial),
               ),
@@ -2789,120 +3009,128 @@ class _ChatBubble extends StatelessWidget {
     final bubbleColor =
         isMine ? const Color(0xFFD4AF37) : const Color(0xFF111215);
     final hasReply = message.replyToMessageId != null ||
-        (message.replyToContent != null && message.replyToContent!.trim().isNotEmpty);
+        (message.replyToContent != null &&
+            message.replyToContent!.trim().isNotEmpty);
     // 我的消息正文一律黑色（含回复），对方消息白色；引用块单独样式
     final textColor = isMine ? Colors.black : Colors.white;
     final screenWidth = MediaQuery.of(context).size.width;
     final showAvatar = isGroup;
-    final maxBubbleWidth = showAvatar
-        ? (screenWidth - 16 * 2 - 36 - 8 - 8)
-        : (screenWidth * 0.82);
+    final maxBubbleWidth =
+        showAvatar ? (screenWidth - 16 * 2 - 36 - 8 - 8) : (screenWidth * 0.82);
     final initial = displaySenderName.isEmpty ? '?' : displaySenderName[0];
 
     Widget content = ConstrainedBox(
-      constraints: BoxConstraints(maxWidth: maxBubbleWidth.clamp(0.0, double.infinity)),
+      constraints:
+          BoxConstraints(maxWidth: maxBubbleWidth.clamp(0.0, double.infinity)),
       child: Column(
-      crossAxisAlignment:
-          isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
+        crossAxisAlignment:
+            isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
             displaySenderName,
-              style: const TextStyle(
-                fontSize: 12,
-                color: Color(0xFF8A6D1D),
-              ),
+            style: const TextStyle(
+              fontSize: 12,
+              color: Color(0xFF8A6D1D),
             ),
-            const SizedBox(height: 4),
-            if (hasReply)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 4),
+          ),
+          const SizedBox(height: 4),
+          if (hasReply)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Container(
+                constraints: BoxConstraints(maxWidth: maxBubbleWidth),
                 child: Container(
-                  constraints: BoxConstraints(maxWidth: maxBubbleWidth),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: (bubbleColor == const Color(0xFFD4AF37))
-                          ? Colors.black.withOpacity(0.18)
-                          : Colors.white.withOpacity(0.06),
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border(
-                        left: BorderSide(
-                          color: isMine ? const Color(0xFFD4AF37) : const Color(0xFF6C6F77),
-                          width: 2,
-                        ),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: (bubbleColor == const Color(0xFFD4AF37))
+                        ? Colors.black.withOpacity(0.18)
+                        : Colors.white.withOpacity(0.06),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border(
+                      left: BorderSide(
+                        color: isMine
+                            ? const Color(0xFFD4AF37)
+                            : const Color(0xFF6C6F77),
+                        width: 2,
                       ),
                     ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Flexible(
-                          child: RichText(
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            text: TextSpan(
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: Colors.white,
-                              ),
-                              children: [
-                                TextSpan(
-                                  text: '${message.replyToSenderName ?? '未知'}：',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                    color: Color(0xFFD4AF37),
-                                  ),
-                                ),
-                                TextSpan(
-                                  text: (message.replyToContent ?? message.content).trim(),
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 11,
-                                  ),
-                                ),
-                              ],
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: RichText(
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          text: TextSpan(
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: Colors.white,
                             ),
+                            children: [
+                              TextSpan(
+                                text:
+                                    '${message.replyToSenderName ?? AppLocalizations.of(context)!.chatUnknown}：',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFFD4AF37),
+                                ),
+                              ),
+                              TextSpan(
+                                text:
+                                    (message.replyToContent ?? message.content)
+                                        .trim(),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ),
               ),
-            _MessageBody(
-              message: message,
-              bubbleColor: bubbleColor,
-              textColor: textColor,
-              localPathOverride: localPathOverride,
             ),
-            const SizedBox(height: 4),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: isMine ? MainAxisAlignment.end : MainAxisAlignment.start,
-              children: [
-                Text(
-                  message.timeLabel,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: Color(0xFF6C6F77),
+          _MessageBody(
+            message: message,
+            bubbleColor: bubbleColor,
+            textColor: textColor,
+            localPathOverride: localPathOverride,
+          ),
+          const SizedBox(height: 4),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment:
+                isMine ? MainAxisAlignment.end : MainAxisAlignment.start,
+            children: [
+              Text(
+                message.timeLabel,
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: Color(0xFF6C6F77),
+                ),
+              ),
+              if (sendFailed && onRetry != null) ...[
+                const SizedBox(width: 6),
+                GestureDetector(
+                  onTap: onRetry,
+                  child: const Icon(
+                    Icons.error_outline,
+                    size: 18,
+                    color: Colors.redAccent,
                   ),
                 ),
-                if (sendFailed && onRetry != null) ...[
-                  const SizedBox(width: 6),
-                  GestureDetector(
-                    onTap: onRetry,
-                    child: const Icon(
-                      Icons.error_outline,
-                      size: 18,
-                      color: Colors.redAccent,
-                    ),
-                  ),
-                ],
               ],
-            ),
-          ],
-        ),
+            ],
+          ),
+        ],
+      ),
     );
 
     if (showAvatar) {
@@ -2912,32 +3140,32 @@ class _ChatBubble extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-          if (!isMine)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: GestureDetector(
-                onTap: onAvatarTap,
-                child: _MessageAvatar(
-                  avatarUrl: senderAvatarUrl,
-                  displayName: displaySenderName,
+            if (!isMine)
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: GestureDetector(
+                  onTap: onAvatarTap,
+                  child: _MessageAvatar(
+                    avatarUrl: senderAvatarUrl,
+                    displayName: displaySenderName,
+                  ),
                 ),
               ),
+            Expanded(
+              child: content,
             ),
-          Expanded(
-            child: content,
-          ),
-          if (isMine)
-            Padding(
-              padding: const EdgeInsets.only(left: 8),
-              child: GestureDetector(
-                onTap: onAvatarTap,
-                child: _MessageAvatar(
-                  avatarUrl: senderAvatarUrl,
-                  displayName: displaySenderName,
+            if (isMine)
+              Padding(
+                padding: const EdgeInsets.only(left: 8),
+                child: GestureDetector(
+                  onTap: onAvatarTap,
+                  child: _MessageAvatar(
+                    avatarUrl: senderAvatarUrl,
+                    displayName: displaySenderName,
+                  ),
                 ),
-            ),
-          ),
-        ],
+              ),
+          ],
         ),
       );
     }
@@ -2973,17 +3201,18 @@ class _CallRecordTile extends StatelessWidget {
   final String currentUserId;
   final bool isRightAligned;
 
-  static String _statusLabel(String status) {
+  static String _statusLabel(BuildContext context, String status) {
+    final l10n = AppLocalizations.of(context)!;
     switch (status) {
       case 'accepted':
-        return '已接听';
+        return l10n.chatAnswered;
       case 'rejected':
-        return '已拒绝';
+        return l10n.chatDeclined;
       case 'cancelled':
-        return '已取消';
+        return l10n.chatCancelled;
       case 'ringing':
       default:
-        return '未接听';
+        return l10n.chatMissed;
     }
   }
 
@@ -3004,14 +3233,17 @@ class _CallRecordTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isVoice = record.isVoice;
-    final label = isVoice ? '语音通话' : '视频通话';
-    final statusText = _statusLabel(record.status);
+    final label = isVoice
+        ? AppLocalizations.of(context)!.chatVoiceCall
+        : AppLocalizations.of(context)!.chatVideoCall;
+    final statusText = _statusLabel(context, record.status);
     final statusColor = _statusColor(record.status);
     final isMine = record.isMine(currentUserId);
 
     final row = Row(
       mainAxisSize: isRightAligned ? MainAxisSize.min : MainAxisSize.max,
-      mainAxisAlignment: isRightAligned ? MainAxisAlignment.end : MainAxisAlignment.start,
+      mainAxisAlignment:
+          isRightAligned ? MainAxisAlignment.end : MainAxisAlignment.start,
       children: [
         if (isRightAligned) ...[
           Text(
@@ -3039,7 +3271,9 @@ class _CallRecordTile extends StatelessWidget {
         ),
         const SizedBox(width: 12),
         Column(
-          crossAxisAlignment: isRightAligned ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isRightAligned
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
@@ -3052,7 +3286,9 @@ class _CallRecordTile extends StatelessWidget {
             ),
             const SizedBox(height: 2),
             Text(
-              isMine ? '我 · $statusText' : '对方 · $statusText',
+              isMine
+                  ? AppLocalizations.of(context)!.chatMeStatus(statusText)
+                  : AppLocalizations.of(context)!.chatOtherStatus(statusText),
               style: TextStyle(
                 fontSize: 13,
                 color: statusColor,
@@ -3283,7 +3519,8 @@ class _LinkifiedMessageText extends StatelessWidget {
       _MatchResult? earliest;
       final urlMatch = _urlPattern.firstMatch(text.substring(pos));
       if (urlMatch != null) {
-        earliest = _MatchResult(pos + urlMatch.start, pos + urlMatch.end, urlMatch.group(0)!, true, false);
+        earliest = _MatchResult(pos + urlMatch.start, pos + urlMatch.end,
+            urlMatch.group(0)!, true, false);
       }
       final phoneMatch = _phonePattern.firstMatch(text.substring(pos));
       if (phoneMatch != null) {
@@ -3299,9 +3536,11 @@ class _LinkifiedMessageText extends StatelessWidget {
         break;
       }
       if (earliest.start > pos) {
-        segments.add(_ContentSegment(text.substring(pos, earliest.start), false, false));
+        segments.add(
+            _ContentSegment(text.substring(pos, earliest.start), false, false));
       }
-      segments.add(_ContentSegment(earliest.value, earliest.isLink, earliest.isPhone));
+      segments.add(
+          _ContentSegment(earliest.value, earliest.isLink, earliest.isPhone));
       pos = earliest.end;
     }
     return segments;
@@ -3310,8 +3549,11 @@ class _LinkifiedMessageText extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final segments = _parse(content);
-    if (segments.isEmpty) return Text(content, style: TextStyle(color: textColor));
-    if (segments.length == 1 && !segments.first.isLink && !segments.first.isPhone) {
+    if (segments.isEmpty)
+      return Text(content, style: TextStyle(color: textColor));
+    if (segments.length == 1 &&
+        !segments.first.isLink &&
+        !segments.first.isPhone) {
       return Text(content, style: TextStyle(color: textColor));
     }
     return RichText(
@@ -3337,7 +3579,8 @@ class _LinkifiedMessageText extends StatelessWidget {
     );
   }
 
-  static Future<void> _onTap(BuildContext context, String value, {required bool isPhone}) async {
+  static Future<void> _onTap(BuildContext context, String value,
+      {required bool isPhone}) async {
     if (isPhone) {
       final uri = Uri.parse('tel:$value');
       if (await canLaunchUrl(uri)) {
@@ -3348,7 +3591,9 @@ class _LinkifiedMessageText extends StatelessWidget {
     final uri = Uri.tryParse(value);
     if (uri == null) return;
     // 应用内直接处理群邀请链接，弹出加入确认并加入群
-    if (uri.scheme == 'teacherhub' && uri.host == 'group' && uri.path.startsWith('/join')) {
+    if (uri.scheme == 'teacherhub' &&
+        uri.host == 'group' &&
+        uri.path.startsWith('/join')) {
       await handleGroupJoinUri(uri);
       return;
     }
@@ -3356,7 +3601,9 @@ class _LinkifiedMessageText extends StatelessWidget {
     if (uri.host.contains('supabase.co') && uri.path.contains('/storage/')) {
       final messenger = ScaffoldMessenger.of(context);
       messenger.showSnackBar(
-        const SnackBar(content: Text('正在打开…'), duration: Duration(seconds: 1)),
+        SnackBar(
+            content: Text(AppLocalizations.of(context)!.chatOpening),
+            duration: const Duration(seconds: 1)),
       );
       try {
         final file = await ChatMediaCache.instance.getSingleFile(value);
@@ -3365,13 +3612,17 @@ class _LinkifiedMessageText extends StatelessWidget {
         if (!context.mounted) return;
         if (result.type != ResultType.done) {
           messenger.showSnackBar(
-            SnackBar(content: Text(result.message ?? '无法打开该文件')),
+            SnackBar(
+                content: Text(result.message ??
+                    AppLocalizations.of(context)!.chatCannotOpenFile)),
           );
         }
       } catch (_) {
         if (!context.mounted) return;
         messenger.showSnackBar(
-          const SnackBar(content: Text('文件已过期或不存在，请让对方重新发送')),
+          SnackBar(
+              content: Text(
+                  AppLocalizations.of(context)!.messagesFileExpiredOrMissing)),
         );
       }
       return;
@@ -3527,7 +3778,8 @@ class _VideoPreviewDialogState extends State<_VideoPreviewDialog> {
         _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url));
         await _controller!.initialize();
         if (_controller!.value.hasError) {
-          throw Exception(_controller!.value.errorDescription ?? 'unknown error');
+          throw Exception(
+              _controller!.value.errorDescription ?? 'unknown error');
         }
         if (mounted) {
           setState(() {
@@ -3540,7 +3792,9 @@ class _VideoPreviewDialogState extends State<_VideoPreviewDialog> {
         if (mounted) {
           setState(() {
             _loading = false;
-            _errorText = NetworkErrorHelper.messageForUser(error, prefix: '视频加载失败');
+            _errorText = NetworkErrorHelper.messageForUser(error,
+                prefix: AppLocalizations.of(context)!.chatVideoLoadFailedPrefix,
+                l10n: AppLocalizations.of(context));
           });
         }
       }
@@ -3610,7 +3864,8 @@ class _VideoPreviewDialogState extends State<_VideoPreviewDialog> {
                                     ),
                                   );
                                 },
-                                child: const Text('使用兼容播放器'),
+                                child: Text(AppLocalizations.of(context)!
+                                    .messagesUseCompatiblePlayer),
                               ),
                               TextButton(
                                 onPressed: () {
@@ -3620,7 +3875,8 @@ class _VideoPreviewDialogState extends State<_VideoPreviewDialog> {
                                   });
                                   _initPlayer();
                                 },
-                                child: const Text('重试'),
+                                child: Text(
+                                    AppLocalizations.of(context)!.commonRetry),
                               ),
                             ],
                           ),
@@ -3643,15 +3899,16 @@ class _TeacherShareCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     String? teacherId;
-    String teacherName = '交易员';
+    String teacherName = AppLocalizations.of(context)!.profileTeacher;
     String? avatarUrl;
     try {
       final map = jsonDecode(content) as Map<String, dynamic>?;
       if (map != null) {
         teacherId = map['teacher_id'] as String?;
-        teacherName = (map['teacher_name'] as String?)?.trim().isNotEmpty == true
-            ? (map['teacher_name'] as String).trim()
-            : '交易员';
+        teacherName =
+            (map['teacher_name'] as String?)?.trim().isNotEmpty == true
+                ? (map['teacher_name'] as String).trim()
+                : AppLocalizations.of(context)!.profileTeacher;
         avatarUrl = map['avatar_url'] as String?;
       }
     } catch (_) {}
@@ -3659,7 +3916,7 @@ class _TeacherShareCard extends StatelessWidget {
       return Container(
         padding: const EdgeInsets.all(12),
         child: Text(
-          '[交易员名片]',
+          AppLocalizations.of(context)!.chatTeacherCard,
           style: TextStyle(color: Colors.grey[400]),
         ),
       );
@@ -3688,9 +3945,10 @@ class _TeacherShareCard extends StatelessWidget {
               CircleAvatar(
                 radius: 24,
                 backgroundColor: _accent,
-                backgroundImage: avatarUrl != null && avatarUrl!.trim().isNotEmpty
-                    ? CachedNetworkImageProvider(avatarUrl!.trim())
-                    : null,
+                backgroundImage:
+                    avatarUrl != null && avatarUrl!.trim().isNotEmpty
+                        ? CachedNetworkImageProvider(avatarUrl!.trim())
+                        : null,
                 child: avatarUrl == null || avatarUrl!.trim().isEmpty
                     ? Text(
                         teacherName.isNotEmpty ? teacherName[0] : '?',
@@ -3721,7 +3979,7 @@ class _TeacherShareCard extends StatelessWidget {
                     Row(
                       children: [
                         Text(
-                          '查看交易员资料',
+                          AppLocalizations.of(context)!.msgViewTraderProfile,
                           style: TextStyle(
                             color: _accent,
                             fontSize: 12,
@@ -3777,6 +4035,8 @@ class _ImageMessageCard extends StatelessWidget {
                 height: 160,
                 fit: BoxFit.cover,
                 memCacheWidth: 480,
+                fadeInDuration: Duration.zero,
+                fadeOutDuration: Duration.zero,
                 placeholder: (context, _) => const SizedBox(
                   width: 220,
                   height: 160,
@@ -3860,7 +4120,7 @@ class _ImagePreviewDialogState extends State<_ImagePreviewDialog> {
                             _fileFuture = _loadFile();
                           });
                         },
-                        child: const Text('重试'),
+                        child: Text(AppLocalizations.of(context)!.commonRetry),
                       ),
                     ],
                   ),
@@ -3896,7 +4156,9 @@ class _FileMessageCard extends StatelessWidget {
         if (url.isEmpty) return;
         final messenger = ScaffoldMessenger.of(context);
         messenger.showSnackBar(
-          const SnackBar(content: Text('正在打开…'), duration: Duration(seconds: 1)),
+          SnackBar(
+              content: Text(AppLocalizations.of(context)!.chatOpening),
+              duration: const Duration(seconds: 1)),
         );
         try {
           final file = await ChatMediaCache.instance.getSingleFile(url);
@@ -3905,14 +4167,17 @@ class _FileMessageCard extends StatelessWidget {
           if (!context.mounted) return;
           if (result.type != ResultType.done) {
             messenger.showSnackBar(
-              SnackBar(content: Text(result.message ?? '无法打开该文件')),
+              SnackBar(
+                  content: Text(result.message ??
+                      AppLocalizations.of(context)!.chatCannotOpenFile)),
             );
           }
         } catch (_) {
           if (!context.mounted) return;
           messenger.showSnackBar(
-            const SnackBar(
-              content: Text('文件已过期或不存在，请让对方重新发送'),
+            SnackBar(
+              content:
+                  Text(AppLocalizations.of(context)!.chatFileExpiredOrNotExist),
             ),
           );
         }
@@ -3923,11 +4188,14 @@ class _FileMessageCard extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.insert_drive_file_outlined, size: 28, color: Colors.white70),
+            const Icon(Icons.insert_drive_file_outlined,
+                size: 28, color: Colors.white70),
             const SizedBox(width: 10),
             Flexible(
               child: Text(
-                content.isNotEmpty ? content : '文件',
+                content.isNotEmpty
+                    ? content
+                    : AppLocalizations.of(context)!.commonFile,
                 style: const TextStyle(color: Colors.white, fontSize: 14),
                 overflow: TextOverflow.ellipsis,
               ),
@@ -4042,7 +4310,8 @@ class _AudioMessageCardState extends State<_AudioMessageCard> {
     final playBg = isMine ? const Color(0xFF2C2C2C) : const Color(0xFFE8E8E8);
     final playIconColor = isMine ? Colors.white : const Color(0xFF333333);
     final waveColor = isMine ? Colors.white70 : const Color(0xFF555555);
-    final durationColor = isMine ? const Color(0xFF1a1a1a) : const Color(0xFF333333);
+    final durationColor =
+        isMine ? const Color(0xFF1a1a1a) : const Color(0xFF333333);
     final durationMs = _displayDurationMs;
     final durationText = _formatDuration(durationMs);
 
@@ -4090,25 +4359,25 @@ class _AudioMessageCardState extends State<_AudioMessageCard> {
           ),
           const SizedBox(width: 12),
           Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _VoiceWaveform(
-                  messageId: widget.messageId,
-                  durationMs: durationMs ?? 0,
-                  barColor: waveColor,
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _VoiceWaveform(
+                messageId: widget.messageId,
+                durationMs: durationMs ?? 0,
+                barColor: waveColor,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                durationText,
+                style: TextStyle(
+                  color: durationColor,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  durationText,
-                  style: TextStyle(
-                    color: durationColor,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
+              ),
+            ],
           ),
         ],
       ),
@@ -4138,7 +4407,8 @@ class _VoiceWaveform extends StatelessWidget {
     final heights = <double>[];
     for (var i = 0; i < _barCount; i++) {
       final t = (seed + i * 31) % 1000 / 1000.0;
-      final wave = 0.5 + 0.5 * _sinApprox((i / _barCount) * 3.14 * 4 + t * 6.28);
+      final wave =
+          0.5 + 0.5 * _sinApprox((i / _barCount) * 3.14 * 4 + t * 6.28);
       final h = _minBarHeight + wave * (_maxBarHeight - _minBarHeight);
       heights.add(h);
     }

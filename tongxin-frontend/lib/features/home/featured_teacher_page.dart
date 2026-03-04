@@ -6,7 +6,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../auth/login_page.dart';
+import '../../api/users_api.dart';
+import '../../core/api_client.dart';
 import '../../core/firebase_bootstrap.dart';
 import '../../core/models.dart';
 import '../../core/supabase_bootstrap.dart';
@@ -20,11 +23,15 @@ import '../teachers/teacher_models.dart' as tmodels;
 import '../teachers/teacher_repository.dart';
 
 /// 将后端 TeacherProfile 转为首页/详情使用的 Teacher（UI 不变，仅数据源切换为真实数据）
-Teacher _profileToTeacher(tmodels.TeacherProfile p) {
+Teacher _profileToTeacher(BuildContext context, tmodels.TeacherProfile p) {
+  final l10n = AppLocalizations.of(context)!;
   final name = p.displayName?.trim().isNotEmpty == true
       ? p.displayName!
-      : (p.realName?.trim().isNotEmpty == true ? p.realName! : '交易员');
-  final title = p.title?.trim().isNotEmpty == true ? p.title! : '导师';
+      : (p.realName?.trim().isNotEmpty == true
+          ? p.realName!
+          : l10n.profileTeacher);
+  final title =
+      p.title?.trim().isNotEmpty == true ? p.title! : l10n.featuredMentor;
   final bio = p.bio?.trim().isNotEmpty == true ? p.bio! : '';
   final tags = p.tags ?? const [];
   return Teacher(
@@ -39,7 +46,7 @@ Teacher _profileToTeacher(tmodels.TeacherProfile p) {
     rating: p.rating ?? 0,
     todayStrategy: p.todayStrategy?.trim().isNotEmpty == true
         ? p.todayStrategy!
-        : '暂无今日策略',
+        : l10n.featuredNoTodayStrategy,
     strategyHistory: const [],
     trades: const [],
     positions: const [],
@@ -67,8 +74,17 @@ class FeaturedTeacherPage extends StatefulWidget {
 class _FeaturedTeacherPageState extends State<FeaturedTeacherPage> {
   final _repo = TeacherRepository();
   Teacher? _teacher;
+  List<Teacher> _teachers = [];
+  int _selectedIndex = 0;
+  final PageController _pageController = PageController();
   bool _loading = true;
   String? _error;
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -77,44 +93,60 @@ class _FeaturedTeacherPageState extends State<FeaturedTeacherPage> {
   }
 
   Future<void> _load() async {
-    final specifiedId = widget.teacherId?.trim().isNotEmpty == true ? widget.teacherId! : null;
-    if (specifiedId != null) {
-      setState(() { _loading = true; _error = null; });
+    final specifiedId =
+        widget.teacherId?.trim().isNotEmpty == true ? widget.teacherId! : null;
+    final userId = FirebaseBootstrap.isReady
+        ? (FirebaseAuth.instance.currentUser?.uid ?? '')
+        : '';
+    if (userId.isEmpty && specifiedId == null) {
+      setState(() {
+        _loading = false;
+        _teacher = null;
+        _teachers = [];
+        _error = 'not_logged_in';
+      });
+      return;
+    }
+    if (userId.isEmpty && specifiedId != null) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
       try {
         final profile = await _repo.fetchProfile(specifiedId);
         if (mounted) {
+          final l10n = AppLocalizations.of(context)!;
           setState(() {
-            _teacher = profile != null ? _profileToTeacher(profile) : null;
+            _teacher =
+                profile != null ? _profileToTeacher(context, profile) : null;
+            _teachers = _teacher != null ? [_teacher!] : [];
+            _selectedIndex = 0;
             _loading = false;
-            if (_teacher == null) _error = '暂无交易员信息';
+            if (_teacher == null) _error = l10n.featuredNoTeacherInfo;
           });
         }
       } catch (e) {
         if (mounted) {
+          final l10n = AppLocalizations.of(context)!;
           setState(() {
             _loading = false;
-            _error = e.toString().length > 80 ? '加载失败，请重试' : e.toString();
+            _teachers = [];
+            _error = e.toString().length > 80
+                ? l10n.featuredLoadFailedRetry
+                : e.toString();
           });
         }
       }
       return;
     }
-    final userId = FirebaseBootstrap.isReady
-        ? (FirebaseAuth.instance.currentUser?.uid ?? '')
-        : '';
-    if (userId.isEmpty) {
-      setState(() {
-        _loading = false;
-        _teacher = null;
-        _error = 'not_logged_in';
-      });
-      return;
-    }
-    if (!SupabaseBootstrap.isReady) {
-      setState(() {
-        _loading = false;
-        _error = '服务未就绪';
-      });
+    if (!ApiClient.instance.isAvailable) {
+      if (mounted) {
+        final l10n = AppLocalizations.of(context)!;
+        setState(() {
+          _loading = false;
+          _error = l10n.featuredServiceNotReady;
+        });
+      }
       return;
     }
     setState(() {
@@ -122,40 +154,82 @@ class _FeaturedTeacherPageState extends State<FeaturedTeacherPage> {
       _error = null;
     });
     try {
-      tmodels.TeacherProfile? profile;
-      // 优先：当前用户本人是交易员 → 关注页显示自己的数据
-      profile = await _repo.fetchProfile(userId);
-      if (profile == null) {
-        // 非交易员：显示第一个关注的交易员
-        final followedIds = await _repo.getFollowedTeacherIds(userId);
-        if (followedIds.isNotEmpty) {
-          profile = await _repo.fetchProfile(followedIds.first);
+      final teachers = <Teacher>[];
+      final selfProfile = await _repo.fetchProfile(userId);
+      if (!mounted) return;
+      final followedIds = await _repo.getFollowedTeacherIds(userId);
+      if (!mounted) return;
+      final seenIds = <String>{};
+      if (selfProfile != null) {
+        teachers.add(_profileToTeacher(context, selfProfile));
+        seenIds.add(userId);
+      }
+      for (final tid in followedIds) {
+        if (tid.isEmpty || seenIds.contains(tid)) continue;
+        seenIds.add(tid);
+        final p = await _repo.fetchProfile(tid);
+        if (!mounted) return;
+        if (p != null) {
+          teachers.add(_profileToTeacher(context, p));
         }
       }
-      if (profile == null) {
-        // 无关注时：显示排名第一的交易员
-        profile = await _repo.getRankOneTeacherProfile();
+      if (teachers.isEmpty && specifiedId == null) {
+        final p = await _repo.getRankOneTeacherProfile();
+        if (!mounted) return;
+        if (p != null) teachers.add(_profileToTeacher(context, p));
+      }
+      if (specifiedId != null && specifiedId.isNotEmpty) {
+        final specProfile = await _repo.fetchProfile(specifiedId);
+        if (!mounted) return;
+        if (specProfile != null) {
+          final specTeacher = _profileToTeacher(context, specProfile);
+          final idx = teachers.indexWhere((t) => t.id == specifiedId);
+          if (idx >= 0) {
+            teachers.removeAt(idx);
+            teachers.insert(0, specTeacher);
+          } else {
+            teachers.insert(0, specTeacher);
+          }
+        }
       }
       if (mounted) {
+        final l10n = AppLocalizations.of(context)!;
         setState(() {
-          _teacher = profile != null ? _profileToTeacher(profile) : null;
+          _teachers = teachers;
+          _teacher = teachers.isNotEmpty ? teachers.first : null;
+          _selectedIndex = 0;
           _loading = false;
           if (_teacher == null && _error == null) {
-            _error = '暂无关注或排名数据';
+            _error = specifiedId != null
+                ? l10n.featuredNoTeacherInfo
+                : l10n.featuredNoFollowingOrRanking;
           }
         });
       }
     } catch (e) {
       if (mounted) {
+        final l10n = AppLocalizations.of(context)!;
         final msg = e.toString().contains('Operation not permitted') ||
                 e.toString().contains('Connection failed')
-            ? '网络连接被限制，请检查网络或在本机终端运行应用后重试'
-            : (e.toString().length > 80 ? '加载失败，请重试' : e.toString());
+            ? l10n.featuredNetworkRestricted
+            : (e.toString().length > 80
+                ? l10n.featuredLoadFailedRetry
+                : e.toString());
         setState(() {
           _loading = false;
+          _teachers = [];
           _error = msg;
         });
       }
+    }
+  }
+
+  void _onTeacherPageChanged(int index) {
+    if (index >= 0 && index < _teachers.length) {
+      setState(() {
+        _selectedIndex = index;
+        _teacher = _teachers[index];
+      });
     }
   }
 
@@ -169,6 +243,7 @@ class _FeaturedTeacherPageState extends State<FeaturedTeacherPage> {
       );
     }
     if (_error != null || _teacher == null) {
+      final l10n = AppLocalizations.of(context)!;
       final isNotLoggedIn = _error == 'not_logged_in';
       return Scaffold(
         body: Center(
@@ -178,8 +253,11 @@ class _FeaturedTeacherPageState extends State<FeaturedTeacherPage> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  isNotLoggedIn ? '你还没有开启自己的投资之旅' : (_error ?? '暂无数据'),
-                  style: const TextStyle(color: Color(0xFF6C6F77), fontSize: 15),
+                  isNotLoggedIn
+                      ? l10n.featuredNotStartedInvestment
+                      : (_error ?? l10n.commonNoData),
+                  style:
+                      const TextStyle(color: Color(0xFF6C6F77), fontSize: 15),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 20),
@@ -193,18 +271,19 @@ class _FeaturedTeacherPageState extends State<FeaturedTeacherPage> {
                       );
                     },
                     icon: const Icon(Icons.login, size: 20),
-                    label: const Text('登录/注册'),
+                    label: Text(l10n.authLoginOrRegister),
                     style: FilledButton.styleFrom(
                       backgroundColor: const Color(0xFFD4AF37),
                       foregroundColor: const Color(0xFF111215),
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 24, vertical: 12),
                     ),
                   )
                 else
                   TextButton.icon(
                     onPressed: _load,
                     icon: const Icon(Icons.refresh),
-                    label: const Text('重试'),
+                    label: Text(l10n.commonRetry),
                   ),
               ],
             ),
@@ -222,49 +301,108 @@ class _FeaturedTeacherPageState extends State<FeaturedTeacherPage> {
               sliver: SliverList(
                 delegate: SliverChildListDelegate(
                   [
-                  _HeroHeader(
-                    teacher: teacher,
-                    onTap: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => TeacherDetailPage(teacher: teacher),
+                    if (_teachers.length >= 2) ...[
+                      SizedBox(
+                        height: 170,
+                        child: PageView.builder(
+                          controller: _pageController,
+                          itemCount: _teachers.length,
+                          onPageChanged: _onTeacherPageChanged,
+                          itemBuilder: (context, i) {
+                            final t = _teachers[i];
+                            return Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: _HeroHeader(
+                                teacher: t,
+                                onTap: () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) =>
+                                          TeacherDetailPage(teacher: t),
+                                    ),
+                                  );
+                                },
+                              ),
+                            );
+                          },
                         ),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  _SectionTitle(title: '盈亏概览'),
-                  _KpiGrid(teacher: teacher),
-                  const SizedBox(height: 16),
-                  _SectionTitle(title: '今日交易策略'),
-                  _TodayStrategyStream(
-                    teacherId: teacher.id,
-                    teacherName: teacher.name,
-                    teacherAvatarUrl: teacher.avatarUrl,
-                    fallbackText: teacher.todayStrategy,
-                    repo: _repo,
-                    currentUserId: FirebaseAuth.instance.currentUser?.uid ?? '',
-                  ),
-                  const SizedBox(height: 8),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton(
-                      onPressed: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => StrategiesPage(teacher: teacher),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: List.generate(
+                          _teachers.length,
+                          (i) => Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 3),
+                            width: 6,
+                            height: 6,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: i == _selectedIndex
+                                  ? const Color(0xFFD4AF37)
+                                  : const Color(0xFFD4AF37).withOpacity(0.3),
+                            ),
                           ),
-                        );
-                      },
-                      child: const Text('查看全部交易策略'),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                    ] else
+                      _HeroHeader(
+                        teacher: teacher,
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  TeacherDetailPage(teacher: teacher),
+                            ),
+                          );
+                        },
+                      ),
+                    const SizedBox(height: 16),
+                    _SectionTitle(
+                        title:
+                            AppLocalizations.of(context)!.featuredPnlOverview),
+                    _KpiGrid(teacher: teacher),
+                    const SizedBox(height: 16),
+                    _SectionTitle(
+                        title: AppLocalizations.of(context)!
+                            .featuredTodayStrategy),
+                    _TodayStrategyStream(
+                      teacherId: teacher.id,
+                      teacherName: teacher.name,
+                      teacherAvatarUrl: teacher.avatarUrl,
+                      fallbackText: teacher.todayStrategy,
+                      repo: _repo,
+                      currentUserId:
+                          FirebaseAuth.instance.currentUser?.uid ?? '',
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  _SectionTitle(title: '目前持仓'),
-                  _PositionsStream(teacherId: teacher.id, repo: _repo, isHistory: false),
-                  const SizedBox(height: 16),
-                  _SectionTitle(title: '历史持仓'),
-                  _PositionsStream(teacherId: teacher.id, repo: _repo, isHistory: true),
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => StrategiesPage(teacher: teacher),
+                            ),
+                          );
+                        },
+                        child: Text(AppLocalizations.of(context)!
+                            .featuredViewAllStrategies),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    _SectionTitle(
+                        title: AppLocalizations.of(context)!
+                            .featuredCurrentPositions),
+                    _PositionsStream(
+                        teacherId: teacher.id, repo: _repo, isHistory: false),
+                    const SizedBox(height: 16),
+                    _SectionTitle(
+                        title: AppLocalizations.of(context)!
+                            .featuredHistoryPositions),
+                    _PositionsStream(
+                        teacherId: teacher.id, repo: _repo, isHistory: true),
                   ],
                 ),
               ),
@@ -418,30 +556,30 @@ class _FeaturedHeader extends StatelessWidget {
                   : null,
             ),
             const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Text(
-                      teacher.name,
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    const Spacer(),
-                    _MonthPnlChip(value: teacher.pnlMonth),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  teacher.title,
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                const SizedBox(height: 12),
-                _BattleStats(teacher: teacher),
-              ],
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        teacher.name,
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      const Spacer(),
+                      _MonthPnlChip(value: teacher.pnlMonth),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    teacher.title,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: 12),
+                  _BattleStats(teacher: teacher),
+                ],
+              ),
             ),
-          ),
           ],
         ),
       ),
@@ -456,15 +594,22 @@ class _BattleStats extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final total = teacher.wins + teacher.losses;
     final winRate = total == 0 ? 0 : (teacher.wins / total * 100).round();
     return Row(
       children: [
-        Expanded(child: _StatChipCompact(label: '胜场', value: '${teacher.wins}')),
+        Expanded(
+            child: _StatChipCompact(
+                label: l10n.featuredWins, value: '${teacher.wins}')),
         const SizedBox(width: 8),
-        Expanded(child: _StatChipCompact(label: '败场', value: '${teacher.losses}')),
+        Expanded(
+            child: _StatChipCompact(
+                label: l10n.featuredLosses, value: '${teacher.losses}')),
         const SizedBox(width: 8),
-        Expanded(child: _StatChipCompact(label: '胜率', value: '$winRate%')),
+        Expanded(
+            child: _StatChipCompact(
+                label: l10n.featuredWinRate, value: '$winRate%')),
       ],
     );
   }
@@ -553,13 +698,20 @@ class _KpiGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Row(
       children: [
-        Expanded(child: _KpiTile(label: '持仓盈亏', value: teacher.pnlCurrent)),
+        Expanded(
+            child: _KpiTile(
+                label: l10n.featuredPositionPnl, value: teacher.pnlCurrent)),
         const SizedBox(width: 8),
-        Expanded(child: _KpiTile(label: '年度盈亏', value: teacher.pnlYear)),
+        Expanded(
+            child:
+                _KpiTile(label: l10n.featuredYearPnl, value: teacher.pnlYear)),
         const SizedBox(width: 8),
-        Expanded(child: _KpiTile(label: '总盈亏', value: teacher.pnlTotal)),
+        Expanded(
+            child: _KpiTile(
+                label: l10n.featuredTotalPnl, value: teacher.pnlTotal)),
       ],
     );
   }
@@ -590,10 +742,8 @@ class _KpiTile extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
             _formatAmount(value),
-            style: Theme.of(context)
-                .textTheme
-                .labelLarge
-                ?.copyWith(color: color),
+            style:
+                Theme.of(context).textTheme.labelLarge?.copyWith(color: color),
           ),
         ],
       ),
@@ -678,18 +828,21 @@ class _TodayStrategyStream extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return StreamBuilder<List<tmodels.TeacherStrategy>>(
       stream: repo.watchPublishedStrategies(teacherId),
       builder: (context, stratSnapshot) {
         final strategies = stratSnapshot.data ?? const [];
         final latest = strategies.isNotEmpty ? strategies.first : null;
-        final title = latest?.title ?? '核心策略';
+        final title = latest?.title ?? l10n.featuredCoreStrategy;
         final text = (latest?.content?.trim().isNotEmpty == true
                 ? latest!.content!
                 : (latest?.summary ?? '').trim().isNotEmpty == true
                     ? latest!.summary
                     : null) ??
-            (fallbackText.trim().isNotEmpty ? fallbackText : '暂无今日策略');
+            (fallbackText.trim().isNotEmpty
+                ? fallbackText
+                : l10n.featuredNoTodayStrategy);
         // 策略未加载完成时用空流，避免从教师级评论切换到策略评论时条数跳变
         final commentsStream = stratSnapshot.hasData
             ? (latest != null
@@ -721,7 +874,7 @@ class _TodayStrategyStream extends StatelessWidget {
 
 class _HeroStrategyCard extends StatefulWidget {
   const _HeroStrategyCard({
-    this.title = '核心策略',
+    required this.title,
     required this.text,
     this.imageUrls,
     required this.comments,
@@ -816,7 +969,8 @@ class _HeroStrategyCardState extends State<_HeroStrategyCard> {
 
   void _onCommentPosted(String userName, String content, {Comment? replyTo}) {
     final now = DateTime.now();
-    final date = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} '
+    final date =
+        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} '
         '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
     setState(() {
       _optimisticComments.add(Comment(
@@ -826,7 +980,9 @@ class _HeroStrategyCardState extends State<_HeroStrategyCard> {
         date: date,
         replyToCommentId: replyTo?.id,
         replyToContent: replyTo != null
-            ? (replyTo.content.length > 50 ? '${replyTo.content.substring(0, 50)}…' : replyTo.content)
+            ? (replyTo.content.length > 50
+                ? '${replyTo.content.substring(0, 50)}…'
+                : replyTo.content)
             : null,
       ));
     });
@@ -836,7 +992,8 @@ class _HeroStrategyCardState extends State<_HeroStrategyCard> {
     final fromStream = widget.comments;
     final merged = [...fromStream];
     for (final o in _optimisticComments) {
-      if (!merged.any((c) => c.content == o.content && c.userName == o.userName)) {
+      if (!merged
+          .any((c) => c.content == o.content && c.userName == o.userName)) {
         merged.add(o);
       }
     }
@@ -863,6 +1020,7 @@ class _HeroStrategyCardState extends State<_HeroStrategyCard> {
       });
       _updateFormOverlay();
     }
+
     final topLevel = list.where((c) => c.replyToCommentId == null).toList()
       ..sort((a, b) => b.date.compareTo(a.date));
     final widgets = <Widget>[];
@@ -892,7 +1050,9 @@ class _HeroStrategyCardState extends State<_HeroStrategyCard> {
           .toList()
         ..sort((a, b) => a.date.compareTo(b.date));
       final isExpanded = _expandedReplies.contains(parent.id);
-      final showCount = replies.length <= 1 ? replies.length : (isExpanded ? replies.length : 1);
+      final showCount = replies.length <= 1
+          ? replies.length
+          : (isExpanded ? replies.length : 1);
       for (var i = 0; i < showCount; i++) {
         widgets.add(_CommentItem(
           comment: replies[i],
@@ -901,6 +1061,7 @@ class _HeroStrategyCardState extends State<_HeroStrategyCard> {
         ));
       }
       if (replies.length > 1) {
+        final l10n = AppLocalizations.of(context)!;
         widgets.add(
           GestureDetector(
             onTap: () {
@@ -915,7 +1076,9 @@ class _HeroStrategyCardState extends State<_HeroStrategyCard> {
             child: Padding(
               padding: const EdgeInsets.only(left: 78, bottom: 12),
               child: Text(
-                isExpanded ? '收起' : '展开 ${replies.length - 1} 条回复',
+                isExpanded
+                    ? l10n.featuredCollapse
+                    : l10n.featuredExpandReplies(replies.length - 1),
                 style: TextStyle(
                   color: accent.withOpacity(0.9),
                   fontSize: 13,
@@ -945,7 +1108,9 @@ class _HeroStrategyCardState extends State<_HeroStrategyCard> {
   void _showForwardSheet(BuildContext context) {
     if (widget.currentUserId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请先登录后再转发')),
+        SnackBar(
+            content:
+                Text(AppLocalizations.of(context)!.featuredLoginBeforeForward)),
       );
       Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => const LoginPage()),
@@ -1019,7 +1184,8 @@ class _HeroStrategyCardState extends State<_HeroStrategyCard> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        if (widget.imageUrls != null && widget.imageUrls!.isNotEmpty) ...[
+                        if (widget.imageUrls != null &&
+                            widget.imageUrls!.isNotEmpty) ...[
                           ClipRRect(
                             borderRadius: BorderRadius.circular(10),
                             child: Image.network(
@@ -1027,7 +1193,8 @@ class _HeroStrategyCardState extends State<_HeroStrategyCard> {
                               height: 120,
                               width: double.infinity,
                               fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                              errorBuilder: (_, __, ___) =>
+                                  const SizedBox.shrink(),
                             ),
                           ),
                           const SizedBox(height: 12),
@@ -1065,14 +1232,16 @@ class _HeroStrategyCardState extends State<_HeroStrategyCard> {
                           widget.text,
                           maxLines: 3,
                           overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                fontSize: 15,
-                                height: 1.4,
-                              ),
+                          style:
+                              Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                    fontSize: 15,
+                                    height: 1.4,
+                                  ),
                         ),
                         const SizedBox(height: 10),
                         Text(
-                          '点击查看完整投资策略',
+                          AppLocalizations.of(context)!
+                              .featuredViewFullStrategy,
                           style: Theme.of(context)
                               .textTheme
                               .labelSmall
@@ -1098,20 +1267,28 @@ class _HeroStrategyCardState extends State<_HeroStrategyCard> {
                               });
                             },
                             icon: Icon(
-                              _showComments ? Icons.expand_less : Icons.expand_more,
+                              _showComments
+                                  ? Icons.expand_less
+                                  : Icons.expand_more,
                               size: 18,
                               color: const Color(0xFFD4AF37),
                             ),
                             label: Text(
-                              _showComments ? '隐藏评论' : '查看评论',
+                              _showComments
+                                  ? AppLocalizations.of(context)!
+                                      .featuredHideComments
+                                  : AppLocalizations.of(context)!
+                                      .featuredViewComments,
                               style: const TextStyle(color: Color(0xFFD4AF37)),
                             ),
                           ),
                           StreamBuilder<int>(
-                            stream: widget.repo.watchTeacherLikesCount(widget.teacherId),
+                            stream: widget.repo
+                                .watchTeacherLikesCount(widget.teacherId),
                             builder: (context, likeSnap) {
                               final streamCount = likeSnap.data ?? 0;
-                              final likeCount = _likeCountOverride ?? streamCount;
+                              final likeCount =
+                                  _likeCountOverride ?? streamCount;
                               return StreamBuilder<bool>(
                                 stream: widget.repo.watchUserLiked(
                                   teacherId: widget.teacherId,
@@ -1120,8 +1297,11 @@ class _HeroStrategyCardState extends State<_HeroStrategyCard> {
                                 builder: (context, likedSnap) {
                                   final streamLiked = likedSnap.data ?? false;
                                   if (likeSnap.hasData && likedSnap.hasData) {
-                                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                                      if (mounted) _syncLikeFromStream(streamCount, streamLiked);
+                                    WidgetsBinding.instance
+                                        .addPostFrameCallback((_) {
+                                      if (mounted)
+                                        _syncLikeFromStream(
+                                            streamCount, streamLiked);
                                     });
                                   }
                                   final liked = _likedOverride ?? streamLiked;
@@ -1136,9 +1316,13 @@ class _HeroStrategyCardState extends State<_HeroStrategyCard> {
                                             );
                                           },
                                     icon: Icon(
-                                      liked ? Icons.thumb_up : Icons.thumb_up_outlined,
+                                      liked
+                                          ? Icons.thumb_up
+                                          : Icons.thumb_up_outlined,
                                       size: 18,
-                                      color: liked ? const Color(0xFFD4AF37) : null,
+                                      color: liked
+                                          ? const Color(0xFFD4AF37)
+                                          : null,
                                     ),
                                     label: Text('$likeCount'),
                                   );
@@ -1149,12 +1333,15 @@ class _HeroStrategyCardState extends State<_HeroStrategyCard> {
                           IconButton(
                             icon: const Icon(Icons.share, size: 20),
                             onPressed: () => _showForwardSheet(context),
-                            tooltip: '转发',
+                            tooltip: AppLocalizations.of(context)!
+                                .featuredForwardTooltip,
                           ),
                           const Spacer(),
                           Flexible(
                             child: Text(
-                              '${_mergedComments.length}条',
+                              AppLocalizations.of(context)!
+                                  .featuredCommentsCount(
+                                      _mergedComments.length),
                               style: Theme.of(context).textTheme.labelSmall,
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -1169,11 +1356,15 @@ class _HeroStrategyCardState extends State<_HeroStrategyCard> {
                           constraints: const BoxConstraints(maxHeight: 500),
                           child: SingleChildScrollView(
                             child: _mergedComments.isEmpty
-                                ? const _EmptyHint(text: '暂无评论')
+                                ? _EmptyHint(
+                                    text: AppLocalizations.of(context)!
+                                        .featuredNoComments)
                                 : Column(
                                     mainAxisSize: MainAxisSize.min,
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: _buildThreadedCommentsInline(_mergedComments),
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: _buildThreadedCommentsInline(
+                                        _mergedComments),
                                   ),
                           ),
                         ),
@@ -1205,17 +1396,33 @@ class _ForwardConversationSheet extends StatelessWidget {
 
   static const Color _accent = Color(0xFFD4AF37);
 
-  Future<String> _getUserName() async {
+  Future<String> _getUserName(BuildContext context) async {
     try {
-      final r = await SupabaseBootstrap.client
+      if (ApiClient.instance.isAvailable) {
+        final name = await UsersApi.instance.getDisplayName(currentUserId);
+        if (!context.mounted) return '';
+        return name.isNotEmpty
+            ? name
+            : AppLocalizations.of(context)!.commonUser;
+      }
+      final client = SupabaseBootstrap.clientOrNull;
+      if (client == null) {
+        if (!context.mounted) return '';
+        return AppLocalizations.of(context)!.commonUser;
+      }
+      final r = await client
           .from('user_profiles')
           .select('display_name')
           .eq('user_id', currentUserId)
           .maybeSingle();
+      if (!context.mounted) return '';
       final n = r?['display_name'] as String?;
-      return (n?.trim().isNotEmpty == true) ? n!.trim() : '用户';
+      return (n?.trim().isNotEmpty == true)
+          ? n!.trim()
+          : AppLocalizations.of(context)!.commonUser;
     } catch (_) {
-      return '用户';
+      if (!context.mounted) return '';
+      return AppLocalizations.of(context)!.commonUser;
     }
   }
 
@@ -1236,14 +1443,20 @@ class _ForwardConversationSheet extends StatelessWidget {
       );
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('已转发')),
+          SnackBar(
+              content: Text(AppLocalizations.of(context)!.featuredForwarded)),
         );
         onSent();
       }
     } catch (e) {
       if (context.mounted) {
+        final msg = e.toString().length > 40
+            ? e.toString().substring(0, 40)
+            : e.toString();
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('转发失败: ${e.toString().length > 40 ? e.toString().substring(0, 40) : e}')),
+          SnackBar(
+              content: Text(AppLocalizations.of(context)!
+                  .featuredForwardFailedWithMessage(msg))),
         );
       }
     }
@@ -1265,7 +1478,7 @@ class _ForwardConversationSheet extends StatelessWidget {
               child: Row(
                 children: [
                   Text(
-                    '转发到',
+                    AppLocalizations.of(context)!.featuredForwardTo,
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           color: _accent,
                           fontWeight: FontWeight.w600,
@@ -1282,12 +1495,14 @@ class _ForwardConversationSheet extends StatelessWidget {
             const Divider(height: 1),
             Expanded(
               child: StreamBuilder<List<Conversation>>(
-                stream: MessagesRepository().watchConversations(userId: currentUserId),
+                stream: MessagesRepository()
+                    .watchConversations(userId: currentUserId),
                 builder: (context, snapshot) {
                   final list = snapshot.data ?? [];
                   if (list.isEmpty) {
-                    return const Center(
-                      child: Text('暂无会话，请先添加好友或加入群聊'),
+                    return Center(
+                      child: Text(AppLocalizations.of(context)!
+                          .featuredNoConversationAddFriend),
                     );
                   }
                   return ListView.builder(
@@ -1306,7 +1521,7 @@ class _ForwardConversationSheet extends StatelessWidget {
                         title: Text(conv.title),
                         subtitle: Text(conv.subtitle),
                         onTap: () async {
-                          final name = await _getUserName();
+                          final name = await _getUserName(context);
                           if (context.mounted) {
                             await _sendToConversation(context, conv, name);
                           }
@@ -1326,7 +1541,8 @@ class _ForwardConversationSheet extends StatelessWidget {
 
 /// 四角花纹装饰
 class _CornerOrnament extends StatelessWidget {
-  const _CornerOrnament({required this.rotation, required this.size, required this.color});
+  const _CornerOrnament(
+      {required this.rotation, required this.size, required this.color});
 
   final double rotation;
   final double size;
@@ -1403,7 +1619,8 @@ class _CommentForm extends StatefulWidget {
   final TeacherRepository repo;
   final Comment? replyToComment;
   final VoidCallback? onReplyConsumed;
-  final void Function(String userName, String content, {Comment? replyTo})? onPosted;
+  final void Function(String userName, String content, {Comment? replyTo})?
+      onPosted;
 
   @override
   State<_CommentForm> createState() => _CommentFormState();
@@ -1429,7 +1646,8 @@ class _CommentFormState extends State<_CommentForm> {
         widget.replyToComment != oldWidget.replyToComment) {
       _pendingReplyTo = widget.replyToComment;
       _controller.text = '@${widget.replyToComment!.userName} ';
-      _controller.selection = TextSelection.collapsed(offset: _controller.text.length);
+      _controller.selection =
+          TextSelection.collapsed(offset: _controller.text.length);
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _focusNode.requestFocus();
         widget.onReplyConsumed?.call();
@@ -1443,7 +1661,9 @@ class _CommentFormState extends State<_CommentForm> {
     if (widget.currentUserId.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('请先登录后再发表评论')),
+          SnackBar(
+              content: Text(
+                  AppLocalizations.of(context)!.featuredLoginBeforeComment)),
         );
         Navigator.of(context).push(
           MaterialPageRoute(builder: (_) => const LoginPage()),
@@ -1467,15 +1687,19 @@ class _CommentFormState extends State<_CommentForm> {
       if (mounted) {
         widget.onPosted?.call(userName, content, replyTo: replyTo);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('评论已发表')),
+          SnackBar(
+              content:
+                  Text(AppLocalizations.of(context)!.featuredCommentPublished)),
         );
       }
     } catch (e) {
       if (mounted) {
         final msg = e.toString();
+        final displayMsg = msg.length > 120 ? msg.substring(0, 120) + '…' : msg;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('发表失败: ${msg.length > 120 ? msg.substring(0, 120) + '…' : msg}'),
+            content: Text(AppLocalizations.of(context)!
+                .featuredCommentPublishFailedWithMessage(displayMsg)),
             duration: const Duration(seconds: 5),
           ),
         );
@@ -1504,7 +1728,7 @@ class _CommentFormState extends State<_CommentForm> {
               maxLines: 3,
               enabled: !_submitting,
               decoration: InputDecoration(
-                hintText: '写下你的评论…',
+                hintText: AppLocalizations.of(context)!.featuredCommentHint,
                 filled: true,
                 fillColor: const Color(0xFF0B0C0E),
                 border: OutlineInputBorder(
@@ -1525,7 +1749,9 @@ class _CommentFormState extends State<_CommentForm> {
           const SizedBox(width: 10),
           FilledButton(
             onPressed: _submitting ? null : _submit,
-            child: Text(_submitting ? '发表中…' : '发表'),
+            child: Text(_submitting
+                ? AppLocalizations.of(context)!.featuredPublishing
+                : AppLocalizations.of(context)!.featuredPublish),
           ),
         ],
       ),
@@ -1597,13 +1823,13 @@ class _CommentItem extends StatelessWidget {
                     comment.avatarUrl!.trim().isNotEmpty
                 ? NetworkImage(comment.avatarUrl!.trim())
                 : null,
-            child: comment.avatarUrl == null ||
-                    comment.avatarUrl!.trim().isEmpty
-                ? Text(
-                    comment.userName.characters.first,
-                    style: const TextStyle(color: Color(0xFF111215)),
-                  )
-                : null,
+            child:
+                comment.avatarUrl == null || comment.avatarUrl!.trim().isEmpty
+                    ? Text(
+                        comment.userName.characters.first,
+                        style: const TextStyle(color: Color(0xFF111215)),
+                      )
+                    : null,
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -1615,18 +1841,18 @@ class _CommentItem extends StatelessWidget {
                     Text(
                       comment.userName,
                       style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                        color: accent,
-                        fontWeight: FontWeight.w600,
-                      ),
+                            color: accent,
+                            fontWeight: FontWeight.w600,
+                          ),
                       overflow: TextOverflow.ellipsis,
                     ),
                     const Spacer(),
                     Text(
                       comment.date,
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: Colors.white54,
-                        fontSize: 11,
-                      ),
+                            color: Colors.white54,
+                            fontSize: 11,
+                          ),
                     ),
                   ],
                 ),
@@ -1634,21 +1860,23 @@ class _CommentItem extends StatelessWidget {
                     comment.replyToContent!.isNotEmpty) ...[
                   const SizedBox(height: 4),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                     decoration: BoxDecoration(
                       color: Colors.white.withOpacity(0.06),
                       borderRadius: BorderRadius.circular(8),
                       border: Border(
-                        left: BorderSide(color: accent.withOpacity(0.5), width: 3),
+                        left: BorderSide(
+                            color: accent.withOpacity(0.5), width: 3),
                       ),
                     ),
                     child: Text(
                       comment.replyToContent!,
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: Colors.white54,
-                        fontSize: 12,
-                        fontStyle: FontStyle.italic,
-                      ),
+                            color: Colors.white54,
+                            fontSize: 12,
+                            fontStyle: FontStyle.italic,
+                          ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -1660,9 +1888,10 @@ class _CommentItem extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   text: TextSpan(
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Colors.white70,
-                    ),
-                    children: _buildContentSpans(comment.content, _mentionColor),
+                          color: Colors.white70,
+                        ),
+                    children:
+                        _buildContentSpans(comment.content, _mentionColor),
                   ),
                 ),
               ],
@@ -1726,6 +1955,7 @@ class _PositionCardStyle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final dateFmt = DateFormat('yyyy-MM-dd HH:mm');
     final isHistory = position.isHistory;
 
@@ -1735,21 +1965,30 @@ class _PositionCardStyle extends StatelessWidget {
       final pnlColor = amount >= 0 ? Colors.green : Colors.red;
       final rows = <Widget>[
         if (position.buyTime != null)
-          _positionLine(dateFmt.format(position.buyTime!), prefix: '买入'),
+          _positionLine(dateFmt.format(position.buyTime!),
+              prefix: l10n.featuredBuy),
         _positionInline([
-          ('成本', '${position.costPrice ?? position.buyPrice ?? '--'}'),
-          if (position.buyShares != null) ('数量', '${position.buyShares}'),
+          (
+            l10n.featuredCost,
+            '${position.costPrice ?? position.buyPrice ?? '--'}'
+          ),
+          if (position.buyShares != null)
+            (l10n.featuredQuantity, '${position.buyShares}'),
         ]),
         if (position.sellTime != null || position.sellPrice != null)
           _positionInline([
-            if (position.sellTime != null) ('卖出', dateFmt.format(position.sellTime!)),
-            if (position.sellPrice != null) ('卖出价', position.sellPrice!.toStringAsFixed(2)),
+            if (position.sellTime != null)
+              (l10n.featuredSell, dateFmt.format(position.sellTime!)),
+            if (position.sellPrice != null)
+              (l10n.featuredSellPrice, position.sellPrice!.toStringAsFixed(2)),
           ]),
       ];
       return _positionCard(
         asset: position.asset,
         amountText: '${amount >= 0 ? '+' : ''}${amount.toStringAsFixed(2)}',
-        ratioText: ratio != null ? '${ratio >= 0 ? '+' : ''}${ratio.toStringAsFixed(2)}%' : null,
+        ratioText: ratio != null
+            ? '${ratio >= 0 ? '+' : ''}${ratio.toStringAsFixed(2)}%'
+            : null,
         pnlColor: pnlColor,
         detailRows: rows,
       );
@@ -1760,17 +1999,24 @@ class _PositionCardStyle extends StatelessWidget {
     final pnlColor = pnl >= 0 ? Colors.green : Colors.red;
     final rows = <Widget>[
       if (position.buyTime != null)
-        _positionLine(dateFmt.format(position.buyTime!), prefix: '买入'),
+        _positionLine(dateFmt.format(position.buyTime!),
+            prefix: l10n.featuredBuy),
       _positionInline([
-        ('成本', '${position.costPrice ?? position.buyPrice ?? '--'}'),
-        ('现价', '${position.currentPrice ?? '--'}'),
-        if (position.buyShares != null) ('数量', '${position.buyShares}'),
+        (
+          l10n.featuredCost,
+          '${position.costPrice ?? position.buyPrice ?? '--'}'
+        ),
+        (l10n.featuredCurrentPrice, '${position.currentPrice ?? '--'}'),
+        if (position.buyShares != null)
+          (l10n.featuredQuantity, '${position.buyShares}'),
       ]),
     ];
     return _positionCard(
       asset: position.asset,
       amountText: '${pnl >= 0 ? '+' : ''}${pnl.toStringAsFixed(2)}',
-      ratioText: ratio != null ? '${ratio >= 0 ? '+' : ''}${ratio.toStringAsFixed(2)}%' : null,
+      ratioText: ratio != null
+          ? '${ratio >= 0 ? '+' : ''}${ratio.toStringAsFixed(2)}%'
+          : null,
       pnlColor: pnlColor,
       detailRows: rows,
     );
@@ -1832,9 +2078,9 @@ class _PositionCardStyle extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             ...detailRows.map((w) => Padding(
-              padding: const EdgeInsets.only(bottom: 2),
-              child: w,
-            )),
+                  padding: const EdgeInsets.only(bottom: 2),
+                  child: w,
+                )),
           ],
         ),
       ),
@@ -1861,11 +2107,20 @@ class _PositionCardStyle extends StatelessWidget {
     if (pairs.isEmpty) return const SizedBox.shrink();
     final spans = <InlineSpan>[];
     for (var i = 0; i < pairs.length; i++) {
-      if (i > 0) spans.add(TextSpan(text: '  ', style: TextStyle(color: _muted, fontSize: 12)));
-      spans.add(TextSpan(text: '${pairs[i].$1} ', style: const TextStyle(color: _muted, fontSize: 12)));
-      spans.add(TextSpan(text: pairs[i].$2, style: const TextStyle(color: Colors.white, fontSize: 12)));
+      if (i > 0)
+        spans.add(TextSpan(
+            text: '  ', style: TextStyle(color: _muted, fontSize: 12)));
+      spans.add(TextSpan(
+          text: '${pairs[i].$1} ',
+          style: const TextStyle(color: _muted, fontSize: 12)));
+      spans.add(TextSpan(
+          text: pairs[i].$2,
+          style: const TextStyle(color: Colors.white, fontSize: 12)));
     }
-    return Text.rich(TextSpan(style: const TextStyle(fontSize: 12), children: spans), maxLines: 1, overflow: TextOverflow.ellipsis);
+    return Text.rich(
+        TextSpan(style: const TextStyle(fontSize: 12), children: spans),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis);
   }
 
   static Widget _labelVal(String label, String value) {
@@ -1973,27 +2228,28 @@ class _PnlGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Column(
       children: [
         Row(
           children: [
             Expanded(
               child: _PnlTile(
-                label: '目前持仓盈亏',
+                label: l10n.featuredCurrentPositionPnl,
                 value: teacher.pnlCurrent,
               ),
             ),
             const SizedBox(width: 8),
             Expanded(
               child: _PnlTile(
-                label: '年度盈亏',
+                label: l10n.featuredYearPnl,
                 value: teacher.pnlYear,
               ),
             ),
             const SizedBox(width: 8),
             Expanded(
               child: _PnlTile(
-                label: '总盈亏',
+                label: l10n.featuredTotalPnl,
                 value: teacher.pnlTotal,
               ),
             ),
@@ -2022,6 +2278,7 @@ class _PnlStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
@@ -2032,15 +2289,18 @@ class _PnlStrip extends StatelessWidget {
       child: Row(
         children: [
           Expanded(
-            child: _PnlMini(label: '目前持仓', value: teacher.pnlCurrent),
+            child: _PnlMini(
+                label: l10n.featuredCurrentPosition, value: teacher.pnlCurrent),
           ),
           const SizedBox(width: 8),
           Expanded(
-            child: _PnlMini(label: '年度盈亏', value: teacher.pnlYear),
+            child:
+                _PnlMini(label: l10n.featuredYearPnl, value: teacher.pnlYear),
           ),
           const SizedBox(width: 8),
           Expanded(
-            child: _PnlMini(label: '总盈亏', value: teacher.pnlTotal),
+            child:
+                _PnlMini(label: l10n.featuredTotalPnl, value: teacher.pnlTotal),
           ),
         ],
       ),
@@ -2068,10 +2328,7 @@ class _PnlMini extends StatelessWidget {
         const SizedBox(height: 4),
         Text(
           _formatAmount(value),
-          style: Theme.of(context)
-              .textTheme
-              .labelLarge
-              ?.copyWith(color: color),
+          style: Theme.of(context).textTheme.labelLarge?.copyWith(color: color),
         ),
       ],
     );
@@ -2090,22 +2347,23 @@ class _MainTabs extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: const Color(0xFFD4AF37), width: 0.4),
       ),
-      child: const TabBar(
-        indicator: BoxDecoration(
+      child: TabBar(
+        indicator: const BoxDecoration(
           color: Color(0xFFD4AF37),
           borderRadius: BorderRadius.all(Radius.circular(10)),
         ),
-        labelColor: Color(0xFF111215),
-        unselectedLabelColor: Color(0xFFE5E5E7),
+        labelColor: const Color(0xFF111215),
+        unselectedLabelColor: const Color(0xFFE5E5E7),
         tabs: [
-          Tab(text: '今日策略'),
-          Tab(text: '持仓'),
-          Tab(text: '历史'),
+          Tab(text: AppLocalizations.of(context)!.featuredTodayStrategyTab),
+          Tab(text: AppLocalizations.of(context)!.featuredPositionTab),
+          Tab(text: AppLocalizations.of(context)!.featuredHistoryTab),
         ],
       ),
     );
   }
 }
+
 class _PnlTile extends StatelessWidget {
   const _PnlTile({required this.label, required this.value});
 
@@ -2133,10 +2391,8 @@ class _PnlTile extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
             _formatAmount(value),
-            style: Theme.of(context)
-                .textTheme
-                .titleMedium
-                ?.copyWith(color: color),
+            style:
+                Theme.of(context).textTheme.titleMedium?.copyWith(color: color),
           ),
         ],
       ),
@@ -2164,16 +2420,14 @@ class _MonthPnlChip extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            '本月总盈亏',
+            AppLocalizations.of(context)!.featuredMonthTotalPnl,
             style: Theme.of(context).textTheme.labelSmall,
           ),
           const SizedBox(height: 4),
           Text(
             _formatAmount(value),
-            style: Theme.of(context)
-                .textTheme
-                .labelLarge
-                ?.copyWith(color: color),
+            style:
+                Theme.of(context).textTheme.labelLarge?.copyWith(color: color),
           ),
         ],
       ),
@@ -2189,10 +2443,12 @@ class _PositionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isProfit = position.pnlAmount >= 0;
-    final pnlColor = isProfit ? const Color(0xFF29C36A) : const Color(0xFFE54848);
+    final pnlColor =
+        isProfit ? const Color(0xFF29C36A) : const Color(0xFFE54848);
     final pnlRatioText = _formatPercent(position.pnlRatio);
-    final floatingColor =
-        position.floatingPnl >= 0 ? const Color(0xFF29C36A) : const Color(0xFFE54848);
+    final floatingColor = position.floatingPnl >= 0
+        ? const Color(0xFF29C36A)
+        : const Color(0xFFE54848);
     return Container(
       margin: EdgeInsets.zero,
       padding: const EdgeInsets.all(14),
@@ -2223,7 +2479,7 @@ class _PositionCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '持仓盈亏金额',
+                    AppLocalizations.of(context)!.featuredPositionPnlAmount,
                     style: Theme.of(context).textTheme.labelSmall,
                   ),
                 ],
@@ -2235,14 +2491,14 @@ class _PositionCard extends StatelessWidget {
             children: [
               Expanded(
                 child: _InfoPair(
-                  label: '买入时间',
+                  label: AppLocalizations.of(context)!.featuredBuyTime,
                   value: position.buyTime,
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: _InfoPair(
-                  label: '买入股数',
+                  label: AppLocalizations.of(context)!.featuredBuyShares,
                   value: position.buyShares,
                 ),
               ),
@@ -2253,14 +2509,14 @@ class _PositionCard extends StatelessWidget {
             children: [
               Expanded(
                 child: _InfoPair(
-                  label: '买入价格',
+                  label: AppLocalizations.of(context)!.featuredBuyPrice,
                   value: position.buyPrice,
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: _InfoPair(
-                  label: '持仓成本',
+                  label: AppLocalizations.of(context)!.featuredPositionCost,
                   value: position.costPrice,
                 ),
               ),
@@ -2271,14 +2527,14 @@ class _PositionCard extends StatelessWidget {
             children: [
               Expanded(
                 child: _InfoPair(
-                  label: '现价',
+                  label: AppLocalizations.of(context)!.featuredCurrentPrice,
                   value: position.currentPrice,
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: _InfoPair(
-                  label: '浮动盈亏',
+                  label: AppLocalizations.of(context)!.featuredFloatingPnl,
                   value: _formatAmount(position.floatingPnl),
                   valueColor: floatingColor,
                 ),
@@ -2287,7 +2543,7 @@ class _PositionCard extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            '持仓盈亏比例  $pnlRatioText',
+            '${AppLocalizations.of(context)!.featuredPositionPnlRatio}  $pnlRatioText',
             style: Theme.of(context)
                 .textTheme
                 .labelMedium
@@ -2297,7 +2553,6 @@ class _PositionCard extends StatelessWidget {
       ),
     );
   }
-
 }
 
 class _InfoPair extends StatelessWidget {
@@ -2413,8 +2668,10 @@ class _TradeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isProfit = trade.pnlAmount >= 0;
-    final pnlColor = isProfit ? const Color(0xFF29C36A) : const Color(0xFFE54848);
+    final pnlColor =
+        isProfit ? const Color(0xFF29C36A) : const Color(0xFFE54848);
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(14),
@@ -2431,14 +2688,16 @@ class _TradeCard extends StatelessWidget {
             style: Theme.of(context).textTheme.titleSmall,
           ),
           const SizedBox(height: 8),
-          _tradeRow('买入', trade.buyTime, trade.buyShares, trade.buyPrice),
+          _tradeRow(context, l10n.featuredBuy, trade.buyTime, trade.buyShares,
+              trade.buyPrice),
           const SizedBox(height: 6),
-          _tradeRow('卖出', trade.sellTime, trade.sellShares, trade.sellPrice),
+          _tradeRow(context, l10n.featuredSell, trade.sellTime,
+              trade.sellShares, trade.sellPrice),
           const SizedBox(height: 10),
           Row(
             children: [
               Text(
-                '盈利比例  ${_formatPercent(trade.pnlRatio)}',
+                '${l10n.featuredProfitRatio}  ${_formatPercent(trade.pnlRatio)}',
                 style: Theme.of(context)
                     .textTheme
                     .labelMedium
@@ -2446,7 +2705,7 @@ class _TradeCard extends StatelessWidget {
               ),
               const Spacer(),
               Text(
-                '盈亏金额  ${_formatAmount(trade.pnlAmount)}',
+                '${l10n.featuredPnlAmount}  ${_formatAmount(trade.pnlAmount)}',
                 style: Theme.of(context)
                     .textTheme
                     .labelMedium
@@ -2459,16 +2718,18 @@ class _TradeCard extends StatelessWidget {
     );
   }
 
-  Widget _tradeRow(String label, String time, String shares, String price) {
+  Widget _tradeRow(BuildContext context, String label, String time,
+      String shares, String price) {
+    final l10n = AppLocalizations.of(context)!;
     return Row(
       children: [
         Text(label),
         const SizedBox(width: 8),
         Expanded(child: Text(time)),
         const SizedBox(width: 8),
-        Text('股数 $shares'),
+        Text('${l10n.featuredShares} $shares'),
         const SizedBox(width: 8),
-        Text('价格 $price'),
+        Text('${l10n.featuredPrice} $price'),
       ],
     );
   }

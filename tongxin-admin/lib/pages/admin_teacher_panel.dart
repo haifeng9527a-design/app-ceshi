@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../../core/supabase_bootstrap.dart';
-import '../teachers/teacher_models.dart';
+import '../core/supabase_bootstrap.dart';
+import '../l10n/admin_strings.dart';
+import '../models/teacher_profile.dart';
 
 class AdminTeacherPanel extends StatefulWidget {
   const AdminTeacherPanel({super.key});
@@ -145,19 +146,24 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
     await SupabaseBootstrap.client.from('teacher_profiles').upsert(payload);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('资料已保存')),
+      SnackBar(content: Text(AdminStrings.adminProfileSaved)),
     );
     _loadTeachers();
   }
 
   static const List<String> _statusOrder = ['pending', 'rejected', 'approved', 'frozen', 'blocked'];
-  static const Map<String, String> _statusLabel = {
-    'pending': '待审核',
-    'approved': '已通过',
-    'rejected': '已驳回',
-    'frozen': '已冻结',
-    'blocked': '已封禁',
-  };
+
+  String _getStatusLabel(BuildContext context, String status) {
+    // AdminStrings used directly
+    switch (status) {
+      case 'pending': return AdminStrings.adminPending;
+      case 'approved': return AdminStrings.adminApproved;
+      case 'rejected': return AdminStrings.adminRejected;
+      case 'frozen': return AdminStrings.adminFrozen;
+      case 'blocked': return AdminStrings.adminBlocked;
+      default: return status;
+    }
+  }
 
   List<TeacherProfile> _sortByStatus(List<TeacherProfile> list) {
     final copy = List<TeacherProfile>.from(list);
@@ -191,9 +197,9 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
           .update(payload)
           .eq('user_id', teacherId);
       if (!mounted) return;
-      final label = _statusLabel[status] ?? status;
+      final label = _getStatusLabel(context, status);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('状态已更新为：$label')),
+        SnackBar(content: Text(AdminStrings.adminStatusUpdated(label))),
       );
       if (_selectedProfile != null) {
         _loadProfile(_selectedProfile!);
@@ -205,7 +211,7 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('更新失败: $e'),
+          content: Text('${AdminStrings.adminUpdateFailed}: $e'),
           backgroundColor: Colors.red.shade700,
         ),
       );
@@ -215,20 +221,21 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
 
   Future<void> _notifyApplicantStatus(String userId, String status) async {
     if (userId.isEmpty) return;
-    String title = '交易员申请结果';
+    // AdminStrings used directly
+    String title = AdminStrings.adminNotifyTraderResult;
     String body;
     switch (status) {
       case 'rejected':
-        body = '您的交易员申请已被驳回，可修改后重新提交。';
+        body = AdminStrings.adminNotifyRejected;
         break;
       case 'approved':
-        body = '恭喜，您的交易员申请已通过，可以发布策略与交易记录。';
+        body = AdminStrings.adminNotifyApproved;
         break;
       case 'blocked':
-        body = '您的交易员账号已被封禁，如有疑问请联系客服。';
+        body = AdminStrings.adminNotifyBlocked;
         break;
       case 'frozen':
-        body = '您的交易员账号已被冻结，冻结期内无法发布内容。';
+        body = AdminStrings.adminNotifyFrozen;
         break;
       default:
         return;
@@ -250,12 +257,12 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
       context: context,
       useRootNavigator: true,
       builder: (ctx) => AlertDialog(
-        title: Text('$actionName确认'),
+        title: Text(actionName),
         content: Text(message),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx, rootNavigator: true).pop(false),
-            child: const Text('取消'),
+            child: Text(AdminStrings.commonCancel),
           ),
           FilledButton(
             onPressed: () => Navigator.of(ctx, rootNavigator: true).pop(true),
@@ -275,45 +282,45 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
       context: context,
       useRootNavigator: true,
       builder: (ctx) => AlertDialog(
-        title: const Text('冻结时长'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text('请选择冻结时长：'),
-            const SizedBox(height: 16),
-            SizedBox(
-              height: 48,
-              child: FilledButton(
-                onPressed: () => navigator.pop(7),
-                child: const Text('7 天'),
+          title: Text(AdminStrings.adminFreezeDuration),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(AdminStrings.adminSelectFreezeDuration),
+              const SizedBox(height: 16),
+              SizedBox(
+                height: 48,
+                child: FilledButton(
+                  onPressed: () => navigator.pop(7),
+                  child: Text(AdminStrings.adminDays7),
+                ),
               ),
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              height: 48,
-              child: FilledButton(
-                onPressed: () => navigator.pop(30),
-                child: const Text('30 天'),
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 48,
+                child: FilledButton(
+                  onPressed: () => navigator.pop(30),
+                  child: Text(AdminStrings.adminDays30),
+                ),
               ),
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              height: 48,
-              child: FilledButton(
-                onPressed: () => navigator.pop(90),
-                child: const Text('90 天'),
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 48,
+                child: FilledButton(
+                  onPressed: () => navigator.pop(90),
+                  child: Text(AdminStrings.adminDays90),
+                ),
               ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => navigator.pop(),
+              child: Text(AdminStrings.commonCancel),
             ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => navigator.pop(),
-            child: const Text('取消'),
-          ),
-        ],
-      ),
     );
     if (days != null && days > 0) {
       final until = DateTime.now().add(Duration(days: days));
@@ -329,20 +336,21 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
     final titleController = TextEditingController();
     final summaryController = TextEditingController();
     final contentController = TextEditingController();
+    // AdminStrings used directly
     final confirmed = await _simpleDialog(
-      title: '新增策略',
+      title: AdminStrings.adminAddStrategy,
       children: [
         TextField(
           controller: titleController,
-          decoration: const InputDecoration(labelText: '标题'),
+          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelTitle),
         ),
         TextField(
           controller: summaryController,
-          decoration: const InputDecoration(labelText: '摘要'),
+          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelSummary),
         ),
         TextField(
           controller: contentController,
-          decoration: const InputDecoration(labelText: '内容'),
+          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelContent),
           maxLines: 3,
         ),
       ],
@@ -375,44 +383,45 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
     final sellPriceController = TextEditingController();
     final pnlRatioController = TextEditingController();
     final pnlAmountController = TextEditingController();
+    // AdminStrings used directly
     final confirmed = await _simpleDialog(
-      title: '新增交易记录',
+      title: AdminStrings.adminAddTradeRecord,
       children: [
         TextField(
           controller: assetController,
-          decoration: const InputDecoration(labelText: '品种'),
+          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelAsset),
         ),
         TextField(
           controller: buyTimeController,
-          decoration: const InputDecoration(labelText: '买入时间(YYYY-MM-DD)'),
+          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelBuyTime),
         ),
         TextField(
           controller: buySharesController,
-          decoration: const InputDecoration(labelText: '买入数量'),
+          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelBuyShares),
         ),
         TextField(
           controller: buyPriceController,
-          decoration: const InputDecoration(labelText: '买入价'),
+          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelBuyPrice),
         ),
         TextField(
           controller: sellTimeController,
-          decoration: const InputDecoration(labelText: '卖出时间(YYYY-MM-DD)'),
+          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelSellTime),
         ),
         TextField(
           controller: sellSharesController,
-          decoration: const InputDecoration(labelText: '卖出数量'),
+          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelSellShares),
         ),
         TextField(
           controller: sellPriceController,
-          decoration: const InputDecoration(labelText: '卖出价'),
+          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelSellPrice),
         ),
         TextField(
           controller: pnlRatioController,
-          decoration: const InputDecoration(labelText: '收益率%'),
+          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelPnlRatio),
         ),
         TextField(
           controller: pnlAmountController,
-          decoration: const InputDecoration(labelText: '盈亏金额'),
+          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelPnlAmount),
         ),
       ],
     );
@@ -450,58 +459,59 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
     final pnlAmountController = TextEditingController();
     final sellTimeController = TextEditingController();
     final sellPriceController = TextEditingController();
+    // AdminStrings used directly
     final children = <Widget>[
       TextField(
         controller: assetController,
-        decoration: const InputDecoration(labelText: '品种'),
+        decoration: InputDecoration(labelText: AdminStrings.adminFormLabelAsset),
       ),
       TextField(
         controller: buyTimeController,
-        decoration: const InputDecoration(labelText: '买入时间(YYYY-MM-DD)'),
+        decoration: InputDecoration(labelText: AdminStrings.adminFormLabelBuyTime),
       ),
       TextField(
         controller: buySharesController,
-        decoration: const InputDecoration(labelText: '买入数量'),
+        decoration: InputDecoration(labelText: AdminStrings.adminFormLabelBuyShares),
       ),
       TextField(
         controller: buyPriceController,
-        decoration: const InputDecoration(labelText: '买入价'),
+        decoration: InputDecoration(labelText: AdminStrings.adminFormLabelBuyPrice),
       ),
       TextField(
         controller: costPriceController,
-        decoration: const InputDecoration(labelText: '成本价'),
+        decoration: InputDecoration(labelText: AdminStrings.adminFormLabelCostPrice),
       ),
       TextField(
         controller: currentPriceController,
-        decoration: const InputDecoration(labelText: '现价'),
+        decoration: InputDecoration(labelText: AdminStrings.adminFormLabelCurrentPrice),
       ),
       TextField(
         controller: floatingPnlController,
-        decoration: const InputDecoration(labelText: '浮动盈亏'),
+        decoration: InputDecoration(labelText: AdminStrings.adminFormLabelFloatingPnl),
       ),
       TextField(
         controller: pnlRatioController,
-        decoration: const InputDecoration(labelText: '收益率%'),
+        decoration: InputDecoration(labelText: AdminStrings.adminFormLabelPnlRatio),
       ),
       TextField(
         controller: pnlAmountController,
-        decoration: const InputDecoration(labelText: '盈亏金额'),
+        decoration: InputDecoration(labelText: AdminStrings.adminFormLabelPnlAmount),
       ),
     ];
     if (isHistory) {
       children.addAll([
         TextField(
           controller: sellTimeController,
-          decoration: const InputDecoration(labelText: '卖出时间(YYYY-MM-DD)'),
+          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelSellTimeHistory),
         ),
         TextField(
           controller: sellPriceController,
-          decoration: const InputDecoration(labelText: '卖出价格'),
+          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelSellPriceHistory),
         ),
       ]);
     }
     final confirmed = await _simpleDialog(
-      title: isHistory ? '新增历史持仓' : '新增当前持仓',
+      title: isHistory ? AdminStrings.adminAddHistoryPosition : AdminStrings.adminAddCurrentPosition,
       children: children,
     );
     if (confirmed != true) {
@@ -536,20 +546,21 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
     final userController = TextEditingController();
     final contentController = TextEditingController();
     final timeController = TextEditingController();
+    // AdminStrings used directly
     final confirmed = await _simpleDialog(
-      title: '新增评论',
+      title: AdminStrings.adminAddComment,
       children: [
         TextField(
           controller: userController,
-          decoration: const InputDecoration(labelText: '用户昵称'),
+          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelUserName),
         ),
         TextField(
           controller: contentController,
-          decoration: const InputDecoration(labelText: '内容'),
+          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelContent),
         ),
         TextField(
           controller: timeController,
-          decoration: const InputDecoration(labelText: '时间(YYYY-MM-DD)'),
+          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelTime),
         ),
       ],
     );
@@ -573,20 +584,21 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
     final titleController = TextEditingController();
     final summaryController = TextEditingController();
     final timeController = TextEditingController();
+    // AdminStrings used directly
     final confirmed = await _simpleDialog(
-      title: '新增文章',
+      title: AdminStrings.adminAddArticle,
       children: [
         TextField(
           controller: titleController,
-          decoration: const InputDecoration(labelText: '标题'),
+          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelTitle),
         ),
         TextField(
           controller: summaryController,
-          decoration: const InputDecoration(labelText: '摘要'),
+          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelSummary),
         ),
         TextField(
           controller: timeController,
-          decoration: const InputDecoration(labelText: '时间(YYYY-MM-DD)'),
+          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelTime),
         ),
       ],
     );
@@ -610,20 +622,21 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
     final titleController = TextEditingController();
     final timeController = TextEditingController();
     final locationController = TextEditingController();
+    // AdminStrings used directly
     final confirmed = await _simpleDialog(
-      title: '新增日程',
+      title: AdminStrings.adminAddSchedule,
       children: [
         TextField(
           controller: titleController,
-          decoration: const InputDecoration(labelText: '标题'),
+          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelTitle),
         ),
         TextField(
           controller: timeController,
-          decoration: const InputDecoration(labelText: '时间(YYYY-MM-DD HH:MM)'),
+          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelTimeSchedule),
         ),
         TextField(
           controller: locationController,
-          decoration: const InputDecoration(labelText: '地点'),
+          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelLocation),
         ),
       ],
     );
@@ -641,6 +654,7 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
 
   @override
   Widget build(BuildContext context) {
+    // AdminStrings used directly
     final rawItems = _rawItems;
     final filtered = _statusFilter == 'all'
         ? rawItems
@@ -658,7 +672,7 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
                     child: Row(
                       children: [
                         Text(
-                          '全部交易员',
+                          AdminStrings.adminAllTeachers,
                           style: Theme.of(context).textTheme.titleMedium?.copyWith(
                                 color: const Color(0xFFD4AF37),
                                 fontWeight: FontWeight.w600,
@@ -666,7 +680,7 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          '共 ${_rawItems.length} 人',
+                          AdminStrings.adminTeachersCount(_rawItems.length),
                           style: Theme.of(context).textTheme.bodySmall?.copyWith(
                                 color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
                               ),
@@ -675,7 +689,7 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
                         IconButton(
                           icon: const Icon(Icons.refresh),
                           onPressed: _loading ? null : _loadTeachers,
-                          tooltip: '刷新列表',
+                          tooltip: AdminStrings.adminRefreshList,
                         ),
                       ],
                     ),
@@ -683,7 +697,7 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
                   Padding(
                     padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
                     child: Text(
-                      '按状态筛选',
+                      AdminStrings.adminFilterByStatus,
                       style: Theme.of(context).textTheme.labelMedium?.copyWith(
                             color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
                           ),
@@ -697,13 +711,13 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
                         isDense: true,
                         contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       ),
-                      items: const [
-                        DropdownMenuItem(value: 'all', child: Text('全部')),
-                        DropdownMenuItem(value: 'pending', child: Text('待审核（刚刚申请）')),
-                        DropdownMenuItem(value: 'approved', child: Text('已通过')),
-                        DropdownMenuItem(value: 'rejected', child: Text('已驳回')),
-                        DropdownMenuItem(value: 'frozen', child: Text('已冻结')),
-                        DropdownMenuItem(value: 'blocked', child: Text('已封禁')),
+                      items: [
+                        DropdownMenuItem(value: 'all', child: Text(AdminStrings.adminAll)),
+                        DropdownMenuItem(value: 'pending', child: Text(AdminStrings.adminPendingJustApplied)),
+                        DropdownMenuItem(value: 'approved', child: Text(AdminStrings.adminApproved)),
+                        DropdownMenuItem(value: 'rejected', child: Text(AdminStrings.adminRejected)),
+                        DropdownMenuItem(value: 'frozen', child: Text(AdminStrings.adminFrozen)),
+                        DropdownMenuItem(value: 'blocked', child: Text(AdminStrings.adminBlocked)),
                       ],
                       onChanged: (v) {
                         if (v != null) setState(() => _statusFilter = v);
@@ -723,7 +737,7 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
                                       Icon(Icons.error_outline, size: 48, color: Theme.of(context).colorScheme.error),
                                       const SizedBox(height: 12),
                                       Text(
-                                        '加载失败',
+                                        AdminStrings.adminLoadFailed,
                                         style: Theme.of(context).textTheme.titleSmall,
                                       ),
                                       const SizedBox(height: 4),
@@ -738,7 +752,7 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
                                       FilledButton.icon(
                                         onPressed: _loadTeachers,
                                         icon: const Icon(Icons.refresh, size: 18),
-                                        label: const Text('重试'),
+                                        label: Text(AdminStrings.commonRetry),
                                       ),
                                     ],
                                   ),
@@ -758,7 +772,7 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
                                           ),
                                           const SizedBox(height: 12),
                                           Text(
-                                            _statusFilter == 'all' ? '暂无交易员数据' : '暂无符合条件的数据',
+                                            _statusFilter == 'all' ? AdminStrings.adminNoTeachersData : AdminStrings.adminNoMatchingData,
                                             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                                                   color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
                                                 ),
@@ -766,8 +780,8 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
                                           const SizedBox(height: 4),
                                           Text(
                                             _statusFilter == 'all'
-                                                ? '请确认 teacher_profiles 表已有数据'
-                                                : '可尝试切换「全部」查看',
+                                                ? AdminStrings.adminConfirmTableData
+                                                : AdminStrings.adminTrySwitchAll,
                                             style: Theme.of(context).textTheme.bodySmall?.copyWith(
                                                   color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
                                                 ),
@@ -786,7 +800,7 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
                                           ? item.displayName!
                                           : (item.realName?.trim().isNotEmpty == true
                                               ? item.realName!
-                                              : '交易员');
+                                              : AdminStrings.adminTeacherDefault);
                                       final status = item.status ?? 'pending';
                                       return ListTile(
                                         tileColor: _selectedTeacherId == item.userId
@@ -808,7 +822,7 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
             const VerticalDivider(width: 1),
             Expanded(
               child: _selectedProfile == null
-                  ? const Center(child: Text('请选择交易员'))
+                  ? Center(child: Text(AdminStrings.adminSelectTeacher))
                   : ListView(
                       padding: const EdgeInsets.all(16),
                       children: [
@@ -823,7 +837,7 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
-                              '冻结至：${_formatDate(_selectedProfile!.frozenUntil!)}',
+                              AdminStrings.adminFrozenUntilLabel(_formatDate(_selectedProfile!.frozenUntil!)),
                               style: TextStyle(color: Colors.blue.shade200),
                             ),
                           ),
@@ -840,7 +854,7 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                '操作（根据当前状态）',
+                                AdminStrings.adminActionsByStatus,
                                 style: Theme.of(context).textTheme.titleSmall?.copyWith(
                                       color: const Color(0xFFD4AF37),
                                       fontWeight: FontWeight.w600,
@@ -852,23 +866,23 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
                           ),
                         ),
                         const SizedBox(height: 16),
-                        _buildSectionTitle('基础信息'),
-                        _textField(_displayNameController, '展示名'),
-                        _textField(_realNameController, '真实姓名'),
-                        _textField(_titleController, '职位/称号'),
-                        _textField(_orgController, '机构'),
-                        _textField(_bioController, '个人简介', maxLines: 3),
-                        _textField(_tagsController, '标签(逗号分隔)'),
+                        _buildSectionTitle(AdminStrings.adminBasicInfo),
+                        _textField(_displayNameController, AdminStrings.adminDisplayName),
+                        _textField(_realNameController, AdminStrings.adminRealName),
+                        _textField(_titleController, AdminStrings.adminTitlePosition),
+                        _textField(_orgController, AdminStrings.adminOrg),
+                        _textField(_bioController, AdminStrings.adminBio, maxLines: 3),
+                        _textField(_tagsController, AdminStrings.adminTags),
                         const SizedBox(height: 16),
-                        _buildSectionTitle('审核资料（证件与资质）'),
-                        _readOnlyRow('执照/注册编号', _selectedProfile!.licenseNo),
-                        _readOnlyRow('资质/证书', _selectedProfile!.certifications),
-                        _readOnlyRow('主要市场', _selectedProfile!.markets),
-                        _readOnlyRow('交易风格', _selectedProfile!.style),
-                        _readOnlyRow('合作券商/交易平台', _selectedProfile!.broker),
-                        _readOnlyRow('国家/地区', _selectedProfile!.country),
-                        _readOnlyRow('城市', _selectedProfile!.city),
-                        _readOnlyRow('从业年限', _selectedProfile!.yearsExperience?.toString()),
+                        _buildSectionTitle(AdminStrings.adminReviewCredentials),
+                        _readOnlyRow(AdminStrings.adminLicenseNo, _selectedProfile!.licenseNo),
+                        _readOnlyRow(AdminStrings.adminCertifications, _selectedProfile!.certifications),
+                        _readOnlyRow(AdminStrings.adminMarkets, _selectedProfile!.markets),
+                        _readOnlyRow(AdminStrings.adminStyle, _selectedProfile!.style),
+                        _readOnlyRow(AdminStrings.adminBroker, _selectedProfile!.broker),
+                        _readOnlyRow(AdminStrings.adminCountry, _selectedProfile!.country),
+                        _readOnlyRow(AdminStrings.adminCity, _selectedProfile!.city),
+                        _readOnlyRow(AdminStrings.adminYearsExperience, _selectedProfile!.yearsExperience?.toString()),
                         if (_selectedProfile!.trackRecord != null &&
                             _selectedProfile!.trackRecord!.trim().isNotEmpty)
                           Padding(
@@ -876,7 +890,7 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('业绩说明',
+                                Text(AdminStrings.adminPerformanceLabel,
                                     style: Theme.of(context).textTheme.labelLarge),
                                 const SizedBox(height: 4),
                                 Text(
@@ -889,7 +903,7 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
                             ),
                           ),
                         const SizedBox(height: 8),
-                        Text('证件与资质照片',
+                        Text(AdminStrings.adminIdPhotoLabel,
                             style: Theme.of(context).textTheme.labelLarge),
                         const SizedBox(height: 8),
                         Wrap(
@@ -898,70 +912,70 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
                           children: [
                             _photoCard(
                               context,
-                              '证件照',
+                              AdminStrings.adminIdPhoto,
                               _selectedProfile!.idPhotoUrl,
                             ),
                             _photoCard(
                               context,
-                              '资质证明',
+                              AdminStrings.adminLicensePhoto,
                               _selectedProfile!.licensePhotoUrl,
                             ),
                             _photoCard(
                               context,
-                              '资质照片',
+                              AdminStrings.adminCertificationPhoto,
                               _selectedProfile!.certificationPhotoUrl,
                             ),
                           ],
                         ),
                         const SizedBox(height: 12),
-                        _buildSectionTitle('战绩与盈亏'),
-                        _textField(_winsController, '胜场'),
-                        _textField(_lossesController, '败场'),
-                        _textField(_ratingController, '评分'),
-                        _textField(_todayStrategyController, '今日策略',
+                        _buildSectionTitle(AdminStrings.adminPerformanceSection),
+                        _textField(_winsController, AdminStrings.adminWins),
+                        _textField(_lossesController, AdminStrings.adminLosses),
+                        _textField(_ratingController, AdminStrings.adminRating),
+                        _textField(_todayStrategyController, AdminStrings.adminTodayStrategy,
                             maxLines: 3),
-                        _textField(_pnlCurrentController, '本周总盈亏'),
-                        _textField(_pnlMonthController, '年度盈亏'),
-                        _textField(_pnlYearController, '总盈亏'),
-                        _textField(_pnlTotalController, '累计盈亏'),
+                        _textField(_pnlCurrentController, AdminStrings.adminPnlCurrent),
+                        _textField(_pnlMonthController, AdminStrings.adminPnlMonth),
+                        _textField(_pnlYearController, AdminStrings.adminPnlYear),
+                        _textField(_pnlTotalController, AdminStrings.adminPnlTotal),
                         const SizedBox(height: 12),
                         FilledButton(
                           onPressed: _saveProfile,
-                          child: const Text('保存资料'),
+                          child: Text(AdminStrings.adminSaveProfile),
                         ),
                         const SizedBox(height: 20),
-                        _buildSectionTitle('内容管理'),
+                        _buildSectionTitle(AdminStrings.adminContentManagement),
                         Wrap(
                           spacing: 12,
                           runSpacing: 12,
                           children: [
                             OutlinedButton(
                               onPressed: _addStrategy,
-                              child: const Text('新增策略'),
+                              child: Text(AdminStrings.adminAddStrategy),
                             ),
                             OutlinedButton(
                               onPressed: _addTradeRecord,
-                              child: const Text('新增交易记录'),
+                              child: Text(AdminStrings.adminAddTradeRecord),
                             ),
                             OutlinedButton(
                               onPressed: () => _addPosition(isHistory: false),
-                              child: const Text('新增当前持仓'),
+                              child: Text(AdminStrings.adminAddCurrentPosition),
                             ),
                             OutlinedButton(
                               onPressed: () => _addPosition(isHistory: true),
-                              child: const Text('新增历史持仓'),
+                              child: Text(AdminStrings.adminAddHistoryPosition),
                             ),
                             OutlinedButton(
                               onPressed: _addComment,
-                              child: const Text('新增评论'),
+                              child: Text(AdminStrings.adminAddComment),
                             ),
                             OutlinedButton(
                               onPressed: _addArticle,
-                              child: const Text('新增文章'),
+                              child: Text(AdminStrings.adminAddArticle),
                             ),
                             OutlinedButton(
                               onPressed: _addSchedule,
-                              child: const Text('新增日程'),
+                              child: Text(AdminStrings.adminAddSchedule),
                             ),
                           ],
                         ),
@@ -1039,9 +1053,9 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
                                     url,
                                     fit: BoxFit.contain,
                                     errorBuilder: (_, __, ___) =>
-                                        const Padding(
-                                          padding: EdgeInsets.all(24),
-                                          child: Text('加载失败'),
+                                        Padding(
+                                          padding: const EdgeInsets.all(24),
+                                          child: Text(AdminStrings.adminLoadFailed),
                                         ),
                                   ),
                                 ),
@@ -1071,8 +1085,8 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
                             const Center(child: Icon(Icons.broken_image_outlined)),
                       ),
                     )
-                  : const Center(
-                      child: Text('未上传', style: TextStyle(fontSize: 12)),
+                  : Center(
+                      child: Text(AdminStrings.adminNotUploaded, style: const TextStyle(fontSize: 12)),
                     ),
             ),
           ),
@@ -1087,6 +1101,7 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
   }
 
   Widget _buildActionButtons(BuildContext context) {
+    // AdminStrings used directly
     final raw = _selectedProfile!.status ?? 'pending';
     final status = raw.toString().trim().toLowerCase();
     if (status == 'pending') {
@@ -1094,7 +1109,7 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            '审核操作（刚刚申请）',
+            AdminStrings.adminReviewActions,
             style: Theme.of(context).textTheme.titleSmall?.copyWith(
                   color: const Color(0xFFD4AF37),
                 ),
@@ -1104,12 +1119,12 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
             children: [
               FilledButton(
                 onPressed: () => _updateStatus('approved'),
-                child: const Text('审核通过'),
+                child: Text(AdminStrings.adminApprove),
               ),
               const SizedBox(width: 10),
               OutlinedButton(
-                onPressed: () => _confirmStatus('rejected', '驳回', '确定驳回该申请？'),
-                child: const Text('驳回'),
+                onPressed: () => _confirmStatus('rejected', AdminStrings.adminReject, AdminStrings.adminConfirmReject),
+                child: Text(AdminStrings.adminReject),
               ),
             ],
           ),
@@ -1121,7 +1136,7 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            '处置',
+            AdminStrings.adminDispose,
             style: Theme.of(context).textTheme.titleSmall?.copyWith(
                   color: const Color(0xFFD4AF37),
                 ),
@@ -1136,17 +1151,17 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
                   side: BorderSide(color: Colors.blue.shade300),
                 ),
                 icon: const Icon(Icons.ac_unit, size: 18),
-                label: const Text('冻结'),
+                label: Text(AdminStrings.adminFreeze),
               ),
               const SizedBox(width: 10),
               OutlinedButton.icon(
-                onPressed: () => _confirmStatus('blocked', '封禁', '确定封禁该交易员？封禁后其主页将不在公域展示。'),
+                onPressed: () => _confirmStatus('blocked', AdminStrings.adminBan, AdminStrings.adminConfirmBlock),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: Colors.red.shade300,
                   side: BorderSide(color: Colors.red.shade300),
                 ),
                 icon: const Icon(Icons.block, size: 18),
-                label: const Text('封禁'),
+                label: Text(AdminStrings.adminBan),
               ),
             ],
           ),
@@ -1158,7 +1173,7 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            '审核操作',
+            AdminStrings.adminReviewActionsShort,
             style: Theme.of(context).textTheme.titleSmall?.copyWith(
                   color: const Color(0xFFD4AF37),
                 ),
@@ -1168,12 +1183,12 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
             children: [
               FilledButton(
                 onPressed: () => _updateStatus('approved'),
-                child: const Text('审核通过'),
+                child: Text(AdminStrings.adminApprove),
               ),
               const SizedBox(width: 10),
               OutlinedButton(
                 onPressed: () => _updateStatus('pending'),
-                child: const Text('改为待审核'),
+                child: Text(AdminStrings.adminRevertToPending),
               ),
             ],
           ),
@@ -1185,7 +1200,7 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            '处置',
+            AdminStrings.adminDispose,
             style: Theme.of(context).textTheme.titleSmall?.copyWith(
                   color: const Color(0xFFD4AF37),
                 ),
@@ -1200,7 +1215,7 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
                 foregroundColor: Colors.green.shade100,
               ),
               icon: const Icon(Icons.lock_open, size: 20),
-              label: const Text('解除冻结'),
+              label: Text(AdminStrings.adminUnfreeze),
             ),
           ),
         ],
@@ -1211,7 +1226,7 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            '处置',
+            AdminStrings.adminDispose,
             style: Theme.of(context).textTheme.titleSmall?.copyWith(
                   color: const Color(0xFFD4AF37),
                 ),
@@ -1226,7 +1241,7 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
                 foregroundColor: Colors.green.shade100,
               ),
               icon: const Icon(Icons.block, size: 20),
-              label: const Text('解除封禁'),
+              label: Text(AdminStrings.adminUnblock),
             ),
           ),
         ],
@@ -1235,14 +1250,14 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Text(
-        '未知状态: $raw，请检查数据库 status 字段是否为 pending/approved/rejected/frozen/blocked',
+        AdminStrings.adminUnknownStatus(raw),
         style: TextStyle(color: Colors.orange.shade300, fontSize: 12),
       ),
     );
   }
 
   Widget _buildCurrentStatusBar(BuildContext context, String status) {
-    final label = _statusLabel[status] ?? status;
+    final label = _getStatusLabel(context, status);
     Color bgColor;
     if (status == 'pending') bgColor = Colors.orange.shade900;
     else if (status == 'approved') bgColor = Colors.green.shade900;
@@ -1260,7 +1275,7 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
       child: Row(
         children: [
           Text(
-            '当前状态：',
+            AdminStrings.adminCurrentStatus,
             style: Theme.of(context).textTheme.labelLarge?.copyWith(
                   color: Theme.of(context).colorScheme.onSurface.withOpacity(0.8),
                 ),
@@ -1315,11 +1330,11 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('取消'),
+              child: Text(AdminStrings.commonCancel),
             ),
             FilledButton(
               onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('保存'),
+              child: Text(AdminStrings.commonSave),
             ),
           ],
         );
@@ -1350,17 +1365,18 @@ class _StatusChip extends StatelessWidget {
 
   final String status;
 
-  static const Map<String, String> _label = {
-    'pending': '待审核',
-    'approved': '已通过',
-    'rejected': '已驳回',
-    'frozen': '已冻结',
-    'blocked': '已封禁',
-  };
-
   @override
   Widget build(BuildContext context) {
-    final label = _label[status] ?? status;
+    // AdminStrings used directly
+    String label;
+    switch (status) {
+      case 'pending': label = AdminStrings.adminPending; break;
+      case 'approved': label = AdminStrings.adminApproved; break;
+      case 'rejected': label = AdminStrings.adminRejected; break;
+      case 'frozen': label = AdminStrings.adminFrozen; break;
+      case 'blocked': label = AdminStrings.adminBlocked; break;
+      default: label = status;
+    }
     Color color;
     if (status == 'pending') color = Colors.orange;
     else if (status == 'approved') color = Colors.green;

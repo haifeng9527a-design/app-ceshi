@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/models.dart';
+import '../../l10n/app_localizations.dart';
 import '../auth/login_page.dart';
 import '../teachers/teacher_repository.dart';
 
@@ -145,7 +146,7 @@ class _StrategyDialogContentState extends State<_StrategyDialogContent> {
                       child: Padding(
                         padding: const EdgeInsets.only(left: 78, bottom: 12),
                         child: Text(
-                          isExpanded ? '收起' : '展开 ${replies.length - 1} 条回复',
+                          isExpanded ? AppLocalizations.of(context)!.featuredCollapse : AppLocalizations.of(context)!.featuredExpandReplies(replies.length - 1),
                           style: TextStyle(
                             color: accent.withOpacity(0.9),
                             fontSize: 13,
@@ -209,7 +210,7 @@ class _StrategyDialogContentState extends State<_StrategyDialogContent> {
                               ),
                               const SizedBox(width: 12),
                               Text(
-                                '完整投资策略',
+                                AppLocalizations.of(context)!.strategiesFullStrategy,
                                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
                                   color: Colors.white,
                                   fontWeight: FontWeight.w600,
@@ -257,7 +258,7 @@ class _StrategyDialogContentState extends State<_StrategyDialogContent> {
                                   size: 20,
                                 ),
                                 label: Text(
-                                  showComments ? '隐藏评论' : '查看评论',
+                                  showComments ? AppLocalizations.of(context)!.featuredHideComments : AppLocalizations.of(context)!.featuredViewComments,
                                   style: TextStyle(
                                     color: accent.withOpacity(0.95),
                                     fontWeight: FontWeight.w500,
@@ -267,7 +268,7 @@ class _StrategyDialogContentState extends State<_StrategyDialogContent> {
                               ),
                               const Spacer(),
                               Text(
-                                '${merged.length}条评论',
+                                AppLocalizations.of(context)!.featuredCommentsCount(merged.length),
                                 style: TextStyle(
                                   color: Colors.white.withOpacity(0.5),
                                   fontSize: 13,
@@ -281,7 +282,7 @@ class _StrategyDialogContentState extends State<_StrategyDialogContent> {
                               child: SingleChildScrollView(
                                 padding: const EdgeInsets.only(top: 8),
                                 child: merged.isEmpty
-                                    ? const _EmptyHint(text: '暂无评论')
+                                    ? _EmptyHint(text: AppLocalizations.of(context)!.featuredNoComments)
                                     : Align(
                                         alignment: Alignment.centerLeft,
                                         widthFactor: 1,
@@ -422,7 +423,7 @@ class _CommentFormState extends State<_CommentForm> {
     if (widget.currentUserId.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('请先登录后再发表评论')),
+          SnackBar(content: Text(AppLocalizations.of(context)!.featuredLoginBeforeComment)),
         );
         Navigator.of(context).push(
           MaterialPageRoute(builder: (_) => const LoginPage()),
@@ -446,7 +447,7 @@ class _CommentFormState extends State<_CommentForm> {
       if (mounted) {
         widget.onPosted?.call(userName, content, replyTo: replyTo);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('评论已发表')),
+          SnackBar(content: Text(AppLocalizations.of(context)!.featuredCommentPublished)),
         );
       }
     } catch (e) {
@@ -454,7 +455,7 @@ class _CommentFormState extends State<_CommentForm> {
         final msg = e.toString();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('发表失败: ${msg.length > 120 ? msg.substring(0, 120) + '…' : msg}'),
+            content: Text('${AppLocalizations.of(context)!.featuredCommentPublishFailed}: ${msg.length > 120 ? msg.substring(0, 120) + '…' : msg}'),
             duration: const Duration(seconds: 5),
           ),
         );
@@ -487,7 +488,7 @@ class _CommentFormState extends State<_CommentForm> {
               style: TextStyle(color: Colors.white.withOpacity(0.9),
                   fontSize: 15),
               decoration: InputDecoration(
-                hintText: '写下你的评论…',
+                hintText: AppLocalizations.of(context)!.featuredCommentHint,
                 hintStyle: TextStyle(color: Colors.white.withOpacity(0.4)),
                 filled: true,
                 fillColor: const Color(0xFF0B0C0E),
@@ -519,7 +520,7 @@ class _CommentFormState extends State<_CommentForm> {
                 borderRadius: BorderRadius.circular(12),
               ),
             ),
-            child: Text(_submitting ? '发表中…' : '发表',
+            child: Text(_submitting ? AppLocalizations.of(context)!.featuredPublishing : AppLocalizations.of(context)!.featuredPublish,
                 style: const TextStyle(fontWeight: FontWeight.w600)),
           ),
         ],

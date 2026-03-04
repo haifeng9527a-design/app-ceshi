@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/network_error_helper.dart';
+import '../../l10n/app_localizations.dart';
 import 'chat_media_cache.dart';
 import 'chat_detail_page.dart';
 import 'friends_repository.dart';
@@ -38,7 +39,7 @@ Future<void> openUserProfile(
       MaterialPageRoute(
         builder: (_) => UserProfilePage(
           userId: userId,
-          displayName: displayName.isEmpty ? '未设置昵称' : displayName,
+          displayName: displayName.isEmpty ? AppLocalizations.of(context)!.msgNoNicknameSet : displayName,
           avatarUrl: avatarUrl,
         ),
       ),
@@ -78,9 +79,9 @@ class UserProfilePage extends StatelessWidget {
           icon: const Icon(Icons.arrow_back_ios_new, color: _accent, size: 20),
           onPressed: () => Navigator.of(context).pop(),
         ),
-        title: const Text(
-          '个人资料',
-          style: TextStyle(color: _accent, fontWeight: FontWeight.w600),
+        title: Text(
+          AppLocalizations.of(context)!.profilePersonalInfo,
+          style: const TextStyle(color: _accent, fontWeight: FontWeight.w600),
         ),
         centerTitle: true,
       ),
@@ -100,6 +101,8 @@ class UserProfilePage extends StatelessWidget {
                         width: 96,
                         height: 96,
                         fit: BoxFit.cover,
+                        fadeInDuration: Duration.zero,
+                        fadeOutDuration: Duration.zero,
                         placeholder: (_, __) => Center(
                           child: Text(
                             displayName.isEmpty ? '?' : displayName[0],
@@ -133,7 +136,7 @@ class UserProfilePage extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             Text(
-              displayName.isEmpty ? '未设置昵称' : displayName,
+              displayName.isEmpty ? AppLocalizations.of(context)!.msgNoNicknameSet : displayName,
               style: const TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.w600,
@@ -142,7 +145,7 @@ class UserProfilePage extends StatelessWidget {
             ),
             if (isSelf) ...[
               const SizedBox(height: 24),
-              const Text('这是你自己', style: TextStyle(color: _muted)),
+              Text(AppLocalizations.of(context)!.profileItsYou, style: const TextStyle(color: _muted)),
             ] else ...[
               const SizedBox(height: 32),
               FutureBuilder<bool>(
@@ -163,9 +166,9 @@ class UserProfilePage extends StatelessWidget {
                                 borderRadius: BorderRadius.circular(12),
                               ),
                             ),
-                            child: const Text(
-                              '发消息',
-                              style: TextStyle(
+                            child: Text(
+                              AppLocalizations.of(context)!.msgSendMessage,
+                              style: const TextStyle(
                                 fontWeight: FontWeight.w600,
                                 fontSize: 16,
                               ),
@@ -181,9 +184,9 @@ class UserProfilePage extends StatelessWidget {
                                 borderRadius: BorderRadius.circular(12),
                               ),
                             ),
-                            child: const Text(
-                              '加好友',
-                              style: TextStyle(
+                            child: Text(
+                              AppLocalizations.of(context)!.msgAddFriend,
+                              style: const TextStyle(
                                 fontWeight: FontWeight.w600,
                                 fontSize: 16,
                               ),
@@ -205,19 +208,19 @@ class UserProfilePage extends StatelessWidget {
     try {
       await repo.sendFriendRequest(requesterId: currentUserId, receiverId: userId);
       if (context.mounted) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(const SnackBar(content: Text('已发送好友申请')));
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(AppLocalizations.of(context)!.msgFriendRequestSent)));
       }
     } catch (e) {
       if (context.mounted) {
         final msg = e.toString();
         String displayMsg;
         if (msg.contains('already_friends')) {
-          displayMsg = '你们已是好友';
+          displayMsg = AppLocalizations.of(context)!.msgAlreadyFriends;
         } else if (msg.contains('already_pending')) {
-          displayMsg = '已发送过申请，请等待对方处理';
+          displayMsg = AppLocalizations.of(context)!.msgAlreadyPending;
         } else {
-          debugPrint('加好友失败: $e');
-          displayMsg = NetworkErrorHelper.messageForUser(e, prefix: '操作失败');
+          debugPrint('${AppLocalizations.of(context)!.msgAddFriendFailed}: $e');
+          displayMsg = NetworkErrorHelper.messageForUser(e, prefix: AppLocalizations.of(context)!.msgOperationFailed, l10n: AppLocalizations.of(context));
         }
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(displayMsg)));
       }
@@ -249,7 +252,7 @@ class UserProfilePage extends StatelessWidget {
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          SnackBar(content: Text(NetworkErrorHelper.messageForUser(e, prefix: '打开会话失败'))),
+          SnackBar(content: Text(NetworkErrorHelper.messageForUser(e, prefix: AppLocalizations.of(context)!.msgOpenChatFailedPrefix, l10n: AppLocalizations.of(context)))),
         );
       }
     }

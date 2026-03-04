@@ -1,6 +1,7 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 
+import '../../../l10n/app_localizations.dart';
 import '../../trading/polygon_repository.dart';
 import 'chart_theme.dart';
 
@@ -227,13 +228,13 @@ class IntradayChart extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (candles.isEmpty) {
-      return Center(child: Text('暂无图表数据', style: TextStyle(color: ChartTheme.textSecondary)));
+      return Center(child: Text(AppLocalizations.of(context)!.chartNoIntradayData, style: TextStyle(color: ChartTheme.textSecondary)));
     }
     final axisStyle = TextStyle(color: ChartTheme.textSecondary, fontSize: ChartTheme.fontSizeAxis, fontFamily: ChartTheme.fontMono);
     final basePrice = prevClose ?? candles.first.open;
 
-    // 仅 1m 按“当日交易时段”展示（9:30-16:00）；2d/3d/4d 为多日连续分时
-    bool useSessionMode = periodLabel == '1m';
+    // 1m/5m/15m/30m 按“当日交易时段”展示（9:30-16:00），右侧预留空白；2d/3d/4d 为多日连续分时
+    bool useSessionMode = ['1m', '5m', '15m', '30m'].contains(periodLabel);
     double sessionStartSec = 0, sessionEndSec = 0, sessionLen = 0, dataEndX = 1.0;
     List<ChartCandle> plotCandles = candles;
     if (useSessionMode && candles.isNotEmpty) {
@@ -294,26 +295,24 @@ class IntradayChart extends StatelessWidget {
     double maxXComputed = 0;
 
     if (useSessionMode && sessionLen > 0 && plotCandles.isNotEmpty) {
-      // 使用实际数据时间范围映射，避免左侧大片空白（部分股票开盘后很久才有成交）
-      final dataStartSec = plotCandles.first.time;
-      final dataEndSec = plotCandles.last.time;
-      final dataLen = (dataEndSec - dataStartSec).clamp(60.0, double.infinity);
+      // 按会话时间(9:30-16:00)映射 X，数据只占 0～dataEndX，右侧预留空白（与主流看盘软件一致）
+      final lastTime = plotCandles.last.time;
+      dataEndX = ((lastTime - sessionStartSec) / sessionLen).clamp(0.0, 1.0);
       for (var i = 0; i < plotCandles.length; i++) {
         final c = plotCandles[i];
-        final x = ((c.time - dataStartSec) / dataLen).clamp(0.0, 1.0);
+        final x = ((c.time - sessionStartSec) / sessionLen).clamp(0.0, 1.0);
         spots.add(FlSpot(x, plotCloses[i]));
       }
-      dataEndX = 1.0;
       if (currentPrice != null) {
         final cp = currentPrice!;
         final lastPlot = plotCloses.isNotEmpty ? plotCloses.last : cp;
         final sanePrice = (plotCloses.length >= 10 && basePrice > 0)
             ? (cp < yFloor || cp > yCeil ? lastPlot : cp)
             : cp;
-        spots.add(FlSpot(1.0, sanePrice));
+        spots.add(FlSpot(dataEndX.clamp(0.0, 1.0), sanePrice));
       }
       maxXComputed = 1.0;
-      spotXFractionsComputed = plotCandles.map((c) => ((c.time - dataStartSec) / dataLen).clamp(0.0, 1.0)).toList();
+      spotXFractionsComputed = plotCandles.map((c) => ((c.time - sessionStartSec) / sessionLen).clamp(0.0, 1.0)).toList();
     } else if (useEqualDayWidth) {
       for (var i = 0; i < plotCandles.length; i++) {
         var d = 0;
@@ -388,11 +387,8 @@ class IntradayChart extends StatelessWidget {
         sumVw += c.close * v;
         final avg = sumV > 0 ? sumVw / sumV : (sumVw / (i + 1));
         double x;
-        if (useSessionMode && plotCandles.isNotEmpty) {
-          final dataStartSec = plotCandles.first.time;
-          final dataEndSec = plotCandles.last.time;
-          final dataLen = (dataEndSec - dataStartSec).clamp(60.0, double.infinity);
-          x = ((c.time - dataStartSec) / dataLen).clamp(0.0, 1.0);
+        if (useSessionMode && plotCandles.isNotEmpty && sessionLen > 0) {
+          x = ((c.time - sessionStartSec) / sessionLen).clamp(0.0, 1.0);
         } else if (useEqualDayWidth) {
           var d = 0;
           for (; d < dayRanges.length; d++) {
@@ -687,7 +683,8 @@ class IntradayChart extends StatelessWidget {
                       child: LayoutBuilder(
                         builder: (context, constraints) {
                           if (useSessionMode && sessionLen > 0 && plotCandles.isNotEmpty) {
-                            final ticks = _buildCompactSessionTimeAxisTicks(plotCandles.first.time, plotCandles.last.time);
+                            // 固定会话刻度：MM/dd、09:30、10:30、11:30、13:00、14:00、15:00、16:00，右侧预留空白
+                            final ticks = _buildSessionTimeAxisTicks(sessionStartSec, sessionEndSec, dataEndX);
                             if (ticks.isEmpty) return const SizedBox.shrink();
                             const labelW = 56.0;
                             return Stack(

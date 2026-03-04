@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../trading/fills_and_positions_tab.dart';
 import '../trading/market_trade_tab.dart';
 import '../trading/order_history_tab.dart';
@@ -129,7 +130,7 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
     }
     if (!_applicationAck) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请确认已阅读风险提示')),
+        SnackBar(content: Text(AppLocalizations.of(context)!.teachersConfirmRiskAck)),
       );
       return;
     }
@@ -170,13 +171,13 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
       await _repository.upsertProfile(profile);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('资料已提交')),
+        SnackBar(content: Text(AppLocalizations.of(context)!.teachersProfileSubmitted)),
       );
       await _loadProfile();
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('保存失败：$error')),
+        SnackBar(content: Text('${AppLocalizations.of(context)!.teachersSaveFailed}：$error')),
       );
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -209,12 +210,12 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
       if (!mounted) return;
       onUploaded(url);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('资料照片已上传')),
+        SnackBar(content: Text(AppLocalizations.of(context)!.teachersPhotoUploaded)),
       );
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('上传失败：$error')),
+        SnackBar(content: Text('${AppLocalizations.of(context)!.teachersUploadFailed}：$error')),
       );
     }
   }
@@ -237,27 +238,28 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
             ),
           ),
           child: AlertDialog(
-            title: const Text('发布策略', style: TextStyle(color: Colors.white)),
+            title: Text(AppLocalizations.of(dialogContext)!.teachersPublishStrategy, style: const TextStyle(color: Colors.white)),
             content: SingleChildScrollView(
               child: StatefulBuilder(
                 builder: (context, setDialogState) {
+                  final l10n = AppLocalizations.of(dialogContext)!;
                   return Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       TextField(
                         controller: titleController,
-                        decoration: const InputDecoration(
-                          labelText: '标题',
-                          labelStyle: TextStyle(color: Color(0xFF6C6F77)),
+                        decoration: InputDecoration(
+                          labelText: l10n.teachersTitleLabel,
+                          labelStyle: const TextStyle(color: Color(0xFF6C6F77)),
                         ),
                         style: const TextStyle(color: Colors.white),
                       ),
                       TextField(
                         controller: contentController,
-                        decoration: const InputDecoration(
-                          labelText: '策略内容',
-                          labelStyle: TextStyle(color: Color(0xFF6C6F77)),
+                        decoration: InputDecoration(
+                          labelText: l10n.teachersStrategyContent,
+                          labelStyle: const TextStyle(color: Color(0xFF6C6F77)),
                         ),
                         style: const TextStyle(color: Colors.white),
                         maxLines: 4,
@@ -266,7 +268,7 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
                       Row(
                         children: [
                           Text(
-                            '配图',
+                            l10n.teachersStrategyImage,
                             style: TextStyle(
                               color: Colors.white.withOpacity(0.7),
                               fontSize: 12,
@@ -284,7 +286,7 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
                               }
                             },
                             icon: const Icon(Icons.add_photo_alternate, size: 20, color: _accent),
-                            label: const Text('添加图片', style: TextStyle(color: _accent)),
+                            label: Text(l10n.teachersAddImage, style: const TextStyle(color: _accent)),
                           ),
                         ],
                       ),
@@ -348,14 +350,14 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(dialogContext).pop(null),
-                child: const Text('取消'),
+                child: Text(AppLocalizations.of(dialogContext)!.commonCancel),
               ),
               FilledButton(
                 onPressed: () {
                   final title = titleController.text.trim();
                   if (title.isEmpty) {
                     ScaffoldMessenger.of(dialogContext).showSnackBar(
-                      const SnackBar(content: Text('请填写策略标题')),
+                      SnackBar(content: Text(AppLocalizations.of(dialogContext)!.teachersFillStrategyTitle)),
                     );
                     return;
                   }
@@ -365,7 +367,7 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
                     List<XFile>.from(dialogImages),
                   ));
                 },
-                child: const Text('发布'),
+                child: Text(AppLocalizations.of(dialogContext)!.teachersPublish),
               ),
             ],
           ),
@@ -379,7 +381,7 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
     if (userId.isEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请先登录')),
+        SnackBar(content: Text(AppLocalizations.of(context)!.teachersPleaseLoginFirst)),
       );
       return;
     }
@@ -406,12 +408,12 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('策略已发布，将显示在关注页「今日交易策略」')),
+        SnackBar(content: Text(AppLocalizations.of(context)!.teachersStrategyPublished)),
       );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('发布失败：$e')),
+        SnackBar(content: Text('${AppLocalizations.of(context)!.teachersPublishFailed}：$e')),
       );
     }
   }
@@ -437,21 +439,21 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              title: const Text('上传交易记录'),
+              title: Text(AppLocalizations.of(context)!.teachersUploadRecord),
               content: SingleChildScrollView(
                 child: Column(
                   children: [
                     TextField(
                       controller: symbolController,
-                      decoration: const InputDecoration(labelText: '品种'),
+                      decoration: InputDecoration(labelText: AppLocalizations.of(context)!.teachersTradeRecordSymbol),
                     ),
                     TextField(
                       controller: sideController,
-                      decoration: const InputDecoration(labelText: '方向（买/卖）'),
+                      decoration: InputDecoration(labelText: AppLocalizations.of(context)!.teachersTradeRecordSide),
                     ),
                     TextField(
                       controller: pnlController,
-                      decoration: const InputDecoration(labelText: '盈亏'),
+                      decoration: InputDecoration(labelText: AppLocalizations.of(context)!.teachersTradeRecordPnl),
                       keyboardType: TextInputType.number,
                     ),
                     const SizedBox(height: 12),
@@ -460,7 +462,7 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
                         Expanded(
                           child: Text(
                             selectedFile == null
-                                ? '未选择截图'
+                                ? AppLocalizations.of(context)!.teachersNoScreenshotSelected
                                 : selectedFile!.name,
                             style: const TextStyle(
                               fontSize: 12,
@@ -482,7 +484,7 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
                               selectedFile = picked;
                             });
                           },
-                          child: const Text('选择截图'),
+                          child: Text(AppLocalizations.of(context)!.teachersSelectScreenshot),
                         ),
                       ],
                     ),
@@ -491,12 +493,12 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
               ),
               actions: [
                 TextButton(
-                  onPressed: () => Navigator.of(context).pop(false),
-                  child: const Text('取消'),
-                ),
-                FilledButton(
-                  onPressed: () => Navigator.of(context).pop(true),
-                  child: const Text('保存'),
+                onPressed: () => Navigator.of(context).pop(false),
+                child: Text(AppLocalizations.of(context)!.commonCancel),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: Text(AppLocalizations.of(context)!.commonSave),
                 ),
               ],
             );
@@ -537,12 +539,12 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('交易记录已保存')),
+        SnackBar(content: Text(AppLocalizations.of(context)!.teachersRecordSaved)),
       );
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('保存失败：$error')),
+        SnackBar(content: Text('${AppLocalizations.of(context)!.teachersSaveFailed}：$error')),
       );
     }
     symbolController.dispose();
@@ -627,25 +629,26 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
+    final l10n = AppLocalizations.of(context)!;
     if (user == null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('交易员中心')),
-        body: const Center(child: Text('请先登录')),
+        appBar: AppBar(title: Text(l10n.teachersTeacherCenter)),
+        body: Center(child: Text(l10n.teachersPleaseLoginFirst)),
       );
     }
     return Scaffold(
       appBar: AppBar(
-        title: const Text('交易员中心'),
+        title: Text(l10n.teachersTeacherCenter),
         bottom: (_isApproved && _tabController != null)
             ? TabBar(
                 controller: _tabController!,
                 isScrollable: true,
-                tabs: const [
-                  Tab(text: '策略'),
-                  Tab(text: '行情与交易'),
-                  Tab(text: '委托'),
-                  Tab(text: '历史委托'),
-                  Tab(text: '成交与持仓'),
+                tabs: [
+                  Tab(text: l10n.teachersStrategyTab),
+                  Tab(text: l10n.teachersQuoteAndTradeTab),
+                  Tab(text: l10n.teachersOrderTab),
+                  Tab(text: l10n.teachersHistoryOrderTab),
+                  Tab(text: l10n.teachersFillsAndPositionsTab),
                 ],
               )
             : null,
@@ -667,11 +670,12 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
 
   Widget _buildProfileTab() {
     final user = FirebaseAuth.instance.currentUser;
+    final l10n = AppLocalizations.of(context)!;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
         if (!_isApproved) _buildStatusBanner(),
-        _sectionCard('基本信息', [
+        _sectionCard(l10n.teachersBasicInfo, [
           Row(
             children: [
               CircleAvatar(
@@ -692,12 +696,12 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
                     Text(
                       user?.displayName?.trim().isNotEmpty == true
                           ? user!.displayName!.trim()
-                          : '未设置昵称',
+                          : l10n.teachersNoNicknameSet,
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                     const SizedBox(height: 4),
-                    const Text(
-                      '头像/昵称与账号资料保持一致',
+                    Text(
+                      l10n.teachersAvatarNicknameHint,
                       style: TextStyle(fontSize: 12, color: _muted),
                     ),
                   ],
@@ -708,79 +712,74 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
           const SizedBox(height: 16),
           TextField(
             controller: _realNameController,
-            decoration: const InputDecoration(labelText: '真实姓名（必填）'),
+            decoration: InputDecoration(labelText: l10n.teachersRealNameRequired),
           ),
           TextField(
             controller: _titleController,
-            decoration: const InputDecoration(labelText: '专业职称/头衔'),
+            decoration: InputDecoration(labelText: l10n.teachersProfessionalTitle),
           ),
           TextField(
             controller: _orgController,
-            decoration: const InputDecoration(labelText: '所在机构/公司'),
+            decoration: InputDecoration(labelText: l10n.teachersOrgCompany),
           ),
           DropdownButtonFormField<String>(
             value: _countryValue,
-            decoration: const InputDecoration(labelText: '国家/地区'),
-            items: const [
-              '美国', '中国', '中国香港', '新加坡', '英国', '加拿大',
-              '澳大利亚', '日本', '韩国', '德国', '法国', '阿联酋', '其他',
-            ]
-                .map((item) => DropdownMenuItem(value: item, child: Text(item)))
-                .toList(),
+            decoration: InputDecoration(labelText: l10n.teachersCountryRegion),
+            items: l10n.teachersCountryOptions.split(', ').map((item) => DropdownMenuItem(value: item.trim(), child: Text(item.trim()))).toList(),
             onChanged: (value) => setState(() => _countryValue = value),
           ),
           TextField(
             controller: _cityController,
-            decoration: const InputDecoration(labelText: '城市'),
+            decoration: InputDecoration(labelText: l10n.teachersCityLabel),
           ),
           DropdownButtonFormField<int>(
             value: _yearsValue,
-            decoration: const InputDecoration(labelText: '从业年限'),
+            decoration: InputDecoration(labelText: l10n.teachersYearsExperience),
             items: List.generate(21, (index) => index)
                 .where((item) => item > 0)
                 .map(
                   (item) => DropdownMenuItem(
                     value: item,
-                    child: Text(item == 20 ? '20 年以上' : '$item 年'),
+                    child: Text(item == 20 ? l10n.teachersYearsAbove20 : l10n.teachersYearsFormat(item)),
                   ),
                 )
                 .toList(),
             onChanged: (value) => setState(() => _yearsValue = value),
           ),
         ]),
-        _sectionCard('交易背景', [
+        _sectionCard(l10n.teachersTradingBackground, [
           TextField(
             controller: _marketsController,
-            decoration: const InputDecoration(
-              labelText: '主要市场（股票/期权/期货/外汇/加密）',
+            decoration: InputDecoration(
+              labelText: l10n.teachersMainMarketLabel,
             ),
           ),
           TextField(
             controller: _instrumentsController,
-            decoration: const InputDecoration(
-              labelText: '主要交易品种/行业',
+            decoration: InputDecoration(
+              labelText: l10n.teachersMainVariety,
             ),
           ),
           TextField(
             controller: _styleController,
-            decoration: const InputDecoration(labelText: '交易风格'),
+            decoration: InputDecoration(labelText: l10n.teachersTradingStyle),
           ),
           TextField(
             controller: _riskController,
-            decoration: const InputDecoration(labelText: '风险偏好'),
+            decoration: InputDecoration(labelText: l10n.teachersRiskPreference),
           ),
           TextField(
             controller: _specialtiesController,
-            decoration: const InputDecoration(
-              labelText: '擅长品种（逗号分隔）',
+            decoration: InputDecoration(
+              labelText: l10n.teachersExpertiseVariety,
             ),
           ),
         ]),
-        _sectionCard('资质与合规（可选）', [
+        _sectionCard(l10n.teachersQualificationCompliance, [
           TextField(
             controller: _certificationsController,
-            decoration: const InputDecoration(
-              labelText: '资质/证书（如 CFA/Series 7/Series 65）',
+            decoration: InputDecoration(
+              labelText: l10n.teachersQualificationCert,
             ),
           ),
           const SizedBox(height: 12),
@@ -797,7 +796,7 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
                     },
                   ),
                   icon: const Icon(Icons.photo_library_outlined),
-                  label: const Text('上传资质照片'),
+                  label: Text(AppLocalizations.of(context)!.teachersUploadQualification),
                 ),
               ),
             ],
@@ -805,32 +804,32 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
           const SizedBox(height: 12),
           TextField(
             controller: _licenseController,
-            decoration: const InputDecoration(labelText: '执照/注册编号'),
+            decoration: InputDecoration(labelText: l10n.teachersLicenseNoLabel),
           ),
           TextField(
             controller: _brokerController,
-            decoration: const InputDecoration(labelText: '合作券商/交易平台'),
+            decoration: InputDecoration(labelText: l10n.teachersBrokerLabel),
           ),
         ]),
-        _sectionCard('业绩与简介', [
+        _sectionCard(l10n.teachersPerformanceIntro, [
           TextField(
             controller: _trackRecordController,
-            decoration: const InputDecoration(
-              labelText: '业绩说明（如近一年收益/最大回撤）',
+            decoration: InputDecoration(
+              labelText: l10n.teachersPerformanceLabel,
             ),
             maxLines: 3,
           ),
           const SizedBox(height: 12),
           TextField(
             controller: _bioController,
-            decoration: const InputDecoration(labelText: '个人简介'),
+            decoration: InputDecoration(labelText: l10n.teachersPersonalIntro),
             maxLines: 3,
           ),
         ]),
-        _sectionCard('身份核验（建议上传）', [
+        _sectionCard(l10n.teachersIdVerification, [
           Row(
             children: [
-              _buildVerifyThumb(_idPhotoUrl, '证件照'),
+              _buildVerifyThumb(_idPhotoUrl, l10n.teachersUploadIdPhoto),
               const SizedBox(width: 12),
               Expanded(
                 child: OutlinedButton.icon(
@@ -839,7 +838,7 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
                     onUploaded: (url) => setState(() => _idPhotoUrl = url),
                   ),
                   icon: const Icon(Icons.badge_outlined),
-                  label: const Text('上传证件照'),
+                  label: Text(AppLocalizations.of(context)!.teachersUploadIdPhoto),
                 ),
               ),
             ],
@@ -847,7 +846,7 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
           const SizedBox(height: 12),
           Row(
             children: [
-              _buildVerifyThumb(_licensePhotoUrl, '资质证明'),
+              _buildVerifyThumb(_licensePhotoUrl, l10n.teachersUploadCertification),
               const SizedBox(width: 12),
               Expanded(
                 child: OutlinedButton.icon(
@@ -857,7 +856,7 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
                         setState(() => _licensePhotoUrl = url),
                   ),
                   icon: const Icon(Icons.verified_outlined),
-                  label: const Text('上传资质证明'),
+                  label: Text(AppLocalizations.of(context)!.teachersUploadCertification),
                 ),
               ),
             ],
@@ -876,7 +875,7 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
                   value: _applicationAck,
                   onChanged: (value) =>
                       setState(() => _applicationAck = value),
-                  title: const Text('我已阅读并同意风险提示'),
+                  title: Text(AppLocalizations.of(context)!.teachersRiskAckTitle),
                 ),
                 const SizedBox(height: 12),
                 FilledButton(
@@ -907,7 +906,7 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
                       ),
                     );
                   },
-                  child: const Text('预览主页'),
+                  child: Text(AppLocalizations.of(context)!.teachersPreviewHomepage),
                 ),
               ],
             ),
@@ -994,14 +993,14 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
               alignment: Alignment.centerRight,
               child: FilledButton(
                 onPressed: _addStrategyDialog,
-                child: const Text('发布策略'),
+                child: Text(AppLocalizations.of(context)!.teachersPublishStrategy),
               ),
             ),
             const SizedBox(height: 12),
             if (items.isEmpty)
-              const Text(
-                '暂无策略',
-                style: TextStyle(color: Color(0xFF6C6F77)),
+              Text(
+                AppLocalizations.of(context)!.teachersNoStrategy,
+                style: const TextStyle(color: Color(0xFF6C6F77)),
               )
             else
               ...items.map(
@@ -1063,18 +1062,19 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
                       },
                       itemBuilder: (context) {
                         final items = <PopupMenuEntry<String>>[];
+                        final l10n = AppLocalizations.of(context)!;
                         if (item.status == 'published') {
                           items.add(
-                            const PopupMenuItem(
+                            PopupMenuItem(
                               value: 'draft',
-                              child: Text('下架'),
+                              child: Text(l10n.teachersOffline),
                             ),
                           );
                         } else {
                           items.add(
-                            const PopupMenuItem(
+                            PopupMenuItem(
                               value: 'published',
-                              child: Text('上架'),
+                              child: Text(l10n.teachersOnline),
                             ),
                           );
                         }
@@ -1097,10 +1097,11 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
 
   Widget _buildRecordsTab(String userId) {
     if (_statusLabel != 'approved') {
+      final l10n = AppLocalizations.of(context)!;
       final status = _statusLabel.toString().trim().toLowerCase();
       final hint = (status == 'frozen' || status == 'blocked')
-          ? '您当前处于${status == 'frozen' ? '冻结' : '封禁'}状态，无法上传交易记录'
-          : '审核通过后开放交易记录上传';
+          ? l10n.teachersFrozenOrBlocked(status == 'frozen' ? l10n.teachersFrozen : l10n.teachersBlocked)
+          : l10n.teachersReviewRequired;
       return ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -1122,14 +1123,14 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
               alignment: Alignment.centerRight,
               child: FilledButton(
                 onPressed: _addTradeRecordDialog,
-                child: const Text('上传记录'),
+                child: Text(AppLocalizations.of(context)!.teachersUploadRecord),
               ),
             ),
             const SizedBox(height: 12),
             if (items.isEmpty)
-              const Text(
-                '暂无交易记录',
-                style: TextStyle(color: Color(0xFF6C6F77)),
+              Text(
+                AppLocalizations.of(context)!.teachersNoRecord,
+                style: const TextStyle(color: Color(0xFF6C6F77)),
               )
             else
               ...items.map(

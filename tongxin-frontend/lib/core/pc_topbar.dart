@@ -1,17 +1,18 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/app_localizations.dart';
 import 'pc_dashboard_theme.dart';
 
 /// 简洁顶栏：页面标题 + 搜索 + 通知 + 头像
 class PcTopbar extends StatelessWidget {
   const PcTopbar({
     super.key,
-    this.pageTitle = '首页',
+    this.pageTitle,
     this.unreadCount = 0,
     this.userAvatarUrl,
   });
 
-  final String pageTitle;
+  final String? pageTitle;
   final int unreadCount;
   final String? userAvatarUrl;
 
@@ -30,7 +31,7 @@ class PcTopbar extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Text(
-            pageTitle,
+            pageTitle ?? AppLocalizations.of(context)!.pcHome,
             style: PcDashboardTheme.titleMedium.copyWith(color: PcDashboardTheme.text),
           ),
           const SizedBox(width: 24),
@@ -40,7 +41,7 @@ class PcTopbar extends StatelessWidget {
           const SizedBox(width: 16),
           _IconBtn(
             icon: Icons.notifications_outlined,
-            tooltip: '通知',
+            tooltip: AppLocalizations.of(context)!.pcNotify,
             badge: unreadCount > 0 ? (unreadCount > 99 ? '99+' : '$unreadCount') : null,
             onTap: () {},
           ),
@@ -61,7 +62,7 @@ class _SearchField extends StatelessWidget {
         constraints: const BoxConstraints(maxWidth: 320),
         child: TextField(
           decoration: PcDashboardTheme.inputDecoration(
-            hintText: '搜索…',
+            hintText: AppLocalizations.of(context)!.pcSearchHint,
             prefixIcon: Icon(Icons.search_rounded, size: 20, color: PcDashboardTheme.textMuted),
           ),
           style: PcDashboardTheme.bodyMedium.copyWith(color: PcDashboardTheme.text),

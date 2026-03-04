@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../core/network_error_helper.dart';
 import '../../core/pc_dashboard_theme.dart';
 import 'chat_detail_page.dart';
@@ -38,7 +39,7 @@ class _SystemNotificationsPageState extends State<SystemNotificationsPage> {
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('已通过，已添加为好友')),
+        SnackBar(content: Text(AppLocalizations.of(context)!.msgFriendRequestAccepted)),
       );
       // 立即跳转到和该好友的聊天窗口
       final repo = MessagesRepository();
@@ -50,7 +51,7 @@ class _SystemNotificationsPageState extends State<SystemNotificationsPage> {
       if (!mounted) return;
       if (conversation.isGroup) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('打开私聊失败，请从消息列表进入')),
+          SnackBar(content: Text(AppLocalizations.of(context)!.msgOpenChatFromList)),
         );
         return;
       }
@@ -66,7 +67,7 @@ class _SystemNotificationsPageState extends State<SystemNotificationsPage> {
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(NetworkErrorHelper.messageForUser(error, prefix: '通过失败'))),
+        SnackBar(content: Text(NetworkErrorHelper.messageForUser(error, prefix: AppLocalizations.of(context)!.msgAcceptFailed, l10n: AppLocalizations.of(context)))),
       );
     } finally {
       if (mounted) {
@@ -82,7 +83,7 @@ class _SystemNotificationsPageState extends State<SystemNotificationsPage> {
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(NetworkErrorHelper.messageForUser(error, prefix: '拒绝失败'))),
+        SnackBar(content: Text(NetworkErrorHelper.messageForUser(error, prefix: AppLocalizations.of(context)!.msgRejectFailed, l10n: AppLocalizations.of(context)))),
       );
     } finally {
       if (mounted) {
@@ -108,14 +109,14 @@ class _SystemNotificationsPageState extends State<SystemNotificationsPage> {
     return Scaffold(
       backgroundColor: PcDashboardTheme.surface,
       appBar: AppBar(
-        title: Text('系统消息', style: PcDashboardTheme.titleMedium),
+        title: Text(AppLocalizations.of(context)!.messagesSystemNotifications, style: PcDashboardTheme.titleMedium),
         backgroundColor: PcDashboardTheme.surfaceVariant,
         foregroundColor: PcDashboardTheme.text,
         elevation: 0,
         scrolledUnderElevation: 0,
       ),
       body: userId.isEmpty
-          ? Center(child: Text('请先登录', style: PcDashboardTheme.bodyLarge))
+          ? Center(child: Text(AppLocalizations.of(context)!.teachersPleaseLoginFirst, style: PcDashboardTheme.bodyLarge))
           : StreamBuilder<List<FriendRequestItem>>(
               stream: _friendsRepository.watchAllFriendRequestRecords(userId: userId),
               builder: (context, snapshot) {
@@ -134,13 +135,13 @@ class _SystemNotificationsPageState extends State<SystemNotificationsPage> {
                           ),
                           const SizedBox(height: 20),
                           Text(
-                            '好友申请、通过/拒绝记录会显示在这里',
+                            AppLocalizations.of(context)!.msgSystemNotificationsEmptyHint,
                             style: PcDashboardTheme.bodyLarge,
                             textAlign: TextAlign.center,
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            '暂无系统消息',
+                            AppLocalizations.of(context)!.msgNoSystemNotifications,
                             style: PcDashboardTheme.bodySmall,
                           ),
                         ],
@@ -155,24 +156,25 @@ class _SystemNotificationsPageState extends State<SystemNotificationsPage> {
                   itemBuilder: (context, index) {
                     final item = items[index];
                     final busy = _isBusy(item.requestId);
+                    final l10n = AppLocalizations.of(context)!;
                     final idLabel = item.otherShortId?.trim().isNotEmpty == true
-                        ? '账号ID ${item.otherShortId!.trim()}'
-                        : '账号ID —';
+                        ? l10n.profileAccountIdValue(item.otherShortId!.trim())
+                        : l10n.profileAccountIdDash;
                     String statusLabel;
                     if (item.isOutgoing) {
                       statusLabel = item.isPending
-                          ? '待对方处理'
-                          : (item.isAccepted ? '已通过' : '已拒绝');
+                          ? l10n.msgPendingOther
+                          : (item.isAccepted ? l10n.msgAccepted : l10n.msgRejected);
                     } else {
                       statusLabel = item.isPending
-                          ? '请求添加你为好友'
-                          : (item.isAccepted ? '已通过' : '已拒绝');
+                          ? l10n.msgRequestAddYou
+                          : (item.isAccepted ? l10n.msgAccepted : l10n.msgRejected);
                     }
                     final showActions =
                         !item.isOutgoing && item.isPending;
                     final avatarUrl = item.otherAvatar?.trim() ?? '';
                     final initial = item.otherDisplayName.isEmpty
-                        ? '用'
+                        ? (AppLocalizations.of(context)!.commonUser.isNotEmpty ? AppLocalizations.of(context)!.commonUser[0] : '?')
                         : item.otherDisplayName[0];
                     return Container(
                       decoration: PcDashboardTheme.cardDecoration(),
@@ -193,6 +195,8 @@ class _SystemNotificationsPageState extends State<SystemNotificationsPage> {
                                       width: 48,
                                       height: 48,
                                       fit: BoxFit.cover,
+                                      fadeInDuration: Duration.zero,
+                                      fadeOutDuration: Duration.zero,
                                       placeholder: (_, __) => Center(
                                         child: Text(
                                           initial,
@@ -233,7 +237,7 @@ class _SystemNotificationsPageState extends State<SystemNotificationsPage> {
                                 if (item.isOutgoing) ...[
                                   const SizedBox(height: 2),
                                   Text(
-                                    '你请求添加 Ta 为好友',
+                                    l10n.msgYouRequestAddFriend,
                                     style: PcDashboardTheme.bodySmall,
                                   ),
                                 ],
@@ -265,7 +269,7 @@ class _SystemNotificationsPageState extends State<SystemNotificationsPage> {
                                       ? null
                                       : () => _rejectRequest(item),
                                   child: Text(
-                                    '拒绝',
+                                    l10n.callDecline,
                                     style: PcDashboardTheme.titleSmall.copyWith(
                                       color: PcDashboardTheme.textSecondary,
                                     ),
@@ -281,7 +285,7 @@ class _SystemNotificationsPageState extends State<SystemNotificationsPage> {
                                     foregroundColor: PcDashboardTheme.surface,
                                   ),
                                   child: Text(
-                                    '通过',
+                                    l10n.msgAcceptShort,
                                     style: PcDashboardTheme.titleSmall.copyWith(
                                       color: PcDashboardTheme.surface,
                                     ),

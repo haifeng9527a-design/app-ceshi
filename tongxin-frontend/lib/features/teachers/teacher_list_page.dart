@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../l10n/app_localizations.dart';
 import 'teacher_center_page.dart';
 import 'teacher_models.dart';
 import 'teacher_public_page.dart';
@@ -14,14 +15,14 @@ class TeacherListPage extends StatelessWidget {
     final repository = TeacherRepository();
     return Scaffold(
       appBar: AppBar(
-        title: const Text('交易员主页'),
+        title: Text(AppLocalizations.of(context)!.teachersTeacherHomepage),
         actions: [
           TextButton(
             onPressed: () {
               final userId = FirebaseAuth.instance.currentUser?.uid ?? '';
               if (userId.isEmpty) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('请先登录')),
+                  SnackBar(content: Text(AppLocalizations.of(context)!.teachersPleaseLoginFirst)),
                 );
                 return;
               }
@@ -31,7 +32,7 @@ class TeacherListPage extends StatelessWidget {
                 ),
               );
             },
-            child: const Text('成为交易员'),
+            child: Text(AppLocalizations.of(context)!.teachersBecomeTeacher),
           ),
         ],
       ),
@@ -40,7 +41,7 @@ class TeacherListPage extends StatelessWidget {
         builder: (context, snapshot) {
           final items = snapshot.data ?? const <TeacherProfile>[];
           if (items.isEmpty) {
-            return const Center(child: Text('暂无交易员'));
+            return Center(child: Text(AppLocalizations.of(context)!.teachersNoTeachers));
           }
           return ListView.separated(
             padding: const EdgeInsets.all(16),
@@ -113,7 +114,7 @@ class TeacherListPage extends StatelessWidget {
                                 ),
                               );
                             },
-                            child: const Text('主页'),
+                            child: Text(AppLocalizations.of(context)!.teachersHomepage),
                           ),
                         ],
                       ),

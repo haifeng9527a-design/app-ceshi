@@ -7,6 +7,7 @@ import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:proximity_sensor/proximity_sensor.dart';
 
+import '../../l10n/app_localizations.dart';
 import 'agora_config.dart';
 import 'call_invitation_repository.dart';
 
@@ -322,28 +323,28 @@ class _AgoraCallPageState extends State<AgoraCallPage> {
       }
     } catch (e, st) {
       print('[TH_CALL] Agora 初始化/加入失败: $e\n$st');
-      if (mounted) _showErrorAndPop('加入通话失败');
+      if (mounted) _showErrorAndPop(AppLocalizations.of(context)!.callJoinFailed);
     }
   }
 
   void _showRejectedAndLeave() {
     _stopRingback();
     ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('对方已拒绝')));
+        .showSnackBar(SnackBar(content: Text(AppLocalizations.of(context)!.callOtherRejected)));
     _leaveAndPop();
   }
 
   void _showCancelledAndLeave() {
     _stopRingback();
     ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('对方已取消')));
+        .showSnackBar(SnackBar(content: Text(AppLocalizations.of(context)!.callOtherCancelled)));
     _leaveAndPop();
   }
 
   /// 对方已挂断（onUserOffline）：提示并关闭页面
   void _showRemoteLeftAndLeave() {
     ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('对方已挂断')));
+        .showSnackBar(SnackBar(content: Text(AppLocalizations.of(context)!.callOtherHangup)));
     _leaveAndPop();
   }
 
@@ -411,7 +412,7 @@ class _AgoraCallPageState extends State<AgoraCallPage> {
     final isMediaConnected = _remoteUid != null;
     final subtitle = isMediaConnected || _signalingConnected
         ? _durationText
-        : '等待对方接听...';
+        : AppLocalizations.of(context)!.callWaiting;
     final showNetworkHint = _signalingConnected && !isMediaConnected;
 
     final content = widget.isVideo && _engine != null
@@ -423,7 +424,7 @@ class _AgoraCallPageState extends State<AgoraCallPage> {
       onPopInvokedWithResult: (didPop, result) {
         if (!didPop) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('请点击挂断按钮结束通话')),
+            SnackBar(content: Text(AppLocalizations.of(context)!.callPleaseHangup)),
           );
         }
       },
@@ -438,7 +439,7 @@ class _AgoraCallPageState extends State<AgoraCallPage> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         title: Text(
-          widget.isVideo ? '视频通话' : '语音通话',
+          widget.isVideo ? AppLocalizations.of(context)!.callVideoCall : AppLocalizations.of(context)!.callVoiceCall,
           style: const TextStyle(color: Colors.white, fontSize: 18),
         ),
         centerTitle: true,
@@ -472,7 +473,7 @@ class _AgoraCallPageState extends State<AgoraCallPage> {
             if (showNetworkHint) ...[
               const SizedBox(height: 4),
               Text(
-                '若听不到声音请检查网络',
+                AppLocalizations.of(context)!.callCheckNetwork,
                 style: TextStyle(color: Colors.grey[500], fontSize: 12),
               ),
             ],
@@ -539,7 +540,7 @@ class _AgoraCallPageState extends State<AgoraCallPage> {
                       Padding(
                         padding: const EdgeInsets.only(top: 8),
                         child: Text(
-                          '若听不到声音请检查网络',
+                          AppLocalizations.of(context)!.callCheckNetwork,
                           style: TextStyle(color: Colors.grey[500], fontSize: 12),
                         ),
                       ),
@@ -614,7 +615,7 @@ class _AgoraCallPageState extends State<AgoraCallPage> {
       children: [
         _controlButton(
           icon: _muted ? Icons.mic_off : Icons.mic,
-          label: _muted ? '取消静音' : '静音',
+          label: _muted ? AppLocalizations.of(context)!.callUnmute : AppLocalizations.of(context)!.callMute,
           onPressed: () async {
             if (_engine == null) return;
             setState(() => _muted = !_muted);
@@ -624,17 +625,17 @@ class _AgoraCallPageState extends State<AgoraCallPage> {
         if (showSwitchCamera)
           _controlButton(
             icon: Icons.cameraswitch,
-            label: '翻转',
+            label: AppLocalizations.of(context)!.callFlipCamera,
             onPressed: _switchCamera,
           ),
         _controlButton(
           icon: _speakerOn ? Icons.volume_up : Icons.volume_off,
-          label: _speakerOn ? '扬声器' : '听筒',
+          label: _speakerOn ? AppLocalizations.of(context)!.callSpeaker : AppLocalizations.of(context)!.callEarpiece,
           onPressed: _toggleSpeaker,
         ),
         _controlButton(
           icon: Icons.call_end,
-          label: '挂断',
+          label: AppLocalizations.of(context)!.callHangup,
           color: Colors.red,
           onPressed: () => _leaveAndPop(),
         ),

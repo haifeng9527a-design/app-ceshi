@@ -14,6 +14,10 @@ function toQuoteSnapshot(q) {
     high: q.high != null ? q.high : null,
     low: q.low != null ? q.low : null,
     volume: q.volume != null ? q.volume : null,
+    bid: q.bid != null ? q.bid : null,
+    ask: q.ask != null ? q.ask : null,
+    bidSize: q.bidSize != null ? q.bidSize : null,
+    askSize: q.askSize != null ? q.askSize : null,
     ...(q.error_reason && { error_reason: q.error_reason }),
   };
 }

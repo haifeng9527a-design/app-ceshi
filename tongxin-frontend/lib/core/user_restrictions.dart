@@ -1,5 +1,9 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
 
+import '../api/users_api.dart';
+import '../core/api_client.dart';
+import '../l10n/app_localizations.dart';
 import 'supabase_bootstrap.dart';
 
 /// 当前用户限制状态（后台在 user_profiles 中配置，此处只读校验）
@@ -18,7 +22,16 @@ class UserRestrictions {
       return _cachedRow;
     }
     try {
-      final row = await SupabaseBootstrap.client
+      if (ApiClient.instance.isAvailable) {
+        final row = await UsersApi.instance.getMyRestrictions();
+        _cachedRow = row;
+        _cachedUserId = uid;
+        _cachedAt = DateTime.now();
+        return _cachedRow;
+      }
+      final client = SupabaseBootstrap.clientOrNull;
+      if (client == null || !SupabaseBootstrap.isReady) return null;
+      final row = await client
           .from('user_profiles')
           .select('banned_until, frozen_until, restrict_login, restrict_send_message, restrict_add_friend, restrict_join_group, restrict_create_group')
           .eq('user_id', uid)
@@ -91,24 +104,27 @@ class UserRestrictions {
   }
 
   /// 用于 APP 展示的账号状态文案
-  static String getAccountStatusMessage(Map<String, dynamic>? row) {
-    if (row == null) return '账号状态：正常';
+  static String getAccountStatusMessage(Map<String, dynamic>? row, BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    if (row == null) return l10n.restrictStatusNormal;
     final banned = row['banned_until']?.toString();
     final frozen = row['frozen_until']?.toString();
     if (_isInEffect(banned)) {
       final d = DateTime.tryParse(banned!);
-      return '账号已封禁至 ${d != null ? '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}' : '—'}';
+      final date = d != null ? '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}' : '—';
+      return l10n.restrictBannedUntil(date);
     }
     if (_isInEffect(frozen)) {
       final d = DateTime.tryParse(frozen!);
-      return '账号已冻结至 ${d != null ? '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}' : '—'}';
+      final date = d != null ? '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}' : '—';
+      return l10n.restrictFrozenUntil(date);
     }
-    if (_isRestricted(row['restrict_login'])) return '账号状态：已限制登录';
-    if (_isRestricted(row['restrict_send_message'])) return '账号状态：已限制发消息';
-    if (_isRestricted(row['restrict_add_friend'])) return '账号状态：已禁止加好友';
-    if (_isRestricted(row['restrict_join_group'])) return '账号状态：已禁止加入群聊';
-    if (_isRestricted(row['restrict_create_group'])) return '账号状态：已禁止建群';
-    return '账号状态：正常';
+    if (_isRestricted(row['restrict_login'])) return l10n.restrictLogin;
+    if (_isRestricted(row['restrict_send_message'])) return l10n.restrictSendMessage;
+    if (_isRestricted(row['restrict_add_friend'])) return l10n.restrictAddFriend;
+    if (_isRestricted(row['restrict_join_group'])) return l10n.restrictJoinGroup;
+    if (_isRestricted(row['restrict_create_group'])) return l10n.restrictCreateGroup;
+    return l10n.restrictStatusNormal;
   }
 
   /// 是否有限制（用于决定是否展示状态条）

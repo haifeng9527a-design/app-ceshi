@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../core/network_error_helper.dart';
 import '../../core/pc_dashboard_theme.dart';
 import '../../core/user_restrictions.dart';
@@ -35,32 +36,36 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
     final userName = FirebaseAuth.instance.currentUser?.displayName?.trim() ?? 
         FirebaseAuth.instance.currentUser?.email?.split('@').first ?? '我';
     if (userId.isEmpty) {
-      _showToast('请先登录');
+      _showToast(AppLocalizations.of(context)!.teachersPleaseLoginFirst);
       return;
     }
     final restrictions = await UserRestrictions.getMyRestrictionRow();
     if (!UserRestrictions.canCreateGroup(restrictions)) {
       UserRestrictions.clearCache();
-      _showToast(UserRestrictions.getAccountStatusMessage(restrictions));
+      _showToast(UserRestrictions.getAccountStatusMessage(restrictions, context));
       return;
     }
     if (_selectedIds.isEmpty) {
-      _showToast('请至少选择一位好友');
+      _showToast(AppLocalizations.of(context)!.groupSelectAtLeastOne);
       return;
     }
     setState(() => _creating = true);
     try {
+      final name = _nameController.text.trim();
       final conversation = await _messagesRepository.createGroupConversation(
         currentUserId: userId,
         currentUserName: userName,
-        title: _nameController.text.trim(),
+        title: name,
         memberUserIds: _selectedIds.toList(),
+        defaultTitleWhenEmpty: name.isEmpty
+            ? AppLocalizations.of(context)!.msgGroupChatN(_selectedIds.length + 1)
+            : null,
       );
       if (!mounted) return;
       Navigator.of(context).pop(conversation);
     } catch (e) {
       if (!mounted) return;
-      _showToast(NetworkErrorHelper.messageForUser(e, prefix: '创建失败'));
+      _showToast(NetworkErrorHelper.messageForUser(e, prefix: AppLocalizations.of(context)!.groupCreateFailed, l10n: AppLocalizations.of(context)));
     } finally {
       if (mounted) setState(() => _creating = false);
     }
@@ -89,7 +94,7 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
     return Scaffold(
       backgroundColor: PcDashboardTheme.surface,
       appBar: AppBar(
-        title: Text('创建群聊', style: PcDashboardTheme.titleMedium),
+        title: Text(AppLocalizations.of(context)!.groupCreateGroup, style: PcDashboardTheme.titleMedium),
         backgroundColor: PcDashboardTheme.surfaceVariant,
         foregroundColor: PcDashboardTheme.text,
         elevation: 0,
@@ -103,15 +108,15 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
               controller: _nameController,
               style: PcDashboardTheme.bodyLarge,
               decoration: PcDashboardTheme.inputDecoration(
-                hintText: '不填则显示为「群聊(n人)」',
-              ).copyWith(labelText: '群名称（可选）', labelStyle: PcDashboardTheme.bodyMedium),
+                hintText: AppLocalizations.of(context)!.groupCreateGroupHint,
+              ).copyWith(labelText: AppLocalizations.of(context)!.groupGroupNameLabel, labelStyle: PcDashboardTheme.bodyMedium),
             ),
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: PcDashboardTheme.contentPadding),
             child: Align(
               alignment: Alignment.centerLeft,
-              child: Text('选择好友', style: PcDashboardTheme.label),
+              child: Text(AppLocalizations.of(context)!.groupSelectFriends, style: PcDashboardTheme.label),
             ),
           ),
           const SizedBox(height: 12),
@@ -126,7 +131,7 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
                 if (list.isEmpty) {
                   return Center(
                     child: Text(
-                      '暂无好友，请先添加好友',
+                      AppLocalizations.of(context)!.groupNoFriendsHint,
                       style: PcDashboardTheme.bodyMedium,
                     ),
                   );
@@ -158,7 +163,7 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
                           },
                           title: Text(name, style: PcDashboardTheme.titleSmall),
                           subtitle: friend.shortId?.trim().isNotEmpty == true
-                              ? Text('账号ID ${friend.shortId!.trim()}', style: PcDashboardTheme.bodySmall)
+                              ? Text(AppLocalizations.of(context)!.profileAccountIdValue(friend.shortId!.trim()), style: PcDashboardTheme.bodySmall)
                               : null,
                           secondary: friend.avatarUrl != null && friend.avatarUrl!.trim().isNotEmpty
                               ? ClipOval(
@@ -168,6 +173,8 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
                                     width: 44,
                                     height: 44,
                                     fit: BoxFit.cover,
+                                    fadeInDuration: Duration.zero,
+                                    fadeOutDuration: Duration.zero,
                                     placeholder: (_, __) => _avatarPlaceholder(name),
                                     errorWidget: (_, __, ___) => _avatarPlaceholder(name),
                                   ),
@@ -205,7 +212,9 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : Text(
-                          '创建群聊${_selectedIds.isEmpty ? '' : '(${_selectedIds.length}人)'}',
+                          _selectedIds.isEmpty
+                              ? AppLocalizations.of(context)!.groupCreateGroupButton
+                              : AppLocalizations.of(context)!.groupCreateGroupButtonN(_selectedIds.length),
                           style: PcDashboardTheme.titleSmall.copyWith(color: PcDashboardTheme.surface),
                         ),
                 ),

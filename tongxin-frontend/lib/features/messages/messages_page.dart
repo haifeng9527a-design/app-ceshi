@@ -5,13 +5,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import '../../core/api_client.dart';
 import '../../core/firebase_bootstrap.dart';
+import '../../l10n/app_localizations.dart';
 import '../../core/network_error_helper.dart';
 import '../../core/role_badge.dart';
-import '../../core/supabase_bootstrap.dart';
 import '../auth/login_page.dart';
 import 'chat_detail_page.dart';
 import 'add_friend_page.dart';
+import 'customer_service_repository.dart';
 import 'chat_media_cache.dart';
 import 'create_group_page.dart';
 import 'friend_models.dart';
@@ -75,6 +77,8 @@ class _MessagesPageState extends State<MessagesPage> {
   List<FriendRequestItem> _cachedIncomingRequests = [];
   Timer? _cleanupTimer;
   bool _localStateLoaded = false;
+  Key _conversationStreamKey = UniqueKey();
+  Key _friendsStreamKey = UniqueKey();
   /// PC 双栏下在右侧内嵌展示的会话（不 push 全屏）
   Conversation? _selectedConversation;
 
@@ -93,10 +97,30 @@ class _MessagesPageState extends State<MessagesPage> {
     _subscribeRemarks();
     _subscribeFriends();
     _subscribeIncomingRequests();
+    _ensureCustomerServiceFriend();
     if (FirebaseBootstrap.isReady) {
       _authSubscription = FirebaseAuth.instance.authStateChanges().listen((_) {
+        _subscribeFriends();
+        _subscribeRemarks();
         _subscribeIncomingRequests();
+        _ensureCustomerServiceFriend();
       });
+    }
+  }
+
+  /// 确保已添加系统客服为好友（配置后进入消息页会自动补充）
+  Future<void> _ensureCustomerServiceFriend() async {
+    final userId = _currentUser?.uid ?? '';
+    if (userId.isEmpty) return;
+    try {
+      final csId = await CustomerServiceRepository().getSystemCustomerServiceUserId();
+      if (csId == null || csId.isEmpty) return;
+      await _friendsRepository.ensureCustomerServiceFriend(
+        userId: userId,
+        customerServiceId: csId,
+      );
+    } catch (_) {
+      // 静默失败
     }
   }
 
@@ -134,8 +158,8 @@ class _MessagesPageState extends State<MessagesPage> {
             SnackBar(
               content: Text(
                 requests.length == 1
-                    ? '你有一条新的好友申请'
-                    : '你有 ${requests.length} 条新的好友申请',
+                    ? AppLocalizations.of(context)!.msgNewFriendRequest
+                    : AppLocalizations.of(context)!.msgNewFriendRequests(requests.length),
               ),
             ),
           );
@@ -419,12 +443,12 @@ class _MessagesPageState extends State<MessagesPage> {
         if (f.userId == peerId) {
           final name = _resolveFriendName(f);
           if (name.trim().isNotEmpty && name.trim() != myName) return name;
-          return '未设置昵称';
+          return AppLocalizations.of(context)!.msgNoNicknameSet;
         }
       }
       // 没有好友资料或后端 title 存错了：若是自己的名字则显示占位
       final fallback = conversation.title.trim();
-      if (fallback.isEmpty || fallback == myName) return '未设置昵称';
+      if (fallback.isEmpty || fallback == myName) return AppLocalizations.of(context)!.msgNoNicknameSet;
       return fallback;
     }
     return conversation.title;
@@ -473,8 +497,8 @@ class _MessagesPageState extends State<MessagesPage> {
         children: [
           TextField(
             controller: _friendSearchController,
-            decoration: const InputDecoration(
-              hintText: '搜索好友/备注/账号ID',
+            decoration: InputDecoration(
+              hintText: AppLocalizations.of(context)!.msgSearchHint,
               isDense: true,
               prefixIcon: Icon(Icons.search),
             ),
@@ -497,7 +521,7 @@ class _MessagesPageState extends State<MessagesPage> {
           _showBlacklist ? Icons.visibility_off : Icons.visibility,
           size: 18,
         ),
-        label: Text(_showBlacklist ? '隐藏黑名单' : '显示黑名单'),
+        label: Text(_showBlacklist ? AppLocalizations.of(context)!.msgHideBlacklist : AppLocalizations.of(context)!.msgShowBlacklist),
       ),
     );
   }
@@ -517,7 +541,7 @@ class _MessagesPageState extends State<MessagesPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 8),
-            const _SectionTitle(title: '黑名单'),
+            _SectionTitle(title: AppLocalizations.of(context)!.msgBlacklist),
             const SizedBox(height: 8),
             ...blacklisted.map((friend) {
               return Padding(
@@ -525,11 +549,12 @@ class _MessagesPageState extends State<MessagesPage> {
                 child: _FriendCard(
                   name: _resolveFriendName(friend),
                   subtitle: friend.shortId?.trim().isNotEmpty == true
-                      ? '账号ID ${friend.shortId!.trim()}'
-                      : '账号ID —',
-                  status: '已拉黑',
+                      ? AppLocalizations.of(context)!.profileAccountIdValue(friend.shortId!.trim())
+                      : AppLocalizations.of(context)!.profileAccountIdDash,
+                  status: AppLocalizations.of(context)!.msgBlocked,
+                  isOnline: false,
                   avatarText:
-                      friend.displayName.isEmpty ? '用' : friend.displayName[0],
+                      friend.displayName.isEmpty ? AppLocalizations.of(context)!.commonUserInitial : friend.displayName[0],
                   avatarUrl: friend.avatarUrl,
                   levelLabel: 'Lv ${friend.level}',
                   roleLabel: friend.roleLabel,
@@ -559,7 +584,7 @@ class _MessagesPageState extends State<MessagesPage> {
             children: [
               ListTile(
                 leading: const Icon(Icons.edit_outlined),
-                title: const Text('设置备注名'),
+                title: Text(AppLocalizations.of(context)!.msgSetRemark),
                 onTap: () {
                   Navigator.of(context).pop();
                   _editRemark(context, friend);
@@ -568,7 +593,7 @@ class _MessagesPageState extends State<MessagesPage> {
               ListTile(
                 leading:
                     Icon(isBlocked ? Icons.lock_open : Icons.block_outlined),
-                title: Text(isBlocked ? '移出黑名单' : '加入黑名单'),
+                title: Text(isBlocked ? AppLocalizations.of(context)!.msgRemoveFromBlacklist : AppLocalizations.of(context)!.msgAddToBlacklist),
                 onTap: () {
                   Navigator.of(context).pop();
                   _toggleBlacklist(friend);
@@ -576,7 +601,7 @@ class _MessagesPageState extends State<MessagesPage> {
               ),
               ListTile(
                 leading: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                title: const Text('删除好友'),
+                title: Text(AppLocalizations.of(context)!.msgDeleteFriend),
                 onTap: () {
                   Navigator.of(context).pop();
                   _confirmDeleteFriend(context, friend);
@@ -599,20 +624,20 @@ class _MessagesPageState extends State<MessagesPage> {
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          title: const Text('设置备注名'),
+          title: Text(AppLocalizations.of(context)!.msgSetRemark),
           content: TextField(
             controller: controller,
-            decoration: const InputDecoration(hintText: '输入备注名'),
+            decoration: InputDecoration(hintText: AppLocalizations.of(context)!.msgRemarkHint),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(null),
-              child: const Text('取消'),
+              child: Text(AppLocalizations.of(context)!.commonCancel),
             ),
             FilledButton(
               onPressed: () =>
                   Navigator.of(dialogContext).pop(controller.text),
-              child: const Text('保存'),
+              child: Text(AppLocalizations.of(context)!.commonSave),
             ),
           ],
         );
@@ -649,30 +674,32 @@ class _MessagesPageState extends State<MessagesPage> {
   bool get _isPcLayout =>
       MediaQuery.sizeOf(context).width >= 1100;
 
+  bool get _apiReady => ApiClient.instance.isAvailable;
+
   @override
   Widget build(BuildContext context) {
     final firebaseReady = FirebaseBootstrap.isReady;
-    final supabaseReady = SupabaseBootstrap.isReady;
+    final apiReady = _apiReady;
     final user = _currentUser;
     final userId = user?.uid ?? '';
     return Scaffold(
       backgroundColor: const Color(0xFF0D0D0F),
       body: SafeArea(
-        child: firebaseReady && supabaseReady && _currentUser != null && _isPcLayout
+        child: firebaseReady && apiReady && _currentUser != null && _isPcLayout
             ? _buildPcTwoPaneLayout(context, userId)
             : Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _buildChatStyleHeader(context, firebaseReady, supabaseReady),
-                  if (firebaseReady && supabaseReady && _currentUser != null) ...[
+                  _buildChatStyleHeader(context, firebaseReady, apiReady),
+                  if (firebaseReady && apiReady && _currentUser != null) ...[
                     _buildSearchBar(context),
                     _buildWeChatTabs(context),
                     Expanded(
-                      child: _buildBodyContent(context, userId, firebaseReady, supabaseReady),
+                      child: _buildBodyContent(context, userId, firebaseReady, apiReady),
                     ),
                   ] else
                     Expanded(
-                      child: _buildLoginOrConfigPrompt(context, firebaseReady, supabaseReady),
+                      child: _buildLoginOrConfigPrompt(context, firebaseReady, apiReady),
                     ),
                 ],
               ),
@@ -726,7 +753,7 @@ class _MessagesPageState extends State<MessagesPage> {
   Widget _buildChatStyleHeader(
     BuildContext context,
     bool firebaseReady,
-    bool supabaseReady,
+    bool apiReady,
   ) {
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
@@ -737,7 +764,7 @@ class _MessagesPageState extends State<MessagesPage> {
       child: Row(
         children: [
           Text(
-            '消息',
+            AppLocalizations.of(context)!.navMessages,
             style: const TextStyle(
               color: Color(0xFFE8D5A3),
               fontWeight: FontWeight.w600,
@@ -749,13 +776,13 @@ class _MessagesPageState extends State<MessagesPage> {
             icon: const Icon(Icons.person_add_alt_1_outlined, size: 22),
             color: const Color(0xFF9CA3AF),
             onPressed: () => _openAddFriend(context),
-            tooltip: '添加好友',
+            tooltip: AppLocalizations.of(context)!.messagesAddFriend,
           ),
           IconButton(
             icon: const Icon(Icons.group_add_outlined, size: 22),
             color: const Color(0xFF9CA3AF),
             onPressed: () => _openCreateGroup(context),
-            tooltip: '创建群聊',
+            tooltip: AppLocalizations.of(context)!.messagesCreateGroup,
           ),
           Stack(
             clipBehavior: Clip.none,
@@ -764,7 +791,7 @@ class _MessagesPageState extends State<MessagesPage> {
                 icon: const Icon(Icons.notifications_outlined, size: 22),
                 color: const Color(0xFF9CA3AF),
                 onPressed: () => _openSystemNotifications(context),
-                tooltip: '系统消息',
+                tooltip: AppLocalizations.of(context)!.messagesSystemNotifications,
               ),
               if (_pendingFriendRequestCount > 0)
                 Positioned(
@@ -801,7 +828,7 @@ class _MessagesPageState extends State<MessagesPage> {
           });
         },
         decoration: InputDecoration(
-          hintText: _tabIndex == 0 ? '搜索会话' : '搜索好友',
+          hintText: _tabIndex == 0 ? AppLocalizations.of(context)!.messagesSearchConversations : AppLocalizations.of(context)!.messagesSearchFriends,
           hintStyle: const TextStyle(color: Color(0xFF6C6F77), fontSize: 14),
           prefixIcon: const Icon(Icons.search, size: 20, color: Color(0xFF6C6F77)),
           filled: true,
@@ -824,13 +851,13 @@ class _MessagesPageState extends State<MessagesPage> {
       child: Row(
         children: [
           _WeChatTab(
-            label: '最近会话',
+            label: AppLocalizations.of(context)!.messagesRecentChats,
             selected: _tabIndex == 0,
             onTap: () => setState(() => _tabIndex = 0),
           ),
           const SizedBox(width: 24),
           _WeChatTab(
-            label: '好友列表',
+            label: AppLocalizations.of(context)!.messagesFriendList,
             selected: _tabIndex == 1,
             onTap: () => setState(() => _tabIndex = 1),
           ),
@@ -842,7 +869,7 @@ class _MessagesPageState extends State<MessagesPage> {
   Widget _buildLoginOrConfigPrompt(
     BuildContext context,
     bool firebaseReady,
-    bool supabaseReady,
+    bool apiReady,
   ) {
     return ListView(
       padding: const EdgeInsets.all(12),
@@ -850,22 +877,22 @@ class _MessagesPageState extends State<MessagesPage> {
         if (!firebaseReady)
           _ConfigCard(
             icon: Icons.warning_amber_outlined,
-            title: '未配置 Firebase',
-            subtitle: '请先添加配置文件后再使用消息功能',
+            title: AppLocalizations.of(context)!.messagesFirebaseNotConfigured,
+            subtitle: AppLocalizations.of(context)!.messagesAddConfigFirst,
             onTap: () {},
           )
-        else if (!supabaseReady)
+        else if (!apiReady)
           _ConfigCard(
             icon: Icons.cloud_off_outlined,
-            title: '未配置 Supabase',
-            subtitle: '请配置 SUPABASE_URL / SUPABASE_ANON_KEY',
+            title: AppLocalizations.of(context)!.messagesApiNotConfigured,
+            subtitle: AppLocalizations.of(context)!.messagesConfigureApi,
             onTap: () {},
           )
         else if (_currentUser == null)
           _ConfigCard(
             icon: Icons.lock_outline,
-            title: '登录后使用聊天功能',
-            subtitle: '支持邮箱、Google、Apple 登录',
+            title: AppLocalizations.of(context)!.messagesLoginToUseChat,
+            subtitle: AppLocalizations.of(context)!.messagesLoginMethods,
             onTap: () {
               Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const LoginPage()),
@@ -880,10 +907,11 @@ class _MessagesPageState extends State<MessagesPage> {
     BuildContext context,
     String userId,
     bool firebaseReady,
-    bool supabaseReady,
+    bool apiReady,
   ) {
     if (_tabIndex == 0) {
       return StreamBuilder<List<Conversation>>(
+        key: _conversationStreamKey,
         stream: _repository.watchConversations(userId: userId),
         initialData: _cachedConversations,
         builder: (context, snapshot) {
@@ -899,6 +927,31 @@ class _MessagesPageState extends State<MessagesPage> {
           if (!_localStateLoaded) {
             return const Center(
               child: SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF07C160))),
+            );
+          }
+          if (snapshot.hasError) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.cloud_off, size: 48, color: Colors.orange.shade300),
+                    const SizedBox(height: 12),
+                    Text(
+                      snapshot.error?.toString() ?? '加载失败',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Color(0xFF6C6F77), fontSize: 14),
+                    ),
+                    const SizedBox(height: 16),
+                    TextButton.icon(
+                      onPressed: () => setState(() => _conversationStreamKey = UniqueKey()),
+                      icon: const Icon(Icons.refresh, size: 18),
+                      label: const Text('重试'),
+                    ),
+                  ],
+                ),
+              ),
             );
           }
           final sourceItems = hasValidStream && items != null ? items : _cachedConversations;
@@ -918,7 +971,7 @@ class _MessagesPageState extends State<MessagesPage> {
           if (filtered.isEmpty) {
             return Center(
               child: Text(
-                _conversationSearchQuery.isEmpty ? '暂无会话' : '未找到匹配的会话',
+                _conversationSearchQuery.isEmpty ? AppLocalizations.of(context)!.msgNoConversations : AppLocalizations.of(context)!.msgNoMatchingConversations,
                 style: const TextStyle(color: Color(0xFF6C6F77), fontSize: 14),
               ),
             );
@@ -956,7 +1009,7 @@ class _MessagesPageState extends State<MessagesPage> {
                     Padding(
                       padding: const EdgeInsets.only(left: 4, bottom: 8),
                       child: Text(
-                        '好友申请',
+                        AppLocalizations.of(context)!.msgFriendRequest,
                         style: const TextStyle(
                           color: Color(0xFF6C6F77),
                           fontSize: 13,
@@ -980,6 +1033,7 @@ class _MessagesPageState extends State<MessagesPage> {
               },
             ),
             StreamBuilder<List<FriendProfile>>(
+              key: _friendsStreamKey,
               stream: _friendsRepository.watchFriends(userId: userId),
               initialData: _cachedFriends,
               builder: (context, snapshot) {
@@ -997,15 +1051,40 @@ class _MessagesPageState extends State<MessagesPage> {
                     child: Center(child: SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))),
                   );
                 }
+                if (snapshot.hasError) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 24),
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.cloud_off, size: 40, color: Colors.orange.shade300),
+                          const SizedBox(height: 8),
+                          Text(
+                            snapshot.error?.toString() ?? '加载失败',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(color: Color(0xFF6C6F77), fontSize: 13),
+                          ),
+                          const SizedBox(height: 12),
+                          TextButton.icon(
+                            onPressed: () => setState(() => _friendsStreamKey = UniqueKey()),
+                            icon: const Icon(Icons.refresh, size: 16),
+                            label: const Text('重试'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }
                 final sourceFriends = hasValidStream && friends != null ? friends : _cachedFriends;
                 final filtered = _filterFriends(sourceFriends);
                 final blacklisted = _filterBlacklisted(sourceFriends);
                 if (filtered.isEmpty && (!_showBlacklist || blacklisted.isEmpty)) {
-                  return const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 20),
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 20),
                     child: Center(
                       child: Text(
-                        '暂无好友',
+                        AppLocalizations.of(context)!.msgNoFriends,
                         style: TextStyle(color: Color(0xFF6C6F77)),
                       ),
                     ),
@@ -1020,11 +1099,12 @@ class _MessagesPageState extends State<MessagesPage> {
                           child: _FriendCard(
                             name: _resolveFriendName(friend),
                             subtitle: friend.shortId?.trim().isNotEmpty == true
-                                ? '账号ID ${friend.shortId!.trim()}'
-                                : '账号ID —',
-                            status: friend.status == 'online' ? '在线' : '离线',
+                                ? AppLocalizations.of(context)!.profileAccountIdValue(friend.shortId!.trim())
+                                : AppLocalizations.of(context)!.profileAccountIdDash,
+                            status: friend.status == 'online' ? AppLocalizations.of(context)!.msgOnline : AppLocalizations.of(context)!.msgOffline,
+                            isOnline: friend.status == 'online',
                             avatarText:
-                                friend.displayName.isEmpty ? '用' : friend.displayName[0],
+                                friend.displayName.isEmpty ? AppLocalizations.of(context)!.commonUserInitial : friend.displayName[0],
                             avatarUrl: friend.avatarUrl,
                             levelLabel: 'Lv ${friend.level}',
                             roleLabel: friend.roleLabel,
@@ -1054,7 +1134,7 @@ class _MessagesPageState extends State<MessagesPage> {
       return;
     }
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('功能正在开发中')),
+      SnackBar(content: Text(AppLocalizations.of(context)!.msgFeatureDeveloping)),
     );
   }
 
@@ -1199,7 +1279,7 @@ class _MessagesPageState extends State<MessagesPage> {
             children: [
               ListTile(
                 leading: Icon(isPinned ? Icons.push_pin : Icons.push_pin_outlined),
-                title: Text(isPinned ? '取消置顶' : '置顶'),
+                title: Text(isPinned ? AppLocalizations.of(context)!.msgUnpin : AppLocalizations.of(context)!.msgPin),
                 onTap: () {
                   Navigator.of(context).pop();
                   _togglePin(conversation.id);
@@ -1207,7 +1287,7 @@ class _MessagesPageState extends State<MessagesPage> {
               ),
               ListTile(
                 leading: const Icon(Icons.delete_outline),
-                title: const Text('删除会话'),
+                title: Text(AppLocalizations.of(context)!.msgDeleteConversation),
                 onTap: () {
                   Navigator.of(context).pop();
                   _hideConversation(conversation);
@@ -1248,12 +1328,12 @@ class _MessagesPageState extends State<MessagesPage> {
       );
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('已同意好友申请')),
+        SnackBar(content: Text(AppLocalizations.of(context)!.msgAcceptFriendSuccess)),
       );
     } catch (error) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(NetworkErrorHelper.messageForUser(error, prefix: '操作失败'))),
+        SnackBar(content: Text(NetworkErrorHelper.messageForUser(error, prefix: AppLocalizations.of(context)!.msgOperationFailed, l10n: AppLocalizations.of(context)))),
       );
     }
   }
@@ -1266,12 +1346,12 @@ class _MessagesPageState extends State<MessagesPage> {
       await _friendsRepository.rejectRequest(requestId: item.requestId);
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('已拒绝好友申请')),
+        SnackBar(content: Text(AppLocalizations.of(context)!.msgRejectFriendSuccess)),
       );
     } catch (error) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(NetworkErrorHelper.messageForUser(error, prefix: '操作失败'))),
+        SnackBar(content: Text(NetworkErrorHelper.messageForUser(error, prefix: AppLocalizations.of(context)!.msgOperationFailed, l10n: AppLocalizations.of(context)))),
       );
     }
   }
@@ -1286,6 +1366,10 @@ class _MessagesPageState extends State<MessagesPage> {
     if (_startingChat) return;
     setState(() => _startingChat = true);
     try {
+      final csId = await CustomerServiceRepository().getSystemCustomerServiceUserId();
+      if (csId != null && friend.userId == csId) {
+        await CustomerServiceRepository().assignOrGetStaffForUser(current.uid);
+      }
       final conversation = await _repository.createOrGetDirectConversation(
         currentUserId: current.uid,
         friendId: friend.userId,
@@ -1295,7 +1379,7 @@ class _MessagesPageState extends State<MessagesPage> {
       if (conversation.isGroup) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('打开私聊失败，请重试')),
+            SnackBar(content: Text(AppLocalizations.of(context)!.msgOpenChatFailed)),
           );
         }
         return;
@@ -1319,7 +1403,7 @@ class _MessagesPageState extends State<MessagesPage> {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(NetworkErrorHelper.messageForUser(error, prefix: '打开私聊失败')),
+          content: Text(NetworkErrorHelper.messageForUser(error, prefix: AppLocalizations.of(context)!.msgOpenChatFailedPrefix, l10n: AppLocalizations.of(context))),
         ),
       );
     } finally {
@@ -1337,16 +1421,16 @@ class _MessagesPageState extends State<MessagesPage> {
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          title: const Text('删除好友'),
-          content: Text('确定删除 ${friend.displayName} 吗？'),
+          title: Text(AppLocalizations.of(context)!.msgDeleteFriend),
+          content: Text(AppLocalizations.of(context)!.msgDeleteFriendConfirm(friend.displayName)),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('取消'),
+              child: Text(AppLocalizations.of(context)!.commonCancel),
             ),
             FilledButton(
               onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('删除'),
+              child: Text(AppLocalizations.of(context)!.msgDelete),
             ),
           ],
         );
@@ -1363,7 +1447,7 @@ class _MessagesPageState extends State<MessagesPage> {
     );
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('好友已删除')),
+      SnackBar(content: Text(AppLocalizations.of(context)!.msgFriendDeleted)),
     );
   }
 
@@ -1422,7 +1506,7 @@ class _ChatWindowPlaceholder extends StatelessWidget {
           ),
           const SizedBox(height: 20),
           Text(
-            '选择会话开始聊天',
+            AppLocalizations.of(context)!.msgSelectConversation,
             style: TextStyle(
               color: const Color(0xFF9CA3AF).withValues(alpha: 0.9),
               fontSize: 15,
@@ -1432,7 +1516,7 @@ class _ChatWindowPlaceholder extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            '在左侧点击任一会话即可打开',
+            AppLocalizations.of(context)!.msgClickLeftToOpen,
             style: TextStyle(
               color: const Color(0xFF6C6F77),
               fontSize: 13,
@@ -1764,6 +1848,7 @@ class _FriendCard extends StatelessWidget {
     required this.name,
     required this.subtitle,
     required this.status,
+    required this.isOnline,
     required this.avatarText,
     this.avatarUrl,
     this.levelLabel,
@@ -1776,6 +1861,7 @@ class _FriendCard extends StatelessWidget {
   final String name;
   final String subtitle;
   final String status;
+  final bool isOnline;
   final String avatarText;
   final String? avatarUrl;
   final String? levelLabel;
@@ -1801,7 +1887,6 @@ class _FriendCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isOnline = status == '在线';
     final showAvatar = avatarUrl?.trim().isNotEmpty == true;
     return Material(
       color: Colors.transparent,
@@ -1822,6 +1907,8 @@ class _FriendCard extends StatelessWidget {
                             width: 48,
                             height: 48,
                             fit: BoxFit.cover,
+                            fadeInDuration: Duration.zero,
+                            fadeOutDuration: Duration.zero,
                             placeholder: (_, __) => _messagesAvatarPlaceholder(avatarText),
                             errorWidget: (_, __, ___) => _messagesAvatarPlaceholder(avatarText),
                           ),
@@ -1892,7 +1979,7 @@ class _FriendCard extends StatelessWidget {
                 ),
               ),
               IconButton(
-                tooltip: '更多',
+                tooltip: AppLocalizations.of(context)!.msgMore,
                 onPressed: onMore,
                 icon: const Icon(Icons.more_vert, size: 20, color: Color(0xFF6C6F77)),
                 padding: EdgeInsets.zero,
@@ -1929,7 +2016,7 @@ class _FriendRequestCard extends StatelessWidget {
                 CircleAvatar(
                   backgroundColor: const Color(0xFF1A1C21),
                   child: Text(
-                    item.requesterName.isEmpty ? '用' : item.requesterName[0],
+                    item.requesterName.isEmpty ? AppLocalizations.of(context)!.commonUserInitial : item.requesterName[0],
                     style: const TextStyle(color: Color(0xFFD4AF37)),
                   ),
                 ),
@@ -1961,14 +2048,14 @@ class _FriendRequestCard extends StatelessWidget {
                 Expanded(
                   child: OutlinedButton(
                     onPressed: onReject,
-                    child: const Text('拒绝'),
+                    child: Text(AppLocalizations.of(context)!.msgDecline),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: FilledButton(
                     onPressed: onAccept,
-                    child: const Text('同意'),
+                    child: Text(AppLocalizations.of(context)!.msgAccept),
                   ),
                 ),
               ],
@@ -2015,11 +2102,11 @@ class _ConversationCard extends StatelessWidget {
     final hasDraft = draft != null && draft!.trim().isNotEmpty;
     final String subtitleText;
     if (hasDraft) {
-      subtitleText = '草稿：${draft!.trim()}';
+      subtitleText = '${AppLocalizations.of(context)!.msgDraft}${draft!.trim()}';
     } else if (conversation.lastMessage.trim().isNotEmpty &&
         conversation.lastMessageSenderId != null &&
         conversation.lastMessageSenderId == currentUserId) {
-      subtitleText = '我: ${conversation.lastMessage}';
+      subtitleText = '${AppLocalizations.of(context)!.msgMePrefix}${conversation.lastMessage}';
     } else {
       subtitleText = conversation.lastMessage;
     }
@@ -2043,6 +2130,8 @@ class _ConversationCard extends StatelessWidget {
                             width: _avatarSize,
                             height: _avatarSize,
                             fit: BoxFit.cover,
+                            fadeInDuration: Duration.zero,
+                            fadeOutDuration: Duration.zero,
                             placeholder: (_, __) => _messagesAvatarPlaceholder(avatarText, conversation.isGroup),
                             errorWidget: (_, __, ___) => _messagesAvatarPlaceholder(avatarText, conversation.isGroup),
                           ),
@@ -2108,8 +2197,8 @@ class _ConversationCard extends StatelessWidget {
                                 borderRadius: BorderRadius.circular(4),
                                 border: Border.all(color: const Color(0xFF07C160).withValues(alpha: 0.4), width: 0.8),
                               ),
-                              child: const Text(
-                                '群聊',
+                              child: Text(
+                                AppLocalizations.of(context)!.msgGroupChat,
                                 style: TextStyle(
                                   fontSize: 10,
                                   fontWeight: FontWeight.w600,

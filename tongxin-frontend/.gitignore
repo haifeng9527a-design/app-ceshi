@@ -33,6 +33,7 @@ migrate_working_dir/
 /build/
 /coverage/
 .env
+logs_device_*.txt
 
 # Symbolication related
 app.*.symbols

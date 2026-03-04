@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../l10n/app_localizations.dart';
 import 'chart_theme.dart';
 
 /// 盘口/委托簿（与特斯拉图完全一致）：卖价/数量/买价/数量，卖档红底渐变、买档绿底渐变
@@ -29,7 +30,7 @@ class OrderBookSection extends StatelessWidget {
         : bids.take(5).toList();
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
       decoration: const BoxDecoration(
         color: ChartTheme.cardBackground,
         border: Border(top: BorderSide(color: ChartTheme.border, width: 1)),
@@ -37,7 +38,7 @@ class OrderBookSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _headerRow(),
+          _headerRow(context),
           const SizedBox(height: 8),
           for (var i = 0; i < 5; i++) _orderRow(
             sellPrice: i < mockAsks.length ? mockAsks[i].$1 : null,
@@ -51,13 +52,14 @@ class OrderBookSection extends StatelessWidget {
     );
   }
 
-  Widget _headerRow() {
+  Widget _headerRow(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Row(
       children: [
-        Expanded(child: _headerCell('卖一')),
-        Expanded(child: _headerCell('数量')),
-        Expanded(child: _headerCell('买一')),
-        Expanded(child: _headerCell('数量')),
+        Expanded(child: _headerCell(l10n.chartOrderBookSell)),
+        Expanded(child: _headerCell(l10n.chartOrderBookQty)),
+        Expanded(child: _headerCell(l10n.chartOrderBookBuy)),
+        Expanded(child: _headerCell(l10n.chartOrderBookQty)),
       ],
     );
   }
@@ -65,7 +67,7 @@ class OrderBookSection extends StatelessWidget {
   Widget _headerCell(String text) {
     return Text(
       text,
-      style: const TextStyle(color: ChartTheme.textTertiary, fontSize: 11),
+      style: const TextStyle(color: ChartTheme.textTertiary, fontSize: 12, fontWeight: FontWeight.w600),
       textAlign: TextAlign.center,
     );
   }
@@ -78,7 +80,7 @@ class OrderBookSection extends StatelessWidget {
     required int rowIndex,
   }) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         children: [
           Expanded(
@@ -96,8 +98,8 @@ class OrderBookSection extends StatelessWidget {
                 borderRadius: BorderRadius.circular(4),
               ),
               child: Text(
-                sellPrice != null ? sellPrice.toStringAsFixed(2) : '—',
-                style: TextStyle(color: ChartTheme.down, fontSize: 12, fontWeight: FontWeight.w500),
+                sellPrice != null ? ChartTheme.formatPrice(sellPrice) : '—',
+                style: TextStyle(color: ChartTheme.down, fontSize: 14, fontWeight: FontWeight.w600),
                 textAlign: TextAlign.center,
               ),
             ),
@@ -105,7 +107,7 @@ class OrderBookSection extends StatelessWidget {
           Expanded(
             child: Text(
               sellQty != null ? sellQty.toString() : '—',
-              style: TextStyle(color: ChartTheme.textPrimary, fontSize: 12),
+              style: TextStyle(color: ChartTheme.textPrimary, fontSize: 14, fontWeight: FontWeight.w500),
               textAlign: TextAlign.center,
             ),
           ),
@@ -124,8 +126,8 @@ class OrderBookSection extends StatelessWidget {
                 borderRadius: BorderRadius.circular(4),
               ),
               child: Text(
-                buyPrice != null ? buyPrice.toStringAsFixed(2) : '—',
-                style: TextStyle(color: ChartTheme.up, fontSize: 12, fontWeight: FontWeight.w500),
+                buyPrice != null ? ChartTheme.formatPrice(buyPrice) : '—',
+                style: TextStyle(color: ChartTheme.up, fontSize: 14, fontWeight: FontWeight.w600),
                 textAlign: TextAlign.center,
               ),
             ),
@@ -133,7 +135,7 @@ class OrderBookSection extends StatelessWidget {
           Expanded(
             child: Text(
               buyQty != null ? buyQty.toString() : '—',
-              style: TextStyle(color: ChartTheme.textPrimary, fontSize: 12),
+              style: TextStyle(color: ChartTheme.textPrimary, fontSize: 14, fontWeight: FontWeight.w500),
               textAlign: TextAlign.center,
             ),
           ),

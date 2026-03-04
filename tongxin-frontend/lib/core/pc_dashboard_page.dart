@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/app_localizations.dart';
 import 'pc_dashboard_theme.dart';
 
 /// PC 首页：欢迎 + 指标卡片 + 快捷入口（完整可看 UI）
@@ -34,10 +35,11 @@ class _WelcomeSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hour = DateTime.now().hour;
-    String greeting = '你好';
-    if (hour < 12) greeting = '上午好';
-    else if (hour < 18) greeting = '下午好';
-    else greeting = '晚上好';
+    final l10n = AppLocalizations.of(context)!;
+    String greeting = l10n.pcGreetingHello;
+    if (hour < 12) greeting = l10n.pcGreetingMorning;
+    else if (hour < 18) greeting = l10n.pcGreetingAfternoon;
+    else greeting = l10n.pcGreetingEvening;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -51,7 +53,7 @@ class _WelcomeSection extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         Text(
-          '欢迎回来，这是你的工作台概览',
+          AppLocalizations.of(context)!.pcWelcomeBack,
           style: PcDashboardTheme.bodyLarge.copyWith(color: PcDashboardTheme.textSecondary),
         ),
       ],
@@ -72,29 +74,29 @@ class _MetricCards extends StatelessWidget {
           mainAxisSpacing: 16,
           crossAxisSpacing: 16,
           childAspectRatio: 2.2,
-          children: const [
+          children: [
             _MetricCard(
-              label: '关注',
+              label: AppLocalizations.of(context)!.pcFollow,
               value: '0',
-              subtitle: '已关注标的',
+              subtitle: AppLocalizations.of(context)!.pcFollowSubtitle,
               icon: Icons.star_outline,
             ),
             _MetricCard(
-              label: '今日会话',
+              label: AppLocalizations.of(context)!.pcTodayChat,
               value: '0',
-              subtitle: '消息数',
+              subtitle: AppLocalizations.of(context)!.pcMessageCount,
               icon: Icons.chat_bubble_outline,
             ),
             _MetricCard(
-              label: '自选',
+              label: AppLocalizations.of(context)!.pcWatchlist,
               value: '0',
-              subtitle: '自选标的',
+              subtitle: AppLocalizations.of(context)!.pcWatchlistSubtitle,
               icon: Icons.list_alt,
             ),
             _MetricCard(
-              label: '排名',
+              label: AppLocalizations.of(context)!.pcRanking,
               value: '—',
-              subtitle: '当前排名',
+              subtitle: AppLocalizations.of(context)!.pcRankingSubtitle,
               icon: Icons.leaderboard_outlined,
             ),
           ],
@@ -171,20 +173,20 @@ class _QuickEntrySection extends StatelessWidget {
 
   final ValueChanged<int>? onNavigateToSection;
 
-  static const List<_EntryItem> _entries = [
-    _EntryItem(title: '行情', subtitle: '查看市场与指数', icon: Icons.candlestick_chart_outlined, index: 1),
-    _EntryItem(title: '自选', subtitle: '管理自选标的', icon: Icons.star_outline, index: 2),
-    _EntryItem(title: '消息', subtitle: '会话与好友', icon: Icons.chat_bubble_outline, index: 3),
-    _EntryItem(title: '排行榜', subtitle: '查看排名', icon: Icons.leaderboard_outlined, index: 4),
-  ];
-
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final entries = [
+      _EntryItem(title: l10n.pcMarket, subtitle: l10n.pcMarketSubtitle, icon: Icons.candlestick_chart_outlined, index: 1),
+      _EntryItem(title: l10n.pcWatchlist, subtitle: l10n.pcManageWatchlist, icon: Icons.star_outline, index: 2),
+      _EntryItem(title: l10n.pcMessages, subtitle: l10n.pcMessagesSubtitle, icon: Icons.chat_bubble_outline, index: 3),
+      _EntryItem(title: l10n.pcLeaderboard, subtitle: l10n.pcLeaderboardSubtitle, icon: Icons.leaderboard_outlined, index: 4),
+    ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          '快捷入口',
+          l10n.pcQuickEntry,
           style: PcDashboardTheme.titleMedium,
         ),
         const SizedBox(height: 16),
@@ -198,7 +200,7 @@ class _QuickEntrySection extends StatelessWidget {
               mainAxisSpacing: 16,
               crossAxisSpacing: 16,
               childAspectRatio: 1.55,
-              children: _entries.map((e) => _QuickEntryCard(
+              children: entries.map((e) => _QuickEntryCard(
                 item: e,
                 onTap: onNavigateToSection != null ? () => onNavigateToSection!(e.index) : null,
               )).toList(),
@@ -276,7 +278,7 @@ class _QuickEntryCard extends StatelessWidget {
                 Row(
                   children: [
                     Text(
-                      '进入',
+                      AppLocalizations.of(context)!.pcEnter,
                       style: PcDashboardTheme.bodySmall.copyWith(
                         color: PcDashboardTheme.accent,
                         fontWeight: FontWeight.w500,

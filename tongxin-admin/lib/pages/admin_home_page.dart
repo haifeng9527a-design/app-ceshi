@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../../core/supabase_bootstrap.dart';
+import '../core/supabase_bootstrap.dart';
+import '../l10n/admin_strings.dart';
+import 'admin_reports_panel.dart';
+import 'admin_settings_panel.dart';
 import 'admin_teacher_panel.dart';
 
 enum AdminSection {
@@ -26,7 +29,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('后台管理'),
+        title: Text(AdminStrings.adminTitle),
       ),
       body: Row(
         children: [
@@ -52,26 +55,19 @@ class _AdminHomePageState extends State<AdminHomePage> {
       case AdminSection.teachers:
         return const AdminTeacherPanel();
       case AdminSection.systemMessages:
-        return const _PlaceholderPanel(
-          title: '系统消息',
-          description: '编辑系统公告、推送通知、运营消息模板。',
-          hint: '建议接入 messages 与推送函数 send_push。',
+        return _PlaceholderPanel(
+          title: AdminStrings.adminSystemMessages,
+          description: AdminStrings.adminSystemMessagesDesc,
+          hint: AdminStrings.adminSystemMessagesHint,
         );
       case AdminSection.reports:
-        return const _PlaceholderPanel(
-          title: '举报与审核',
-          description: '处理用户举报、内容风控、违规记录。',
-        );
+        return const AdminReportsPanel();
       case AdminSection.settings:
-        return const _PlaceholderPanel(
-          title: '系统设置',
-          description: '运营开关、基础配置、版本策略。',
-        );
+        return const AdminSettingsPanel();
     }
   }
 }
 
-/// 总览：交易员状态统计等关键指标
 class _DashboardPanel extends StatefulWidget {
   const _DashboardPanel({this.onGoToTeachers});
 
@@ -107,7 +103,7 @@ class _DashboardPanelState extends State<_DashboardPanel> {
       padding: const EdgeInsets.all(24),
       children: [
         Text(
-          '总览',
+          AdminStrings.adminOverview,
           style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                 color: _accent,
                 fontWeight: FontWeight.w600,
@@ -115,7 +111,7 @@ class _DashboardPanelState extends State<_DashboardPanel> {
         ),
         const SizedBox(height: 8),
         Text(
-          '关键指标与系统状态',
+          AdminStrings.adminKeyMetrics,
           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
               ),
@@ -138,48 +134,19 @@ class _DashboardPanelState extends State<_DashboardPanel> {
               spacing: 16,
               runSpacing: 16,
               children: [
-                _StatCard(
-                  label: '交易员总数',
-                  value: total.toString(),
-                  icon: Icons.people,
-                ),
-                _StatCard(
-                  label: '待审核',
-                  value: (counts['pending'] ?? 0).toString(),
-                  icon: Icons.pending_actions,
-                  accent: Colors.orange,
-                ),
-                _StatCard(
-                  label: '已通过',
-                  value: (counts['approved'] ?? 0).toString(),
-                  icon: Icons.check_circle_outline,
-                  accent: Colors.green,
-                ),
-                _StatCard(
-                  label: '已驳回',
-                  value: (counts['rejected'] ?? 0).toString(),
-                  icon: Icons.cancel_outlined,
-                  accent: Colors.grey,
-                ),
-                _StatCard(
-                  label: '已冻结',
-                  value: (counts['frozen'] ?? 0).toString(),
-                  icon: Icons.ac_unit,
-                  accent: Colors.blue,
-                ),
-                _StatCard(
-                  label: '已封禁',
-                  value: (counts['blocked'] ?? 0).toString(),
-                  icon: Icons.block,
-                  accent: Colors.red,
-                ),
+                _StatCard(label: AdminStrings.adminTeachersTotal, value: total.toString(), icon: Icons.people),
+                _StatCard(label: AdminStrings.adminPending, value: (counts['pending'] ?? 0).toString(), icon: Icons.pending_actions, accent: Colors.orange),
+                _StatCard(label: AdminStrings.adminApproved, value: (counts['approved'] ?? 0).toString(), icon: Icons.check_circle_outline, accent: Colors.green),
+                _StatCard(label: AdminStrings.adminRejected, value: (counts['rejected'] ?? 0).toString(), icon: Icons.cancel_outlined, accent: Colors.grey),
+                _StatCard(label: AdminStrings.adminFrozen, value: (counts['frozen'] ?? 0).toString(), icon: Icons.ac_unit, accent: Colors.blue),
+                _StatCard(label: AdminStrings.adminBlocked, value: (counts['blocked'] ?? 0).toString(), icon: Icons.block, accent: Colors.red),
               ],
             );
           },
         ),
         const SizedBox(height: 32),
         Text(
-          '快捷入口',
+          AdminStrings.pcQuickEntry,
           style: Theme.of(context).textTheme.titleMedium?.copyWith(
                 color: Theme.of(context).colorScheme.onSurface.withOpacity(0.8),
               ),
@@ -192,7 +159,7 @@ class _DashboardPanelState extends State<_DashboardPanel> {
             if (widget.onGoToTeachers != null)
               ActionChip(
                 avatar: const Icon(Icons.verified_outlined, color: _accent, size: 20),
-                label: const Text('交易员审核'),
+                label: Text(AdminStrings.adminTeacherReview),
                 onPressed: widget.onGoToTeachers,
               ),
           ],
@@ -203,12 +170,7 @@ class _DashboardPanelState extends State<_DashboardPanel> {
 }
 
 class _StatCard extends StatelessWidget {
-  const _StatCard({
-    required this.label,
-    required this.value,
-    required this.icon,
-    this.accent,
-  });
+  const _StatCard({required this.label, required this.value, required this.icon, this.accent});
 
   final String label;
   final String value;
@@ -233,27 +195,15 @@ class _StatCard extends StatelessWidget {
         children: [
           Icon(icon, color: color, size: 28),
           const SizedBox(height: 12),
-          Text(
-            value,
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: color,
-                ),
-          ),
+          Text(value, style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700, color: color)),
           const SizedBox(height: 4),
-          Text(
-            label,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
-                ),
-          ),
+          Text(label, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7))),
         ],
       ),
     );
   }
 }
 
-/// 用户管理：完整资料展示 + 限制登录/发消息/冻结/封禁/禁止加好友/加群/建群
 class _AdminUserPanel extends StatefulWidget {
   const _AdminUserPanel();
 
@@ -308,11 +258,11 @@ class _AdminUserPanelState extends State<_AdminUserPanel> {
     try {
       await SupabaseBootstrap.client.from('user_profiles').update(payload).eq('user_id', userId);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已保存')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AdminStrings.adminSaved)));
       _loadUsers();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('保存失败: $e'), backgroundColor: Colors.red.shade700));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AdminStrings.adminSaveFailed(e.toString())), backgroundColor: Colors.red.shade700));
     }
   }
 
@@ -334,11 +284,11 @@ class _AdminUserPanelState extends State<_AdminUserPanel> {
             children: [
               Row(
                 children: [
-                  Text('用户管理', style: Theme.of(context).textTheme.headlineSmall?.copyWith(color: _accent, fontWeight: FontWeight.w600)),
+                  Text(AdminStrings.adminUserManagement, style: Theme.of(context).textTheme.headlineSmall?.copyWith(color: _accent, fontWeight: FontWeight.w600)),
                   const SizedBox(width: 12),
-                  Text('共 ${_users.length} 人', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6))),
+                  Text(AdminStrings.adminUsersCount(_users.length), style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6))),
                   const Spacer(),
-                  IconButton(icon: const Icon(Icons.refresh), onPressed: _loading ? null : _loadUsers, tooltip: '刷新'),
+                  IconButton(icon: const Icon(Icons.refresh), onPressed: _loading ? null : _loadUsers, tooltip: AdminStrings.adminRefresh),
                 ],
               ),
               const SizedBox(height: 16),
@@ -353,11 +303,11 @@ class _AdminUserPanelState extends State<_AdminUserPanel> {
                       children: [
                         Icon(Icons.error_outline, size: 48, color: Theme.of(context).colorScheme.error),
                         const SizedBox(height: 12),
-                        const Text('加载失败'),
+                        Text(AdminStrings.chartQuoteLoadFailed),
                         const SizedBox(height: 4),
                         Text(_loadError ?? '', style: Theme.of(context).textTheme.bodySmall, textAlign: TextAlign.center, maxLines: 3, overflow: TextOverflow.ellipsis),
                         const SizedBox(height: 16),
-                        FilledButton.icon(onPressed: _loadUsers, icon: const Icon(Icons.refresh, size: 18), label: const Text('重试')),
+                        FilledButton.icon(onPressed: _loadUsers, icon: const Icon(Icons.refresh, size: 18), label: Text(AdminStrings.commonRetry)),
                       ],
                     ),
                   ),
@@ -371,7 +321,7 @@ class _AdminUserPanelState extends State<_AdminUserPanel> {
                       children: [
                         Icon(Icons.people_outline, size: 56, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.4)),
                         const SizedBox(height: 12),
-                        Text('暂无用户数据', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7))),
+                        Text(AdminStrings.adminNoUserData, style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7))),
                       ],
                     ),
                   ),
@@ -398,7 +348,7 @@ class _AdminUserPanelState extends State<_AdminUserPanel> {
         Expanded(
           flex: 1,
           child: _selectedIndex == null || _selectedIndex! >= _users.length
-              ? Center(child: Text('请从左侧选择用户', style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5))))
+              ? Center(child: Text(AdminStrings.adminSelectUser, style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5))))
               : _UserDetailPanel(
                   user: _users[_selectedIndex!],
                   onUpdate: _updateRestrictions,
@@ -448,7 +398,7 @@ class _UserDetailPanel extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(24),
       children: [
-        Text('用户资料', style: Theme.of(context).textTheme.titleMedium?.copyWith(color: _accent)),
+        Text(AdminStrings.adminUserProfile, style: Theme.of(context).textTheme.titleMedium?.copyWith(color: _accent)),
         const SizedBox(height: 12),
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -461,26 +411,26 @@ class _UserDetailPanel extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _row('昵称', name),
-                  _row('邮箱', email ?? '—'),
-                  _row('用户 ID', userId),
-                  if (shortId != null && shortId.isNotEmpty) _row('短号', shortId),
-                  _row('角色', role),
-                  if (signature != null && signature.isNotEmpty) _row('个性签名', signature),
+                  _row(AdminStrings.adminNickname, name),
+                  _row(AdminStrings.authEmail, email ?? '—'),
+                  _row(AdminStrings.adminUserId, userId),
+                  if (shortId != null && shortId.isNotEmpty) _row(AdminStrings.adminShortId, shortId),
+                  _row(AdminStrings.adminRole, role),
+                  if (signature != null && signature.isNotEmpty) _row(AdminStrings.adminSignature, signature),
                 ],
               ),
             ),
           ],
         ),
         const SizedBox(height: 24),
-        Text('限制与封禁', style: Theme.of(context).textTheme.titleMedium?.copyWith(color: _accent)),
+        Text(AdminStrings.adminRestrictAndBan, style: Theme.of(context).textTheme.titleMedium?.copyWith(color: _accent)),
         const SizedBox(height: 8),
         if (bannedUntil != null)
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
             child: Chip(
               avatar: const Icon(Icons.block, color: Colors.red, size: 18),
-              label: Text('封禁至 ${bannedUntil.toIso8601String().split('T').first}'),
+              label: Text(AdminStrings.adminBanUntil(bannedUntil.toIso8601String().split('T').first)),
               backgroundColor: Colors.red.withOpacity(0.2),
             ),
           ),
@@ -489,7 +439,7 @@ class _UserDetailPanel extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: 8),
             child: Chip(
               avatar: const Icon(Icons.ac_unit, color: Colors.blue, size: 18),
-              label: Text('冻结至 ${frozenUntil.toIso8601String().split('T').first}'),
+              label: Text(AdminStrings.adminFrozenUntil(frozenUntil.toIso8601String().split('T').first)),
               backgroundColor: Colors.blue.withOpacity(0.2),
             ),
           ),
@@ -497,47 +447,18 @@ class _UserDetailPanel extends StatelessWidget {
           spacing: 12,
           runSpacing: 8,
           children: [
-            OutlinedButton(
-              onPressed: () => _showBannedFrozenDialog(context, true),
-              style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
-              child: const Text('封禁'),
-            ),
-            OutlinedButton(
-              onPressed: () => _showBannedFrozenDialog(context, false),
-              style: OutlinedButton.styleFrom(foregroundColor: Colors.blue),
-              child: const Text('冻结'),
-            ),
+            OutlinedButton(onPressed: () => _showBannedFrozenDialog(context, true), style: OutlinedButton.styleFrom(foregroundColor: Colors.red), child: Text(AdminStrings.adminBan)),
+            OutlinedButton(onPressed: () => _showBannedFrozenDialog(context, false), style: OutlinedButton.styleFrom(foregroundColor: Colors.blue), child: Text(AdminStrings.adminFreeze)),
           ],
         ),
         const SizedBox(height: 16),
-        Text('权限开关（开启即禁止该用户对应行为）', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7))),
+        Text(AdminStrings.adminRestrictHint, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7))),
         const SizedBox(height: 8),
-        SwitchListTile(
-          title: const Text('限制登录'),
-          subtitle: const Text('禁止该账号登录'),
-          value: _bool('restrict_login'),
-          onChanged: (v) => _toggle(context, 'restrict_login', v),
-        ),
-        SwitchListTile(
-          title: const Text('限制发消息'),
-          value: _bool('restrict_send_message'),
-          onChanged: (v) => _toggle(context, 'restrict_send_message', v),
-        ),
-        SwitchListTile(
-          title: const Text('禁止加好友'),
-          value: _bool('restrict_add_friend'),
-          onChanged: (v) => _toggle(context, 'restrict_add_friend', v),
-        ),
-        SwitchListTile(
-          title: const Text('禁止加入群聊'),
-          value: _bool('restrict_join_group'),
-          onChanged: (v) => _toggle(context, 'restrict_join_group', v),
-        ),
-        SwitchListTile(
-          title: const Text('禁止建群'),
-          value: _bool('restrict_create_group'),
-          onChanged: (v) => _toggle(context, 'restrict_create_group', v),
-        ),
+        SwitchListTile(title: Text(AdminStrings.adminRestrictLogin), subtitle: Text(AdminStrings.adminRestrictLoginSub), value: _bool('restrict_login'), onChanged: (v) => _toggle(context, 'restrict_login', v)),
+        SwitchListTile(title: Text(AdminStrings.adminRestrictSendMessage), value: _bool('restrict_send_message'), onChanged: (v) => _toggle(context, 'restrict_send_message', v)),
+        SwitchListTile(title: Text(AdminStrings.adminRestrictAddFriend), value: _bool('restrict_add_friend'), onChanged: (v) => _toggle(context, 'restrict_add_friend', v)),
+        SwitchListTile(title: Text(AdminStrings.adminRestrictJoinGroup), value: _bool('restrict_join_group'), onChanged: (v) => _toggle(context, 'restrict_join_group', v)),
+        SwitchListTile(title: Text(AdminStrings.adminRestrictCreateGroup), value: _bool('restrict_create_group'), onChanged: (v) => _toggle(context, 'restrict_create_group', v)),
       ],
     );
   }
@@ -561,17 +482,17 @@ class _UserDetailPanel extends StatelessWidget {
     final days = await showDialog<int>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(isBanned ? '封禁时长' : '冻结时长'),
+        title: Text(isBanned ? AdminStrings.adminBanDuration : AdminStrings.adminFrozenDuration),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ListTile(title: const Text('7 天'), onTap: () => Navigator.pop(ctx, 7)),
-            ListTile(title: const Text('30 天'), onTap: () => Navigator.pop(ctx, 30)),
-            ListTile(title: const Text('90 天'), onTap: () => Navigator.pop(ctx, 90)),
-            ListTile(title: const Text('永久'), onTap: () => Navigator.pop(ctx, 0)),
+            ListTile(title: Text(AdminStrings.adminDays7), onTap: () => Navigator.pop(ctx, 7)),
+            ListTile(title: Text(AdminStrings.adminDays30), onTap: () => Navigator.pop(ctx, 30)),
+            ListTile(title: Text(AdminStrings.adminDays90), onTap: () => Navigator.pop(ctx, 90)),
+            ListTile(title: Text(AdminStrings.adminPermanent), onTap: () => Navigator.pop(ctx, 0)),
           ],
         ),
-        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消'))],
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: Text(AdminStrings.commonCancel))],
       ),
     );
     if (days != null) await onSetBannedOrFrozen(userId, isBanned, days);
@@ -591,42 +512,12 @@ class _SideNav extends StatelessWidget {
       child: ListView(
         padding: const EdgeInsets.symmetric(vertical: 12),
         children: [
-          _NavItem(
-            title: '总览',
-            icon: Icons.dashboard_outlined,
-            active: current == AdminSection.dashboard,
-            onTap: () => onSelect(AdminSection.dashboard),
-          ),
-          _NavItem(
-            title: '用户管理',
-            icon: Icons.people_outline,
-            active: current == AdminSection.users,
-            onTap: () => onSelect(AdminSection.users),
-          ),
-          _NavItem(
-            title: '交易员审核',
-            icon: Icons.verified_outlined,
-            active: current == AdminSection.teachers,
-            onTap: () => onSelect(AdminSection.teachers),
-          ),
-          _NavItem(
-            title: '系统消息',
-            icon: Icons.notifications_outlined,
-            active: current == AdminSection.systemMessages,
-            onTap: () => onSelect(AdminSection.systemMessages),
-          ),
-          _NavItem(
-            title: '举报与审核',
-            icon: Icons.report_outlined,
-            active: current == AdminSection.reports,
-            onTap: () => onSelect(AdminSection.reports),
-          ),
-          _NavItem(
-            title: '系统设置',
-            icon: Icons.settings_outlined,
-            active: current == AdminSection.settings,
-            onTap: () => onSelect(AdminSection.settings),
-          ),
+          _NavItem(title: AdminStrings.adminOverview, icon: Icons.dashboard_outlined, active: current == AdminSection.dashboard, onTap: () => onSelect(AdminSection.dashboard)),
+          _NavItem(title: AdminStrings.adminUserManagement, icon: Icons.people_outline, active: current == AdminSection.users, onTap: () => onSelect(AdminSection.users)),
+          _NavItem(title: AdminStrings.adminTeacherReview, icon: Icons.verified_outlined, active: current == AdminSection.teachers, onTap: () => onSelect(AdminSection.teachers)),
+          _NavItem(title: AdminStrings.adminSystemMessages, icon: Icons.notifications_outlined, active: current == AdminSection.systemMessages, onTap: () => onSelect(AdminSection.systemMessages)),
+          _NavItem(title: AdminStrings.adminReports, icon: Icons.report_outlined, active: current == AdminSection.reports, onTap: () => onSelect(AdminSection.reports)),
+          _NavItem(title: AdminStrings.adminSettings, icon: Icons.settings_outlined, active: current == AdminSection.settings, onTap: () => onSelect(AdminSection.settings)),
         ],
       ),
     );
@@ -634,12 +525,7 @@ class _SideNav extends StatelessWidget {
 }
 
 class _NavItem extends StatelessWidget {
-  const _NavItem({
-    required this.title,
-    required this.icon,
-    required this.active,
-    required this.onTap,
-  });
+  const _NavItem({required this.title, required this.icon, required this.active, required this.onTap});
 
   final String title;
   final IconData icon;
@@ -648,21 +534,12 @@ class _NavItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      leading: Icon(icon),
-      title: Text(title),
-      selected: active,
-      onTap: onTap,
-    );
+    return ListTile(leading: Icon(icon), title: Text(title), selected: active, onTap: onTap);
   }
 }
 
 class _PlaceholderPanel extends StatelessWidget {
-  const _PlaceholderPanel({
-    required this.title,
-    required this.description,
-    this.hint,
-  });
+  const _PlaceholderPanel({required this.title, required this.description, this.hint});
 
   final String title;
   final String description;
@@ -673,26 +550,15 @@ class _PlaceholderPanel extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(24),
       children: [
-        Text(
-          title,
-          style: Theme.of(context).textTheme.headlineSmall,
-        ),
+        Text(title, style: Theme.of(context).textTheme.headlineSmall),
         const SizedBox(height: 12),
-        Text(
-          description,
-          style: Theme.of(context).textTheme.bodyMedium,
-        ),
+        Text(description, style: Theme.of(context).textTheme.bodyMedium),
         if (hint != null) ...[
           const SizedBox(height: 8),
-          Text(
-            hint!,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: const Color(0xFF6C6F77),
-                ),
-          ),
+          Text(hint!, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xFF6C6F77))),
         ],
         const SizedBox(height: 24),
-        const Text('此模块已搭好框架，下一步接入数据与操作逻辑。'),
+        Text(AdminStrings.adminPlaceholderHint),
       ],
     );
   }

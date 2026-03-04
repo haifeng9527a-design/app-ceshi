@@ -53,4 +53,13 @@ class ChartTheme {
 
   static const String fontMono = 'monospace';
   static const FontFeature tabularFigures = FontFeature.tabularFigures();
+
+  /// 股票价格格式化：与主流看盘软件一致，低价股显示 4 位小数
+  /// v >= 100: 2 位（如 150.25）；v >= 1: 4 位（如 1.2200）；v < 1: 4 位（如 0.5537）
+  static String formatPrice(double v) {
+    if (v >= 10000) return v.toStringAsFixed(0);
+    if (v >= 100) return v.toStringAsFixed(2);
+    if (v >= 1) return v.toStringAsFixed(4);
+    return v.toStringAsFixed(4);
+  }
 }

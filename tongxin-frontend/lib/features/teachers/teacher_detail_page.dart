@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/models.dart';
+import '../../l10n/app_localizations.dart';
 
 class TeacherDetailPage extends StatelessWidget {
   const TeacherDetailPage({super.key, required this.teacher});
@@ -18,10 +19,10 @@ class TeacherDetailPage extends StatelessWidget {
         children: [
           _HeaderSection(teacher: teacher),
           const SizedBox(height: 16),
-          _SectionTitle(title: '战绩表现'),
+          _SectionTitle(title: AppLocalizations.of(context)!.teachersPerformanceSection),
           _BattleStats(teacher: teacher),
           const SizedBox(height: 16),
-          _SectionTitle(title: '个人介绍'),
+          _SectionTitle(title: AppLocalizations.of(context)!.teachersIntroSection),
           Text(teacher.bio, style: Theme.of(context).textTheme.bodyMedium),
           const SizedBox(height: 16),
           _SectionTitle(title: '最新文章'),
@@ -34,7 +35,7 @@ class TeacherDetailPage extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
-          _SectionTitle(title: '近期行程'),
+          _SectionTitle(title: AppLocalizations.of(context)!.teachersRecentSchedule),
           ...teacher.schedules.map(
             (item) => ListTile(
               contentPadding: EdgeInsets.zero,
@@ -46,7 +47,7 @@ class TeacherDetailPage extends StatelessWidget {
           const SizedBox(height: 16),
           FilledButton(
             onPressed: () {},
-            child: const Text('关注交易员'),
+            child: Text(AppLocalizations.of(context)!.featuredFollowTrader),
           ),
         ],
       ),
@@ -112,13 +113,13 @@ class _BattleStats extends StatelessWidget {
     final winRate = total == 0 ? 0 : (teacher.wins / total * 100).round();
     return Row(
       children: [
-        _StatTile(label: '胜场', value: '${teacher.wins}'),
+        _StatTile(label: AppLocalizations.of(context)!.featuredWins, value: '${teacher.wins}'),
         const SizedBox(width: 12),
-        _StatTile(label: '败场', value: '${teacher.losses}'),
+        _StatTile(label: AppLocalizations.of(context)!.featuredLosses, value: '${teacher.losses}'),
         const SizedBox(width: 12),
-        _StatTile(label: '胜率', value: '$winRate%'),
+        _StatTile(label: AppLocalizations.of(context)!.featuredWinRate, value: '$winRate%'),
         const SizedBox(width: 12),
-        _StatTile(label: '评分', value: '${teacher.rating}'),
+        _StatTile(label: AppLocalizations.of(context)!.teachersRatingLabel, value: '${teacher.rating}'),
       ],
     );
   }

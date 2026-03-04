@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
+import '../l10n/admin_strings.dart';
 import 'admin_home_page.dart';
 
 class AdminLoginPage extends StatefulWidget {
@@ -114,8 +115,8 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
                         TextFormField(
                           controller: _usernameController,
                           decoration: InputDecoration(
-                            labelText: '账号',
-                            hintText: '请输入管理员账号',
+                            labelText: AdminStrings.authAccount,
+                            hintText: AdminStrings.authEnterAdminAccount,
                             prefixIcon: const Icon(Icons.person_outline, color: _accent),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
@@ -130,7 +131,7 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
                             ),
                           ),
                           validator: (v) {
-                            if (v == null || v.trim().isEmpty) return '请输入账号';
+                            if (v == null || v.trim().isEmpty) return AdminStrings.authEnterAccount;
                             return null;
                           },
                           onFieldSubmitted: (_) => FocusScope.of(context).nextFocus(),
@@ -140,8 +141,8 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
                           controller: _passwordController,
                           obscureText: _obscurePassword,
                           decoration: InputDecoration(
-                            labelText: '密码',
-                            hintText: '请输入密码',
+                            labelText: AdminStrings.authPassword,
+                            hintText: AdminStrings.authEnterPasswordHint,
                             prefixIcon: const Icon(Icons.lock_outline, color: _accent),
                             suffixIcon: IconButton(
                               icon: Icon(
@@ -200,7 +201,7 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
                                   width: 20,
                                   child: CircularProgressIndicator(strokeWidth: 2),
                                 )
-                              : const Text('登 录'),
+                              : Text(AdminStrings.authLogin),
                         ),
                       ],
                     ),

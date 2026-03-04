@@ -521,6 +521,39 @@ class PolygonGainer {
   /// 昨收（prevDay.c）
   final double? prevClose;
 
+  /// 用实时价更新（WebSocket 成交推送），需有 prevClose 才能计算涨跌
+  PolygonGainer copyWithRealtimePrice(double newPrice) {
+    final prev = prevClose;
+    if (prev == null || prev <= 0) {
+      return PolygonGainer(
+        ticker: ticker,
+        todaysChangePerc: todaysChangePerc,
+        todaysChange: todaysChange,
+        price: newPrice,
+        updated: DateTime.now().millisecondsSinceEpoch,
+        dayVolume: dayVolume,
+        dayOpen: dayOpen,
+        dayHigh: dayHigh,
+        dayLow: dayLow,
+        prevClose: prevClose,
+      );
+    }
+    final newChange = newPrice - prev;
+    final newChangePerc = (newChange / prev) * 100;
+    return PolygonGainer(
+      ticker: ticker,
+      todaysChangePerc: newChangePerc,
+      todaysChange: newChange,
+      price: newPrice,
+      updated: DateTime.now().millisecondsSinceEpoch,
+      dayVolume: dayVolume,
+      dayOpen: dayOpen,
+      dayHigh: dayHigh,
+      dayLow: dayLow,
+      prevClose: prevClose,
+    );
+  }
+
   static PolygonGainer? fromJson(Map<String, dynamic> json) {
     final ticker = json['ticker'] as String?;
     if (ticker == null) return null;

@@ -2,25 +2,23 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
-import '../../core/supabase_bootstrap.dart';
+import '../../core/api_client.dart';
 import 'polygon_repository.dart';
 
-/// 领涨/领跌快照存 Supabase，休市时新用户或本地无缓存时从此读取
+/// 领涨/领跌快照通过 tongxin-backend 读写（后端代理 Supabase market_snapshots）
+/// 避免前端直连 Supabase 暴露数据库
 class MarketSnapshotRepository {
-  static const _table = 'market_snapshots';
+  final _api = ApiClient.instance;
 
-  bool get isAvailable => SupabaseBootstrap.isReady;
+  bool get isAvailable => _api.isAvailable;
 
-  /// 从 Supabase 读取最近一次领涨快照
+  /// 从后端读取最近一次领涨快照
   Future<List<PolygonGainer>> getGainers({int limit = 20}) async {
     if (!isAvailable) return [];
     try {
-      final res = await SupabaseBootstrap.client
-          .from(_table)
-          .select('payload')
-          .eq('type', 'gainers')
-          .maybeSingle();
-      final payload = res?['payload'];
+      final resp = await _api.get('api/market/snapshots', queryParameters: {'type': 'gainers'}, withAuth: false);
+      if (resp.statusCode != 200) return [];
+      final payload = jsonDecode(resp.body);
       if (payload is! List || payload.isEmpty) return [];
       return _parsePayload(payload, limit);
     } catch (e) {
@@ -29,16 +27,13 @@ class MarketSnapshotRepository {
     }
   }
 
-  /// 从 Supabase 读取最近一次领跌快照
+  /// 从后端读取最近一次领跌快照
   Future<List<PolygonGainer>> getLosers({int limit = 20}) async {
     if (!isAvailable) return [];
     try {
-      final res = await SupabaseBootstrap.client
-          .from(_table)
-          .select('payload')
-          .eq('type', 'losers')
-          .maybeSingle();
-      final payload = res?['payload'];
+      final resp = await _api.get('api/market/snapshots', queryParameters: {'type': 'losers'}, withAuth: false);
+      if (resp.statusCode != 200) return [];
+      final payload = jsonDecode(resp.body);
       if (payload is! List || payload.isEmpty) return [];
       return _parsePayload(payload, limit);
     } catch (e) {
@@ -63,14 +58,7 @@ class MarketSnapshotRepository {
   Future<void> saveGainers(List<Map<String, dynamic>> rawList) async {
     if (!isAvailable || rawList.isEmpty) return;
     try {
-      await SupabaseBootstrap.client.from(_table).upsert(
-        {
-          'type': 'gainers',
-          'payload': rawList,
-          'updated_at': DateTime.now().toUtc().toIso8601String(),
-        },
-        onConflict: 'type',
-      );
+      await _api.put('api/market/snapshots', body: {'type': 'gainers', 'payload': rawList});
     } catch (e) {
       debugPrint('MarketSnapshotRepository saveGainers: $e');
     }
@@ -80,29 +68,19 @@ class MarketSnapshotRepository {
   Future<void> saveLosers(List<Map<String, dynamic>> rawList) async {
     if (!isAvailable || rawList.isEmpty) return;
     try {
-      await SupabaseBootstrap.client.from(_table).upsert(
-        {
-          'type': 'losers',
-          'payload': rawList,
-          'updated_at': DateTime.now().toUtc().toIso8601String(),
-        },
-        onConflict: 'type',
-      );
+      await _api.put('api/market/snapshots', body: {'type': 'losers', 'payload': rawList});
     } catch (e) {
       debugPrint('MarketSnapshotRepository saveLosers: $e');
     }
   }
 
-  /// 从 Supabase 读取指数/外汇/加密货币快照（payload 为 [{symbol, name, close, change, percent_change}, ...]）
+  /// 从后端读取指数/外汇/加密货币快照（payload 为 [{symbol, name, close, change, percent_change}, ...]）
   Future<List<Map<String, dynamic>>> getQuotes(String type) async {
     if (!isAvailable) return [];
     try {
-      final res = await SupabaseBootstrap.client
-          .from(_table)
-          .select('payload')
-          .eq('type', type)
-          .maybeSingle();
-      final payload = res?['payload'];
+      final resp = await _api.get('api/market/snapshots', queryParameters: {'type': type}, withAuth: false);
+      if (resp.statusCode != 200) return [];
+      final payload = jsonDecode(resp.body);
       if (payload is! List || payload.isEmpty) return [];
       return payload
           .whereType<Map<String, dynamic>>()
@@ -121,14 +99,7 @@ class MarketSnapshotRepository {
   ) async {
     if (!isAvailable || list.isEmpty) return;
     try {
-      await SupabaseBootstrap.client.from(_table).upsert(
-        {
-          'type': type,
-          'payload': list,
-          'updated_at': DateTime.now().toUtc().toIso8601String(),
-        },
-        onConflict: 'type',
-      );
+      await _api.put('api/market/snapshots', body: {'type': type, 'payload': list});
     } catch (e) {
       debugPrint('MarketSnapshotRepository saveQuotes($type): $e');
     }

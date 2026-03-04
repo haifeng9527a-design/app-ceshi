@@ -2,6 +2,7 @@ import 'package:app_links/app_links.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../core/network_error_helper.dart';
 import '../../core/notification_service.dart';
 import '../../core/user_restrictions.dart';
@@ -32,32 +33,37 @@ Future<void> handleGroupJoinUri(Uri uri) async {
 
   final userId = FirebaseAuth.instance.currentUser?.uid;
   if (userId == null || userId.isEmpty) {
-    _showSnackBar('请先登录后再加入群聊');
+    final ctx = NotificationService.navigatorKey.currentContext;
+    if (ctx != null && ctx.mounted) {
+      _showSnackBar(AppLocalizations.of(ctx)!.groupJoinLoginFirst);
+    }
     return;
   }
+  final ctx = NotificationService.navigatorKey.currentContext;
+  if (ctx == null || !ctx.mounted) return;
+
   final restrictions = await UserRestrictions.getMyRestrictionRow();
   if (!UserRestrictions.canJoinGroup(restrictions)) {
     UserRestrictions.clearCache();
-    _showSnackBar(UserRestrictions.getAccountStatusMessage(restrictions));
+    _showSnackBar(UserRestrictions.getAccountStatusMessage(restrictions, ctx));
     return;
   }
+  final context = ctx;
 
-  final context = NotificationService.navigatorKey.currentContext;
-  if (context == null || !context.mounted) return;
-
+  final l10n = AppLocalizations.of(context)!;
   final join = await showDialog<bool>(
     context: context,
     builder: (ctx) => AlertDialog(
-      title: const Text('加入群聊'),
-      content: const Text('确定要加入该群聊吗？'),
+      title: Text(l10n.groupJoinTitle),
+      content: Text(l10n.groupJoinConfirm),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(ctx).pop(false),
-          child: const Text('取消'),
+          child: Text(l10n.commonCancel),
         ),
         FilledButton(
           onPressed: () => Navigator.of(ctx).pop(true),
-          child: const Text('加入'),
+          child: Text(l10n.commonConfirm),
         ),
       ],
     ),
@@ -67,7 +73,7 @@ Future<void> handleGroupJoinUri(Uri uri) async {
   try {
     final displayName = FirebaseAuth.instance.currentUser?.displayName?.trim() ??
         FirebaseAuth.instance.currentUser?.email?.split('@').first ??
-        '新成员';
+        l10n.groupNewMember;
     final repo = MessagesRepository();
     await repo.addGroupMembers(
       conversationId: conversationId,
@@ -75,11 +81,11 @@ Future<void> handleGroupJoinUri(Uri uri) async {
       userIdToDisplayName: {userId: displayName},
     );
     if (context.mounted) {
-      _showSnackBar('已加入群聊，请在消息列表查看');
+      _showSnackBar(l10n.groupJoinSuccess);
     }
   } catch (e) {
     if (context.mounted) {
-      final msg = NetworkErrorHelper.messageForUser(e, prefix: '加入失败');
+      final msg = NetworkErrorHelper.messageForUser(e, prefix: AppLocalizations.of(context)!.groupJoinFailed, l10n: AppLocalizations.of(context));
       _showSnackBar(msg);
     }
   }

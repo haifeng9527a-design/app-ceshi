@@ -21,6 +21,8 @@ import '../features/messages/chat_detail_page.dart';
 import '../features/messages/friends_repository.dart';
 import '../features/messages/message_models.dart';
 import '../features/messages/messages_repository.dart';
+import '../api/users_api.dart';
+import 'api_client.dart';
 import 'firebase_bootstrap.dart';
 import 'supabase_bootstrap.dart';
 
@@ -362,22 +364,17 @@ class NotificationService {
     required String token,
     required String platform,
   }) async {
-    if (!SupabaseBootstrap.isReady) {
-      debugPrint('[通知] 保存 token 跳过: Supabase 未就绪');
-      return;
-    }
     final userId = FirebaseAuth.instance.currentUser?.uid;
     if (userId == null || userId.isEmpty) {
       debugPrint('[通知] 保存 token 跳过: 用户未登录 (platform=$platform)');
       return;
     }
-    debugPrint('[通知] 保存 device_token: platform=$platform userId=$userId');
-    await SupabaseBootstrap.client.from('device_tokens').upsert({
-      'user_id': userId,
-      'token': token,
-      'platform': platform,
-      'updated_at': DateTime.now().toIso8601String(),
-    });
+    if (!ApiClient.instance.isAvailable) {
+      debugPrint('[通知] 保存 token 跳过: TONGXIN_API_URL 未配置');
+      return;
+    }
+    debugPrint('[通知] 保存 device_token 走后端: platform=$platform userId=$userId');
+    await UsersApi.instance.saveDeviceToken(token: token, platform: platform);
   }
 
   static Future<void> _initGetui() async {
