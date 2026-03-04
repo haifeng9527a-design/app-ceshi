@@ -151,6 +151,25 @@ class BackendMarketClient {
     return out;
   }
 
+  /// 当日 OHLC + 昨收（详情页用），走后端 /api/quotes?realtime=1
+  Future<PolygonGainer?> getDaySnapshot(String symbol) async {
+    final m = await getQuotes([symbol.trim()], realtime: true);
+    final q = m[symbol.trim()];
+    if (q == null || q.hasError || q.price <= 0) return null;
+    final prevClose = q.change != 0 ? q.price - q.change : null;
+    return PolygonGainer(
+      ticker: q.symbol,
+      todaysChangePerc: q.changePercent,
+      todaysChange: q.change,
+      price: q.price,
+      dayOpen: q.open,
+      dayHigh: q.high,
+      dayLow: q.low,
+      dayVolume: q.volume,
+      prevClose: prevClose,
+    );
+  }
+
   /// [lastDays] 非 null 时请求多日数据（用于分时 2天/3天/4天 合并显示），会传 fromMs/toMs 给后端
   Future<List<ChartCandle>> getCandles(String symbol, String interval, {int? lastDays, void Function(String)? onError}) async {
     final sym = symbol.trim();

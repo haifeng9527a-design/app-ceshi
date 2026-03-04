@@ -362,8 +362,8 @@ class _ChartViewportState extends State<ChartViewport> {
   }
 
   static String _fmt(double v) {
-    if (v >= 1000) return v.toStringAsFixed(0);
-    if (v >= 1) return v.toStringAsFixed(2);
+    if (v >= 10000) return v.toStringAsFixed(0);
+    if (v >= 100) return v.toStringAsFixed(2);
     return v.toStringAsFixed(4);
   }
 
@@ -663,7 +663,7 @@ class _ChartViewportState extends State<ChartViewport> {
                                 );
                               }
                               return Text(
-                                '${(v >= 0 ? '+' : '')}${v.toStringAsFixed(2)}',
+                                '${(v >= 0 ? '+' : '')}${_fmt(v)}',
                                 style: style,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,

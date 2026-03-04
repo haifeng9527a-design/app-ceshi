@@ -128,7 +128,7 @@ class QuoteRow extends StatelessWidget {
 
   static String _formatPrice(double v) {
     if (v >= 10000) return v.toStringAsFixed(0);
-    if (v >= 1) return v.toStringAsFixed(2);
+    if (v >= 100) return v.toStringAsFixed(2);
     return v.toStringAsFixed(4);
   }
 }

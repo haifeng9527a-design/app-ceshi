@@ -17,6 +17,7 @@ const { registerMiscRoutes } = require('./lib/apiMisc');
 const { requireAuth, optionalAuth } = require('./lib/authMiddleware');
 const { startRefreshScheduler } = require('./lib/refreshScheduler');
 const { startRotationScheduler } = require('./lib/rotationScheduler');
+const { createQuotesWsServer } = require('./lib/wsQuotes');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -54,8 +55,9 @@ if (polygonKey) {
   startRotationScheduler(polygonKey);
 }
 
-app.listen(PORT, '0.0.0.0', () => {
+const httpServer = app.listen(PORT, '0.0.0.0', () => {
   console.log(`tongxin-backend listening on http://localhost:${PORT} (0.0.0.0:${PORT})`);
+  createQuotesWsServer(httpServer, polygonKey);
   const { isAuthConfigured } = require('./lib/authMiddleware');
   const credPath = process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim();
   const fs = require('fs');

@@ -3,8 +3,10 @@ import 'dart:async';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../trading/backend_realtime_client.dart';
 import '../trading/trading_cache.dart';
 import 'chart/bottom_detail_tabs.dart';
 import 'chart/chart_theme.dart';
@@ -106,6 +108,7 @@ class _StockChartPageState extends State<StockChartPage>
   /// 当日累计成交量（WebSocket 成交累加），与 _dayVolume 二选一或叠加展示
   int _realtimeVolume = 0;
   PolygonRealtime? _realtime;
+  BackendRealtimeClient? _backendRealtime;
   StreamSubscription<PolygonTradeUpdate>? _realtimeSub;
   /// 分时周期：仅 Tab 0（1分）用折线图，固定 1min
   static const String _intradayInterval = '1min';
@@ -304,7 +307,9 @@ class _StockChartPageState extends State<StockChartPage>
 
     _realtimeSub?.cancel();
     _realtime?.dispose();
+    _backendRealtime?.dispose();
     _realtime = null;
+    _backendRealtime = null;
     _realtimeSub = null;
     _connectRealtime();
     _loadQuote().then((_) {
@@ -393,15 +398,33 @@ class _StockChartPageState extends State<StockChartPage>
 
   void _connectRealtime() {
     if (!_market.polygonAvailable) return;
-    _realtime = _market.openRealtime(_effectiveSymbol);
-    _realtime?.connect();
-    _realtimeSub = _realtime?.stream.listen((u) {
-      if (!mounted) return;
-      setState(() {
-        _currentPrice = u.price;
-        _realtimeVolume += u.size;
+    final apiKey = dotenv.env['POLYGON_API_KEY']?.trim();
+    final backendUrl = dotenv.env['TONGXIN_API_URL']?.trim() ?? dotenv.env['BACKEND_URL']?.trim();
+    if (apiKey != null && apiKey.isNotEmpty) {
+      _backendRealtime?.dispose();
+      _realtimeSub?.cancel();
+      _realtime = _market.openRealtime(_effectiveSymbol);
+      _realtime?.connect();
+      _realtimeSub = _realtime?.stream.listen((u) {
+        if (!mounted) return;
+        setState(() {
+          _currentPrice = u.price;
+          _realtimeVolume += u.size;
+        });
       });
-    });
+    } else if (backendUrl != null && backendUrl.isNotEmpty) {
+      _realtime?.dispose();
+      _realtimeSub?.cancel();
+      _backendRealtime = BackendRealtimeClient(baseUrl: backendUrl);
+      _backendRealtime!.connect(symbols: [_effectiveSymbol]);
+      _realtimeSub = _backendRealtime!.stream.listen((u) {
+        if (!mounted) return;
+        setState(() {
+          _currentPrice = u.price;
+          _realtimeVolume += u.size;
+        });
+      });
+    }
   }
 
   @override
@@ -411,6 +434,7 @@ class _StockChartPageState extends State<StockChartPage>
     _autoRetryTimer?.cancel();
     _realtimeSub?.cancel();
     _realtime?.dispose();
+    _backendRealtime?.dispose();
     _tabController.dispose();
     super.dispose();
   }
@@ -847,7 +871,7 @@ class _StockChartPageState extends State<StockChartPage>
   Widget _buildCompanyActionsSection() {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(ChartTheme.pagePadding, 8, ChartTheme.pagePadding, 14),
+      padding: const EdgeInsets.fromLTRB(ChartTheme.pagePadding, 12, ChartTheme.pagePadding, 18),
       decoration: const BoxDecoration(
         color: ChartTheme.cardBackground,
         border: Border(top: BorderSide(color: ChartTheme.border, width: 0.5)),
@@ -858,14 +882,14 @@ class _StockChartPageState extends State<StockChartPage>
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(AppLocalizations.of(context)!.chartCompanyActions, style: TextStyle(color: ChartTheme.textSecondary, fontSize: 11, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 6),
+            Text(AppLocalizations.of(context)!.chartCompanyActions, style: TextStyle(color: ChartTheme.textSecondary, fontSize: 13, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 8),
             if (_dividends.isNotEmpty)
               Padding(
-                padding: const EdgeInsets.only(bottom: 4),
+                padding: const EdgeInsets.only(bottom: 6),
                 child: Text(
                   '${AppLocalizations.of(context)!.chartDividends}: ${_dividends.take(3).map((d) => '${d['ex_dividend_date'] ?? d['pay_date']} \$${d['cash_amount']}').join(' · ')}${_dividends.length > 3 ? ' …' : ''}',
-                  style: TextStyle(color: ChartTheme.textPrimary, fontSize: 12),
+                  style: TextStyle(color: ChartTheme.textPrimary, fontSize: 14),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -873,7 +897,7 @@ class _StockChartPageState extends State<StockChartPage>
             if (_splits.isNotEmpty)
               Text(
                 '${AppLocalizations.of(context)!.chartSplits}: ${_splits.take(3).map((s) => '${s['execution_date']} ${s['split_from']}:${s['split_to']}').join(' · ')}${_splits.length > 3 ? ' …' : ''}',
-                style: TextStyle(color: ChartTheme.textPrimary, fontSize: 12),
+                style: TextStyle(color: ChartTheme.textPrimary, fontSize: 14),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -1101,9 +1125,9 @@ class _StockChartPageState extends State<StockChartPage>
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            _summaryBlock(AppLocalizations.of(context)!.chartPrice, price > 0 ? price.toStringAsFixed(2) : '—', null),
-            _summaryBlock(AppLocalizations.of(context)!.chartAvg, avgPrice != null ? avgPrice!.toStringAsFixed(2) : '—', null),
-            _summaryBlock(AppLocalizations.of(context)!.chartChangeShort, open != null ? '${change >= 0 ? '+' : ''}${change.toStringAsFixed(2)}' : '—', changeColor),
+            _summaryBlock(AppLocalizations.of(context)!.chartPrice, price > 0 ? ChartTheme.formatPrice(price) : '—', null),
+            _summaryBlock(AppLocalizations.of(context)!.chartAvg, avgPrice != null ? ChartTheme.formatPrice(avgPrice!) : '—', null),
+            _summaryBlock(AppLocalizations.of(context)!.chartChangeShort, open != null ? '${change >= 0 ? '+' : ''}${ChartTheme.formatPrice(change)}' : '—', changeColor),
             _summaryBlock(AppLocalizations.of(context)!.chartChangePercent, '${changePct >= 0 ? '+' : ''}${changePct.toStringAsFixed(2)}%', changeColor),
             _summaryBlock(AppLocalizations.of(context)!.chartVol, volStr, null),
             _summaryBlock(AppLocalizations.of(context)!.chartTurnover, turnStr, null),

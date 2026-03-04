@@ -22,6 +22,8 @@ class _WatchlistPageState extends State<WatchlistPage> {
   List<String> _symbols = [];
   Map<String, MarketQuote?> _quotes = {};
   bool _loading = true;
+  String _sortColumn = 'pct'; // code, pct, price
+  bool _sortAscending = false;
 
   static const _bg = Color(0xFF0B0C0E);
   static const _surface = Color(0xFF111215);
@@ -59,13 +61,14 @@ class _WatchlistPageState extends State<WatchlistPage> {
   void _openDetail(String symbol) {
     final name = _quotes[symbol]?.name ?? symbol;
     if (_isUsStock(symbol)) {
-      final idx = _symbols.indexOf(symbol);
+      final sorted = _sortedSymbols;
+      final idx = sorted.indexOf(symbol);
       Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => StockChartPage(
             symbol: symbol,
             name: name != symbol ? name : null,
-            symbolList: _symbols,
+            symbolList: sorted,
             symbolIndex: idx >= 0 ? idx : null,
           ),
         ),
@@ -97,6 +100,33 @@ class _WatchlistPageState extends State<WatchlistPage> {
     _load();
   }
 
+  List<String> get _sortedSymbols {
+    if (_symbols.isEmpty) return _symbols;
+    final sorted = List<String>.from(_symbols);
+    final q = _quotes;
+    final asc = _sortAscending ? 1 : -1;
+    sorted.sort((a, b) {
+      int cmp = 0;
+      switch (_sortColumn) {
+        case 'code':
+          cmp = a.compareTo(b);
+          break;
+        case 'pct':
+          cmp = ((q[a]?.changePercent ?? 0) - (q[b]?.changePercent ?? 0)).sign.toInt();
+          if (cmp == 0) cmp = a.compareTo(b);
+          break;
+        case 'price':
+          cmp = ((q[a]?.price ?? 0) - (q[b]?.price ?? 0)).sign.toInt();
+          if (cmp == 0) cmp = a.compareTo(b);
+          break;
+        default:
+          cmp = ((q[a]?.changePercent ?? 0) - (q[b]?.changePercent ?? 0)).sign.toInt();
+      }
+      return cmp * asc;
+    });
+    return sorted;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -114,6 +144,28 @@ class _WatchlistPageState extends State<WatchlistPage> {
         foregroundColor: _accent,
         elevation: 0,
         actions: [
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.sort),
+            tooltip: '排序',
+            onSelected: (value) {
+              setState(() {
+                if (_sortColumn == value) {
+                  _sortAscending = !_sortAscending;
+                } else {
+                  _sortColumn = value;
+                  _sortAscending = value == 'code';
+                }
+              });
+            },
+            itemBuilder: (context) {
+              final l10n = AppLocalizations.of(context)!;
+              return [
+                PopupMenuItem(value: 'code', child: Row(children: [Text(l10n.marketCode), if (_sortColumn == 'code') Padding(padding: const EdgeInsets.only(left: 8), child: Icon(_sortAscending ? Icons.arrow_drop_up : Icons.arrow_drop_down, size: 18, color: _accent))])),
+                PopupMenuItem(value: 'pct', child: Row(children: [Text(l10n.marketChangePct), if (_sortColumn == 'pct') Padding(padding: const EdgeInsets.only(left: 8), child: Icon(_sortAscending ? Icons.arrow_drop_up : Icons.arrow_drop_down, size: 18, color: _accent))])),
+                PopupMenuItem(value: 'price', child: Row(children: [Text(l10n.marketLatestPrice), if (_sortColumn == 'price') Padding(padding: const EdgeInsets.only(left: 8), child: Icon(_sortAscending ? Icons.arrow_drop_up : Icons.arrow_drop_down, size: 18, color: _accent))])),
+              ];
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.add_circle_outline),
             tooltip: AppLocalizations.of(context)!.watchlistAdd,
@@ -161,18 +213,19 @@ class _WatchlistPageState extends State<WatchlistPage> {
         ),
       );
     }
+    final sorted = _sortedSymbols;
     return RefreshIndicator(
       onRefresh: _load,
       color: _accent,
       child: ListView.separated(
         padding: const EdgeInsets.symmetric(vertical: 8),
-        itemCount: _symbols.length,
+        itemCount: sorted.length,
         separatorBuilder: (_, __) => Divider(
           height: 1,
           color: _muted.withValues(alpha: 0.2),
         ),
         itemBuilder: (context, index) {
-          final symbol = _symbols[index];
+          final symbol = sorted[index];
           final quote = _quotes[symbol];
           return _buildRow(symbol, quote);
         },

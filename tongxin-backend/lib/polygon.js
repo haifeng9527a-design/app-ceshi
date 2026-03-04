@@ -434,6 +434,7 @@ module.exports = {
   V2_SNAPSHOT_BATCH_SIZE,
   V3_SNAPSHOT_BATCH_SIZE,
   getQuote,
+  getPrevDayBar,
   getTickerSnapshot,
   getLastTrade,
   getPreviousClose,

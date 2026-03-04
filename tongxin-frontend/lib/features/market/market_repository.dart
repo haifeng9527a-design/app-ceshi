@@ -723,15 +723,24 @@ class MarketRepository {
 
   // ---------- Polygon 直通（仅用于仍需 snapshot/aggregates 精细控制的场景，UI 尽量用上面接口） ----------
 
-  /// 美股前收（详情页涨跌幅等），数据来源：Polygon /v2/aggs/ticker/{sym}/prev
+  /// 美股前收（详情页涨跌幅等），有后端时从 quote 反推，否则 Polygon /prev
   Future<double?> getPreviousClose(String symbol) async {
     if (!_isUsStock(symbol)) return null;
+    if (_backend != null) {
+      final m = await _backend!.getQuotes([symbol.trim()], realtime: true);
+      final q = m[symbol.trim()];
+      if (q != null && !q.hasError && q.price > 0 && q.change != 0) {
+        return q.price - q.change;
+      }
+      return null;
+    }
     return _polygon.getPreviousClose(symbol);
   }
 
-  /// 当日 OHLC + 成交量 + 昨收：详情页直连 Polygon Snapshot，保证实时数据不绕后端
+  /// 当日 OHLC + 成交量 + 昨收：有后端时走后端，否则 Polygon Snapshot
   Future<PolygonGainer?> getDaySnapshot(String symbol) async {
     if (!_isUsStock(symbol)) return null;
+    if (_backend != null) return _backend!.getDaySnapshot(symbol.trim());
     final resolved = SymbolResolver.forPolygon(symbol.trim());
     if (resolved.isEmpty) return null;
     return _polygon.getTickerSnapshot(resolved);

@@ -45,7 +45,26 @@ async function handleQuotes(req, res, polygonKey, twelveKey) {
     const r = resolve(sym);
     if (r.usePolygon) {
       try {
-        const q = await polygon.getTickerSnapshot(polygonKey, r.polygon);
+        let q = await polygon.getTickerSnapshot(polygonKey, r.polygon);
+        // 休市或 Snapshot 无有效价格时：用 last+prev 和 /prev 日线兜底，保证至少显示昨收和当前价
+        if (!q.price || q.price <= 0) {
+          const [quote, prevBar] = await Promise.all([
+            polygon.getQuote(polygonKey, r.polygon),
+            polygon.getPrevDayBar(polygonKey, r.polygon),
+          ]);
+          if (quote.price > 0 || prevBar?.c) {
+            q = {
+              symbol: sym,
+              price: quote.price || prevBar?.c || 0,
+              change: quote.change ?? 0,
+              changePercent: quote.changePercent ?? 0,
+              open: prevBar?.o ?? null,
+              high: prevBar?.h ?? null,
+              low: prevBar?.l ?? null,
+              volume: prevBar?.v ?? null,
+            };
+          }
+        }
         const snap = toQuoteSnapshot({ ...q, symbol: sym });
         quoteStore.setQuotesBatch([{ symbol: sym, payload: snap, priority: 0 }]);
         return res.json({ [sym]: snap });

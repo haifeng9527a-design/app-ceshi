@@ -31,6 +31,9 @@ class _GainersLosersPageState extends State<GainersLosersPage>
   bool _loadingLosers = true;
   String? _errorGainers;
   String? _errorLosers;
+  /// 排序列：code/name/pct/price/change/open/prev/high/low/vol；默认涨跌幅
+  String _sortColumn = 'pct';
+  bool _sortAscending = false;
 
   static const _bg = Color(0xFF0B0C0E);
   static const _surface = Color(0xFF111215);
@@ -115,6 +118,62 @@ class _GainersLosersPageState extends State<GainersLosersPage>
     }
   }
 
+  List<PolygonGainer> _sortedList(List<PolygonGainer> list) {
+    if (list.isEmpty) return list;
+    final sorted = List<PolygonGainer>.from(list);
+    final asc = _sortAscending ? 1 : -1;
+    sorted.sort((a, b) {
+      int cmp = 0;
+      switch (_sortColumn) {
+        case 'code':
+        case 'name':
+          cmp = a.ticker.compareTo(b.ticker);
+          break;
+        case 'pct':
+          cmp = (a.todaysChangePerc - b.todaysChangePerc).sign.toInt();
+          break;
+        case 'price':
+          final pa = (a.price != null && a.price! > 0) ? a.price! : (a.prevClose != null ? a.prevClose! + a.todaysChange : 0.0);
+          final pb = (b.price != null && b.price! > 0) ? b.price! : (b.prevClose != null ? b.prevClose! + b.todaysChange : 0.0);
+          cmp = (pa - pb).sign.toInt();
+          break;
+        case 'change':
+          cmp = (a.todaysChange - b.todaysChange).sign.toInt();
+          break;
+        case 'open':
+          cmp = ((a.dayOpen ?? 0) - (b.dayOpen ?? 0)).sign.toInt();
+          break;
+        case 'prev':
+          cmp = ((a.prevClose ?? 0) - (b.prevClose ?? 0)).sign.toInt();
+          break;
+        case 'high':
+          cmp = ((a.dayHigh ?? 0) - (b.dayHigh ?? 0)).sign.toInt();
+          break;
+        case 'low':
+          cmp = ((a.dayLow ?? 0) - (b.dayLow ?? 0)).sign.toInt();
+          break;
+        case 'vol':
+          cmp = ((a.dayVolume ?? 0) - (b.dayVolume ?? 0)).sign.toInt();
+          break;
+        default:
+          cmp = (a.todaysChangePerc - b.todaysChangePerc).sign.toInt();
+      }
+      return cmp * asc;
+    });
+    return sorted;
+  }
+
+  void _onSortTap(String col) {
+    setState(() {
+      if (_sortColumn == col) {
+        _sortAscending = !_sortAscending;
+      } else {
+        _sortColumn = col;
+        _sortAscending = col == 'code' || col == 'name' || col == 'vol';
+      }
+    });
+  }
+
   void _openChart(PolygonGainer g, {required List<PolygonGainer> list}) {
     final symbols = list.map((e) => e.ticker).toList();
     final idx = list.indexWhere((e) => e.ticker == g.ticker);
@@ -188,7 +247,7 @@ class _GainersLosersPageState extends State<GainersLosersPage>
 
   static String _formatPrice(double v) {
     if (v >= 10000) return v.toStringAsFixed(0);
-    if (v >= 1) return v.toStringAsFixed(2);
+    if (v >= 100) return v.toStringAsFixed(2);
     return v.toStringAsFixed(4);
   }
 
@@ -296,22 +355,43 @@ class _GainersLosersPageState extends State<GainersLosersPage>
     const colHigh = 60.0;
     const colLow = 60.0;
     const colVol = 72.0;
+    const styleLabel = TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600);
 
+    Widget sortHeader(String label, String col, double w) {
+      final isActive = _sortColumn == col;
+      return SizedBox(
+        width: w,
+        child: GestureDetector(
+          onTap: () => _onSortTap(col),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(label, style: styleLabel, maxLines: 1, overflow: TextOverflow.ellipsis),
+              if (isActive) Padding(
+                padding: const EdgeInsets.only(left: 2),
+                child: Icon(_sortAscending ? Icons.arrow_drop_up : Icons.arrow_drop_down, size: 16, color: _accent),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     final headerRow = Row(
       children: [
-        SizedBox(width: colCode, child: Text(AppLocalizations.of(context)!.marketCode, style: const TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
-        SizedBox(width: colName, child: Text(AppLocalizations.of(context)!.marketNameLabel, style: const TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
-        SizedBox(width: colPct, child: Text(AppLocalizations.of(context)!.tradingChangePct, style: const TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
-        SizedBox(width: colPrice, child: Text(AppLocalizations.of(context)!.marketLatestPrice, style: const TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
-        SizedBox(width: colChange, child: Text(AppLocalizations.of(context)!.marketChange, style: const TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
-        SizedBox(width: colOpen, child: Text(AppLocalizations.of(context)!.marketOpen, style: const TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
-        SizedBox(width: colPrev, child: Text(AppLocalizations.of(context)!.marketPrevClose, style: const TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
-        SizedBox(width: colHigh, child: Text(AppLocalizations.of(context)!.marketHigh, style: const TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
-        SizedBox(width: colLow, child: Text(AppLocalizations.of(context)!.marketLow, style: const TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
-        SizedBox(width: colVol, child: Text(AppLocalizations.of(context)!.marketVolume, style: const TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
+        sortHeader(AppLocalizations.of(context)!.marketCode, 'code', colCode),
+        sortHeader(AppLocalizations.of(context)!.marketNameLabel, 'name', colName),
+        sortHeader(AppLocalizations.of(context)!.tradingChangePct, 'pct', colPct),
+        sortHeader(AppLocalizations.of(context)!.marketLatestPrice, 'price', colPrice),
+        sortHeader(AppLocalizations.of(context)!.marketChange, 'change', colChange),
+        sortHeader(AppLocalizations.of(context)!.marketOpen, 'open', colOpen),
+        sortHeader(AppLocalizations.of(context)!.marketPrevClose, 'prev', colPrev),
+        sortHeader(AppLocalizations.of(context)!.marketHigh, 'high', colHigh),
+        sortHeader(AppLocalizations.of(context)!.marketLow, 'low', colLow),
+        sortHeader(AppLocalizations.of(context)!.marketVolume, 'vol', colVol),
       ],
     );
 
+    final sortedList = _sortedList(list);
     final isPc = MediaQuery.sizeOf(context).width >= 1100;
     return RefreshIndicator(
       onRefresh: onRefresh,
@@ -332,7 +412,7 @@ class _GainersLosersPageState extends State<GainersLosersPage>
                   ),
                   child: headerRow,
                 ),
-                ...list.map((g) {
+                ...sortedList.map((g) {
                   final color = MarketColors.forChangePercent(g.todaysChangePerc);
                   final effectivePrice = (g.price != null && g.price! > 0)
                       ? g.price!
@@ -340,7 +420,7 @@ class _GainersLosersPageState extends State<GainersLosersPage>
                   return Material(
                     color: _surface,
                     child: InkWell(
-                      onTap: () => _openChart(g, list: list),
+                      onTap: () => _openChart(g, list: sortedList),
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                         decoration: const BoxDecoration(

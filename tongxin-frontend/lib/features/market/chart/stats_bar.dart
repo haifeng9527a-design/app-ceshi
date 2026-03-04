@@ -174,8 +174,8 @@ class ChartStatsBar extends StatelessWidget {
   String _v(double? value, {bool isPercent = false, bool isChange = false}) {
     if (value == null) return '—';
     if (isPercent) return '${value >= 0 ? '+' : ''}${value.toStringAsFixed(2)}%';
-    if (isChange) return '${value >= 0 ? '+' : ''}${value.toStringAsFixed(2)}';
-    return value.toStringAsFixed(2);
+    if (isChange) return '${value >= 0 ? '+' : ''}${ChartTheme.formatPrice(value)}';
+    return ChartTheme.formatPrice(value);
   }
 }
 

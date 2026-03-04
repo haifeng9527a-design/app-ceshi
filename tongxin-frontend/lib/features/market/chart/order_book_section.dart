@@ -30,7 +30,7 @@ class OrderBookSection extends StatelessWidget {
         : bids.take(5).toList();
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
       decoration: const BoxDecoration(
         color: ChartTheme.cardBackground,
         border: Border(top: BorderSide(color: ChartTheme.border, width: 1)),
@@ -67,7 +67,7 @@ class OrderBookSection extends StatelessWidget {
   Widget _headerCell(String text) {
     return Text(
       text,
-      style: const TextStyle(color: ChartTheme.textTertiary, fontSize: 11),
+      style: const TextStyle(color: ChartTheme.textTertiary, fontSize: 12, fontWeight: FontWeight.w600),
       textAlign: TextAlign.center,
     );
   }
@@ -80,7 +80,7 @@ class OrderBookSection extends StatelessWidget {
     required int rowIndex,
   }) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         children: [
           Expanded(
@@ -98,8 +98,8 @@ class OrderBookSection extends StatelessWidget {
                 borderRadius: BorderRadius.circular(4),
               ),
               child: Text(
-                sellPrice != null ? sellPrice.toStringAsFixed(2) : '—',
-                style: TextStyle(color: ChartTheme.down, fontSize: 12, fontWeight: FontWeight.w500),
+                sellPrice != null ? ChartTheme.formatPrice(sellPrice) : '—',
+                style: TextStyle(color: ChartTheme.down, fontSize: 14, fontWeight: FontWeight.w600),
                 textAlign: TextAlign.center,
               ),
             ),
@@ -107,7 +107,7 @@ class OrderBookSection extends StatelessWidget {
           Expanded(
             child: Text(
               sellQty != null ? sellQty.toString() : '—',
-              style: TextStyle(color: ChartTheme.textPrimary, fontSize: 12),
+              style: TextStyle(color: ChartTheme.textPrimary, fontSize: 14, fontWeight: FontWeight.w500),
               textAlign: TextAlign.center,
             ),
           ),
@@ -126,8 +126,8 @@ class OrderBookSection extends StatelessWidget {
                 borderRadius: BorderRadius.circular(4),
               ),
               child: Text(
-                buyPrice != null ? buyPrice.toStringAsFixed(2) : '—',
-                style: TextStyle(color: ChartTheme.up, fontSize: 12, fontWeight: FontWeight.w500),
+                buyPrice != null ? ChartTheme.formatPrice(buyPrice) : '—',
+                style: TextStyle(color: ChartTheme.up, fontSize: 14, fontWeight: FontWeight.w600),
                 textAlign: TextAlign.center,
               ),
             ),
@@ -135,7 +135,7 @@ class OrderBookSection extends StatelessWidget {
           Expanded(
             child: Text(
               buyQty != null ? buyQty.toString() : '—',
-              style: TextStyle(color: ChartTheme.textPrimary, fontSize: 12),
+              style: TextStyle(color: ChartTheme.textPrimary, fontSize: 14, fontWeight: FontWeight.w500),
               textAlign: TextAlign.center,
             ),
           ),

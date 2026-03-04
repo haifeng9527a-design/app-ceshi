@@ -1792,7 +1792,7 @@ class _HomeTabState extends State<_HomeTab> {
 
   static String _formatPrice(double v) {
     if (v >= 10000) return v.toStringAsFixed(0);
-    if (v >= 1) return v.toStringAsFixed(2);
+    if (v >= 100) return v.toStringAsFixed(2);
     return v.toStringAsFixed(4);
   }
 
@@ -2418,7 +2418,7 @@ class _QuoteCard extends StatelessWidget {
 
   static String _formatPrice(double v) {
     if (v >= 10000) return v.toStringAsFixed(0);
-    if (v >= 1) return v.toStringAsFixed(2);
+    if (v >= 100) return v.toStringAsFixed(2);
     return v.toStringAsFixed(4);
   }
 }
@@ -2608,17 +2608,24 @@ class _UsStocksTabState extends State<_UsStocksTab> {
     return sorted;
   }
 
-  /// 「全部」列表滚动：用于计算当前视口内可见的股票，只拉取/刷新可见标的报价
-  /// 取大一些以覆盖 PC 大屏，减少滚动时「很多没数据」
-  static const double _allListHeight = 700;
+  /// 「全部」列表视口高度：PC 700，移动端 400
+  static const double _allListHeightPc = 700;
+  static const double _allListHeightMobile = 400;
   static const double _allListRowHeightPc = 44;
   static const double _allListRowHeightMobile = 48;
   /// 视口外上下各多加载的行数，预加载更多以减少滚动白屏
   static const int _visibleBuffer = 25;
   final ScrollController _allListScrollController = ScrollController();
+  /// 右侧数据列垂直滚动，与左侧同步
+  final ScrollController _allListRightScrollController = ScrollController();
+  /// 横向滚动：表头与数据行共用，保证同步
+  final ScrollController _horizontalScrollController = ScrollController();
+  bool _syncingVerticalScroll = false;
   int? _lastVisibleStart;
   int? _lastVisibleEnd;
   Timer? _quoteRefreshTimer;
+  Timer? _scrollSubscribeDebounce;
+  bool _isPcList = false;
 
   Timer? _persistDebounceTimer;
 
@@ -2642,6 +2649,28 @@ class _UsStocksTabState extends State<_UsStocksTab> {
     _loadCachedThenRefresh();
     _loadIndexQuotes();
     _allListScrollController.addListener(_onAllListScroll);
+    _allListScrollController.addListener(_syncRightListScroll);
+    _allListRightScrollController.addListener(_syncLeftListScroll);
+  }
+
+  void _syncRightListScroll() {
+    if (_syncingVerticalScroll || !_allListScrollController.hasClients || !_allListRightScrollController.hasClients) return;
+    final offset = _allListScrollController.offset;
+    if ((_allListRightScrollController.offset - offset).abs() > 2) {
+      _syncingVerticalScroll = true;
+      _allListRightScrollController.jumpTo(offset);
+      _syncingVerticalScroll = false;
+    }
+  }
+
+  void _syncLeftListScroll() {
+    if (_syncingVerticalScroll || !_allListScrollController.hasClients || !_allListRightScrollController.hasClients) return;
+    final offset = _allListRightScrollController.offset;
+    if ((_allListScrollController.offset - offset).abs() > 2) {
+      _syncingVerticalScroll = true;
+      _allListScrollController.jumpTo(offset);
+      _syncingVerticalScroll = false;
+    }
   }
 
   /// WebSocket 推送后防抖写入本地 DB（避免频繁写）
@@ -2678,8 +2707,13 @@ class _UsStocksTabState extends State<_UsStocksTab> {
     MarketSyncService.instance.stopPeriodicSync();
     widget.tabController.removeListener(_onMarketTabChanged);
     _allListScrollController.removeListener(_onAllListScroll);
+    _allListScrollController.removeListener(_syncRightListScroll);
+    _allListRightScrollController.removeListener(_syncLeftListScroll);
     _allListScrollController.dispose();
+    _allListRightScrollController.dispose();
+    _horizontalScrollController.dispose();
     _quoteRefreshTimer?.cancel();
+    _scrollSubscribeDebounce?.cancel();
     super.dispose();
   }
 
@@ -2687,7 +2721,8 @@ class _UsStocksTabState extends State<_UsStocksTab> {
     if (!mounted) return;
     if (_isUsStocksVisible) {
       if (_listMode == 0 && _allTickers.isNotEmpty) {
-        _loadFirstVisibleQuotesAndStartTimer();
+        _onAllListScroll();
+        _startQuoteRefreshTimer();
       }
     } else {
       _stopQuoteRefreshTimer();
@@ -2695,37 +2730,44 @@ class _UsStocksTabState extends State<_UsStocksTab> {
   }
 
   /// 根据滚动位置计算当前可见行范围（含 buffer），并拉取该范围报价（基于展示顺序 _sortedTickers）
+  /// 可视区域变化时：立即拉取报价；WebSocket 订阅防抖 400ms 避免滚动时频繁重连
   void _onAllListScroll() {
     if (_listMode != 0 || _allTickers.isEmpty) return;
     final display = _sortedTickers;
     if (display.isEmpty) return;
-    final rowHeight = _allListRowHeightPc; // 用较小行高估算，多加载几行无妨
+    final rowHeight = _allListRowHeight;
     final offset = _allListScrollController.offset;
     final first = (offset / rowHeight).floor();
     final last = ((offset + _allListHeight) / rowHeight).floor();
     final start = (first - _visibleBuffer).clamp(0, display.length - 1);
     final end = (last + _visibleBuffer).clamp(0, display.length - 1);
-    if (_lastVisibleStart == start && _lastVisibleEnd == end) return;
-    _lastVisibleStart = start;
-    _lastVisibleEnd = end;
-    final visibleSymbols = display.sublist(start, end + 1).map((t) => t.symbol).toList();
-    if (_quotes.isNotEmpty) {
-      _realtime.updateQuotes(_quotes, prioritySymbols: visibleSymbols);
-    } else {
-      _realtime.subscribeToSymbols(visibleSymbols);
+    if (_lastVisibleStart != start || _lastVisibleEnd != end) {
+      _lastVisibleStart = start;
+      _lastVisibleEnd = end;
+      _loadQuotesForVisibleRange(start, end);
     }
-    _loadQuotesForVisibleRange(start, end);
+    _scrollSubscribeDebounce?.cancel();
+    _scrollSubscribeDebounce = Timer(const Duration(milliseconds: 400), () {
+      _scrollSubscribeDebounce = null;
+      if (!mounted || _listMode != 0 || _allTickers.isEmpty) return;
+      final visibleSymbols = display.sublist(start, end + 1).map((t) => t.symbol).toList();
+      if (_quotes.isNotEmpty) {
+        _realtime.updateQuotes(_quotes, prioritySymbols: visibleSymbols);
+      } else {
+        _realtime.subscribeToSymbols(visibleSymbols);
+      }
+    });
   }
 
-  /// 启动可见范围报价刷新（WebSocket 实时推送为主，此定时器作为兜底，间隔较长）
+  /// 启动可见范围报价刷新（WebSocket 实时推送为主，此定时器作为兜底，15 秒间隔保证有更新）
   void _startQuoteRefreshTimer() {
     if (!_isUsStocksVisible) return;
     _quoteRefreshTimer?.cancel();
-    _quoteRefreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+    _quoteRefreshTimer = Timer.periodic(const Duration(seconds: 15), (_) {
       if (!mounted || !_isUsStocksVisible || _listMode != 0 || _allTickers.isEmpty) return;
       final display = _sortedTickers;
       if (display.isEmpty) return;
-      final rowHeight = _allListRowHeightPc;
+      final rowHeight = _allListRowHeight;
       final offset = _allListScrollController.offset;
       final first = (offset / rowHeight).floor();
       final last = ((offset + _allListHeight) / rowHeight).floor();
@@ -2887,33 +2929,37 @@ class _UsStocksTabState extends State<_UsStocksTab> {
     } catch (_) {}
   }
 
-  /// 首屏可见范围（约 0 到 400/44 + buffer），拉取报价并启动定时刷新；仅当美股 Tab 可见时刷新
+  /// 首屏可见范围：优先拉取可视区域报价（含昨日数据+实时订阅），再后台分批拉取其余
   void _loadFirstVisibleQuotesAndStartTimer() {
     if (_allTickers.isEmpty) return;
     if (!_isUsStocksVisible) return;
     final sorted = _sortedTickers;
-    final endIndex = (_allListHeight / _allListRowHeightPc).ceil() + _visibleBuffer;
+    final endIndex = (_allListHeight / _allListRowHeight).ceil() + _visibleBuffer;
     final end = (sorted.isEmpty ? 0 : endIndex.clamp(0, sorted.length - 1));
     _lastVisibleStart = 0;
     _lastVisibleEnd = end;
     final visibleSymbols = sorted.isEmpty ? <String>[] : sorted.sublist(0, end + 1).map((t) => t.symbol).toList();
+    // 优先订阅可视区域 WebSocket
     if (_quotes.isNotEmpty) {
       _realtime.updateQuotes(_quotes, prioritySymbols: visibleSymbols);
     } else {
       _realtime.subscribeToSymbols(visibleSymbols);
     }
-    _loadQuotesForVisibleRange(0, end);
+    // 先拉取可视区域报价（含昨日数据），再后台拉取其余
+    _loadQuotesForVisibleRange(0, end).then((_) {
+      if (mounted && _listMode == 0) _prefetchAllQuotesInChunks();
+    });
     _startQuoteRefreshTimer();
-    _prefetchAllQuotesInChunks();
   }
 
-  /// 后台分批拉取全量报价（每批约 500，后端 DB 有则直接返），合并进 _quotes 并写本地缓存；仅当美股 Tab 可见时执行
+  /// 后台分批拉取非可视区域报价（可视区域已优先拉取），每批约 500，合并进 _quotes 并写本地缓存
   static const int _prefetchChunkSize = 500;
   void _prefetchAllQuotesInChunks() {
     if (_allTickers.isEmpty || _listMode != 0) return;
     final total = _allTickers.length;
+    final visibleEnd = (_lastVisibleEnd ?? 0).clamp(0, total);
     Future<void>(() async {
-      for (int start = 0; start < total && mounted && _listMode == 0 && _isUsStocksVisible; start += _prefetchChunkSize) {
+      for (int start = visibleEnd + 1; start < total && mounted && _listMode == 0 && _isUsStocksVisible; start += _prefetchChunkSize) {
         final end = (start + _prefetchChunkSize).clamp(0, total);
         final symbols = _allTickers.sublist(start, end).map((t) => t.symbol).toList();
         if (symbols.isEmpty) continue;
@@ -3011,7 +3057,7 @@ class _UsStocksTabState extends State<_UsStocksTab> {
 
   static String _formatPrice(double v) {
     if (v >= 10000) return v.toStringAsFixed(0);
-    if (v >= 1) return v.toStringAsFixed(2);
+    if (v >= 100) return v.toStringAsFixed(2);
     return v.toStringAsFixed(4);
   }
 
@@ -3023,9 +3069,12 @@ class _UsStocksTabState extends State<_UsStocksTab> {
   }
 
   bool get _isPc => MediaQuery.sizeOf(context).width >= 1100;
+  double get _allListHeight => _isPcList ? _allListHeightPc : _allListHeightMobile;
+  double get _allListRowHeight => _isPcList ? _allListRowHeightPc : _allListRowHeightMobile;
 
   @override
   Widget build(BuildContext context) {
+    _isPcList = _isPc;
     final symbols = _listMode == 0 ? <String>[] : _watchlistSymbols;
     return RefreshIndicator(
       onRefresh: () async {
@@ -3336,25 +3385,38 @@ class _UsStocksTabState extends State<_UsStocksTab> {
     const styleCell = TextStyle(color: Color(0xFFE8D5A3), fontSize: 12);
     const styleMuted = TextStyle(color: Color(0xFF9CA3AF), fontSize: 12);
 
-    void onSort(String col) {
-      setState(() {
-        if (_sortColumn == col) _sortAscending = !_sortAscending;
-        else { _sortColumn = col; _sortAscending = col == 'code' || col == 'name' || col == 'vol'; }
-      });
+    Widget sortHeader(String label, String col, double w, {TextAlign align = TextAlign.left}) {
+      final isActive = _sortColumn == col;
+      return SizedBox(
+        width: w,
+        child: GestureDetector(
+          onTap: () => _onSortColumnTap(col),
+          child: Row(
+            mainAxisAlignment: align == TextAlign.right ? MainAxisAlignment.end : MainAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(label, style: styleLabel, textAlign: align, maxLines: 1, overflow: TextOverflow.ellipsis),
+              if (isActive) Padding(
+                padding: const EdgeInsets.only(left: 2),
+                child: Icon(_sortAscending ? Icons.arrow_drop_up : Icons.arrow_drop_down, size: 16, color: const Color(0xFFD4AF37)),
+              ),
+            ],
+          ),
+        ),
+      );
     }
-
     final headerRow = Row(
       children: [
-        SizedBox(width: colCode, child: GestureDetector(onTap: () => onSort('code'), child: Text(AppLocalizations.of(context)!.marketCode, style: styleLabel))),
-        SizedBox(width: colName, child: GestureDetector(onTap: () => onSort('name'), child: Text(AppLocalizations.of(context)!.marketName, style: styleLabel))),
-        SizedBox(width: colPct, child: GestureDetector(onTap: () => onSort('pct'), child: Text(AppLocalizations.of(context)!.marketChangePct, style: styleLabel, textAlign: TextAlign.right))),
-        SizedBox(width: colPrice, child: GestureDetector(onTap: () => onSort('price'), child: Text(AppLocalizations.of(context)!.marketLatestPrice, style: styleLabel, textAlign: TextAlign.right))),
-        SizedBox(width: colChange, child: GestureDetector(onTap: () => onSort('change'), child: Text(AppLocalizations.of(context)!.marketChangeAmount, style: styleLabel, textAlign: TextAlign.right))),
-        SizedBox(width: colOpen, child: GestureDetector(onTap: () => onSort('open'), child: Text(AppLocalizations.of(context)!.marketOpen, style: styleLabel, textAlign: TextAlign.right))),
-        SizedBox(width: colPrev, child: GestureDetector(onTap: () => onSort('prev'), child: Text(AppLocalizations.of(context)!.marketPrevClose, style: styleLabel, textAlign: TextAlign.right))),
-        SizedBox(width: colHigh, child: GestureDetector(onTap: () => onSort('high'), child: Text(AppLocalizations.of(context)!.marketHigh, style: styleLabel, textAlign: TextAlign.right))),
-        SizedBox(width: colLow, child: GestureDetector(onTap: () => onSort('low'), child: Text(AppLocalizations.of(context)!.marketLow, style: styleLabel, textAlign: TextAlign.right))),
-        SizedBox(width: colVol, child: GestureDetector(onTap: () => onSort('vol'), child: Text(AppLocalizations.of(context)!.marketVolume, style: styleLabel, textAlign: TextAlign.right))),
+        sortHeader(AppLocalizations.of(context)!.marketCode, 'code', colCode),
+        sortHeader(AppLocalizations.of(context)!.marketName, 'name', colName),
+        sortHeader(AppLocalizations.of(context)!.marketChangePct, 'pct', colPct, align: TextAlign.right),
+        sortHeader(AppLocalizations.of(context)!.marketLatestPrice, 'price', colPrice, align: TextAlign.right),
+        sortHeader(AppLocalizations.of(context)!.marketChangeAmount, 'change', colChange, align: TextAlign.right),
+        sortHeader(AppLocalizations.of(context)!.marketOpen, 'open', colOpen, align: TextAlign.right),
+        sortHeader(AppLocalizations.of(context)!.marketPrevClose, 'prev', colPrev, align: TextAlign.right),
+        sortHeader(AppLocalizations.of(context)!.marketHigh, 'high', colHigh, align: TextAlign.right),
+        sortHeader(AppLocalizations.of(context)!.marketLow, 'low', colLow, align: TextAlign.right),
+        sortHeader(AppLocalizations.of(context)!.marketVolume, 'vol', colVol, align: TextAlign.right),
       ],
     );
 
@@ -3592,7 +3654,7 @@ class _UsStocksTabState extends State<_UsStocksTab> {
     return content;
   }
 
-  /// 全量美股表格（移动端）：与第一张图一致 10 列，虚拟列表，可横向滑动；表头可点击排序
+  /// 全量美股表格（移动端）：代码/名称固定，涨跌幅等可横向滑动，表头与数据行同步滚动
   Widget _buildAllTickersTable() {
     const rowHeight = 48.0;
     const colCode = 56.0;
@@ -3605,99 +3667,168 @@ class _UsStocksTabState extends State<_UsStocksTab> {
     const colHigh = 52.0;
     const colLow = 52.0;
     const colVol = 60.0;
+    const dataColsWidth = colPct + colPrice + colChange + colOpen + colPrev + colHigh + colLow + colVol;
     const styleLabel = TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600);
     const styleCell = TextStyle(color: Color(0xFFE8D5A3), fontSize: 12);
     const styleMuted = TextStyle(color: Color(0xFF9CA3AF), fontSize: 12);
 
-    void onSort(String col) {
-      setState(() {
-        if (_sortColumn == col) _sortAscending = !_sortAscending;
-        else { _sortColumn = col; _sortAscending = col == 'code' || col == 'name' || col == 'vol'; }
-      });
+    Widget sortHeader(String label, String col, double w, {TextAlign align = TextAlign.left}) {
+      final isActive = _sortColumn == col;
+      return SizedBox(
+        width: w,
+        child: GestureDetector(
+          onTap: () => _onSortColumnTap(col),
+          child: Row(
+            mainAxisAlignment: align == TextAlign.right ? MainAxisAlignment.end : MainAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(label, style: styleLabel, textAlign: align, maxLines: 1, overflow: TextOverflow.ellipsis),
+              if (isActive) Padding(
+                padding: const EdgeInsets.only(left: 2),
+                child: Icon(_sortAscending ? Icons.arrow_drop_up : Icons.arrow_drop_down, size: 16, color: const Color(0xFFD4AF37)),
+              ),
+            ],
+          ),
+        ),
+      );
     }
-
-    final headerRow = Row(
+    final headerDataRow = Row(
       children: [
-        SizedBox(width: colCode, child: GestureDetector(onTap: () => onSort('code'), child: Text(AppLocalizations.of(context)!.marketCode, style: styleLabel))),
-        SizedBox(width: colName, child: GestureDetector(onTap: () => onSort('name'), child: Text(AppLocalizations.of(context)!.marketName, style: styleLabel))),
-        SizedBox(width: colPct, child: GestureDetector(onTap: () => onSort('pct'), child: Text(AppLocalizations.of(context)!.marketChangePct, style: styleLabel, textAlign: TextAlign.right))),
-        SizedBox(width: colPrice, child: GestureDetector(onTap: () => onSort('price'), child: Text(AppLocalizations.of(context)!.marketLatestPrice, style: styleLabel, textAlign: TextAlign.right))),
-        SizedBox(width: colChange, child: GestureDetector(onTap: () => onSort('change'), child: Text(AppLocalizations.of(context)!.marketChangeAmount, style: styleLabel, textAlign: TextAlign.right))),
-        SizedBox(width: colOpen, child: GestureDetector(onTap: () => onSort('open'), child: Text(AppLocalizations.of(context)!.marketOpen, style: styleLabel, textAlign: TextAlign.right))),
-        SizedBox(width: colPrev, child: GestureDetector(onTap: () => onSort('prev'), child: Text(AppLocalizations.of(context)!.marketPrevClose, style: styleLabel, textAlign: TextAlign.right))),
-        SizedBox(width: colHigh, child: GestureDetector(onTap: () => onSort('high'), child: Text(AppLocalizations.of(context)!.marketHigh, style: styleLabel, textAlign: TextAlign.right))),
-        SizedBox(width: colLow, child: GestureDetector(onTap: () => onSort('low'), child: Text(AppLocalizations.of(context)!.marketLow, style: styleLabel, textAlign: TextAlign.right))),
-        SizedBox(width: colVol, child: GestureDetector(onTap: () => onSort('vol'), child: Text(AppLocalizations.of(context)!.marketVolume, style: styleLabel, textAlign: TextAlign.right))),
+        sortHeader(AppLocalizations.of(context)!.marketChangePct, 'pct', colPct, align: TextAlign.right),
+        sortHeader(AppLocalizations.of(context)!.marketLatestPrice, 'price', colPrice, align: TextAlign.right),
+        sortHeader(AppLocalizations.of(context)!.marketChangeAmount, 'change', colChange, align: TextAlign.right),
+        sortHeader(AppLocalizations.of(context)!.marketOpen, 'open', colOpen, align: TextAlign.right),
+        sortHeader(AppLocalizations.of(context)!.marketPrevClose, 'prev', colPrev, align: TextAlign.right),
+        sortHeader(AppLocalizations.of(context)!.marketHigh, 'high', colHigh, align: TextAlign.right),
+        sortHeader(AppLocalizations.of(context)!.marketLow, 'low', colLow, align: TextAlign.right),
+        sortHeader(AppLocalizations.of(context)!.marketVolume, 'vol', colVol, align: TextAlign.right),
       ],
     );
 
     return SizedBox(
       height: 400,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            decoration: BoxDecoration(
-              color: const Color(0xFF1A1C21),
-              border: Border(bottom: BorderSide(color: const Color(0xFF1F1F23), width: 0.6)),
-            ),
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: headerRow,
+          SizedBox(
+            width: colCode + colName + 20,
+            child: Column(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1A1C21),
+                    border: Border(bottom: BorderSide(color: const Color(0xFF1F1F23), width: 0.6)),
+                  ),
+                  child: Row(
+                    children: [
+                      sortHeader(AppLocalizations.of(context)!.marketCode, 'code', colCode),
+                      sortHeader(AppLocalizations.of(context)!.marketName, 'name', colName),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: ListView.builder(
+                    controller: _allListScrollController,
+                    itemCount: _sortedTickers.length,
+                    itemExtent: rowHeight,
+                    itemBuilder: (context, i) {
+                      final t = _sortedTickers[i];
+                      return Material(
+                        color: const Color(0xFF111215),
+                        child: InkWell(
+                          onTap: () {
+                            final symbolList = _sortedTickers.map((x) => x.symbol).toList();
+                            _openDetail(t.symbol, name: t.name, symbolList: symbolList, symbolIndex: i);
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                            decoration: const BoxDecoration(
+                              border: Border(bottom: BorderSide(color: Color(0xFF1F1F23), width: 0.6)),
+                            ),
+                            child: Row(
+                              children: [
+                                SizedBox(width: colCode, child: Text(t.symbol, style: styleCell.copyWith(fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                                SizedBox(width: colName, child: Text(t.name, style: styleMuted, maxLines: 1, overflow: TextOverflow.ellipsis)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
             ),
           ),
           Expanded(
-            child: ListView.builder(
-              controller: _allListScrollController,
-              itemCount: _sortedTickers.length,
-              itemExtent: rowHeight,
-              itemBuilder: (context, i) {
-                final t = _sortedTickers[i];
-                final q = _quotes[t.symbol];
-                final hasError = q?.hasError ?? true;
-                final price = q?.price ?? 0;
-                final change = q?.change ?? 0;
-                final pct = q?.changePercent ?? 0;
-                final open = q?.open;
-                final high = q?.high;
-                final low = q?.low;
-                final vol = q?.volume;
-                final prevClose = price > 0 ? (price - change) : null;
-                final color = MarketColors.forChangePercent(pct);
-                return Material(
-                  color: const Color(0xFF111215),
-                  child: InkWell(
-                    onTap: () {
-                      final symbolList = _sortedTickers.map((x) => x.symbol).toList();
-                      _openDetail(t.symbol, name: t.name, symbolList: symbolList, symbolIndex: i);
-                    },
-                    child: Container(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              controller: _horizontalScrollController,
+              child: SizedBox(
+                width: dataColsWidth + 20,
+                child: Column(
+                  children: [
+                    Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                      decoration: const BoxDecoration(
-                        border: Border(bottom: BorderSide(color: Color(0xFF1F1F23), width: 0.6)),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1A1C21),
+                        border: Border(bottom: BorderSide(color: const Color(0xFF1F1F23), width: 0.6)),
                       ),
-                      child: SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          children: [
-                            SizedBox(width: colCode, child: Text(t.symbol, style: styleCell.copyWith(fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                            SizedBox(width: colName, child: Text(t.name, style: styleMuted, maxLines: 1, overflow: TextOverflow.ellipsis)),
-                            SizedBox(width: colPct, child: Text(hasError ? '—' : '${pct >= 0 ? '+' : ''}${pct.toStringAsFixed(2)}%', style: styleMuted.copyWith(color: color), textAlign: TextAlign.right)),
-                            SizedBox(width: colPrice, child: Text(hasError || price <= 0 ? '—' : _formatPrice(price), style: styleMuted, textAlign: TextAlign.right)),
-                            SizedBox(width: colChange, child: Text(hasError ? '—' : '${change >= 0 ? '+' : ''}${change.toStringAsFixed(2)}', style: styleMuted.copyWith(color: color), textAlign: TextAlign.right)),
-                            SizedBox(width: colOpen, child: Text(open == null || open <= 0 ? '—' : _formatPrice(open), style: styleMuted, textAlign: TextAlign.right)),
-                            SizedBox(width: colPrev, child: Text(prevClose == null || prevClose <= 0 ? '—' : _formatPrice(prevClose), style: styleMuted, textAlign: TextAlign.right)),
-                            SizedBox(width: colHigh, child: Text(high == null || high <= 0 ? '—' : _formatPrice(high), style: styleMuted, textAlign: TextAlign.right)),
-                            SizedBox(width: colLow, child: Text(low == null || low <= 0 ? '—' : _formatPrice(low), style: styleMuted, textAlign: TextAlign.right)),
-                            SizedBox(width: colVol, child: Text(_formatVolume(vol), style: styleMuted, textAlign: TextAlign.right)),
-                          ],
-                        ),
+                      child: headerDataRow,
+                    ),
+                    SizedBox(
+                      height: 400 - 48,
+                      child: ListView.builder(
+                        controller: _allListRightScrollController,
+                        itemCount: _sortedTickers.length,
+                        itemExtent: rowHeight,
+                        itemBuilder: (context, i) {
+                          final t = _sortedTickers[i];
+                          final q = _quotes[t.symbol];
+                          final hasError = q?.hasError ?? true;
+                          final price = q?.price ?? 0;
+                          final change = q?.change ?? 0;
+                          final pct = q?.changePercent ?? 0;
+                          final open = q?.open;
+                          final high = q?.high;
+                          final low = q?.low;
+                          final vol = q?.volume;
+                          final prevClose = price > 0 ? (price - change) : null;
+                          final color = MarketColors.forChangePercent(pct);
+                          return Material(
+                            color: const Color(0xFF111215),
+                            child: InkWell(
+                              onTap: () {
+                                final symbolList = _sortedTickers.map((x) => x.symbol).toList();
+                                _openDetail(t.symbol, name: t.name, symbolList: symbolList, symbolIndex: i);
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                decoration: const BoxDecoration(
+                                  border: Border(bottom: BorderSide(color: Color(0xFF1F1F23), width: 0.6)),
+                                ),
+                                child: Row(
+                                  children: [
+                                    SizedBox(width: colPct, child: Text(hasError ? '—' : '${pct >= 0 ? '+' : ''}${pct.toStringAsFixed(2)}%', style: styleMuted.copyWith(color: color), textAlign: TextAlign.right)),
+                                    SizedBox(width: colPrice, child: Text(hasError || price <= 0 ? '—' : _formatPrice(price), style: styleMuted, textAlign: TextAlign.right)),
+                                    SizedBox(width: colChange, child: Text(hasError ? '—' : '${change >= 0 ? '+' : ''}${change.toStringAsFixed(2)}', style: styleMuted.copyWith(color: color), textAlign: TextAlign.right)),
+                                    SizedBox(width: colOpen, child: Text(open == null || open <= 0 ? '—' : _formatPrice(open), style: styleMuted, textAlign: TextAlign.right)),
+                                    SizedBox(width: colPrev, child: Text(prevClose == null || prevClose <= 0 ? '—' : _formatPrice(prevClose), style: styleMuted, textAlign: TextAlign.right)),
+                                    SizedBox(width: colHigh, child: Text(high == null || high <= 0 ? '—' : _formatPrice(high), style: styleMuted, textAlign: TextAlign.right)),
+                                    SizedBox(width: colLow, child: Text(low == null || low <= 0 ? '—' : _formatPrice(low), style: styleMuted, textAlign: TextAlign.right)),
+                                    SizedBox(width: colVol, child: Text(_formatVolume(vol), style: styleMuted, textAlign: TextAlign.right)),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
                       ),
                     ),
-                  ),
-                );
-              },
+                  ],
+                ),
+              ),
             ),
           ),
         ],

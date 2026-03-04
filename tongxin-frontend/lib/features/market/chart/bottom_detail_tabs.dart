@@ -76,7 +76,7 @@ class _BottomDetailTabsState extends State<BottomDetailTabs> {
                       labels[i],
                       style: TextStyle(
                         color: selected ? ChartTheme.textPrimary : ChartTheme.textSecondary,
-                        fontSize: 14,
+                        fontSize: 15,
                         fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
                       ),
                       textAlign: TextAlign.center,
@@ -88,7 +88,7 @@ class _BottomDetailTabsState extends State<BottomDetailTabs> {
           ),
         ),
         ConstrainedBox(
-          constraints: const BoxConstraints(maxHeight: 180),
+          constraints: const BoxConstraints(minHeight: 220, maxHeight: 280),
           child: SingleChildScrollView(
             child: AnimatedSwitcher(
               duration: const Duration(milliseconds: 200),

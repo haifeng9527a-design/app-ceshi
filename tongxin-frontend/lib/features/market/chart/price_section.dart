@@ -55,7 +55,7 @@ class PriceSection extends StatelessWidget {
             textBaseline: TextBaseline.alphabetic,
             children: [
               Text(
-                currentPrice != null ? currentPrice!.toStringAsFixed(2) : '—',
+                currentPrice != null ? ChartTheme.formatPrice(currentPrice!) : '—',
                 style: TextStyle(
                   color: color,
                   fontSize: 26,
@@ -72,7 +72,7 @@ class PriceSection extends StatelessWidget {
                   size: 20,
                 ),
                 Text(
-                  '${change != null ? (change! >= 0 ? '+' : '') + change!.toStringAsFixed(2) : ''} '
+                  '${change != null ? (change! >= 0 ? '+' : '') + ChartTheme.formatPrice(change!) : ''} '
                   '${changePercent != null ? '(${(changePercent! >= 0 ? '+' : '') + changePercent!.toStringAsFixed(2)}%)' : ''}',
                   style: TextStyle(
                     color: color,
@@ -119,7 +119,7 @@ class PriceSection extends StatelessWidget {
   }
 
   Widget _metric(String label, dynamic value, {bool? isUp}) {
-    final str = value is double ? value.toStringAsFixed(2) : (value is String ? value : '—');
+    final str = value is double ? ChartTheme.formatPrice(value) : (value is String ? value : '—');
     final valueColor = value == null || value == '—'
         ? ChartTheme.textSecondary
         : (isUp == true ? ChartTheme.up : isUp == false ? ChartTheme.down : ChartTheme.textPrimary);
