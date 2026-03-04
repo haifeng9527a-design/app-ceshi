@@ -807,6 +807,10 @@ class MarketQuote {
     this.high,
     this.low,
     this.volume,
+    this.bid,
+    this.ask,
+    this.bidSize,
+    this.askSize,
     this.errorReason,
   });
   final String symbol;
@@ -818,6 +822,14 @@ class MarketQuote {
   final double? high;
   final double? low;
   final int? volume;
+  /// 买一价（Polygon lastQuote，需 Stocks Quote 权限）
+  final double? bid;
+  /// 卖一价
+  final double? ask;
+  /// 买一量
+  final int? bidSize;
+  /// 卖一量
+  final int? askSize;
   /// 非空表示加载失败，UI 可显示「加载失败·点重试」
   final String? errorReason;
 
@@ -848,6 +860,10 @@ class MarketQuote {
       high: _toDouble(m['high']),
       low: _toDouble(m['low']),
       volume: _toInt(m['volume']),
+      bid: _toDouble(m['bid']),
+      ask: _toDouble(m['ask']),
+      bidSize: _toInt(m['bidSize']),
+      askSize: _toInt(m['askSize']),
       errorReason: m['error_reason'] as String?,
     );
   }
@@ -863,6 +879,10 @@ class MarketQuote {
         if (high != null) 'high': high,
         if (low != null) 'low': low,
         if (volume != null) 'volume': volume,
+        if (bid != null) 'bid': bid,
+        if (ask != null) 'ask': ask,
+        if (bidSize != null) 'bidSize': bidSize,
+        if (askSize != null) 'askSize': askSize,
         if (errorReason != null) 'error_reason': errorReason,
       };
 

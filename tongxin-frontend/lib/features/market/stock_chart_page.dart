@@ -726,24 +726,24 @@ class _StockChartPageState extends State<StockChartPage>
     }
   }
 
-  static const double _chartMinHeight = 260.0;
-  /// TvChartContainer 上下内边距
-  static const double _chartContainerPaddingV = 20.0;
+  static const double _chartMinHeight = 320.0;
+  /// TvChartContainer 上下内边距（缩小以增大图表可视区域）
+  static const double _chartContainerPaddingV = 12.0;
   /// 分时图内部 Padding 占用的垂直空间
-  static const double _intradayChartPaddingV = 16.0;
+  static const double _intradayChartPaddingV = 10.0;
   /// 分时图上方摘要行占用的高度
   static const double _intradaySummaryRowHeight = 44.0;
   /// K 线视口额外占用（缩小以让主图+成交量占满可用高度）
-  static const double _klineViewportExtraV = 36.0;
-  /// 分时：主图+成交量+时间轴，放大主图和成交量便于看清
-  static const double _ratioChart = 228 / 320;
-  static const double _ratioVolume = 70 / 320;
+  static const double _klineViewportExtraV = 24.0;
+  /// 分时：主图占比提高，放大主图便于看清
+  static const double _ratioChart = 250 / 320;
+  static const double _ratioVolume = 48 / 320;
   static const double _ratioTimeAxis = 22 / 320;
-  /// K 线：主图 90%、成交量 10%，占地更高、主图放大更清晰
-  static const double _ratioChartK = 0.90 * (1 - 22 / 376);
-  static const double _ratioVolumeK = 0.10 * (1 - 22 / 376);
+  /// K 线：主图 92%、成交量 8%，主图更大便于看清
+  static const double _ratioChartK = 0.92 * (1 - 22 / 376);
+  static const double _ratioVolumeK = 0.08 * (1 - 22 / 376);
   static const double _ratioTimeAxisK = 22 / 376;
-  static const double _ratioIntradayVolume = 70 / 320;
+  static const double _ratioIntradayVolume = 48 / 320;
 
   @override
   Widget build(BuildContext context) {
@@ -838,10 +838,10 @@ class _StockChartPageState extends State<StockChartPage>
                   );
                 }
 
-                final chartAreaHeight = constraints.maxHeight.clamp(200.0, double.infinity);
+                final chartAreaHeight = constraints.maxHeight.clamp(280.0, double.infinity);
                 return TvChartContainer(
                   edgeToEdge: true,
-                  padding: const EdgeInsets.fromLTRB(0, 8, 0, ChartTheme.innerPadding),
+                  padding: const EdgeInsets.fromLTRB(0, 6, 0, 8),
                   child: SizedBox(
                     height: chartAreaHeight,
                     child: ClipRect(
@@ -853,6 +853,7 @@ class _StockChartPageState extends State<StockChartPage>
             ),
           ),
           BottomDetailTabs(
+            symbol: widget.symbol,
             currentPrice: _currentPrice,
             overlayIndicator: _overlayIndicator,
             subChartIndicator: _subChartIndicator,
