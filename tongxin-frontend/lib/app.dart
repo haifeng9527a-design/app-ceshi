@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 
-import 'features/admin/admin_home_page.dart';
 import 'core/finance_background.dart';
 import 'core/last_online_service.dart';
+import 'core/locale_provider.dart';
 import 'core/notification_service.dart';
-import 'ui/splash/tv_orbit_splash.dart';
 import 'features/home/home_page.dart';
+import 'l10n/app_localizations.dart';
+import 'ui/splash/tv_orbit_splash.dart';
 
 Widget _splashNext() => const HomePage();
 
@@ -50,14 +51,19 @@ class _TeacherHubAppState extends State<TeacherHubApp>
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: '金融培训机构',
-      debugShowCheckedModeBanner: false,
-      navigatorKey: NotificationService.navigatorKey,
-      routes: {
-        '/admin': (_) => const AdminHomePage(),
-      },
-      theme: ThemeData(
+    return ListenableBuilder(
+      listenable: LocaleProvider.instance,
+      builder: (_, __) {
+        final locale = LocaleProvider.instance.locale ?? const Locale('zh');
+        return MaterialApp(
+          title: 'Tongxin',
+          debugShowCheckedModeBanner: false,
+          navigatorKey: NotificationService.navigatorKey,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: locale,
+          routes: const {},
+          theme: ThemeData(
         brightness: Brightness.dark,
         colorScheme: const ColorScheme.dark(
           primary: Color(0xFFD4AF37),
@@ -79,6 +85,8 @@ class _TeacherHubAppState extends State<TeacherHubApp>
         return FinanceBackground(child: child);
       },
       home: TvOrbitSplash(nextBuilder: _splashNext),
+        );
+      },
     );
   }
 }

@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../../l10n/app_localizations.dart';
+import '../trading/realtime_quote_service.dart';
 import 'market_colors.dart';
 import 'market_repository.dart';
 import 'stock_chart_page.dart';
@@ -16,6 +20,9 @@ class _GainersLosersPageState extends State<GainersLosersPage>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
   final _market = MarketRepository();
+  final _realtime = RealtimeQuoteService();
+  StreamSubscription<List<PolygonGainer>>? _gainersSub;
+  StreamSubscription<List<PolygonGainer>>? _losersSub;
 
   List<PolygonGainer> _gainers = [];
   List<PolygonGainer> _losers = [];
@@ -32,12 +39,17 @@ class _GainersLosersPageState extends State<GainersLosersPage>
   static const _green = Color(0xFF22C55E);
   static const _red = Color(0xFFEF4444);
   static const _indexSymbols = ['DJI', 'IXIC', 'SPX'];
-  static const _indexNames = ['道琼斯', '纳斯达克', '标普500'];
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _gainersSub = _realtime.gainersStream.listen((list) {
+      if (mounted) setState(() => _gainers = list);
+    });
+    _losersSub = _realtime.losersStream.listen((list) {
+      if (mounted) setState(() => _losers = list);
+    });
     _loadGainers();
     _loadLosers();
     _loadIndices();
@@ -52,6 +64,9 @@ class _GainersLosersPageState extends State<GainersLosersPage>
 
   @override
   void dispose() {
+    _gainersSub?.cancel();
+    _losersSub?.cancel();
+    _realtime.dispose();
     _tabController.dispose();
     super.dispose();
   }
@@ -68,6 +83,7 @@ class _GainersLosersPageState extends State<GainersLosersPage>
         _gainers = list;
         _loadingGainers = false;
       });
+      _realtime.setGainersLosers(gainers: list, losers: _losers);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -89,6 +105,7 @@ class _GainersLosersPageState extends State<GainersLosersPage>
         _losers = list;
         _loadingLosers = false;
       });
+      _realtime.setGainersLosers(gainers: _gainers, losers: list);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -118,8 +135,8 @@ class _GainersLosersPageState extends State<GainersLosersPage>
     return Scaffold(
       backgroundColor: _bg,
       appBar: AppBar(
-        title: const Text(
-          '涨跌榜',
+        title: Text(
+          AppLocalizations.of(context)!.marketGainersLosersTitle,
           style: TextStyle(
             color: Color(0xFFE8D5A3),
             fontWeight: FontWeight.w600,
@@ -193,10 +210,15 @@ class _GainersLosersPageState extends State<GainersLosersPage>
         top: false,
         child: Row(
           children: [
-            const Text('三大指数 ', style: TextStyle(color: Color(0xFF6B6B70), fontSize: 12)),
+            Text(AppLocalizations.of(context)!.marketThreeIndicesLabel, style: const TextStyle(color: Color(0xFF6B6B70), fontSize: 12)),
             ...List.generate(3, (i) {
               final sym = _indexSymbols[i];
-              final name = _indexNames[i];
+              final l10n = AppLocalizations.of(context)!;
+              final name = switch (i) {
+                0 => l10n.marketIndexDow,
+                1 => l10n.marketIndexNasdaq,
+                _ => l10n.marketIndexSp500,
+              };
               final q = _indexQuotes[sym];
               final hasError = q?.hasError ?? true;
               final isUp = (q?.changePercent ?? 0) >= 0;
@@ -252,7 +274,7 @@ class _GainersLosersPageState extends State<GainersLosersPage>
               TextButton.icon(
                 onPressed: onRefresh,
                 icon: const Icon(Icons.refresh, size: 20),
-                label: const Text('重试'),
+                label: Text(AppLocalizations.of(context)!.commonRetry),
                 style: TextButton.styleFrom(foregroundColor: _accent),
               ),
             ],
@@ -261,7 +283,7 @@ class _GainersLosersPageState extends State<GainersLosersPage>
       );
     }
     if (list.isEmpty) {
-      return const Center(child: Text('暂无数据', style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 14)));
+      return Center(child: Text(AppLocalizations.of(context)!.marketNoData, style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 14)));
     }
 
     const colCode = 64.0;
@@ -277,16 +299,16 @@ class _GainersLosersPageState extends State<GainersLosersPage>
 
     final headerRow = Row(
       children: [
-        SizedBox(width: colCode, child: const Text('代码', style: TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
-        SizedBox(width: colName, child: const Text('名称', style: TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
-        SizedBox(width: colPct, child: const Text('涨跌幅', style: TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
-        SizedBox(width: colPrice, child: const Text('最新价', style: TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
-        SizedBox(width: colChange, child: const Text('涨跌额', style: TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
-        SizedBox(width: colOpen, child: const Text('今开', style: TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
-        SizedBox(width: colPrev, child: const Text('昨收', style: TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
-        SizedBox(width: colHigh, child: const Text('最高', style: TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
-        SizedBox(width: colLow, child: const Text('最低', style: TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
-        SizedBox(width: colVol, child: const Text('成交量', style: TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
+        SizedBox(width: colCode, child: Text(AppLocalizations.of(context)!.marketCode, style: const TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
+        SizedBox(width: colName, child: Text(AppLocalizations.of(context)!.marketNameLabel, style: const TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
+        SizedBox(width: colPct, child: Text(AppLocalizations.of(context)!.tradingChangePct, style: const TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
+        SizedBox(width: colPrice, child: Text(AppLocalizations.of(context)!.marketLatestPrice, style: const TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
+        SizedBox(width: colChange, child: Text(AppLocalizations.of(context)!.marketChange, style: const TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
+        SizedBox(width: colOpen, child: Text(AppLocalizations.of(context)!.marketOpen, style: const TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
+        SizedBox(width: colPrev, child: Text(AppLocalizations.of(context)!.marketPrevClose, style: const TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
+        SizedBox(width: colHigh, child: Text(AppLocalizations.of(context)!.marketHigh, style: const TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
+        SizedBox(width: colLow, child: Text(AppLocalizations.of(context)!.marketLow, style: const TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
+        SizedBox(width: colVol, child: Text(AppLocalizations.of(context)!.marketVolume, style: const TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600))),
       ],
     );
 
