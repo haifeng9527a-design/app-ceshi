@@ -14,6 +14,7 @@ const { registerMessageRoutes } = require('./lib/apiMessages');
 const { registerTeacherRoutes } = require('./lib/apiTeachers');
 const { registerUploadRoutes } = require('./lib/apiUpload');
 const { registerMiscRoutes } = require('./lib/apiMisc');
+const { registerWatchlistRoutes } = require('./lib/apiWatchlist');
 const { requireAuth, optionalAuth } = require('./lib/authMiddleware');
 const { startRefreshScheduler } = require('./lib/refreshScheduler');
 const { startRotationScheduler } = require('./lib/rotationScheduler');
@@ -50,6 +51,7 @@ registerMessageRoutes(app, requireAuth);
 registerTeacherRoutes(app, requireAuth, optionalAuth);
 registerUploadRoutes(app, requireAuth);
 registerMiscRoutes(app, requireAuth);
+registerWatchlistRoutes(app, requireAuth);
 if (polygonKey) {
   startRefreshScheduler(polygonKey);
   startRotationScheduler(polygonKey);

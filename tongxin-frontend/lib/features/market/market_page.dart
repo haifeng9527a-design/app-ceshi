@@ -47,11 +47,11 @@ class _MarketPageState extends State<MarketPage>
   static const int _tabCount = 4;
 
   List<String> _tabs(BuildContext context) => [
-    AppLocalizations.of(context)!.marketTabHome,
-    AppLocalizations.of(context)!.marketTabUsStock,
-    AppLocalizations.of(context)!.marketTabForex,
-    AppLocalizations.of(context)!.marketTabCrypto,
-  ];
+        AppLocalizations.of(context)!.marketTabHome,
+        AppLocalizations.of(context)!.marketTabUsStock,
+        AppLocalizations.of(context)!.marketTabForex,
+        AppLocalizations.of(context)!.marketTabCrypto,
+      ];
 
   @override
   void initState() {
@@ -143,7 +143,8 @@ class _MarketPageState extends State<MarketPage>
       builder: (context, _) {
         final idx = _tabController.index;
         return Container(
-          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: TvTheme.pagePadding),
+          padding: const EdgeInsets.symmetric(
+              vertical: 12, horizontal: TvTheme.pagePadding),
           decoration: BoxDecoration(
             color: TvTheme.bg,
             border: Border(bottom: BorderSide(color: TvTheme.border, width: 1)),
@@ -162,8 +163,11 @@ class _MarketPageState extends State<MarketPage>
                     MaterialPageRoute(builder: (_) => const WatchlistPage()),
                   );
                 },
-                icon: Icon(Icons.star_border_rounded, size: 18, color: TvTheme.textSecondary),
-                label: Text(AppLocalizations.of(context)!.navWatchlist, style: TvTheme.bodySecondary.copyWith(color: TvTheme.positive)),
+                icon: Icon(Icons.star_border_rounded,
+                    size: 18, color: TvTheme.textSecondary),
+                label: Text(AppLocalizations.of(context)!.navWatchlist,
+                    style: TvTheme.bodySecondary
+                        .copyWith(color: TvTheme.positive)),
                 style: TextButton.styleFrom(
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   minimumSize: Size.zero,
@@ -176,7 +180,6 @@ class _MarketPageState extends State<MarketPage>
       },
     );
   }
-
 }
 
 // ---------- 首页：Market Dashboard（列表为主，国际习惯）---------
@@ -217,12 +220,26 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
   Map<String, MarketQuote> _trendingCryptoQuotes = {};
   int _trendingSegment = 0; // 0 Stocks, 1 Crypto
   bool _loading = true;
+
   /// PC 涨跌榜：true = 领涨，false = 领跌
   bool _showGainers = true;
+
   /// PC 右列（加密货币）面板：true = 涨幅榜，false = 跌幅榜
   bool _showMarketHeatGainers = true;
 
-  static const _cryptoSymbols = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE', 'ADA', 'AVAX', 'DOT', 'MATIC', 'LINK'];
+  static const _cryptoSymbols = [
+    'BTC',
+    'ETH',
+    'SOL',
+    'XRP',
+    'DOGE',
+    'ADA',
+    'AVAX',
+    'DOT',
+    'MATIC',
+    'LINK'
+  ];
+
   /// 首页左列展示的外汇品种（名称, symbol），6 条与涨跌榜/加密货币列等高对齐
   static const _forexForHome = [
     ('欧元/美元', 'EUR/USD'),
@@ -299,7 +316,8 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
   /// 从本地缓存快速加载：指数（TradingCache + Supabase 快照）、涨跌榜缓存
   Future<void> _loadFromCache() async {
     final indexQuotes = <String, MarketQuote>{};
-    final indicesList = await _cache.getList('market_overview_indices', maxAge: _cacheMaxAge);
+    final indicesList =
+        await _cache.getList('market_overview_indices', maxAge: _cacheMaxAge);
     if (indicesList != null && indicesList.isNotEmpty) {
       for (final m in indicesList) {
         if (m is Map<String, dynamic>) {
@@ -312,7 +330,8 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
       final fromDb = await _snapshotRepo.getQuotes('indices');
       for (final m in fromDb) {
         final q = MarketQuote.fromSnapshotMap(m);
-        if (q != null && !indexQuotes.containsKey(q.symbol)) indexQuotes[q.symbol] = q;
+        if (q != null && !indexQuotes.containsKey(q.symbol))
+          indexQuotes[q.symbol] = q;
       }
     }
     List<PolygonGainer> gainers = [];
@@ -331,7 +350,8 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
     final take6 = list.take(6).toList();
 
     final forexQuotes = <String, MarketQuote>{};
-    final forexList = await _cache.getList('market_overview_forex', maxAge: _cacheMaxAge);
+    final forexList =
+        await _cache.getList('market_overview_forex', maxAge: _cacheMaxAge);
     if (forexList != null) {
       for (final m in forexList) {
         if (m is Map<String, dynamic>) {
@@ -340,14 +360,25 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
         }
       }
     }
+    final homeForexSymbols = _forexForHome.map((e) => e.$2).toList();
+    final forexFromSqlite =
+        await MarketDb.instance.getForexQuotes(homeForexSymbols);
+    for (final sym in homeForexSymbols) {
+      final q = forexFromSqlite[sym];
+      if (q != null && !q.hasError && !forexQuotes.containsKey(sym)) {
+        forexQuotes[sym] = q;
+      }
+    }
     final cryptoQuotes = <String, MarketQuote>{};
-    final cryptoList = await _cache.getList('market_overview_crypto', maxAge: _cacheMaxAge);
+    final cryptoList =
+        await _cache.getList('market_overview_crypto', maxAge: _cacheMaxAge);
     if (cryptoList != null) {
       for (final m in cryptoList) {
         if (m is Map<String, dynamic>) {
           final q = MarketQuote.fromSnapshotMap(m);
           if (q != null && !q.hasError) {
-            final key = q.symbol.contains('/') ? q.symbol.split('/').first : q.symbol;
+            final key =
+                q.symbol.contains('/') ? q.symbol.split('/').first : q.symbol;
             cryptoQuotes[key] = q;
           }
         }
@@ -413,18 +444,20 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
       gainers = result[1] as List<PolygonGainer>;
       losers = result[2] as List<PolygonGainer>;
     } on TimeoutException catch (_) {
-      if (mounted) setState(() {
-        _loading = false;
-        _applyMockForexIfEmpty();
-        _applyMockCryptoIfEmpty();
-      });
+      if (mounted)
+        setState(() {
+          _loading = false;
+          _applyMockForexIfEmpty();
+          _applyMockCryptoIfEmpty();
+        });
       return;
     } catch (_) {
-      if (mounted) setState(() {
-        _loading = false;
-        _applyMockForexIfEmpty();
-        _applyMockCryptoIfEmpty();
-      });
+      if (mounted)
+        setState(() {
+          _loading = false;
+          _applyMockForexIfEmpty();
+          _applyMockCryptoIfEmpty();
+        });
       return;
     }
 
@@ -484,11 +517,16 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
 
   Future<void> _writeForexCache() async {
     final fl = <Map<String, dynamic>>[];
+    final toSave = <String, MarketQuote>{};
     for (final e in _forexForHome) {
       final q = _forexQuotes[e.$2];
-      if (q != null && !q.hasError) fl.add({...q.toSnapshotMap(), 'name': e.$1});
+      if (q != null && !q.hasError) {
+        fl.add({...q.toSnapshotMap(), 'name': e.$1});
+        toSave[e.$2] = q;
+      }
     }
     if (fl.isNotEmpty) await _cache.setList('market_overview_forex', fl);
+    if (toSave.isNotEmpty) await MarketDb.instance.upsertForexQuotes(toSave);
   }
 
   Future<void> _writeCryptoCache() async {
@@ -502,7 +540,8 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
 
   /// 外汇 API 无数据时用 Mock 填充，保证首页左列有展示
   void _applyMockForexIfEmpty() {
-    final hasValid = _forexQuotes.isNotEmpty && _forexQuotes.values.any((q) => !q.hasError);
+    final hasValid =
+        _forexQuotes.isNotEmpty && _forexQuotes.values.any((q) => !q.hasError);
     if (hasValid) return;
     final mock = <String, MarketQuote>{};
     for (final m in MockMarketData.forexQuotes) {
@@ -517,7 +556,8 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
 
   /// 加密货币 API 无数据时用 Mock 填充，保证首页右列有展示
   void _applyMockCryptoIfEmpty() {
-    final hasValid = _trendingCryptoQuotes.isNotEmpty && _trendingCryptoQuotes.values.any((q) => !q.hasError);
+    final hasValid = _trendingCryptoQuotes.isNotEmpty &&
+        _trendingCryptoQuotes.values.any((q) => !q.hasError);
     if (hasValid) return;
     final mock = <String, MarketQuote>{};
     for (final m in MockMarketData.cryptoQuotes) {
@@ -536,7 +576,8 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
     final il = <Map<String, dynamic>>[];
     for (final e in _indexList) {
       final q = out[e.$2];
-      if (q != null && !q.hasError) il.add({...q.toSnapshotMap(), 'name': e.$1});
+      if (q != null && !q.hasError)
+        il.add({...q.toSnapshotMap(), 'name': e.$1});
     }
     if (il.isNotEmpty) await _cache.setList('market_overview_indices', il);
   }
@@ -545,7 +586,8 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
     try {
       return await _market.getTopGainers(limit: limit);
     } catch (_) {
-      final cached = await _market.getCachedGainersOnly(maxAge: const Duration(hours: 48));
+      final cached =
+          await _market.getCachedGainersOnly(maxAge: const Duration(hours: 48));
       return cached != null ? cached.take(limit).toList() : [];
     }
   }
@@ -554,7 +596,8 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
     try {
       return await _market.getTopLosers(limit: limit);
     } catch (_) {
-      final cached = await _market.getCachedLosersOnly(maxAge: const Duration(hours: 48));
+      final cached =
+          await _market.getCachedLosersOnly(maxAge: const Duration(hours: 48));
       return cached != null ? cached.take(limit).toList() : [];
     }
   }
@@ -566,7 +609,8 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
     return s.runes.every((r) => r >= 0x41 && r <= 0x5A);
   }
 
-  void _openDetail(String symbol, {String? name, List<String>? symbolList, int? symbolIndex}) {
+  void _openDetail(String symbol,
+      {String? name, List<String>? symbolList, int? symbolIndex}) {
     final n = name ?? _watchlistQuotes[symbol]?.name ?? symbol;
     if (_isUsStock(symbol)) {
       Navigator.of(context).push(
@@ -599,8 +643,12 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading && _indexQuotes.isEmpty && _gainers.isEmpty && _watchlistSymbols.isEmpty) {
-      return const Center(child: CircularProgressIndicator(color: AppColors.primary));
+    if (_loading &&
+        _indexQuotes.isEmpty &&
+        _gainers.isEmpty &&
+        _watchlistSymbols.isEmpty) {
+      return const Center(
+          child: CircularProgressIndicator(color: AppColors.primary));
     }
     return RefreshIndicator(
       onRefresh: _load,
@@ -611,15 +659,21 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
 
   Widget _buildMobileLayout() {
     return ListView(
-      padding: AppSpacing.only(left: AppSpacing.md - AppSpacing.xs, top: AppSpacing.sm, right: AppSpacing.md - AppSpacing.xs, bottom: AppSpacing.lg),
+      padding: AppSpacing.only(
+          left: AppSpacing.md - AppSpacing.xs,
+          top: AppSpacing.sm,
+          right: AppSpacing.md - AppSpacing.xs,
+          bottom: AppSpacing.lg),
       children: [
         MarketSearchBar(isPc: false),
         const SizedBox(height: AppSpacing.md - AppSpacing.xs),
-        MarketSectionLabel(title: AppLocalizations.of(context)!.marketMajorIndexes),
+        MarketSectionLabel(
+            title: AppLocalizations.of(context)!.marketMajorIndexes),
         const SizedBox(height: AppSpacing.sm),
         _buildMajorIndexes(),
         const SizedBox(height: AppSpacing.md),
-        MarketSectionLabel(title: AppLocalizations.of(context)!.marketTopMovers),
+        MarketSectionLabel(
+            title: AppLocalizations.of(context)!.marketTopMovers),
         const SizedBox(height: AppSpacing.sm),
         _buildTopMoversButtons(),
         const SizedBox(height: AppSpacing.xs),
@@ -644,12 +698,14 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
     return CustomScrollView(
       slivers: [
         SliverPadding(
-          padding: const EdgeInsets.fromLTRB(TvTheme.pagePadding, TvTheme.sectionGap, TvTheme.pagePadding, 20),
+          padding: const EdgeInsets.fromLTRB(
+              TvTheme.pagePadding, TvTheme.sectionGap, TvTheme.pagePadding, 20),
           sliver: SliverList(
             delegate: SliverChildListDelegate([
               _buildSearchBar(),
               const SizedBox(height: TvTheme.sectionGap),
-              Text(AppLocalizations.of(context)!.marketMajorIndices, style: TvTheme.title),
+              Text(AppLocalizations.of(context)!.marketMajorIndices,
+                  style: TvTheme.title),
               const SizedBox(height: 12),
               _buildPcIndexCardsTv(),
             ]),
@@ -722,17 +778,26 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
             color: Colors.transparent,
             child: InkWell(
               onTap: () {
-                if (hasError && !isLoading) { _load(); return; }
+                if (hasError && !isLoading) {
+                  _load();
+                  return;
+                }
                 if (hasError) return;
                 final symbolList = _indexList.map((e) => e.$2).toList();
                 Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => GenericChartPage(symbol: symbol, name: label, symbolList: symbolList, symbolIndex: i)),
+                  MaterialPageRoute(
+                      builder: (_) => GenericChartPage(
+                          symbol: symbol,
+                          name: label,
+                          symbolList: symbolList,
+                          symbolIndex: i)),
                 );
               },
               borderRadius: BorderRadius.circular(_pcRadiusLg),
               child: Container(
                 width: 160,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                 decoration: BoxDecoration(
                   color: _pcCardBg,
                   borderRadius: BorderRadius.circular(_pcRadiusLg),
@@ -752,25 +817,40 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
                   children: [
                     Text(
                       '$label ($symbol)',
-                      style: PcDashboardTheme.bodySmall.copyWith(color: PcDashboardTheme.text),
+                      style: PcDashboardTheme.bodySmall
+                          .copyWith(color: PcDashboardTheme.text),
                     ),
                     if (isLoading)
-                      const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFD4AF37)))
+                      const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Color(0xFFD4AF37)))
                     else
                       Text(
-                        hasError ? '—' : (q != null && q.price > 0 ? _formatPrice(q.price) : '—'),
+                        hasError
+                            ? '—'
+                            : (q != null && q.price > 0
+                                ? _formatPrice(q.price)
+                                : '—'),
                         style: PcDashboardTheme.titleMedium.copyWith(
-                          color: hasError ? PcDashboardTheme.textMuted : PcDashboardTheme.text,
+                          color: hasError
+                              ? PcDashboardTheme.textMuted
+                              : PcDashboardTheme.text,
                           fontFamily: 'monospace',
                         ),
                       ),
                     Row(
                       children: [
-                        Icon(isUp ? Icons.trending_up : Icons.trending_down, size: 14, color: color),
+                        Icon(isUp ? Icons.trending_up : Icons.trending_down,
+                            size: 14, color: color),
                         const SizedBox(width: 4),
                         Text(
-                          hasError ? '—' : '${q!.changePercent >= 0 ? '+' : ''}${q.changePercent.toStringAsFixed(2)}%',
-                          style: PcDashboardTheme.bodySmall.copyWith(color: color),
+                          hasError
+                              ? '—'
+                              : '${q!.changePercent >= 0 ? '+' : ''}${q.changePercent.toStringAsFixed(2)}%',
+                          style:
+                              PcDashboardTheme.bodySmall.copyWith(color: color),
                         ),
                       ],
                     ),
@@ -790,8 +870,10 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
       builder: (context, constraints) {
         const gap = TvTheme.sectionGap;
         const minCardWidth = 180.0;
-        final crossCount = (constraints.maxWidth / (minCardWidth + gap)).floor().clamp(1, 6);
-        final cardWidth = (constraints.maxWidth - gap * (crossCount - 1)) / crossCount;
+        final crossCount =
+            (constraints.maxWidth / (minCardWidth + gap)).floor().clamp(1, 6);
+        final cardWidth =
+            (constraints.maxWidth - gap * (crossCount - 1)) / crossCount;
         return Wrap(
           spacing: gap,
           runSpacing: gap,
@@ -812,11 +894,19 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
                 hasError: hasError,
                 isLoading: isLoading,
                 onTap: () {
-                  if (hasError && !isLoading) { _load(); return; }
+                  if (hasError && !isLoading) {
+                    _load();
+                    return;
+                  }
                   if (hasError) return;
                   final symbolList = _indexList.map((e) => e.$2).toList();
                   Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => GenericChartPage(symbol: symbol, name: label, symbolList: symbolList, symbolIndex: i)),
+                    MaterialPageRoute(
+                        builder: (_) => GenericChartPage(
+                            symbol: symbol,
+                            name: label,
+                            symbolList: symbolList,
+                            symbolIndex: i)),
                   );
                 },
               ),
@@ -851,25 +941,33 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
             padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
             child: Row(
               children: [
-                Text(AppLocalizations.of(context)!.marketGainersLosers, style: PcDashboardTheme.titleSmall),
+                Text(AppLocalizations.of(context)!.marketGainersLosers,
+                    style: PcDashboardTheme.titleSmall),
                 const SizedBox(width: 16),
-                _moverChip(AppLocalizations.of(context)!.marketGainersList, true, () => setState(() => _showGainers = true)),
+                _moverChip(AppLocalizations.of(context)!.marketGainersList,
+                    true, () => setState(() => _showGainers = true)),
                 const SizedBox(width: 8),
-                _moverChip(AppLocalizations.of(context)!.marketLosersList, false, () => setState(() => _showGainers = false)),
+                _moverChip(AppLocalizations.of(context)!.marketLosersList,
+                    false, () => setState(() => _showGainers = false)),
                 const Spacer(),
                 TextButton(
-                  onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const GainersLosersPage())),
+                  onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => const GainersLosersPage())),
                   style: TextButton.styleFrom(
                     padding: const EdgeInsets.symmetric(horizontal: 8),
                     minimumSize: Size.zero,
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
-                  child: Text('${AppLocalizations.of(context)!.marketMore} >', style: PcDashboardTheme.bodyMedium.copyWith(color: PcDashboardTheme.accent)),
+                  child: Text('${AppLocalizations.of(context)!.marketMore} >',
+                      style: PcDashboardTheme.bodyMedium
+                          .copyWith(color: PcDashboardTheme.accent)),
                 ),
               ],
             ),
           ),
-          Expanded(child: SingleChildScrollView(child: _buildPcGainersLosersTable())),
+          Expanded(
+              child:
+                  SingleChildScrollView(child: _buildPcGainersLosersTable())),
         ],
       ),
     );
@@ -882,9 +980,11 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
         .where((e) => e.$2.hasError == false)
         .toList();
     if (!_showMarketHeatGainers) {
-      cryptoList.sort((a, b) => a.$2.changePercent.compareTo(b.$2.changePercent));
+      cryptoList
+          .sort((a, b) => a.$2.changePercent.compareTo(b.$2.changePercent));
     } else {
-      cryptoList.sort((a, b) => b.$2.changePercent.compareTo(a.$2.changePercent));
+      cryptoList
+          .sort((a, b) => b.$2.changePercent.compareTo(a.$2.changePercent));
     }
     final displayList = cryptoList.take(6).toList();
     return Container(
@@ -909,11 +1009,16 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
             padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
             child: Row(
               children: [
-                Text(AppLocalizations.of(context)!.marketTabCrypto, style: PcDashboardTheme.titleSmall),
+                Text(AppLocalizations.of(context)!.marketTabCrypto,
+                    style: PcDashboardTheme.titleSmall),
                 const Spacer(),
-                _moverChip(AppLocalizations.of(context)!.marketGainersList, true, () => setState(() => _showMarketHeatGainers = true)),
+                _moverChip(AppLocalizations.of(context)!.marketGainersList,
+                    true, () => setState(() => _showMarketHeatGainers = true)),
                 const SizedBox(width: 8),
-                _moverChip(AppLocalizations.of(context)!.marketLosersList, false, () => setState(() => _showMarketHeatGainers = false)),
+                _moverChip(
+                    AppLocalizations.of(context)!.marketLosersList,
+                    false,
+                    () => setState(() => _showMarketHeatGainers = false)),
                 const SizedBox(width: 8),
                 TextButton(
                   onPressed: () => widget.onSwitchToTab?.call(3),
@@ -922,69 +1027,109 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
                     minimumSize: Size.zero,
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
-                  child: Text('${AppLocalizations.of(context)!.marketMore} >', style: PcDashboardTheme.bodyMedium.copyWith(color: PcDashboardTheme.accent)),
+                  child: Text('${AppLocalizations.of(context)!.marketMore} >',
+                      style: PcDashboardTheme.bodyMedium
+                          .copyWith(color: PcDashboardTheme.accent)),
                 ),
               ],
             ),
           ),
           Expanded(
             child: Table(
-            columnWidths: const {0: FlexColumnWidth(1.2), 1: FlexColumnWidth(1), 2: FlexColumnWidth(1)},
-            children: [
-              TableRow(
-                decoration: BoxDecoration(color: PcDashboardTheme.surfaceVariant.withValues(alpha: 0.5)),
-                children: [
-                  Padding(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), child: Text(AppLocalizations.of(context)!.marketName, style: PcDashboardTheme.label)),
-                  Padding(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), child: Text(AppLocalizations.of(context)!.marketLatestPrice, style: PcDashboardTheme.label)),
-                  Padding(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), child: Text(AppLocalizations.of(context)!.marketChangePct, style: PcDashboardTheme.label)),
-                ],
-              ),
-              if (displayList.isEmpty)
+              columnWidths: const {
+                0: FlexColumnWidth(1.2),
+                1: FlexColumnWidth(1),
+                2: FlexColumnWidth(1)
+              },
+              children: [
                 TableRow(
+                  decoration: BoxDecoration(
+                      color: PcDashboardTheme.surfaceVariant
+                          .withValues(alpha: 0.5)),
                   children: [
-                    TableCell(child: Padding(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 24), child: Text(AppLocalizations.of(context)!.marketNoData, style: PcDashboardTheme.bodySmall))),
-                    const TableCell(child: SizedBox.shrink()),
-                    const TableCell(child: SizedBox.shrink()),
+                    Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
+                        child: Text(AppLocalizations.of(context)!.marketName,
+                            style: PcDashboardTheme.label)),
+                    Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
+                        child: Text(
+                            AppLocalizations.of(context)!.marketLatestPrice,
+                            style: PcDashboardTheme.label)),
+                    Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
+                        child: Text(
+                            AppLocalizations.of(context)!.marketChangePct,
+                            style: PcDashboardTheme.label)),
                   ],
-                )
-              else
-                ...displayList.toList().asMap().entries.map((e) {
-                  final i = e.key;
-                  final item = e.value;
-                  final symbol = item.$1;
-                  final q = item.$2;
-                  final color = MarketColors.forChangePercent(q.changePercent);
-                  final name = q.name ?? symbol;
-                  final symbolList = displayList.map((x) => x.$1).toList();
-                  return TableRow(
+                ),
+                if (displayList.isEmpty)
+                  TableRow(
                     children: [
-                      Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          onTap: () => _openDetail(symbol, name: name, symbolList: symbolList, symbolIndex: i),
+                      TableCell(
                           child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                            child: Text(name, style: PcDashboardTheme.bodySmall.copyWith(color: PcDashboardTheme.text)),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 24),
+                              child: Text(
+                                  AppLocalizations.of(context)!.marketNoData,
+                                  style: PcDashboardTheme.bodySmall))),
+                      const TableCell(child: SizedBox.shrink()),
+                      const TableCell(child: SizedBox.shrink()),
+                    ],
+                  )
+                else
+                  ...displayList.toList().asMap().entries.map((e) {
+                    final i = e.key;
+                    final item = e.value;
+                    final symbol = item.$1;
+                    final q = item.$2;
+                    final color =
+                        MarketColors.forChangePercent(q.changePercent);
+                    final name = q.name ?? symbol;
+                    final symbolList = displayList.map((x) => x.$1).toList();
+                    return TableRow(
+                      children: [
+                        Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: () => _openDetail(symbol,
+                                name: name,
+                                symbolList: symbolList,
+                                symbolIndex: i),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 10),
+                              child: Text(name,
+                                  style: PcDashboardTheme.bodySmall
+                                      .copyWith(color: PcDashboardTheme.text)),
+                            ),
                           ),
                         ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                        child: Text(q.price > 0 ? _formatPrice(q.price) : '—', style: PcDashboardTheme.bodySmall.copyWith(fontFamily: 'monospace')),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                        child: Text(
-                          '${q.changePercent >= 0 ? '+' : ''}${q.changePercent.toStringAsFixed(2)}%',
-                          style: PcDashboardTheme.bodySmall.copyWith(color: color),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 10),
+                          child: Text(q.price > 0 ? _formatPrice(q.price) : '—',
+                              style: PcDashboardTheme.bodySmall
+                                  .copyWith(fontFamily: 'monospace')),
                         ),
-                      ),
-                    ],
-                  );
-                }),
-            ],
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 10),
+                          child: Text(
+                            '${q.changePercent >= 0 ? '+' : ''}${q.changePercent.toStringAsFixed(2)}%',
+                            style: PcDashboardTheme.bodySmall
+                                .copyWith(color: color),
+                          ),
+                        ),
+                      ],
+                    );
+                  }),
+              ],
+            ),
           ),
-        ),
         ],
       ),
     );
@@ -1003,7 +1148,8 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
           border: Border.all(color: _pcCardBorder, width: 1),
         ),
         alignment: Alignment.center,
-        child: Text(AppLocalizations.of(context)!.marketNoData, style: PcDashboardTheme.bodySmall),
+        child: Text(AppLocalizations.of(context)!.marketNoData,
+            style: PcDashboardTheme.bodySmall),
       );
     }
     return Container(
@@ -1027,11 +1173,13 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
         children: [
           Row(
             children: [
-              Text(AppLocalizations.of(context)!.marketHeatmap, style: PcDashboardTheme.titleSmall),
+              Text(AppLocalizations.of(context)!.marketHeatmap,
+                  style: PcDashboardTheme.titleSmall),
               const Spacer(),
               Text('S&P 500', style: PcDashboardTheme.bodySmall),
               const SizedBox(width: 8),
-              Text('${AppLocalizations.of(context)!.marketTradeSubcategory} >', style: PcDashboardTheme.bodySmall),
+              Text('${AppLocalizations.of(context)!.marketTradeSubcategory} >',
+                  style: PcDashboardTheme.bodySmall),
             ],
           ),
           const SizedBox(height: 16),
@@ -1050,9 +1198,19 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
                     final isUp = pct >= 0;
                     final intensity = (pct.abs() / 10).clamp(0.0, 1.0);
                     final bg = isUp
-                        ? Color.lerp(const Color(0xFF22C55E).withValues(alpha: 0.15), const Color(0xFF22C55E).withValues(alpha: 0.5), intensity)!
-                        : Color.lerp(const Color(0xFFEF4444).withValues(alpha: 0.15), const Color(0xFFEF4444).withValues(alpha: 0.5), intensity)!;
-                    final price = (g.price != null && g.price! > 0) ? g.price! : (g.prevClose != null && g.todaysChange != null ? g.prevClose! + g.todaysChange! : null);
+                        ? Color.lerp(
+                            const Color(0xFF22C55E).withValues(alpha: 0.15),
+                            const Color(0xFF22C55E).withValues(alpha: 0.5),
+                            intensity)!
+                        : Color.lerp(
+                            const Color(0xFFEF4444).withValues(alpha: 0.15),
+                            const Color(0xFFEF4444).withValues(alpha: 0.5),
+                            intensity)!;
+                    final price = (g.price != null && g.price! > 0)
+                        ? g.price!
+                        : (g.prevClose != null && g.todaysChange != null
+                            ? g.prevClose! + g.todaysChange!
+                            : null);
                     final symbols = list.map((x) => x.ticker).toList();
                     return SizedBox(
                       width: itemWidth,
@@ -1060,25 +1218,34 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
                       child: Material(
                         color: Colors.transparent,
                         child: InkWell(
-                          onTap: () => _openDetail(g.ticker, symbolList: symbols, symbolIndex: i),
+                          onTap: () => _openDetail(g.ticker,
+                              symbolList: symbols, symbolIndex: i),
                           borderRadius: BorderRadius.circular(8),
                           child: Container(
                             padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
                               color: bg,
                               borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: PcDashboardTheme.border),
+                              border:
+                                  Border.all(color: PcDashboardTheme.border),
                             ),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Text(g.ticker, style: PcDashboardTheme.titleSmall.copyWith(fontSize: 12)),
-                                if (price != null) Text(_formatPrice(price), style: PcDashboardTheme.bodySmall.copyWith(fontFamily: 'monospace')),
+                                Text(g.ticker,
+                                    style: PcDashboardTheme.titleSmall
+                                        .copyWith(fontSize: 12)),
+                                if (price != null)
+                                  Text(_formatPrice(price),
+                                      style: PcDashboardTheme.bodySmall
+                                          .copyWith(fontFamily: 'monospace')),
                                 Text(
                                   '${pct >= 0 ? '+' : ''}${pct.toStringAsFixed(2)}%',
                                   style: PcDashboardTheme.bodySmall.copyWith(
-                                    color: isUp ? const Color(0xFF22C55E) : const Color(0xFFEF4444),
+                                    color: isUp
+                                        ? const Color(0xFF22C55E)
+                                        : const Color(0xFFEF4444),
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
@@ -1121,7 +1288,8 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
         children: [
           Row(
             children: [
-              Text(AppLocalizations.of(context)!.marketHot, style: PcDashboardTheme.titleSmall),
+              Text(AppLocalizations.of(context)!.marketHot,
+                  style: PcDashboardTheme.titleSmall),
               const Spacer(),
               _segmentChip('Stocks', 0),
               const SizedBox(width: 8),
@@ -1139,20 +1307,26 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
   Widget _buildPcGainersLosersHeader() {
     return Row(
       children: [
-        Text(AppLocalizations.of(context)!.marketGainersLosers, style: PcDashboardTheme.titleSmall),
+        Text(AppLocalizations.of(context)!.marketGainersLosers,
+            style: PcDashboardTheme.titleSmall),
         const SizedBox(width: 16),
-        _moverChip(AppLocalizations.of(context)!.marketGainers, true, () => setState(() => _showGainers = true)),
-                const SizedBox(width: 8),
-                _moverChip(AppLocalizations.of(context)!.marketLosers, false, () => setState(() => _showGainers = false)),
+        _moverChip(AppLocalizations.of(context)!.marketGainers, true,
+            () => setState(() => _showGainers = true)),
+        const SizedBox(width: 8),
+        _moverChip(AppLocalizations.of(context)!.marketLosers, false,
+            () => setState(() => _showGainers = false)),
         const Spacer(),
         TextButton(
-          onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const GainersLosersPage())),
+          onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const GainersLosersPage())),
           style: TextButton.styleFrom(
             padding: const EdgeInsets.symmetric(horizontal: 8),
             minimumSize: Size.zero,
             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
           ),
-          child: Text('${AppLocalizations.of(context)!.marketMore} >', style: PcDashboardTheme.bodyMedium.copyWith(color: PcDashboardTheme.accent)),
+          child: Text('${AppLocalizations.of(context)!.marketMore} >',
+              style: PcDashboardTheme.bodyMedium
+                  .copyWith(color: PcDashboardTheme.accent)),
         ),
       ],
     );
@@ -1175,16 +1349,46 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
     final list = _showGainers ? _gainers : _losers;
     final headerRow = Row(
       children: [
-        SizedBox(width: colCode, child: Text(AppLocalizations.of(context)!.marketCode, style: PcDashboardTheme.label)),
-        SizedBox(width: colName, child: Text(AppLocalizations.of(context)!.marketName, style: PcDashboardTheme.label)),
-        SizedBox(width: colPct, child: Text(AppLocalizations.of(context)!.marketChangePct, style: PcDashboardTheme.label)),
-        SizedBox(width: colPrice, child: Text(AppLocalizations.of(context)!.marketLatestPrice, style: PcDashboardTheme.label)),
-        SizedBox(width: colChange, child: Text(AppLocalizations.of(context)!.marketChangeAmount, style: PcDashboardTheme.label)),
-        SizedBox(width: colOpen, child: Text(AppLocalizations.of(context)!.marketOpen, style: PcDashboardTheme.label)),
-        SizedBox(width: colPrev, child: Text(AppLocalizations.of(context)!.marketPrevClose, style: PcDashboardTheme.label)),
-        SizedBox(width: colHigh, child: Text(AppLocalizations.of(context)!.marketHigh, style: PcDashboardTheme.label)),
-        SizedBox(width: colLow, child: Text(AppLocalizations.of(context)!.marketLow, style: PcDashboardTheme.label)),
-        SizedBox(width: colVol, child: Text(AppLocalizations.of(context)!.marketVolume, style: PcDashboardTheme.label)),
+        SizedBox(
+            width: colCode,
+            child: Text(AppLocalizations.of(context)!.marketCode,
+                style: PcDashboardTheme.label)),
+        SizedBox(
+            width: colName,
+            child: Text(AppLocalizations.of(context)!.marketName,
+                style: PcDashboardTheme.label)),
+        SizedBox(
+            width: colPct,
+            child: Text(AppLocalizations.of(context)!.marketChangePct,
+                style: PcDashboardTheme.label)),
+        SizedBox(
+            width: colPrice,
+            child: Text(AppLocalizations.of(context)!.marketLatestPrice,
+                style: PcDashboardTheme.label)),
+        SizedBox(
+            width: colChange,
+            child: Text(AppLocalizations.of(context)!.marketChangeAmount,
+                style: PcDashboardTheme.label)),
+        SizedBox(
+            width: colOpen,
+            child: Text(AppLocalizations.of(context)!.marketOpen,
+                style: PcDashboardTheme.label)),
+        SizedBox(
+            width: colPrev,
+            child: Text(AppLocalizations.of(context)!.marketPrevClose,
+                style: PcDashboardTheme.label)),
+        SizedBox(
+            width: colHigh,
+            child: Text(AppLocalizations.of(context)!.marketHigh,
+                style: PcDashboardTheme.label)),
+        SizedBox(
+            width: colLow,
+            child: Text(AppLocalizations.of(context)!.marketLow,
+                style: PcDashboardTheme.label)),
+        SizedBox(
+            width: colVol,
+            child: Text(AppLocalizations.of(context)!.marketVolume,
+                style: PcDashboardTheme.label)),
       ],
     );
 
@@ -1198,50 +1402,129 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
               color: PcDashboardTheme.surfaceVariant.withValues(alpha: 0.6),
-              borderRadius: BorderRadius.vertical(top: Radius.circular(PcDashboardTheme.radiusSm)),
+              borderRadius: BorderRadius.vertical(
+                  top: Radius.circular(PcDashboardTheme.radiusSm)),
             ),
             child: headerRow,
           ),
           ...list.take(8).toList().asMap().entries.map((e) {
-              final i = e.key;
-              final g = e.value;
-              final color = MarketColors.forChangePercent(g.todaysChangePerc ?? 0);
-              // 接口有时只返回昨收+涨跌额，无 price：用 最新价 = 昨收 + 涨跌额 回退，避免出现「有涨跌却最新价 —」
-              final effectivePrice = (g.price != null && g.price! > 0)
-                  ? g.price!
-                  : (g.prevClose != null && g.todaysChange != null
-                      ? g.prevClose! + g.todaysChange
-                      : null);
-              final symbols = list.take(8).map((x) => x.ticker).toList();
-              return Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: () => _openDetail(g.ticker, symbolList: symbols, symbolIndex: i),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: rowPadding),
-                    decoration: BoxDecoration(
-                      border: Border(
-                        bottom: BorderSide(color: PcDashboardTheme.border, width: 0.6),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        SizedBox(width: colCode, child: Text(g.ticker, style: PcDashboardTheme.titleSmall.copyWith(fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                        SizedBox(width: colName, child: Text(g.ticker, style: PcDashboardTheme.bodySmall, maxLines: 1, overflow: TextOverflow.ellipsis)),
-                        SizedBox(width: colPct, child: Text(g.todaysChangePerc != null ? '${g.todaysChangePerc! >= 0 ? '+' : ''}${g.todaysChangePerc!.toStringAsFixed(2)}%' : '—', style: PcDashboardTheme.bodySmall.copyWith(color: color), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                        SizedBox(width: colPrice, child: Text(effectivePrice != null && effectivePrice > 0 ? _formatPrice(effectivePrice) : '—', style: PcDashboardTheme.bodySmall, maxLines: 1, overflow: TextOverflow.ellipsis)),
-                        SizedBox(width: colChange, child: Text(g.todaysChange != null ? '${g.todaysChange! >= 0 ? '+' : ''}${g.todaysChange!.toStringAsFixed(2)}' : '—', style: PcDashboardTheme.bodySmall.copyWith(color: color), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                        SizedBox(width: colOpen, child: Text(g.dayOpen != null && g.dayOpen! > 0 ? _formatPrice(g.dayOpen!) : '—', style: PcDashboardTheme.bodySmall, maxLines: 1, overflow: TextOverflow.ellipsis)),
-                        SizedBox(width: colPrev, child: Text(g.prevClose != null && g.prevClose! > 0 ? _formatPrice(g.prevClose!) : '—', style: PcDashboardTheme.bodySmall, maxLines: 1, overflow: TextOverflow.ellipsis)),
-                        SizedBox(width: colHigh, child: Text(g.dayHigh != null && g.dayHigh! > 0 ? _formatPrice(g.dayHigh!) : '—', style: PcDashboardTheme.bodySmall, maxLines: 1, overflow: TextOverflow.ellipsis)),
-                        SizedBox(width: colLow, child: Text(g.dayLow != null && g.dayLow! > 0 ? _formatPrice(g.dayLow!) : '—', style: PcDashboardTheme.bodySmall, maxLines: 1, overflow: TextOverflow.ellipsis)),
-                        SizedBox(width: colVol, child: Text(_formatVolume(g.dayVolume), style: PcDashboardTheme.bodySmall, maxLines: 1, overflow: TextOverflow.ellipsis)),
-                      ],
+            final i = e.key;
+            final g = e.value;
+            final color =
+                MarketColors.forChangePercent(g.todaysChangePerc ?? 0);
+            // 接口有时只返回昨收+涨跌额，无 price：用 最新价 = 昨收 + 涨跌额 回退，避免出现「有涨跌却最新价 —」
+            final effectivePrice = (g.price != null && g.price! > 0)
+                ? g.price!
+                : (g.prevClose != null && g.todaysChange != null
+                    ? g.prevClose! + g.todaysChange
+                    : null);
+            final symbols = list.take(8).map((x) => x.ticker).toList();
+            return Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () =>
+                    _openDetail(g.ticker, symbolList: symbols, symbolIndex: i),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: rowPadding),
+                  decoration: BoxDecoration(
+                    border: Border(
+                      bottom: BorderSide(
+                          color: PcDashboardTheme.border, width: 0.6),
                     ),
                   ),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                          width: colCode,
+                          child: Text(g.ticker,
+                              style: PcDashboardTheme.titleSmall
+                                  .copyWith(fontSize: 12),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis)),
+                      SizedBox(
+                          width: colName,
+                          child: Text(g.ticker,
+                              style: PcDashboardTheme.bodySmall,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis)),
+                      SizedBox(
+                          width: colPct,
+                          child: Text(
+                              g.todaysChangePerc != null
+                                  ? '${g.todaysChangePerc! >= 0 ? '+' : ''}${g.todaysChangePerc!.toStringAsFixed(2)}%'
+                                  : '—',
+                              style: PcDashboardTheme.bodySmall
+                                  .copyWith(color: color),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis)),
+                      SizedBox(
+                          width: colPrice,
+                          child: Text(
+                              effectivePrice != null && effectivePrice > 0
+                                  ? _formatPrice(effectivePrice)
+                                  : '—',
+                              style: PcDashboardTheme.bodySmall,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis)),
+                      SizedBox(
+                          width: colChange,
+                          child: Text(
+                              g.todaysChange != null
+                                  ? '${g.todaysChange! >= 0 ? '+' : ''}${g.todaysChange!.toStringAsFixed(2)}'
+                                  : '—',
+                              style: PcDashboardTheme.bodySmall
+                                  .copyWith(color: color),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis)),
+                      SizedBox(
+                          width: colOpen,
+                          child: Text(
+                              g.dayOpen != null && g.dayOpen! > 0
+                                  ? _formatPrice(g.dayOpen!)
+                                  : '—',
+                              style: PcDashboardTheme.bodySmall,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis)),
+                      SizedBox(
+                          width: colPrev,
+                          child: Text(
+                              g.prevClose != null && g.prevClose! > 0
+                                  ? _formatPrice(g.prevClose!)
+                                  : '—',
+                              style: PcDashboardTheme.bodySmall,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis)),
+                      SizedBox(
+                          width: colHigh,
+                          child: Text(
+                              g.dayHigh != null && g.dayHigh! > 0
+                                  ? _formatPrice(g.dayHigh!)
+                                  : '—',
+                              style: PcDashboardTheme.bodySmall,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis)),
+                      SizedBox(
+                          width: colLow,
+                          child: Text(
+                              g.dayLow != null && g.dayLow! > 0
+                                  ? _formatPrice(g.dayLow!)
+                                  : '—',
+                              style: PcDashboardTheme.bodySmall,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis)),
+                      SizedBox(
+                          width: colVol,
+                          child: Text(_formatVolume(g.dayVolume),
+                              style: PcDashboardTheme.bodySmall,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis)),
+                    ],
+                  ),
                 ),
-              );
-            }),
+              ),
+            );
+          }),
         ],
       ),
     );
@@ -1251,7 +1534,11 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
   Widget _buildPcIndicesBar() {
     const symbols = ['DJI', 'IXIC', 'SPX'];
     final l10n = AppLocalizations.of(context)!;
-    final names = [l10n.marketIndexDowJones, l10n.marketIndexNasdaq, l10n.marketIndexSp500];
+    final names = [
+      l10n.marketIndexDowJones,
+      l10n.marketIndexNasdaq,
+      l10n.marketIndexSp500
+    ];
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
@@ -1261,7 +1548,8 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
       ),
       child: Row(
         children: [
-          Text(AppLocalizations.of(context)!.marketThreeIndices, style: PcDashboardTheme.label),
+          Text(AppLocalizations.of(context)!.marketThreeIndices,
+              style: PcDashboardTheme.label),
           const SizedBox(width: 20),
           ...List.generate(3, (i) {
             final sym = symbols[i];
@@ -1277,8 +1565,14 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
                 children: [
                   Text('$name ', style: PcDashboardTheme.bodySmall),
                   Text(
-                    hasError ? '—' : (q != null && q.price > 0 ? _formatPrice(q.price) : '—'),
-                    style: PcDashboardTheme.titleSmall.copyWith(fontSize: 13, color: hasError ? PcDashboardTheme.textMuted : null),
+                    hasError
+                        ? '—'
+                        : (q != null && q.price > 0
+                            ? _formatPrice(q.price)
+                            : '—'),
+                    style: PcDashboardTheme.titleSmall.copyWith(
+                        fontSize: 13,
+                        color: hasError ? PcDashboardTheme.textMuted : null),
                   ),
                   if (!hasError && q != null && q.price > 0) ...[
                     const SizedBox(width: 6),
@@ -1298,7 +1592,8 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
 
   /// PC 首页左列：外汇面板（表头与涨跌榜/加密货币一致：名称、最新价、涨跌幅）
   Widget _buildPcWatchlistPanel() {
-    final hasForex = _forexQuotes.isNotEmpty && _forexQuotes.values.any((q) => !q.hasError);
+    final hasForex =
+        _forexQuotes.isNotEmpty && _forexQuotes.values.any((q) => !q.hasError);
     return Container(
       decoration: BoxDecoration(
         color: _pcCardBg,
@@ -1321,7 +1616,8 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
             padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
             child: Row(
               children: [
-                Text(AppLocalizations.of(context)!.marketTabForex, style: PcDashboardTheme.titleSmall),
+                Text(AppLocalizations.of(context)!.marketTabForex,
+                    style: PcDashboardTheme.titleSmall),
                 const Spacer(),
                 TextButton(
                   onPressed: () => widget.onSwitchToTab?.call(2),
@@ -1330,7 +1626,9 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
                     minimumSize: Size.zero,
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
-                  child: Text('See all', style: PcDashboardTheme.bodyMedium.copyWith(color: PcDashboardTheme.accent)),
+                  child: Text('See all',
+                      style: PcDashboardTheme.bodyMedium
+                          .copyWith(color: PcDashboardTheme.accent)),
                 ),
               ],
             ),
@@ -1340,9 +1638,20 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: Row(
               children: [
-                Expanded(flex: 2, child: Text(AppLocalizations.of(context)!.marketName, style: PcDashboardTheme.label)),
-                Expanded(flex: 1, child: Text(AppLocalizations.of(context)!.marketLatestPrice, style: PcDashboardTheme.label, textAlign: TextAlign.right)),
-                Expanded(flex: 1, child: Text(AppLocalizations.of(context)!.marketChangePct, style: PcDashboardTheme.label, textAlign: TextAlign.right)),
+                Expanded(
+                    flex: 2,
+                    child: Text(AppLocalizations.of(context)!.marketName,
+                        style: PcDashboardTheme.label)),
+                Expanded(
+                    flex: 1,
+                    child: Text(AppLocalizations.of(context)!.marketLatestPrice,
+                        style: PcDashboardTheme.label,
+                        textAlign: TextAlign.right)),
+                Expanded(
+                    flex: 1,
+                    child: Text(AppLocalizations.of(context)!.marketChangePct,
+                        style: PcDashboardTheme.label,
+                        textAlign: TextAlign.right)),
               ],
             ),
           ),
@@ -1352,19 +1661,23 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
               child: !hasForex
                   ? Center(
-                      child: Text(AppLocalizations.of(context)!.marketNoForexData, style: PcDashboardTheme.bodySmall),
+                      child: Text(
+                          AppLocalizations.of(context)!.marketNoForexData,
+                          style: PcDashboardTheme.bodySmall),
                     )
                   : SingleChildScrollView(
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: _forexForHome.toList().asMap().entries.map((e) {
+                        children:
+                            _forexForHome.toList().asMap().entries.map((e) {
                           final i = e.key;
                           final item = e.value;
                           final name = item.$1;
                           final symbol = item.$2;
                           final q = _forexQuotes[symbol];
-                          final symbolList = _forexForHome.map((x) => x.$2).toList();
+                          final symbolList =
+                              _forexForHome.map((x) => x.$2).toList();
                           return _buildPcWatchlistRow(
                             symbol: symbol,
                             name: name,
@@ -1372,7 +1685,10 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
                             change: q?.change ?? 0,
                             changePercent: q?.changePercent ?? 0,
                             hasError: q?.hasError ?? true,
-                            onTap: () => _openDetail(symbol, name: name, symbolList: symbolList, symbolIndex: i),
+                            onTap: () => _openDetail(symbol,
+                                name: name,
+                                symbolList: symbolList,
+                                symbolIndex: i),
                           );
                         }).toList(),
                       ),
@@ -1394,7 +1710,8 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
     String? name,
   }) {
     final color = MarketColors.forChangePercent(changePercent);
-    final nameText = (name != null && name.isNotEmpty) ? '$symbol $name' : symbol;
+    final nameText =
+        (name != null && name.isNotEmpty) ? '$symbol $name' : symbol;
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -1403,9 +1720,31 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
           padding: const EdgeInsets.symmetric(vertical: 10),
           child: Row(
             children: [
-              Expanded(flex: 2, child: Text(nameText, style: PcDashboardTheme.bodySmall, maxLines: 1, overflow: TextOverflow.ellipsis)),
-              Expanded(flex: 1, child: Text(hasError || price <= 0 ? '—' : _formatPrice(price), style: PcDashboardTheme.bodySmall.copyWith(fontFamily: 'monospace'), textAlign: TextAlign.right, maxLines: 1, overflow: TextOverflow.ellipsis)),
-              Expanded(flex: 1, child: Text(hasError ? '—' : '${changePercent >= 0 ? '+' : ''}${changePercent.toStringAsFixed(2)}%', style: PcDashboardTheme.bodySmall.copyWith(color: color), textAlign: TextAlign.right, maxLines: 1, overflow: TextOverflow.ellipsis)),
+              Expanded(
+                  flex: 2,
+                  child: Text(nameText,
+                      style: PcDashboardTheme.bodySmall,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis)),
+              Expanded(
+                  flex: 1,
+                  child: Text(
+                      hasError || price <= 0 ? '—' : _formatPrice(price),
+                      style: PcDashboardTheme.bodySmall
+                          .copyWith(fontFamily: 'monospace'),
+                      textAlign: TextAlign.right,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis)),
+              Expanded(
+                  flex: 1,
+                  child: Text(
+                      hasError
+                          ? '—'
+                          : '${changePercent >= 0 ? '+' : ''}${changePercent.toStringAsFixed(2)}%',
+                      style: PcDashboardTheme.bodySmall.copyWith(color: color),
+                      textAlign: TextAlign.right,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis)),
             ],
           ),
         ),
@@ -1447,8 +1786,11 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
           final isUp = (q?.changePercent ?? 0) >= 0;
           final color = MarketColors.forUp(isUp);
           return Material(
-            color: isPc ? PcDashboardTheme.surfaceElevated : const Color(0xFF111215),
-            borderRadius: BorderRadius.circular(isPc ? PcDashboardTheme.radiusMd : 8),
+            color: isPc
+                ? PcDashboardTheme.surfaceElevated
+                : const Color(0xFF111215),
+            borderRadius:
+                BorderRadius.circular(isPc ? PcDashboardTheme.radiusMd : 8),
             child: InkWell(
               onTap: () {
                 if (hasError && !isLoading) {
@@ -1458,19 +1800,29 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
                 if (hasError) return;
                 final symbolList = _indexList.map((e) => e.$2).toList();
                 Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => GenericChartPage(symbol: symbol, name: label, symbolList: symbolList, symbolIndex: i)),
+                  MaterialPageRoute(
+                      builder: (_) => GenericChartPage(
+                          symbol: symbol,
+                          name: label,
+                          symbolList: symbolList,
+                          symbolIndex: i)),
                 );
               },
-              borderRadius: BorderRadius.circular(isPc ? PcDashboardTheme.radiusMd : 8),
+              borderRadius:
+                  BorderRadius.circular(isPc ? PcDashboardTheme.radiusMd : 8),
               child: Container(
                 width: cardWidth,
                 height: cardHeight,
-                padding: EdgeInsets.symmetric(horizontal: isPc ? 14 : 10, vertical: 10),
+                padding: EdgeInsets.symmetric(
+                    horizontal: isPc ? 14 : 10, vertical: 10),
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(isPc ? PcDashboardTheme.radiusMd : 8),
+                  borderRadius: BorderRadius.circular(
+                      isPc ? PcDashboardTheme.radiusMd : 8),
                   border: isPc
                       ? Border.all(color: PcDashboardTheme.border, width: 1)
-                      : const Border(bottom: BorderSide(color: Color(0xFF1F1F23), width: 0.6)),
+                      : const Border(
+                          bottom:
+                              BorderSide(color: Color(0xFF1F1F23), width: 0.6)),
                 ),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -1479,7 +1831,12 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
                   children: [
                     Text(
                       symbol,
-                      style: (isPc ? PcDashboardTheme.label : const TextStyle(color: Color(0xFF9CA3AF), fontSize: 11, decoration: TextDecoration.none)),
+                      style: (isPc
+                          ? PcDashboardTheme.label
+                          : const TextStyle(
+                              color: Color(0xFF9CA3AF),
+                              fontSize: 11,
+                              decoration: TextDecoration.none)),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -1488,7 +1845,11 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
                       SizedBox(
                         height: 18,
                         width: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: isPc ? PcDashboardTheme.accent : const Color(0xFFD4AF37)),
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: isPc
+                                ? PcDashboardTheme.accent
+                                : const Color(0xFFD4AF37)),
                       )
                     else
                       Row(
@@ -1497,9 +1858,21 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
                         children: [
                           Flexible(
                             child: Text(
-                              hasError ? '—' : (q != null && q!.price > 0 ? _formatPrice(q!.price) : '—'),
+                              hasError
+                                  ? '—'
+                                  : (q != null && q!.price > 0
+                                      ? _formatPrice(q!.price)
+                                      : '—'),
                               style: TextStyle(
-                                color: hasError ? (isPc ? PcDashboardTheme.textMuted : const Color(0xFF6B6B70)) : (q != null && q!.price > 0 ? color : (isPc ? PcDashboardTheme.textMuted : const Color(0xFF6B6B70))),
+                                color: hasError
+                                    ? (isPc
+                                        ? PcDashboardTheme.textMuted
+                                        : const Color(0xFF6B6B70))
+                                    : (q != null && q!.price > 0
+                                        ? color
+                                        : (isPc
+                                            ? PcDashboardTheme.textMuted
+                                            : const Color(0xFF6B6B70))),
                                 fontWeight: FontWeight.w700,
                                 fontSize: isPc ? 14 : 13,
                                 decoration: TextDecoration.none,
@@ -1510,9 +1883,17 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
                           ),
                           const SizedBox(width: 4),
                           Text(
-                            hasError ? '' : (q != null && q.price > 0 ? '${q!.changePercent >= 0 ? '+' : ''}${q.changePercent.toStringAsFixed(2)}%' : ''),
+                            hasError
+                                ? ''
+                                : (q != null && q.price > 0
+                                    ? '${q!.changePercent >= 0 ? '+' : ''}${q.changePercent.toStringAsFixed(2)}%'
+                                    : ''),
                             style: TextStyle(
-                              color: (q != null && q.price > 0) ? color : (isPc ? PcDashboardTheme.textMuted : const Color(0xFF6B6B70)),
+                              color: (q != null && q.price > 0)
+                                  ? color
+                                  : (isPc
+                                      ? PcDashboardTheme.textMuted
+                                      : const Color(0xFF6B6B70)),
                               fontSize: isPc ? 11 : 10,
                               decoration: TextDecoration.none,
                             ),
@@ -1537,13 +1918,15 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
         AppChip(
           label: AppLocalizations.of(context)!.marketGainers,
           selected: true,
-          onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const GainersLosersPage())),
+          onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const GainersLosersPage())),
         ),
         const SizedBox(width: AppSpacing.sm),
         AppChip(
           label: AppLocalizations.of(context)!.marketLosers,
           selected: false,
-          onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const GainersLosersPage())),
+          onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const GainersLosersPage())),
         ),
       ],
     );
@@ -1562,7 +1945,12 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        ..._gainers.take(_homeMoverDisplayLimit).toList().asMap().entries.map((e) {
+        ..._gainers
+            .take(_homeMoverDisplayLimit)
+            .toList()
+            .asMap()
+            .entries
+            .map((e) {
           final i = e.key;
           final g = e.value;
           final symbols = [
@@ -1575,10 +1963,16 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
             change: g.todaysChange,
             changePercent: g.todaysChangePerc,
             hasError: g.price == null,
-            onTap: () => _openDetail(g.ticker, symbolList: symbols, symbolIndex: i),
+            onTap: () =>
+                _openDetail(g.ticker, symbolList: symbols, symbolIndex: i),
           );
         }),
-        ..._losers.take(_homeMoverDisplayLimit).toList().asMap().entries.map((e) {
+        ..._losers
+            .take(_homeMoverDisplayLimit)
+            .toList()
+            .asMap()
+            .entries
+            .map((e) {
           final i = e.key;
           final g = e.value;
           final symbols = [
@@ -1591,7 +1985,8 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
             change: g.todaysChange,
             changePercent: g.todaysChangePerc,
             hasError: g.price == null,
-            onTap: () => _openDetail(g.ticker, symbolList: symbols, symbolIndex: _homeMoverDisplayLimit + i),
+            onTap: () => _openDetail(g.ticker,
+                symbolList: symbols, symbolIndex: _homeMoverDisplayLimit + i),
           );
         }),
       ],
@@ -1609,7 +2004,10 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
             AppButton(
               label: 'See all',
               variant: AppButtonVariant.text,
-              onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const WatchlistPage())).then((_) => _load()),
+              onPressed: () => Navigator.of(context)
+                  .push(
+                      MaterialPageRoute(builder: (_) => const WatchlistPage()))
+                  .then((_) => _load()),
             ),
           ],
         ),
@@ -1633,7 +2031,8 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
               change: q?.change ?? 0,
               changePercent: q?.changePercent ?? 0,
               hasError: q?.hasError ?? true,
-              onTap: () => _openDetail(symbol, symbolList: _watchlistSymbols.toList(), symbolIndex: i),
+              onTap: () => _openDetail(symbol,
+                  symbolList: _watchlistSymbols.toList(), symbolIndex: i),
             );
           }),
       ],
@@ -1653,7 +2052,9 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
   Widget _segmentChip(String label, int index) {
     final selected = _trendingSegment == index;
     return Material(
-      color: selected ? const Color(0xFFD4AF37).withValues(alpha: 0.25) : const Color(0xFF111215),
+      color: selected
+          ? const Color(0xFFD4AF37).withValues(alpha: 0.25)
+          : const Color(0xFF111215),
       borderRadius: BorderRadius.circular(6),
       child: InkWell(
         onTap: () => setState(() => _trendingSegment = index),
@@ -1663,14 +2064,16 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(6),
             border: Border.all(
-              color: selected ? const Color(0xFFD4AF37) : const Color(0xFF1F1F23),
+              color:
+                  selected ? const Color(0xFFD4AF37) : const Color(0xFF1F1F23),
               width: selected ? 1.2 : 0.6,
             ),
           ),
           child: Text(
             label,
             style: TextStyle(
-              color: selected ? const Color(0xFFD4AF37) : const Color(0xFF9CA3AF),
+              color:
+                  selected ? const Color(0xFFD4AF37) : const Color(0xFF9CA3AF),
               fontSize: 12,
               fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
             ),
@@ -1687,14 +2090,16 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
         children: _trendingStocks.take(10).toList().asMap().entries.map((e) {
           final i = e.key;
           final g = e.value;
-          final symbols = _trendingStocks.take(10).map((x) => x.ticker).toList();
+          final symbols =
+              _trendingStocks.take(10).map((x) => x.ticker).toList();
           return QuoteRow(
             symbol: g.ticker,
             price: g.price ?? 0,
             change: g.todaysChange,
             changePercent: g.todaysChangePerc,
             hasError: g.price == null,
-            onTap: () => _openDetail(g.ticker, symbolList: symbols, symbolIndex: i),
+            onTap: () =>
+                _openDetail(g.ticker, symbolList: symbols, symbolIndex: i),
           );
         }).toList(),
       );
@@ -1712,7 +2117,10 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
           change: q?.change ?? 0,
           changePercent: q?.changePercent ?? 0,
           hasError: q?.hasError ?? true,
-          onTap: () => _openDetail(symbol, name: q?.name ?? symbol, symbolList: _cryptoSymbols.toList(), symbolIndex: i),
+          onTap: () => _openDetail(symbol,
+              name: q?.name ?? symbol,
+              symbolList: _cryptoSymbols.toList(),
+              symbolIndex: i),
         );
       }).toList(),
     );
@@ -1777,7 +2185,10 @@ class _OverviewTabState extends State<_OverviewTab> {
 
   /// 先显示本地/数据库缓存，再后台拉 API；无数据时用模拟数据并提示
   Future<void> _loadCachedThenRefresh() async {
-    setState(() { _loading = true; _isMockData = false; });
+    setState(() {
+      _loading = true;
+      _isMockData = false;
+    });
     await _loadFromCache();
     if (!_market.twelveDataAvailable) {
       _applyMockOverviewIfEmpty();
@@ -1790,7 +2201,8 @@ class _OverviewTabState extends State<_OverviewTab> {
   /// 从本地缓存或数据库快速加载，立即展示
   Future<void> _loadFromCache() async {
     final out = <String, MarketQuote?>{};
-    final indicesList = await _cache.getList('market_overview_indices', maxAge: _cacheMaxAge);
+    final indicesList =
+        await _cache.getList('market_overview_indices', maxAge: _cacheMaxAge);
     if (indicesList != null && indicesList.isNotEmpty) {
       for (final m in indicesList) {
         if (m is Map<String, dynamic>) {
@@ -1806,21 +2218,48 @@ class _OverviewTabState extends State<_OverviewTab> {
         if (q != null && out[q.symbol] == null) out[q.symbol] = q;
       }
     }
-    final forexList = await _cache.getList('market_overview_forex', maxAge: _cacheMaxAge);
-    if (forexList != null) for (final m in forexList) {
-      if (m is Map<String, dynamic>) { final q = MarketQuote.fromSnapshotMap(m); if (q != null) out[q.symbol] = q; }
+    final forexList =
+        await _cache.getList('market_overview_forex', maxAge: _cacheMaxAge);
+    if (forexList != null)
+      for (final m in forexList) {
+        if (m is Map<String, dynamic>) {
+          final q = MarketQuote.fromSnapshotMap(m);
+          if (q != null) out[q.symbol] = q;
+        }
+      }
+    final forexSymbols = _forex.map((e) => e.$2).toList();
+    final forexFromSqlite =
+        await MarketDb.instance.getForexQuotes(forexSymbols);
+    for (final sym in forexSymbols) {
+      final q = forexFromSqlite[sym];
+      if (q != null && out[sym] == null) out[sym] = q;
     }
     final fromDbF = await _snapshotRepo.getQuotes('forex');
-    for (final m in fromDbF) { final q = MarketQuote.fromSnapshotMap(m); if (q != null && out[q.symbol] == null) out[q.symbol] = q; }
-    final cryptoList = await _cache.getList('market_overview_crypto', maxAge: _cacheMaxAge);
-    if (cryptoList != null) for (final m in cryptoList) {
-      if (m is Map<String, dynamic>) { final q = MarketQuote.fromSnapshotMap(m); if (q != null) out[q.symbol] = q; }
+    for (final m in fromDbF) {
+      final q = MarketQuote.fromSnapshotMap(m);
+      if (q != null && out[q.symbol] == null) out[q.symbol] = q;
     }
-    final fromDbC = await _snapshotRepo.getQuotes('crypto');
-    for (final m in fromDbC) { final q = MarketQuote.fromSnapshotMap(m); if (q != null && out[q.symbol] == null) out[q.symbol] = q; }
+    final cryptoList =
+        await _cache.getList('market_overview_crypto', maxAge: _cacheMaxAge);
+    if (cryptoList != null)
+      for (final m in cryptoList) {
+        if (m is Map<String, dynamic>) {
+          final q = MarketQuote.fromSnapshotMap(m);
+          if (q != null) out[q.symbol] = q;
+        }
+      }
+    final cryptoSymbols = _crypto.map((e) => e.$2).toList();
+    final cryptoFromSqlite =
+        await MarketDb.instance.getCryptoQuotes(cryptoSymbols);
+    for (final sym in cryptoSymbols) {
+      final q = cryptoFromSqlite[sym];
+      if (q != null && out[sym] == null) out[sym] = q;
+    }
     _quotes = out;
-    if (_quotes.isEmpty) _applyMockOverviewIfEmpty();
-    else _fillMissingWithMock();
+    if (_quotes.isEmpty)
+      _applyMockOverviewIfEmpty();
+    else
+      _fillMissingWithMock();
     if (mounted) setState(() => _loading = false);
   }
 
@@ -1837,7 +2276,8 @@ class _OverviewTabState extends State<_OverviewTab> {
     await _mergeCrypto(out);
     await _writeOverviewCache(out);
     if (mounted) {
-      if (out.isEmpty) _applyMockOverviewIfEmpty();
+      if (out.isEmpty)
+        _applyMockOverviewIfEmpty();
       else {
         _quotes = out;
         _fillMissingWithMock();
@@ -1905,19 +2345,22 @@ class _OverviewTabState extends State<_OverviewTab> {
     final il = <Map<String, dynamic>>[];
     for (final e in _indices) {
       final q = out[e.$2];
-      if (q != null && !q.hasError) il.add({...q.toSnapshotMap(), 'name': e.$1});
+      if (q != null && !q.hasError)
+        il.add({...q.toSnapshotMap(), 'name': e.$1});
     }
     if (il.isNotEmpty) await _cache.setList('market_overview_indices', il);
     final fl = <Map<String, dynamic>>[];
     for (final e in _forex) {
       final q = out[e.$2];
-      if (q != null && !q.hasError) fl.add({...q.toSnapshotMap(), 'name': e.$1});
+      if (q != null && !q.hasError)
+        fl.add({...q.toSnapshotMap(), 'name': e.$1});
     }
     if (fl.isNotEmpty) await _cache.setList('market_overview_forex', fl);
     final cl = <Map<String, dynamic>>[];
     for (final e in _crypto) {
       final q = out[e.$2];
-      if (q != null && !q.hasError) cl.add({...q.toSnapshotMap(), 'name': e.$1});
+      if (q != null && !q.hasError)
+        cl.add({...q.toSnapshotMap(), 'name': e.$1});
     }
     if (cl.isNotEmpty) await _cache.setList('market_overview_crypto', cl);
   }
@@ -1943,11 +2386,22 @@ class _OverviewTabState extends State<_OverviewTab> {
     final hasAny = _forex.any((e) => out[e.$2] != null);
     if (hasAny) {
       final list = <Map<String, dynamic>>[];
+      final toSave = <String, MarketQuote>{};
       for (final e in _forex) {
         final q = out[e.$2];
-        if (q != null) list.add({...q.toSnapshotMap(), 'name': e.$1});
+        if (q != null) {
+          list.add({...q.toSnapshotMap(), 'name': e.$1});
+          if (!q.hasError) toSave[e.$2] = q;
+        }
       }
+      if (toSave.isNotEmpty) await MarketDb.instance.upsertForexQuotes(toSave);
       if (list.isNotEmpty) await _snapshotRepo.saveQuotes('forex', list);
+    }
+    final forexSymbols = _forex.map((e) => e.$2).toList();
+    final fromSqlite = await MarketDb.instance.getForexQuotes(forexSymbols);
+    for (final sym in forexSymbols) {
+      final q = fromSqlite[sym];
+      if (q != null && out[sym] == null) out[sym] = q;
     }
     final fromDb = await _snapshotRepo.getQuotes('forex');
     for (final m in fromDb) {
@@ -1959,17 +2413,18 @@ class _OverviewTabState extends State<_OverviewTab> {
   Future<void> _mergeCrypto(Map<String, MarketQuote?> out) async {
     final hasAny = _crypto.any((e) => out[e.$2] != null);
     if (hasAny) {
-      final list = <Map<String, dynamic>>[];
+      final toSave = <String, MarketQuote>{};
       for (final e in _crypto) {
         final q = out[e.$2];
-        if (q != null) list.add({...q.toSnapshotMap(), 'name': e.$1});
+        if (q != null && !q.hasError) toSave[e.$2] = q;
       }
-      if (list.isNotEmpty) await _snapshotRepo.saveQuotes('crypto', list);
+      if (toSave.isNotEmpty) await MarketDb.instance.upsertCryptoQuotes(toSave);
     }
-    final fromDb = await _snapshotRepo.getQuotes('crypto');
-    for (final m in fromDb) {
-      final q = MarketQuote.fromSnapshotMap(m);
-      if (q != null && out[q.symbol] == null) out[q.symbol] = q;
+    final cryptoSymbols = _crypto.map((e) => e.$2).toList();
+    final fromSqlite = await MarketDb.instance.getCryptoQuotes(cryptoSymbols);
+    for (final sym in cryptoSymbols) {
+      final q = fromSqlite[sym];
+      if (q != null && out[sym] == null) out[sym] = q;
     }
   }
 
@@ -1997,7 +2452,8 @@ class _OverviewTabState extends State<_OverviewTab> {
           const SizedBox(height: 8),
           _quoteGrid(
             items: _indices,
-            onTap: (name, symbol, i) => _pushChart(context, symbol, name, symbolList: _indices.map((e) => e.$2).toList(), symbolIndex: i),
+            onTap: (name, symbol, i) => _pushChart(context, symbol, name,
+                symbolList: _indices.map((e) => e.$2).toList(), symbolIndex: i),
           ),
           const SizedBox(height: 20),
           _sectionTitle(AppLocalizations.of(context)!.marketNews),
@@ -2008,14 +2464,16 @@ class _OverviewTabState extends State<_OverviewTab> {
           const SizedBox(height: 8),
           _quoteGrid(
             items: _forex,
-            onTap: (name, symbol, i) => _pushChart(context, symbol, name, symbolList: _forex.map((e) => e.$2).toList(), symbolIndex: i),
+            onTap: (name, symbol, i) => _pushChart(context, symbol, name,
+                symbolList: _forex.map((e) => e.$2).toList(), symbolIndex: i),
           ),
           const SizedBox(height: 20),
           _sectionTitle(AppLocalizations.of(context)!.marketTabCrypto),
           const SizedBox(height: 8),
           _quoteGrid(
             items: _crypto,
-            onTap: (name, symbol, i) => _pushChart(context, symbol, name, symbolList: _crypto.map((e) => e.$2).toList(), symbolIndex: i),
+            onTap: (name, symbol, i) => _pushChart(context, symbol, name,
+                symbolList: _crypto.map((e) => e.$2).toList(), symbolIndex: i),
           ),
         ],
       ),
@@ -2034,7 +2492,8 @@ class _OverviewTabState extends State<_OverviewTab> {
       decoration: BoxDecoration(
         color: const Color(0xFF1A1C21),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFD4AF37).withValues(alpha: 0.2)),
+        border:
+            Border.all(color: const Color(0xFFD4AF37).withValues(alpha: 0.2)),
       ),
       child: Stack(
         children: [
@@ -2056,14 +2515,18 @@ class _OverviewTabState extends State<_OverviewTab> {
                     ? '$name ${pct >= 0 ? '+' : ''}${pct.toStringAsFixed(2)}%'
                     : name;
                 return Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
                     color: color.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Text(
                     text,
-                    style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w500),
+                    style: TextStyle(
+                        color: color,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500),
                   ),
                 );
               }).toList(),
@@ -2089,17 +2552,20 @@ class _OverviewTabState extends State<_OverviewTab> {
             child: Container(
               padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
               decoration: const BoxDecoration(
-                border: Border(bottom: BorderSide(color: Color(0xFF1F1F23), width: 0.6)),
+                border: Border(
+                    bottom: BorderSide(color: Color(0xFF1F1F23), width: 0.6)),
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(Icons.article_outlined, size: 20, color: const Color(0xFF9CA3AF)),
+                  Icon(Icons.article_outlined,
+                      size: 20, color: const Color(0xFF9CA3AF)),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
                       title,
-                      style: const TextStyle(color: Color(0xFFE8D5A3), fontSize: 14),
+                      style: const TextStyle(
+                          color: Color(0xFFE8D5A3), fontSize: 14),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -2131,7 +2597,8 @@ class _OverviewTabState extends State<_OverviewTab> {
       decoration: BoxDecoration(
         color: const Color(0xFFD4AF37).withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFD4AF37).withValues(alpha: 0.4)),
+        border:
+            Border.all(color: const Color(0xFFD4AF37).withValues(alpha: 0.4)),
       ),
       child: const Row(
         children: [
@@ -2206,10 +2673,15 @@ class _OverviewTabState extends State<_OverviewTab> {
     );
   }
 
-  void _pushChart(BuildContext context, String symbol, String name, {List<String>? symbolList, int? symbolIndex}) {
+  void _pushChart(BuildContext context, String symbol, String name,
+      {List<String>? symbolList, int? symbolIndex}) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => GenericChartPage(symbol: symbol, name: name, symbolList: symbolList, symbolIndex: symbolIndex),
+        builder: (_) => GenericChartPage(
+            symbol: symbol,
+            name: name,
+            symbolList: symbolList,
+            symbolIndex: symbolIndex),
       ),
     );
   }
@@ -2254,10 +2726,19 @@ class _SparklinePainter extends CustomPainter {
     for (var i = 0; i < points.length; i++) {
       final x = size.width * i / (points.length - 1);
       final y = size.height * (1 - (points[i] - min) / range);
-      if (i == 0) path.moveTo(x, y);
-      else path.lineTo(x, y);
+      if (i == 0)
+        path.moveTo(x, y);
+      else
+        path.lineTo(x, y);
     }
-    canvas.drawPath(path, Paint()..color = color ..strokeWidth = 1.5 ..style = PaintingStyle.stroke ..strokeCap = StrokeCap.round ..strokeJoin = StrokeJoin.round);
+    canvas.drawPath(
+        path,
+        Paint()
+          ..color = color
+          ..strokeWidth = 1.5
+          ..style = PaintingStyle.stroke
+          ..strokeCap = StrokeCap.round
+          ..strokeJoin = StrokeJoin.round);
   }
 
   @override
@@ -2303,8 +2784,7 @@ class _QuoteCard extends StatelessWidget {
             children: [
               Text(
                 name,
-                style: const TextStyle(
-                    color: Color(0xFF9CA3AF), fontSize: 12),
+                style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 12),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -2312,9 +2792,7 @@ class _QuoteCard extends StatelessWidget {
                 Text(
                   _formatPrice(quote!.price),
                   style: TextStyle(
-                      color: color,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 18),
+                      color: color, fontWeight: FontWeight.w700, fontSize: 18),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -2323,7 +2801,8 @@ class _QuoteCard extends StatelessWidget {
                       quote!.change.toStringAsFixed(2) +
                       ' ' +
                       (quote!.changePercent >= 0 ? '+' : '') +
-                      quote!.changePercent.toStringAsFixed(2) + '%',
+                      quote!.changePercent.toStringAsFixed(2) +
+                      '%',
                   style: TextStyle(color: color, fontSize: 11),
                 ),
                 const SizedBox(height: 6),
@@ -2365,18 +2844,22 @@ class _UsStocksTab extends StatefulWidget {
 class _UsStocksTabState extends State<_UsStocksTab> {
   static const int _usStocksTabIndex = 1;
 
-  bool get _isUsStocksVisible => widget.tabController.index == _usStocksTabIndex;
+  bool get _isUsStocksVisible =>
+      widget.tabController.index == _usStocksTabIndex;
   final _market = MarketRepository();
   final _watchlist = WatchlistRepository.instance;
   final _realtime = RealtimeQuoteService();
   StreamSubscription<Map<String, MarketQuote>>? _quotesSub;
   StreamSubscription<void>? _syncCompleteSub;
   static final _cache = TradingCache.instance;
+
   /// 美股列表报价本地缓存 key，切换页/滑动后再回来可先展示
   static const _usListQuotesCacheKey = 'us_list_quotes';
   static const _usListQuotesCacheMaxAge = Duration(days: 7);
+
   /// 0 = 全部（约 8000+ 美股）, 1 = 自选
   int _listMode = 0;
+
   /// 全量美股列表（代码+名称，来自 Polygon v3 reference tickers）
   List<MarketSearchResult> _allTickers = [];
   List<String> _watchlistSymbols = [];
@@ -2384,14 +2867,18 @@ class _UsStocksTabState extends State<_UsStocksTab> {
   Map<String, MarketQuote> _indexQuotes = {};
   bool _loading = true;
   String? _error;
+
   /// 仅「全部」列表：可见范围报价拉取失败时的提示（如后端未启动）
   String? _quoteLoadError;
   bool _isMockData = false;
+
   /// PC 表格选中行，用于高亮与详情
   String? _selectedSymbol;
+
   /// 列表排序列：code/name/pct/price/change/open/prev/high/low/vol；默认按涨跌幅降序（涨幅高的在前）
   String? _sortColumn = 'pct';
   bool _sortAscending = false;
+
   /// 分页加载：每次从 DB 读取条数，避免一次性加载过多导致 UI 卡顿
   static const int _pageSize = 30;
   bool _hasMoreTickers = true;
@@ -2411,7 +2898,10 @@ class _UsStocksTabState extends State<_UsStocksTab> {
     final withData = <MarketSearchResult>[];
     final withoutData = <MarketSearchResult>[];
     for (final t in _allTickers) {
-      if (_hasValidQuote(t.symbol)) withData.add(t); else withoutData.add(t);
+      if (_hasValidQuote(t.symbol))
+        withData.add(t);
+      else
+        withoutData.add(t);
     }
     return [...withData, ...withoutData];
   }
@@ -2440,7 +2930,9 @@ class _UsStocksTabState extends State<_UsStocksTab> {
           cmp = na.compareTo(nb);
           break;
         case 'pct':
-          cmp = ((qa?.changePercent ?? 0) - (qb?.changePercent ?? 0)).sign.toInt();
+          cmp = ((qa?.changePercent ?? 0) - (qb?.changePercent ?? 0))
+              .sign
+              .toInt();
           if (cmp == 0) cmp = a.compareTo(b);
           break;
         case 'price':
@@ -2456,8 +2948,12 @@ class _UsStocksTabState extends State<_UsStocksTab> {
           if (cmp == 0) cmp = a.compareTo(b);
           break;
         case 'prev':
-          final pa = qa != null && qa.price > 0 && qa.change != 0 ? qa.price - qa.change : null;
-          final pb = qb != null && qb.price > 0 && qb.change != 0 ? qb.price - qb.change : null;
+          final pa = qa != null && qa.price > 0 && qa.change != 0
+              ? qa.price - qa.change
+              : null;
+          final pb = qb != null && qb.price > 0 && qb.change != 0
+              ? qb.price - qb.change
+              : null;
           cmp = ((pa ?? 0) - (pb ?? 0)).sign.toInt();
           if (cmp == 0) cmp = a.compareTo(b);
           break;
@@ -2487,11 +2983,14 @@ class _UsStocksTabState extends State<_UsStocksTab> {
   static const double _allListHeightMobile = 400;
   static const double _allListRowHeightPc = 44;
   static const double _allListRowHeightMobile = 48;
+
   /// 视口外上下各多加载的行数，预加载更多以减少滚动白屏
   static const int _visibleBuffer = 25;
   final ScrollController _allListScrollController = ScrollController();
+
   /// 右侧数据列垂直滚动，与左侧同步
   final ScrollController _allListRightScrollController = ScrollController();
+
   /// 横向滚动：表头与数据行共用，保证同步
   final ScrollController _horizontalScrollController = ScrollController();
   bool _syncingVerticalScroll = false;
@@ -2531,9 +3030,8 @@ class _UsStocksTabState extends State<_UsStocksTab> {
     _quotesSub = _realtime.quotesStream.listen((q) {
       if (!mounted || q.isEmpty) return;
       // 仅可视区域更新 UI，其余只写入 SQLite；自选模式下整表视为可视
-      final visibleSymbols = _listMode == 1
-          ? _watchlistSymbols.toSet()
-          : _visibleSymbolSet;
+      final visibleSymbols =
+          _listMode == 1 ? _watchlistSymbols.toSet() : _visibleSymbolSet;
       final visibleQuotes = <String, MarketQuote>{};
       final nonVisibleQuotes = <String, MarketQuote>{};
       for (final e in q.entries) {
@@ -2545,7 +3043,8 @@ class _UsStocksTabState extends State<_UsStocksTab> {
       }
       if (visibleQuotes.isNotEmpty) {
         setState(() {
-          _quotes = Map<String, MarketQuote>.from(_quotes)..addAll(visibleQuotes);
+          _quotes = Map<String, MarketQuote>.from(_quotes)
+            ..addAll(visibleQuotes);
           // 全量订阅模式下，新 symbol 不在本地则加入 _allTickers 并持久化
           if (_realtime.isSubscribeAll && _listMode == 0) {
             final existing = _allTickers.map((t) => t.symbol).toSet();
@@ -2575,7 +3074,9 @@ class _UsStocksTabState extends State<_UsStocksTab> {
   }
 
   void _syncRightListScroll() {
-    if (_syncingVerticalScroll || !_allListScrollController.hasClients || !_allListRightScrollController.hasClients) return;
+    if (_syncingVerticalScroll ||
+        !_allListScrollController.hasClients ||
+        !_allListRightScrollController.hasClients) return;
     final offset = _allListScrollController.offset;
     if ((_allListRightScrollController.offset - offset).abs() > 2) {
       _syncingVerticalScroll = true;
@@ -2585,7 +3086,9 @@ class _UsStocksTabState extends State<_UsStocksTab> {
   }
 
   void _syncLeftListScroll() {
-    if (_syncingVerticalScroll || !_allListScrollController.hasClients || !_allListRightScrollController.hasClients) return;
+    if (_syncingVerticalScroll ||
+        !_allListScrollController.hasClients ||
+        !_allListRightScrollController.hasClients) return;
     final offset = _allListRightScrollController.offset;
     if ((_allListScrollController.offset - offset).abs() > 2) {
       _syncingVerticalScroll = true;
@@ -2674,7 +3177,10 @@ class _UsStocksTabState extends State<_UsStocksTab> {
       _scheduleVisibleRangeLatestFetch(start, end);
     }
     // 滚动到底部附近时加载下一页（距底部 10 行内触发）
-    if (_useDbForAll && _hasMoreTickers && !_loadingMore && end >= display.length - 10) {
+    if (_useDbForAll &&
+        _hasMoreTickers &&
+        !_loadingMore &&
+        end >= display.length - 10) {
       unawaited(_loadMoreTickers());
     }
     _scrollSubscribeDebounce?.cancel();
@@ -2683,7 +3189,8 @@ class _UsStocksTabState extends State<_UsStocksTab> {
       if (!mounted || _listMode != 0 || _allTickers.isEmpty) return;
       // 全量订阅模式（T.*）下无需随滚动切换订阅
       if (_realtime.isSubscribeAll) return;
-      final visibleSymbols = display.sublist(start, end + 1).map((t) => t.symbol).toList();
+      final visibleSymbols =
+          display.sublist(start, end + 1).map((t) => t.symbol).toList();
       if (_quotes.isNotEmpty) {
         _realtime.updateQuotes(_quotes, prioritySymbols: visibleSymbols);
       } else {
@@ -2693,7 +3200,8 @@ class _UsStocksTabState extends State<_UsStocksTab> {
   }
 
   /// 可视范围变化时防抖拉取最新报价，避免快速滚动期间频繁请求。
-  void _scheduleVisibleRangeLatestFetch(int start, int end, {bool immediate = false}) {
+  void _scheduleVisibleRangeLatestFetch(int start, int end,
+      {bool immediate = false}) {
     _pendingFetchStart = start;
     _pendingFetchEnd = end;
     _visibleRangeFetchDebounce?.cancel();
@@ -2714,7 +3222,10 @@ class _UsStocksTabState extends State<_UsStocksTab> {
     if (!_isUsStocksVisible) return;
     _quoteRefreshTimer?.cancel();
     _quoteRefreshTimer = Timer.periodic(const Duration(seconds: 15), (_) {
-      if (!mounted || !_isUsStocksVisible || _listMode != 0 || _allTickers.isEmpty) return;
+      if (!mounted ||
+          !_isUsStocksVisible ||
+          _listMode != 0 ||
+          _allTickers.isEmpty) return;
       final display = _sortedTickers;
       if (display.isEmpty) return;
       final rowHeight = _allListRowHeight;
@@ -2739,7 +3250,8 @@ class _UsStocksTabState extends State<_UsStocksTab> {
     } catch (_) {}
   }
 
-  void _openDetail(String symbol, {String? name, List<String>? symbolList, int? symbolIndex}) {
+  void _openDetail(String symbol,
+      {String? name, List<String>? symbolList, int? symbolIndex}) {
     final n = name ?? _quotes[symbol]?.name ?? symbol;
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -2754,7 +3266,11 @@ class _UsStocksTabState extends State<_UsStocksTab> {
   }
 
   Future<void> _loadCachedThenRefresh() async {
-    setState(() { _loading = true; _isMockData = false; _error = null; });
+    setState(() {
+      _loading = true;
+      _isMockData = false;
+      _error = null;
+    });
     if (_listMode == 0) {
       await _loadAllTickers();
     } else {
@@ -2774,16 +3290,19 @@ class _UsStocksTabState extends State<_UsStocksTab> {
   /// 从本地缓存恢复报价（切换页/滑动后再进「全部」时先展示，再后台刷新）
   Future<void> _restoreQuotesFromCache() async {
     try {
-      final raw = await _cache.get(_usListQuotesCacheKey, maxAge: _usListQuotesCacheMaxAge);
+      final raw = await _cache.get(_usListQuotesCacheKey,
+          maxAge: _usListQuotesCacheMaxAge);
       if (raw == null || raw is! Map<String, dynamic> || !mounted) return;
       final restored = <String, MarketQuote>{};
       for (final e in raw.entries) {
         if (e.value is Map<String, dynamic>) {
-          final q = MarketQuote.fromSnapshotMap(e.value as Map<String, dynamic>);
+          final q =
+              MarketQuote.fromSnapshotMap(e.value as Map<String, dynamic>);
           if (q != null) restored[e.key] = q;
         }
       }
-      if (restored.isNotEmpty && mounted) setState(() => _quotes = {..._quotes, ...restored});
+      if (restored.isNotEmpty && mounted)
+        setState(() => _quotes = {..._quotes, ...restored});
     } catch (_) {}
   }
 
@@ -2797,10 +3316,12 @@ class _UsStocksTabState extends State<_UsStocksTab> {
       for (final e in entries) {
         data[e.key] = e.value.toSnapshotMap();
       }
-      final quotesToPersist = Map.fromEntries(entries.map((e) => MapEntry(e.key, e.value)));
+      final quotesToPersist =
+          Map.fromEntries(entries.map((e) => MapEntry(e.key, e.value)));
       // 异步存储，不 await，避免影响 UI 显示
-      unawaited(_cache.set(_usListQuotesCacheKey, data).then((_) =>
-          _market.persistQuotesToLocalDb(quotesToPersist)));
+      unawaited(_cache
+          .set(_usListQuotesCacheKey, data)
+          .then((_) => _market.persistQuotesToLocalDb(quotesToPersist)));
     } catch (_) {}
   }
 
@@ -2845,11 +3366,15 @@ class _UsStocksTabState extends State<_UsStocksTab> {
     if (list == null || list.isEmpty) {
       list = await _market.getBundledUsTickers();
     }
-    final toShow = list ?? <MarketSearchResult>[];
+    final toShow = list;
     if (toShow.isNotEmpty && mounted) {
       // 先写入 DB，再从 DB 分页加载首屏 30 条，保证始终使用 SQLite 排序
       await MarketDb.instance.upsertTickers(toShow);
-      final fromDb = await _market.getTickersFromLocalDbPage(sortColumn: _sortColumn, sortAscending: _sortAscending, limit: _pageSize, offset: 0);
+      final fromDb = await _market.getTickersFromLocalDbPage(
+          sortColumn: _sortColumn,
+          sortAscending: _sortAscending,
+          limit: _pageSize,
+          offset: 0);
       if (fromDb != null && fromDb.tickers.isNotEmpty && mounted) {
         setState(() {
           _allTickers = fromDb.tickers;
@@ -2872,7 +3397,11 @@ class _UsStocksTabState extends State<_UsStocksTab> {
       // 后台：用全量美股列表同步到 DB（getAllUsTickers 或 stock_quote_cache），并拉取报价
       MarketSyncService.instance.syncTickers().then((_) async {
         if (!mounted) return;
-        final fromDb = await _market.getTickersFromLocalDbPage(sortColumn: _sortColumn, sortAscending: _sortAscending, limit: _pageSize, offset: 0);
+        final fromDb = await _market.getTickersFromLocalDbPage(
+            sortColumn: _sortColumn,
+            sortAscending: _sortAscending,
+            limit: _pageSize,
+            offset: 0);
         if (fromDb != null && fromDb.tickers.isNotEmpty && mounted) {
           setState(() {
             _allTickers = fromDb.tickers;
@@ -2903,7 +3432,10 @@ class _UsStocksTabState extends State<_UsStocksTab> {
               if (existing == null) {
                 baseMap[f.symbol] = f;
               } else if (f.name.isNotEmpty && existing.name.isEmpty) {
-                baseMap[f.symbol] = MarketSearchResult(symbol: f.symbol, name: f.name, market: f.market ?? existing.market);
+                baseMap[f.symbol] = MarketSearchResult(
+                    symbol: f.symbol,
+                    name: f.name,
+                    market: f.market ?? existing.market);
               }
             }
             _allTickers = baseMap.values.toList();
@@ -2918,7 +3450,11 @@ class _UsStocksTabState extends State<_UsStocksTab> {
         await MarketDb.instance.upsertTickers(_allTickers);
         unawaited(_market.syncTickersToServer(_allTickers));
         // 从 DB 分页加载首屏 30 条，使用 SQL 排序
-        final fromDb = await _market.getTickersFromLocalDbPage(sortColumn: _sortColumn, sortAscending: _sortAscending, limit: _pageSize, offset: 0);
+        final fromDb = await _market.getTickersFromLocalDbPage(
+            sortColumn: _sortColumn,
+            sortAscending: _sortAscending,
+            limit: _pageSize,
+            offset: 0);
         if (fromDb != null && fromDb.tickers.isNotEmpty && mounted) {
           setState(() {
             _allTickers = fromDb.tickers;
@@ -2957,11 +3493,14 @@ class _UsStocksTabState extends State<_UsStocksTab> {
     if (_allTickers.isEmpty) return;
     if (!_isUsStocksVisible) return;
     final sorted = _sortedTickers;
-    final endIndex = (_allListHeight / _allListRowHeight).ceil() + _visibleBuffer;
+    final endIndex =
+        (_allListHeight / _allListRowHeight).ceil() + _visibleBuffer;
     final end = (sorted.isEmpty ? 0 : endIndex.clamp(0, sorted.length - 1));
     _lastVisibleStart = 0;
     _lastVisibleEnd = end;
-    final visibleSymbols = sorted.isEmpty ? <String>[] : sorted.sublist(0, end + 1).map((t) => t.symbol).toList();
+    final visibleSymbols = sorted.isEmpty
+        ? <String>[]
+        : sorted.sublist(0, end + 1).map((t) => t.symbol).toList();
     // 股票数量多时订阅全部（T.*），acceptAllSymbols 使新标的自动加入
     if (_allTickers.length >= _subscribeAllThreshold) {
       _realtime.subscribeToAllSymbols(
@@ -2988,9 +3527,12 @@ class _UsStocksTabState extends State<_UsStocksTab> {
     final total = _allTickers.length;
     final visibleEnd = (_lastVisibleEnd ?? 0).clamp(0, total);
     Future<void>(() async {
-      for (int start = visibleEnd + 1; start < total && mounted && _listMode == 0 && _isUsStocksVisible; start += _prefetchChunkSize) {
+      for (int start = visibleEnd + 1;
+          start < total && mounted && _listMode == 0 && _isUsStocksVisible;
+          start += _prefetchChunkSize) {
         final end = (start + _prefetchChunkSize).clamp(0, total);
-        final symbols = _allTickers.sublist(start, end).map((t) => t.symbol).toList();
+        final symbols =
+            _allTickers.sublist(start, end).map((t) => t.symbol).toList();
         if (symbols.isEmpty) continue;
         try {
           final q = await _market.getQuotes(symbols);
@@ -3008,7 +3550,8 @@ class _UsStocksTabState extends State<_UsStocksTab> {
     if (start > end || _allTickers.isEmpty || !mounted) return;
     final display = _sortedTickers;
     if (display.isEmpty) return;
-    final symbols = display.sublist(start, end + 1).map((t) => t.symbol).toList();
+    final symbols =
+        display.sublist(start, end + 1).map((t) => t.symbol).toList();
     if (symbols.isEmpty) return;
     try {
       // 1. 优先从 SQLite 读取
@@ -3045,13 +3588,17 @@ class _UsStocksTabState extends State<_UsStocksTab> {
         if (_realtime.isSubscribeAll) {
           _realtime.syncQuotes(_quotes);
         } else {
-          _realtime.updateQuotes(q, prioritySymbols: latestTargets.take(40).toList());
+          _realtime.updateQuotes(q,
+              prioritySymbols: latestTargets.take(40).toList());
         }
         if (q.isNotEmpty) unawaited(_market.persistQuotesToLocalDb(q));
         // 对最新拉取后仍失败/无效的 symbol 延迟补拉一次
         final stillMissing = latestTargets.where((s) {
           final quote = q[s];
-          return quote == null || quote.hasError || (quote.price <= 0 && (quote.errorReason == null || quote.errorReason!.isEmpty));
+          return quote == null ||
+              quote.hasError ||
+              (quote.price <= 0 &&
+                  (quote.errorReason == null || quote.errorReason!.isEmpty));
         }).toList();
         if (stillMissing.isNotEmpty) {
           Future<void>.delayed(const Duration(seconds: 2), () async {
@@ -3060,8 +3607,11 @@ class _UsStocksTabState extends State<_UsStocksTab> {
               final q2 = await _market.getQuotes(stillMissing);
               if (mounted && q2.isNotEmpty) {
                 setState(() => _quotes = {..._quotes, ...q2});
-                if (_realtime.isSubscribeAll) _realtime.syncQuotes(_quotes);
-                else _realtime.updateQuotes(q2, prioritySymbols: stillMissing.take(40).toList());
+                if (_realtime.isSubscribeAll)
+                  _realtime.syncQuotes(_quotes);
+                else
+                  _realtime.updateQuotes(q2,
+                      prioritySymbols: stillMissing.take(40).toList());
                 unawaited(_market.persistQuotesToLocalDb(q2));
               }
             } catch (_) {}
@@ -3071,7 +3621,8 @@ class _UsStocksTabState extends State<_UsStocksTab> {
     } catch (e) {
       if (!mounted) return;
       final l10n = AppLocalizations.of(context)!;
-      final msg = e.toString().contains('Connection refused') || e.toString().contains('Failed host lookup')
+      final msg = e.toString().contains('Connection refused') ||
+              e.toString().contains('Failed host lookup')
           ? l10n.marketConnectFailed
           : l10n.marketQuoteLoadFailed(e.toString());
       setState(() => _quoteLoadError = msg);
@@ -3082,7 +3633,7 @@ class _UsStocksTabState extends State<_UsStocksTab> {
     if (!mounted) return;
     setState(() => _loading = true);
     try {
-      final symbols = await _watchlist.getWatchlist();
+      final symbols = await _watchlist.getWatchlist(forceSync: true);
       if (!mounted) return;
       setState(() {
         _watchlistSymbols = symbols;
@@ -3123,8 +3674,10 @@ class _UsStocksTabState extends State<_UsStocksTab> {
   }
 
   bool get _isPc => MediaQuery.sizeOf(context).width >= 1100;
-  double get _allListHeight => _isPcList ? _allListHeightPc : _allListHeightMobile;
-  double get _allListRowHeight => _isPcList ? _allListRowHeightPc : _allListRowHeightMobile;
+  double get _allListHeight =>
+      _isPcList ? _allListHeightPc : _allListHeightMobile;
+  double get _allListRowHeight =>
+      _isPcList ? _allListRowHeightPc : _allListRowHeightMobile;
 
   @override
   Widget build(BuildContext context) {
@@ -3137,7 +3690,8 @@ class _UsStocksTabState extends State<_UsStocksTab> {
       },
       color: TvTheme.positive,
       child: ListView(
-        padding: EdgeInsets.fromLTRB(_isPc ? TvTheme.pagePadding : 16, 12, _isPc ? TvTheme.pagePadding : 16, 24),
+        padding: EdgeInsets.fromLTRB(_isPc ? TvTheme.pagePadding : 16, 12,
+            _isPc ? TvTheme.pagePadding : 16, 24),
         children: [
           if (_isMockData && _listMode == 0) _buildMockBanner(),
           _isPc ? _buildUsIndexCardsTv() : _buildUsIndexCards(),
@@ -3146,13 +3700,23 @@ class _UsStocksTabState extends State<_UsStocksTab> {
               ? Row(
                   children: [
                     SegmentedTabs(
-                      labels: [AppLocalizations.of(context)!.marketAll, AppLocalizations.of(context)!.marketWatchlist],
+                      labels: [
+                        AppLocalizations.of(context)!.marketAll,
+                        AppLocalizations.of(context)!.marketWatchlist
+                      ],
                       selectedIndex: _listMode,
                       onSelected: (i) {
                         if (i == 0) {
-                          if (_listMode != 0) { setState(() => _listMode = 0); _loadAllTickers(); }
+                          if (_listMode != 0) {
+                            setState(() => _listMode = 0);
+                            _loadAllTickers();
+                          }
                         } else {
-                          if (_listMode != 1) { _stopQuoteRefreshTimer(); setState(() => _listMode = 1); _loadWatchlist(); }
+                          if (_listMode != 1) {
+                            _stopQuoteRefreshTimer();
+                            setState(() => _listMode = 1);
+                            _loadWatchlist();
+                          }
                         }
                       },
                     ),
@@ -3161,17 +3725,36 @@ class _UsStocksTabState extends State<_UsStocksTab> {
                       TextButton.icon(
                         onPressed: _exportAllTickersToCsv,
                         icon: const Icon(Icons.download, size: 18),
-                        label: Text(AppLocalizations.of(context)!.marketExportCsv),
-                        style: TextButton.styleFrom(foregroundColor: TvTheme.positive),
+                        label:
+                            Text(AppLocalizations.of(context)!.marketExportCsv),
+                        style: TextButton.styleFrom(
+                            foregroundColor: TvTheme.positive),
                       ),
                     ],
                   ],
                 )
               : Row(
                   children: [
-                    _Chip(label: AppLocalizations.of(context)!.marketAll, selected: _listMode == 0, onTap: () { if (_listMode != 0) { setState(() => _listMode = 0); _loadAllTickers(); } }),
+                    _Chip(
+                        label: AppLocalizations.of(context)!.marketAll,
+                        selected: _listMode == 0,
+                        onTap: () {
+                          if (_listMode != 0) {
+                            setState(() => _listMode = 0);
+                            _loadAllTickers();
+                          }
+                        }),
                     const SizedBox(width: 8),
-                    _Chip(label: AppLocalizations.of(context)!.marketWatchlist, selected: _listMode == 1, onTap: () { if (_listMode != 1) { _stopQuoteRefreshTimer(); setState(() => _listMode = 1); _loadWatchlist(); } }),
+                    _Chip(
+                        label: AppLocalizations.of(context)!.marketWatchlist,
+                        selected: _listMode == 1,
+                        onTap: () {
+                          if (_listMode != 1) {
+                            _stopQuoteRefreshTimer();
+                            setState(() => _listMode = 1);
+                            _loadWatchlist();
+                          }
+                        }),
                   ],
                 ),
           const SizedBox(height: TvTheme.sectionGap),
@@ -3186,8 +3769,12 @@ class _UsStocksTabState extends State<_UsStocksTab> {
                     const CircularProgressIndicator(color: Color(0xFFD4AF37)),
                     const SizedBox(height: 16),
                     Text(
-                      _listMode == 0 ? AppLocalizations.of(context)!.marketLoadingUsStockList : AppLocalizations.of(context)!.marketLoadingQuote,
-                      style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 14),
+                      _listMode == 0
+                          ? AppLocalizations.of(context)!
+                              .marketLoadingUsStockList
+                          : AppLocalizations.of(context)!.marketLoadingQuote,
+                      style: const TextStyle(
+                          color: Color(0xFF9CA3AF), fontSize: 14),
                     ),
                   ],
                 ),
@@ -3201,7 +3788,8 @@ class _UsStocksTabState extends State<_UsStocksTab> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.star_border, size: 56, color: const Color(0xFF6B6B70)),
+                    Icon(Icons.star_border,
+                        size: 56, color: const Color(0xFF6B6B70)),
                     const SizedBox(height: 16),
                     Text(
                       AppLocalizations.of(context)!.marketNoWatchlist,
@@ -3214,7 +3802,8 @@ class _UsStocksTabState extends State<_UsStocksTab> {
                     const SizedBox(height: 8),
                     Text(
                       AppLocalizations.of(context)!.marketAddWatchlistHint,
-                      style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 13),
+                      style: const TextStyle(
+                          color: Color(0xFF9CA3AF), fontSize: 13),
                     ),
                     const SizedBox(height: 24),
                     TextButton.icon(
@@ -3225,7 +3814,8 @@ class _UsStocksTabState extends State<_UsStocksTab> {
                       },
                       icon: const Icon(Icons.add, size: 20),
                       label: Text(AppLocalizations.of(context)!.marketGoAdd),
-                      style: TextButton.styleFrom(foregroundColor: const Color(0xFFD4AF37)),
+                      style: TextButton.styleFrom(
+                          foregroundColor: const Color(0xFFD4AF37)),
                     ),
                   ],
                 ),
@@ -3239,23 +3829,28 @@ class _UsStocksTabState extends State<_UsStocksTab> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.cloud_off, size: 56, color: const Color(0xFF6B6B70)),
+                    Icon(Icons.cloud_off,
+                        size: 56, color: const Color(0xFF6B6B70)),
                     const SizedBox(height: 16),
                     Text(
                       _error! == 'POLYGON_NOT_CONFIGURED'
-                          ? AppLocalizations.of(context)!.tradingConfigurePolygonApiKey
+                          ? AppLocalizations.of(context)!
+                              .tradingConfigurePolygonApiKey
                           : _error! == 'STOCK_QUOTE_CACHE_EMPTY'
-                              ? AppLocalizations.of(context)!.marketStockQuoteCacheEmpty
+                              ? AppLocalizations.of(context)!
+                                  .marketStockQuoteCacheEmpty
                               : _error!,
                       textAlign: TextAlign.center,
-                      style: const TextStyle(color: Color(0xFFE8D5A3), fontSize: 14, height: 1.4),
+                      style: const TextStyle(
+                          color: Color(0xFFE8D5A3), fontSize: 14, height: 1.4),
                     ),
                     const SizedBox(height: 24),
                     TextButton.icon(
                       onPressed: _refreshQuotesForCurrentMode,
                       icon: const Icon(Icons.refresh, size: 20),
                       label: Text(AppLocalizations.of(context)!.commonRetry),
-                      style: TextButton.styleFrom(foregroundColor: const Color(0xFFD4AF37)),
+                      style: TextButton.styleFrom(
+                          foregroundColor: const Color(0xFFD4AF37)),
                     ),
                   ],
                 ),
@@ -3269,7 +3864,8 @@ class _UsStocksTabState extends State<_UsStocksTab> {
                 if (_quoteLoadError != null) const SizedBox(height: 12),
                 _isPc
                     ? LayoutBuilder(
-                        builder: (context, c) => _buildAllTickersTablePc(availableWidth: c.maxWidth),
+                        builder: (context, c) =>
+                            _buildAllTickersTablePc(availableWidth: c.maxWidth),
                       )
                     : _buildAllTickersTable(),
               ],
@@ -3282,13 +3878,16 @@ class _UsStocksTabState extends State<_UsStocksTab> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(AppLocalizations.of(context)!.marketNoUsStockList, style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 14)),
+                    Text(AppLocalizations.of(context)!.marketNoUsStockList,
+                        style: const TextStyle(
+                            color: Color(0xFF9CA3AF), fontSize: 14)),
                     const SizedBox(height: 16),
                     TextButton.icon(
                       onPressed: _loadAllTickers,
                       icon: const Icon(Icons.refresh, size: 20),
                       label: Text(AppLocalizations.of(context)!.commonRetry),
-                      style: TextButton.styleFrom(foregroundColor: const Color(0xFFD4AF37)),
+                      style: TextButton.styleFrom(
+                          foregroundColor: const Color(0xFFD4AF37)),
                     ),
                   ],
                 ),
@@ -3302,13 +3901,16 @@ class _UsStocksTabState extends State<_UsStocksTab> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(AppLocalizations.of(context)!.marketNoData, style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 14)),
+                    Text(AppLocalizations.of(context)!.marketNoData,
+                        style: const TextStyle(
+                            color: Color(0xFF9CA3AF), fontSize: 14)),
                     const SizedBox(height: 16),
                     TextButton.icon(
                       onPressed: _refreshQuotesForCurrentMode,
                       icon: const Icon(Icons.refresh, size: 20),
                       label: Text(AppLocalizations.of(context)!.commonRetry),
-                      style: TextButton.styleFrom(foregroundColor: const Color(0xFFD4AF37)),
+                      style: TextButton.styleFrom(
+                          foregroundColor: const Color(0xFFD4AF37)),
                     ),
                   ],
                 ),
@@ -3350,22 +3952,73 @@ class _UsStocksTabState extends State<_UsStocksTab> {
             color: TvTheme.tableHeaderBg,
             child: Container(
               height: TvTheme.tableHeaderHeight,
-              padding: const EdgeInsets.symmetric(horizontal: TvTheme.innerPadding),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: TvTheme.innerPadding),
               decoration: const BoxDecoration(
-                border: Border(bottom: BorderSide(color: TvTheme.border, width: 1)),
+                border:
+                    Border(bottom: BorderSide(color: TvTheme.border, width: 1)),
               ),
               child: Row(
                 children: [
-                  Expanded(flex: 1, child: InkWell(onTap: () => _onSortColumnTap('code'), child: Row(mainAxisSize: MainAxisSize.min, children: [Text(AppLocalizations.of(context)!.marketCode, style: TvTheme.meta, maxLines: 1, overflow: TextOverflow.ellipsis), if (_sortColumn == 'code') Icon(_sortAscending ? Icons.arrow_drop_up : Icons.arrow_drop_down, size: 18, color: TvTheme.positive)]))),
-                  Expanded(flex: 2, child: InkWell(onTap: () => _onSortColumnTap('name'), child: Row(mainAxisSize: MainAxisSize.min, children: [Text(AppLocalizations.of(context)!.marketName, style: TvTheme.meta, maxLines: 1, overflow: TextOverflow.ellipsis), if (_sortColumn == 'name') Icon(_sortAscending ? Icons.arrow_drop_up : Icons.arrow_drop_down, size: 18, color: TvTheme.positive)]))),
-                  _sortableHeader(AppLocalizations.of(context)!.marketChangePct, 'pct', width: colPct),
-                  _sortableHeader(AppLocalizations.of(context)!.marketLatestPrice, 'price', width: colPrice),
-                  _sortableHeader(AppLocalizations.of(context)!.marketChangeAmount, 'change', width: colChange),
-                  _sortableHeader(AppLocalizations.of(context)!.marketOpen, 'open', width: colOpen),
-                  _sortableHeader(AppLocalizations.of(context)!.marketPrevClose, 'prev', width: colPrev),
-                  _sortableHeader(AppLocalizations.of(context)!.marketHigh, 'high', width: colHigh),
-                  _sortableHeader(AppLocalizations.of(context)!.marketLow, 'low', width: colLow),
-                  _sortableHeader(AppLocalizations.of(context)!.marketVolume, 'vol', width: colVol),
+                  Expanded(
+                      flex: 1,
+                      child: InkWell(
+                          onTap: () => _onSortColumnTap('code'),
+                          child: Row(mainAxisSize: MainAxisSize.min, children: [
+                            Text(AppLocalizations.of(context)!.marketCode,
+                                style: TvTheme.meta,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis),
+                            if (_sortColumn == 'code')
+                              Icon(
+                                  _sortAscending
+                                      ? Icons.arrow_drop_up
+                                      : Icons.arrow_drop_down,
+                                  size: 18,
+                                  color: TvTheme.positive)
+                          ]))),
+                  Expanded(
+                      flex: 2,
+                      child: InkWell(
+                          onTap: () => _onSortColumnTap('name'),
+                          child: Row(mainAxisSize: MainAxisSize.min, children: [
+                            Text(AppLocalizations.of(context)!.marketName,
+                                style: TvTheme.meta,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis),
+                            if (_sortColumn == 'name')
+                              Icon(
+                                  _sortAscending
+                                      ? Icons.arrow_drop_up
+                                      : Icons.arrow_drop_down,
+                                  size: 18,
+                                  color: TvTheme.positive)
+                          ]))),
+                  _sortableHeader(
+                      AppLocalizations.of(context)!.marketChangePct, 'pct',
+                      width: colPct),
+                  _sortableHeader(
+                      AppLocalizations.of(context)!.marketLatestPrice, 'price',
+                      width: colPrice),
+                  _sortableHeader(
+                      AppLocalizations.of(context)!.marketChangeAmount,
+                      'change',
+                      width: colChange),
+                  _sortableHeader(
+                      AppLocalizations.of(context)!.marketOpen, 'open',
+                      width: colOpen),
+                  _sortableHeader(
+                      AppLocalizations.of(context)!.marketPrevClose, 'prev',
+                      width: colPrev),
+                  _sortableHeader(
+                      AppLocalizations.of(context)!.marketHigh, 'high',
+                      width: colHigh),
+                  _sortableHeader(
+                      AppLocalizations.of(context)!.marketLow, 'low',
+                      width: colLow),
+                  _sortableHeader(
+                      AppLocalizations.of(context)!.marketVolume, 'vol',
+                      width: colVol),
                 ],
               ),
             ),
@@ -3394,23 +4047,87 @@ class _UsStocksTabState extends State<_UsStocksTab> {
                 },
                 child: Container(
                   height: rowHeight,
-                  padding: const EdgeInsets.symmetric(horizontal: TvTheme.innerPadding),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: TvTheme.innerPadding),
                   alignment: Alignment.centerLeft,
                   decoration: BoxDecoration(
-                    border: Border(bottom: BorderSide(color: TvTheme.borderSubtle, width: 0.5)),
+                    border: Border(
+                        bottom: BorderSide(
+                            color: TvTheme.borderSubtle, width: 0.5)),
                   ),
                   child: Row(
                     children: [
-                      Expanded(flex: 1, child: Text(sym, style: TvTheme.body.copyWith(fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                      Expanded(flex: 2, child: Text(q?.name ?? sym, style: TvTheme.meta, maxLines: 1, overflow: TextOverflow.ellipsis)),
-                      SizedBox(width: colPct, child: Text(hasError ? '—' : '${pct >= 0 ? '+' : ''}${pct.toStringAsFixed(2)}%', style: TvTheme.meta.copyWith(color: color), textAlign: TextAlign.right)),
-                      SizedBox(width: colPrice, child: Text(hasError || price <= 0 ? '—' : _formatPrice(price), style: TvTheme.meta, textAlign: TextAlign.right)),
-                      SizedBox(width: colChange, child: Text(hasError ? '—' : '${change >= 0 ? '+' : ''}${change.toStringAsFixed(2)}', style: TvTheme.meta.copyWith(color: color), textAlign: TextAlign.right)),
-                      SizedBox(width: colOpen, child: Text(open == null || open <= 0 ? '—' : _formatPrice(open), style: TvTheme.meta, textAlign: TextAlign.right)),
-                      SizedBox(width: colPrev, child: Text(prevClose == null || prevClose <= 0 ? '—' : _formatPrice(prevClose), style: TvTheme.meta, textAlign: TextAlign.right)),
-                      SizedBox(width: colHigh, child: Text(high == null || high <= 0 ? '—' : _formatPrice(high), style: TvTheme.meta, textAlign: TextAlign.right)),
-                      SizedBox(width: colLow, child: Text(low == null || low <= 0 ? '—' : _formatPrice(low), style: TvTheme.meta, textAlign: TextAlign.right)),
-                      SizedBox(width: colVol, child: Text(_formatVolume(vol), style: TvTheme.meta, textAlign: TextAlign.right)),
+                      Expanded(
+                          flex: 1,
+                          child: Text(sym,
+                              style: TvTheme.body
+                                  .copyWith(fontWeight: FontWeight.w600),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis)),
+                      Expanded(
+                          flex: 2,
+                          child: Text(q?.name ?? sym,
+                              style: TvTheme.meta,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis)),
+                      SizedBox(
+                          width: colPct,
+                          child: Text(
+                              hasError
+                                  ? '—'
+                                  : '${pct >= 0 ? '+' : ''}${pct.toStringAsFixed(2)}%',
+                              style: TvTheme.meta.copyWith(color: color),
+                              textAlign: TextAlign.right)),
+                      SizedBox(
+                          width: colPrice,
+                          child: Text(
+                              hasError || price <= 0
+                                  ? '—'
+                                  : _formatPrice(price),
+                              style: TvTheme.meta,
+                              textAlign: TextAlign.right)),
+                      SizedBox(
+                          width: colChange,
+                          child: Text(
+                              hasError
+                                  ? '—'
+                                  : '${change >= 0 ? '+' : ''}${change.toStringAsFixed(2)}',
+                              style: TvTheme.meta.copyWith(color: color),
+                              textAlign: TextAlign.right)),
+                      SizedBox(
+                          width: colOpen,
+                          child: Text(
+                              open == null || open <= 0
+                                  ? '—'
+                                  : _formatPrice(open),
+                              style: TvTheme.meta,
+                              textAlign: TextAlign.right)),
+                      SizedBox(
+                          width: colPrev,
+                          child: Text(
+                              prevClose == null || prevClose <= 0
+                                  ? '—'
+                                  : _formatPrice(prevClose),
+                              style: TvTheme.meta,
+                              textAlign: TextAlign.right)),
+                      SizedBox(
+                          width: colHigh,
+                          child: Text(
+                              high == null || high <= 0
+                                  ? '—'
+                                  : _formatPrice(high),
+                              style: TvTheme.meta,
+                              textAlign: TextAlign.right)),
+                      SizedBox(
+                          width: colLow,
+                          child: Text(
+                              low == null || low <= 0 ? '—' : _formatPrice(low),
+                              style: TvTheme.meta,
+                              textAlign: TextAlign.right)),
+                      SizedBox(
+                          width: colVol,
+                          child: Text(_formatVolume(vol),
+                              style: TvTheme.meta, textAlign: TextAlign.right)),
                     ],
                   ),
                 ),
@@ -3435,11 +4152,13 @@ class _UsStocksTabState extends State<_UsStocksTab> {
     const colHigh = 52.0;
     const colLow = 52.0;
     const colVol = 60.0;
-    const styleLabel = TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600);
+    const styleLabel = TextStyle(
+        color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600);
     const styleCell = TextStyle(color: Color(0xFFE8D5A3), fontSize: 12);
     const styleMuted = TextStyle(color: Color(0xFF9CA3AF), fontSize: 12);
 
-    Widget sortHeader(String label, String col, double w, {TextAlign align = TextAlign.left}) {
+    Widget sortHeader(String label, String col, double w,
+        {TextAlign align = TextAlign.left}) {
       final isActive = _sortColumn == col;
       return SizedBox(
         width: w,
@@ -3447,31 +4166,55 @@ class _UsStocksTabState extends State<_UsStocksTab> {
           behavior: HitTestBehavior.opaque,
           onTap: () => _onSortColumnTap(col),
           child: Row(
-            mainAxisAlignment: align == TextAlign.right ? MainAxisAlignment.end : MainAxisAlignment.start,
+            mainAxisAlignment: align == TextAlign.right
+                ? MainAxisAlignment.end
+                : MainAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(label, style: styleLabel, textAlign: align, maxLines: 1, overflow: TextOverflow.ellipsis),
-              if (isActive) Padding(
-                padding: const EdgeInsets.only(left: 2),
-                child: Icon(_sortAscending ? Icons.arrow_drop_up : Icons.arrow_drop_down, size: 16, color: const Color(0xFFD4AF37)),
-              ),
+              Text(label,
+                  style: styleLabel,
+                  textAlign: align,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis),
+              if (isActive)
+                Padding(
+                  padding: const EdgeInsets.only(left: 2),
+                  child: Icon(
+                      _sortAscending
+                          ? Icons.arrow_drop_up
+                          : Icons.arrow_drop_down,
+                      size: 16,
+                      color: const Color(0xFFD4AF37)),
+                ),
             ],
           ),
         ),
       );
     }
+
     final headerRow = Row(
       children: [
         sortHeader(AppLocalizations.of(context)!.marketCode, 'code', colCode),
         sortHeader(AppLocalizations.of(context)!.marketName, 'name', colName),
-        sortHeader(AppLocalizations.of(context)!.marketChangePct, 'pct', colPct, align: TextAlign.right),
-        sortHeader(AppLocalizations.of(context)!.marketLatestPrice, 'price', colPrice, align: TextAlign.right),
-        sortHeader(AppLocalizations.of(context)!.marketChangeAmount, 'change', colChange, align: TextAlign.right),
-        sortHeader(AppLocalizations.of(context)!.marketOpen, 'open', colOpen, align: TextAlign.right),
-        sortHeader(AppLocalizations.of(context)!.marketPrevClose, 'prev', colPrev, align: TextAlign.right),
-        sortHeader(AppLocalizations.of(context)!.marketHigh, 'high', colHigh, align: TextAlign.right),
-        sortHeader(AppLocalizations.of(context)!.marketLow, 'low', colLow, align: TextAlign.right),
-        sortHeader(AppLocalizations.of(context)!.marketVolume, 'vol', colVol, align: TextAlign.right),
+        sortHeader(AppLocalizations.of(context)!.marketChangePct, 'pct', colPct,
+            align: TextAlign.right),
+        sortHeader(
+            AppLocalizations.of(context)!.marketLatestPrice, 'price', colPrice,
+            align: TextAlign.right),
+        sortHeader(AppLocalizations.of(context)!.marketChangeAmount, 'change',
+            colChange,
+            align: TextAlign.right),
+        sortHeader(AppLocalizations.of(context)!.marketOpen, 'open', colOpen,
+            align: TextAlign.right),
+        sortHeader(
+            AppLocalizations.of(context)!.marketPrevClose, 'prev', colPrev,
+            align: TextAlign.right),
+        sortHeader(AppLocalizations.of(context)!.marketHigh, 'high', colHigh,
+            align: TextAlign.right),
+        sortHeader(AppLocalizations.of(context)!.marketLow, 'low', colLow,
+            align: TextAlign.right),
+        sortHeader(AppLocalizations.of(context)!.marketVolume, 'vol', colVol,
+            align: TextAlign.right),
       ],
     );
 
@@ -3485,7 +4228,9 @@ class _UsStocksTabState extends State<_UsStocksTab> {
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             decoration: BoxDecoration(
               color: const Color(0xFF1A1C21),
-              border: Border(bottom: BorderSide(color: const Color(0xFF1F1F23), width: 0.6)),
+              border: Border(
+                  bottom:
+                      BorderSide(color: const Color(0xFF1F1F23), width: 0.6)),
             ),
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
@@ -3513,26 +4258,94 @@ class _UsStocksTabState extends State<_UsStocksTab> {
                 return Material(
                   color: const Color(0xFF111215),
                   child: InkWell(
-                    onTap: () => _openDetail(sym, symbolList: symbols, symbolIndex: i),
+                    onTap: () =>
+                        _openDetail(sym, symbolList: symbols, symbolIndex: i),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 8),
                       decoration: const BoxDecoration(
-                        border: Border(bottom: BorderSide(color: Color(0xFF1F1F23), width: 0.6)),
+                        border: Border(
+                            bottom: BorderSide(
+                                color: Color(0xFF1F1F23), width: 0.6)),
                       ),
                       child: SingleChildScrollView(
                         scrollDirection: Axis.horizontal,
                         child: Row(
                           children: [
-                            SizedBox(width: colCode, child: Text(sym, style: styleCell.copyWith(fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                            SizedBox(width: colName, child: Text(name, style: styleMuted, maxLines: 1, overflow: TextOverflow.ellipsis)),
-                            SizedBox(width: colPct, child: Text(hasError ? '—' : '${pct >= 0 ? '+' : ''}${pct.toStringAsFixed(2)}%', style: styleMuted.copyWith(color: color), textAlign: TextAlign.right)),
-                            SizedBox(width: colPrice, child: Text(hasError || price <= 0 ? '—' : _formatPrice(price), style: styleMuted, textAlign: TextAlign.right)),
-                            SizedBox(width: colChange, child: Text(hasError ? '—' : '${change >= 0 ? '+' : ''}${change.toStringAsFixed(2)}', style: styleMuted.copyWith(color: color), textAlign: TextAlign.right)),
-                            SizedBox(width: colOpen, child: Text(open == null || open <= 0 ? '—' : _formatPrice(open), style: styleMuted, textAlign: TextAlign.right)),
-                            SizedBox(width: colPrev, child: Text(prevClose == null || prevClose <= 0 ? '—' : _formatPrice(prevClose), style: styleMuted, textAlign: TextAlign.right)),
-                            SizedBox(width: colHigh, child: Text(high == null || high <= 0 ? '—' : _formatPrice(high), style: styleMuted, textAlign: TextAlign.right)),
-                            SizedBox(width: colLow, child: Text(low == null || low <= 0 ? '—' : _formatPrice(low), style: styleMuted, textAlign: TextAlign.right)),
-                            SizedBox(width: colVol, child: Text(_formatVolume(vol), style: styleMuted, textAlign: TextAlign.right)),
+                            SizedBox(
+                                width: colCode,
+                                child: Text(sym,
+                                    style: styleCell.copyWith(
+                                        fontWeight: FontWeight.w600),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis)),
+                            SizedBox(
+                                width: colName,
+                                child: Text(name,
+                                    style: styleMuted,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis)),
+                            SizedBox(
+                                width: colPct,
+                                child: Text(
+                                    hasError
+                                        ? '—'
+                                        : '${pct >= 0 ? '+' : ''}${pct.toStringAsFixed(2)}%',
+                                    style: styleMuted.copyWith(color: color),
+                                    textAlign: TextAlign.right)),
+                            SizedBox(
+                                width: colPrice,
+                                child: Text(
+                                    hasError || price <= 0
+                                        ? '—'
+                                        : _formatPrice(price),
+                                    style: styleMuted,
+                                    textAlign: TextAlign.right)),
+                            SizedBox(
+                                width: colChange,
+                                child: Text(
+                                    hasError
+                                        ? '—'
+                                        : '${change >= 0 ? '+' : ''}${change.toStringAsFixed(2)}',
+                                    style: styleMuted.copyWith(color: color),
+                                    textAlign: TextAlign.right)),
+                            SizedBox(
+                                width: colOpen,
+                                child: Text(
+                                    open == null || open <= 0
+                                        ? '—'
+                                        : _formatPrice(open),
+                                    style: styleMuted,
+                                    textAlign: TextAlign.right)),
+                            SizedBox(
+                                width: colPrev,
+                                child: Text(
+                                    prevClose == null || prevClose <= 0
+                                        ? '—'
+                                        : _formatPrice(prevClose),
+                                    style: styleMuted,
+                                    textAlign: TextAlign.right)),
+                            SizedBox(
+                                width: colHigh,
+                                child: Text(
+                                    high == null || high <= 0
+                                        ? '—'
+                                        : _formatPrice(high),
+                                    style: styleMuted,
+                                    textAlign: TextAlign.right)),
+                            SizedBox(
+                                width: colLow,
+                                child: Text(
+                                    low == null || low <= 0
+                                        ? '—'
+                                        : _formatPrice(low),
+                                    style: styleMuted,
+                                    textAlign: TextAlign.right)),
+                            SizedBox(
+                                width: colVol,
+                                child: Text(_formatVolume(vol),
+                                    style: styleMuted,
+                                    textAlign: TextAlign.right)),
                           ],
                         ),
                       ),
@@ -3553,7 +4366,8 @@ class _UsStocksTabState extends State<_UsStocksTab> {
         _sortAscending = !_sortAscending;
       } else {
         _sortColumn = columnId;
-        _sortAscending = columnId == 'code' || columnId == 'name' || columnId == 'vol';
+        _sortAscending =
+            columnId == 'code' || columnId == 'name' || columnId == 'vol';
       }
     });
     if (_listMode == 0) _reloadFromDbWithSort();
@@ -3585,7 +4399,10 @@ class _UsStocksTabState extends State<_UsStocksTab> {
 
   /// 滚动到底部附近时加载下一页（每次 30 条）
   Future<void> _loadMoreTickers() async {
-    if (!_useDbForAll || _loadingMore || !_hasMoreTickers || _allTickers.isEmpty) return;
+    if (!_useDbForAll ||
+        _loadingMore ||
+        !_hasMoreTickers ||
+        _allTickers.isEmpty) return;
     _loadingMore = true;
     try {
       final fromDb = await _market.getTickersFromLocalDbPage(
@@ -3614,21 +4431,34 @@ class _UsStocksTabState extends State<_UsStocksTab> {
     _loadingMore = false;
   }
 
-  Widget _sortableHeader(String label, String columnId, {required double width, TextAlign align = TextAlign.right}) {
+  Widget _sortableHeader(String label, String columnId,
+      {required double width, TextAlign align = TextAlign.right}) {
     final isActive = _sortColumn == columnId;
     return SizedBox(
       width: width,
       child: InkWell(
         onTap: () => _onSortColumnTap(columnId),
         child: Row(
-          mainAxisAlignment: align == TextAlign.right ? MainAxisAlignment.end : MainAxisAlignment.start,
+          mainAxisAlignment: align == TextAlign.right
+              ? MainAxisAlignment.end
+              : MainAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(label, style: TvTheme.meta, textAlign: align, maxLines: 1, overflow: TextOverflow.ellipsis),
-            if (isActive) Padding(
-              padding: const EdgeInsets.only(left: 4),
-              child: Icon(_sortAscending ? Icons.arrow_drop_up : Icons.arrow_drop_down, size: 18, color: TvTheme.positive),
-            ),
+            Text(label,
+                style: TvTheme.meta,
+                textAlign: align,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis),
+            if (isActive)
+              Padding(
+                padding: const EdgeInsets.only(left: 4),
+                child: Icon(
+                    _sortAscending
+                        ? Icons.arrow_drop_up
+                        : Icons.arrow_drop_down,
+                    size: 18,
+                    color: TvTheme.positive),
+              ),
           ],
         ),
       ),
@@ -3646,7 +4476,14 @@ class _UsStocksTabState extends State<_UsStocksTab> {
     const colHigh = 60.0;
     const colLow = 60.0;
     const colVol = 72.0;
-    const fixedColsWidth = colPct + colPrice + colChange + colOpen + colPrev + colHigh + colLow + colVol;
+    const fixedColsWidth = colPct +
+        colPrice +
+        colChange +
+        colOpen +
+        colPrev +
+        colHigh +
+        colLow +
+        colVol;
 
     final content = Container(
       decoration: BoxDecoration(
@@ -3663,22 +4500,73 @@ class _UsStocksTabState extends State<_UsStocksTab> {
             color: TvTheme.tableHeaderBg,
             child: Container(
               height: TvTheme.tableHeaderHeight,
-              padding: const EdgeInsets.symmetric(horizontal: TvTheme.innerPadding),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: TvTheme.innerPadding),
               decoration: const BoxDecoration(
-                border: Border(bottom: BorderSide(color: TvTheme.border, width: 1)),
+                border:
+                    Border(bottom: BorderSide(color: TvTheme.border, width: 1)),
               ),
               child: Row(
                 children: [
-                  Expanded(flex: 1, child: InkWell(onTap: () => _onSortColumnTap('code'), child: Row(mainAxisSize: MainAxisSize.min, children: [Text(AppLocalizations.of(context)!.marketCode, style: TvTheme.meta, maxLines: 1, overflow: TextOverflow.ellipsis), if (_sortColumn == 'code') Icon(_sortAscending ? Icons.arrow_drop_up : Icons.arrow_drop_down, size: 18, color: TvTheme.positive)]))),
-                  Expanded(flex: 2, child: InkWell(onTap: () => _onSortColumnTap('name'), child: Row(mainAxisSize: MainAxisSize.min, children: [Text(AppLocalizations.of(context)!.marketName, style: TvTheme.meta, maxLines: 1, overflow: TextOverflow.ellipsis), if (_sortColumn == 'name') Icon(_sortAscending ? Icons.arrow_drop_up : Icons.arrow_drop_down, size: 18, color: TvTheme.positive)]))),
-                  _sortableHeader(AppLocalizations.of(context)!.marketChangePct, 'pct', width: colPct),
-                  _sortableHeader(AppLocalizations.of(context)!.marketLatestPrice, 'price', width: colPrice),
-                  _sortableHeader(AppLocalizations.of(context)!.marketChangeAmount, 'change', width: colChange),
-                  _sortableHeader(AppLocalizations.of(context)!.marketOpen, 'open', width: colOpen),
-                  _sortableHeader(AppLocalizations.of(context)!.marketPrevClose, 'prev', width: colPrev),
-                  _sortableHeader(AppLocalizations.of(context)!.marketHigh, 'high', width: colHigh),
-                  _sortableHeader(AppLocalizations.of(context)!.marketLow, 'low', width: colLow),
-                  _sortableHeader(AppLocalizations.of(context)!.marketVolume, 'vol', width: colVol),
+                  Expanded(
+                      flex: 1,
+                      child: InkWell(
+                          onTap: () => _onSortColumnTap('code'),
+                          child: Row(mainAxisSize: MainAxisSize.min, children: [
+                            Text(AppLocalizations.of(context)!.marketCode,
+                                style: TvTheme.meta,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis),
+                            if (_sortColumn == 'code')
+                              Icon(
+                                  _sortAscending
+                                      ? Icons.arrow_drop_up
+                                      : Icons.arrow_drop_down,
+                                  size: 18,
+                                  color: TvTheme.positive)
+                          ]))),
+                  Expanded(
+                      flex: 2,
+                      child: InkWell(
+                          onTap: () => _onSortColumnTap('name'),
+                          child: Row(mainAxisSize: MainAxisSize.min, children: [
+                            Text(AppLocalizations.of(context)!.marketName,
+                                style: TvTheme.meta,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis),
+                            if (_sortColumn == 'name')
+                              Icon(
+                                  _sortAscending
+                                      ? Icons.arrow_drop_up
+                                      : Icons.arrow_drop_down,
+                                  size: 18,
+                                  color: TvTheme.positive)
+                          ]))),
+                  _sortableHeader(
+                      AppLocalizations.of(context)!.marketChangePct, 'pct',
+                      width: colPct),
+                  _sortableHeader(
+                      AppLocalizations.of(context)!.marketLatestPrice, 'price',
+                      width: colPrice),
+                  _sortableHeader(
+                      AppLocalizations.of(context)!.marketChangeAmount,
+                      'change',
+                      width: colChange),
+                  _sortableHeader(
+                      AppLocalizations.of(context)!.marketOpen, 'open',
+                      width: colOpen),
+                  _sortableHeader(
+                      AppLocalizations.of(context)!.marketPrevClose, 'prev',
+                      width: colPrev),
+                  _sortableHeader(
+                      AppLocalizations.of(context)!.marketHigh, 'high',
+                      width: colHigh),
+                  _sortableHeader(
+                      AppLocalizations.of(context)!.marketLow, 'low',
+                      width: colLow),
+                  _sortableHeader(
+                      AppLocalizations.of(context)!.marketVolume, 'vol',
+                      width: colVol),
                 ],
               ),
             ),
@@ -3704,32 +4592,102 @@ class _UsStocksTabState extends State<_UsStocksTab> {
                 final color = MarketColors.forChangePercent(pct);
                 final isSelected = _selectedSymbol == t.symbol;
                 return Material(
-                  color: isSelected ? TvTheme.rowSelectedBg : Colors.transparent,
+                  color:
+                      isSelected ? TvTheme.rowSelectedBg : Colors.transparent,
                   child: InkWell(
                     onTap: () {
                       setState(() => _selectedSymbol = t.symbol);
-                      final symbolList = _sortedTickers.map((x) => x.symbol).toList();
-                      _openDetail(t.symbol, name: t.name, symbolList: symbolList, symbolIndex: i);
+                      final symbolList =
+                          _sortedTickers.map((x) => x.symbol).toList();
+                      _openDetail(t.symbol,
+                          name: t.name, symbolList: symbolList, symbolIndex: i);
                     },
                     child: Container(
                       height: rowHeight,
-                      padding: const EdgeInsets.symmetric(horizontal: TvTheme.innerPadding),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: TvTheme.innerPadding),
                       alignment: Alignment.centerLeft,
                       decoration: BoxDecoration(
-                        border: Border(bottom: BorderSide(color: TvTheme.borderSubtle, width: 0.5)),
+                        border: Border(
+                            bottom: BorderSide(
+                                color: TvTheme.borderSubtle, width: 0.5)),
                       ),
                       child: Row(
                         children: [
-                          Expanded(flex: 1, child: Text(t.symbol, style: TvTheme.body.copyWith(fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                          Expanded(flex: 2, child: Text(t.name, style: TvTheme.meta, maxLines: 1, overflow: TextOverflow.ellipsis)),
-                          SizedBox(width: colPct, child: Text(hasError ? '—' : '${pct >= 0 ? '+' : ''}${pct.toStringAsFixed(2)}%', style: TvTheme.meta.copyWith(color: color), textAlign: TextAlign.right)),
-                          SizedBox(width: colPrice, child: Text(hasError || price <= 0 ? '—' : _formatPrice(price), style: TvTheme.meta, textAlign: TextAlign.right)),
-                          SizedBox(width: colChange, child: Text(hasError ? '—' : '${change >= 0 ? '+' : ''}${change.toStringAsFixed(2)}', style: TvTheme.meta.copyWith(color: color), textAlign: TextAlign.right)),
-                          SizedBox(width: colOpen, child: Text(open == null || open <= 0 ? '—' : _formatPrice(open), style: TvTheme.meta, textAlign: TextAlign.right)),
-                          SizedBox(width: colPrev, child: Text(prevClose == null || prevClose <= 0 ? '—' : _formatPrice(prevClose), style: TvTheme.meta, textAlign: TextAlign.right)),
-                          SizedBox(width: colHigh, child: Text(high == null || high <= 0 ? '—' : _formatPrice(high), style: TvTheme.meta, textAlign: TextAlign.right)),
-                          SizedBox(width: colLow, child: Text(low == null || low <= 0 ? '—' : _formatPrice(low), style: TvTheme.meta, textAlign: TextAlign.right)),
-                          SizedBox(width: colVol, child: Text(_formatVolume(vol), style: TvTheme.meta, textAlign: TextAlign.right)),
+                          Expanded(
+                              flex: 1,
+                              child: Text(t.symbol,
+                                  style: TvTheme.body
+                                      .copyWith(fontWeight: FontWeight.w600),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis)),
+                          Expanded(
+                              flex: 2,
+                              child: Text(t.name,
+                                  style: TvTheme.meta,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis)),
+                          SizedBox(
+                              width: colPct,
+                              child: Text(
+                                  hasError
+                                      ? '—'
+                                      : '${pct >= 0 ? '+' : ''}${pct.toStringAsFixed(2)}%',
+                                  style: TvTheme.meta.copyWith(color: color),
+                                  textAlign: TextAlign.right)),
+                          SizedBox(
+                              width: colPrice,
+                              child: Text(
+                                  hasError || price <= 0
+                                      ? '—'
+                                      : _formatPrice(price),
+                                  style: TvTheme.meta,
+                                  textAlign: TextAlign.right)),
+                          SizedBox(
+                              width: colChange,
+                              child: Text(
+                                  hasError
+                                      ? '—'
+                                      : '${change >= 0 ? '+' : ''}${change.toStringAsFixed(2)}',
+                                  style: TvTheme.meta.copyWith(color: color),
+                                  textAlign: TextAlign.right)),
+                          SizedBox(
+                              width: colOpen,
+                              child: Text(
+                                  open == null || open <= 0
+                                      ? '—'
+                                      : _formatPrice(open),
+                                  style: TvTheme.meta,
+                                  textAlign: TextAlign.right)),
+                          SizedBox(
+                              width: colPrev,
+                              child: Text(
+                                  prevClose == null || prevClose <= 0
+                                      ? '—'
+                                      : _formatPrice(prevClose),
+                                  style: TvTheme.meta,
+                                  textAlign: TextAlign.right)),
+                          SizedBox(
+                              width: colHigh,
+                              child: Text(
+                                  high == null || high <= 0
+                                      ? '—'
+                                      : _formatPrice(high),
+                                  style: TvTheme.meta,
+                                  textAlign: TextAlign.right)),
+                          SizedBox(
+                              width: colLow,
+                              child: Text(
+                                  low == null || low <= 0
+                                      ? '—'
+                                      : _formatPrice(low),
+                                  style: TvTheme.meta,
+                                  textAlign: TextAlign.right)),
+                          SizedBox(
+                              width: colVol,
+                              child: Text(_formatVolume(vol),
+                                  style: TvTheme.meta,
+                                  textAlign: TextAlign.right)),
                         ],
                       ),
                     ),
@@ -3761,12 +4719,21 @@ class _UsStocksTabState extends State<_UsStocksTab> {
     const colHigh = 52.0;
     const colLow = 52.0;
     const colVol = 60.0;
-    const dataColsWidth = colPct + colPrice + colChange + colOpen + colPrev + colHigh + colLow + colVol;
-    const styleLabel = TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600);
+    const dataColsWidth = colPct +
+        colPrice +
+        colChange +
+        colOpen +
+        colPrev +
+        colHigh +
+        colLow +
+        colVol;
+    const styleLabel = TextStyle(
+        color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600);
     const styleCell = TextStyle(color: Color(0xFFE8D5A3), fontSize: 12);
     const styleMuted = TextStyle(color: Color(0xFF9CA3AF), fontSize: 12);
 
-    Widget sortHeader(String label, String col, double w, {TextAlign align = TextAlign.left}) {
+    Widget sortHeader(String label, String col, double w,
+        {TextAlign align = TextAlign.left}) {
       final isActive = _sortColumn == col;
       return SizedBox(
         width: w,
@@ -3774,29 +4741,53 @@ class _UsStocksTabState extends State<_UsStocksTab> {
           behavior: HitTestBehavior.opaque,
           onTap: () => _onSortColumnTap(col),
           child: Row(
-            mainAxisAlignment: align == TextAlign.right ? MainAxisAlignment.end : MainAxisAlignment.start,
+            mainAxisAlignment: align == TextAlign.right
+                ? MainAxisAlignment.end
+                : MainAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(label, style: styleLabel, textAlign: align, maxLines: 1, overflow: TextOverflow.ellipsis),
-              if (isActive) Padding(
-                padding: const EdgeInsets.only(left: 2),
-                child: Icon(_sortAscending ? Icons.arrow_drop_up : Icons.arrow_drop_down, size: 16, color: const Color(0xFFD4AF37)),
-              ),
+              Text(label,
+                  style: styleLabel,
+                  textAlign: align,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis),
+              if (isActive)
+                Padding(
+                  padding: const EdgeInsets.only(left: 2),
+                  child: Icon(
+                      _sortAscending
+                          ? Icons.arrow_drop_up
+                          : Icons.arrow_drop_down,
+                      size: 16,
+                      color: const Color(0xFFD4AF37)),
+                ),
             ],
           ),
         ),
       );
     }
+
     final headerDataRow = Row(
       children: [
-        sortHeader(AppLocalizations.of(context)!.marketChangePct, 'pct', colPct, align: TextAlign.right),
-        sortHeader(AppLocalizations.of(context)!.marketLatestPrice, 'price', colPrice, align: TextAlign.right),
-        sortHeader(AppLocalizations.of(context)!.marketChangeAmount, 'change', colChange, align: TextAlign.right),
-        sortHeader(AppLocalizations.of(context)!.marketOpen, 'open', colOpen, align: TextAlign.right),
-        sortHeader(AppLocalizations.of(context)!.marketPrevClose, 'prev', colPrev, align: TextAlign.right),
-        sortHeader(AppLocalizations.of(context)!.marketHigh, 'high', colHigh, align: TextAlign.right),
-        sortHeader(AppLocalizations.of(context)!.marketLow, 'low', colLow, align: TextAlign.right),
-        sortHeader(AppLocalizations.of(context)!.marketVolume, 'vol', colVol, align: TextAlign.right),
+        sortHeader(AppLocalizations.of(context)!.marketChangePct, 'pct', colPct,
+            align: TextAlign.right),
+        sortHeader(
+            AppLocalizations.of(context)!.marketLatestPrice, 'price', colPrice,
+            align: TextAlign.right),
+        sortHeader(AppLocalizations.of(context)!.marketChangeAmount, 'change',
+            colChange,
+            align: TextAlign.right),
+        sortHeader(AppLocalizations.of(context)!.marketOpen, 'open', colOpen,
+            align: TextAlign.right),
+        sortHeader(
+            AppLocalizations.of(context)!.marketPrevClose, 'prev', colPrev,
+            align: TextAlign.right),
+        sortHeader(AppLocalizations.of(context)!.marketHigh, 'high', colHigh,
+            align: TextAlign.right),
+        sortHeader(AppLocalizations.of(context)!.marketLow, 'low', colLow,
+            align: TextAlign.right),
+        sortHeader(AppLocalizations.of(context)!.marketVolume, 'vol', colVol,
+            align: TextAlign.right),
       ],
     );
 
@@ -3810,15 +4801,20 @@ class _UsStocksTabState extends State<_UsStocksTab> {
             child: Column(
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                   decoration: BoxDecoration(
                     color: const Color(0xFF1A1C21),
-                    border: Border(bottom: BorderSide(color: const Color(0xFF1F1F23), width: 0.6)),
+                    border: Border(
+                        bottom: BorderSide(
+                            color: const Color(0xFF1F1F23), width: 0.6)),
                   ),
                   child: Row(
                     children: [
-                      sortHeader(AppLocalizations.of(context)!.marketCode, 'code', colCode),
-                      sortHeader(AppLocalizations.of(context)!.marketName, 'name', colName),
+                      sortHeader(AppLocalizations.of(context)!.marketCode,
+                          'code', colCode),
+                      sortHeader(AppLocalizations.of(context)!.marketName,
+                          'name', colName),
                     ],
                   ),
                 ),
@@ -3833,18 +4829,36 @@ class _UsStocksTabState extends State<_UsStocksTab> {
                         color: const Color(0xFF111215),
                         child: InkWell(
                           onTap: () {
-                            final symbolList = _sortedTickers.map((x) => x.symbol).toList();
-                            _openDetail(t.symbol, name: t.name, symbolList: symbolList, symbolIndex: i);
+                            final symbolList =
+                                _sortedTickers.map((x) => x.symbol).toList();
+                            _openDetail(t.symbol,
+                                name: t.name,
+                                symbolList: symbolList,
+                                symbolIndex: i);
                           },
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 8),
                             decoration: const BoxDecoration(
-                              border: Border(bottom: BorderSide(color: Color(0xFF1F1F23), width: 0.6)),
+                              border: Border(
+                                  bottom: BorderSide(
+                                      color: Color(0xFF1F1F23), width: 0.6)),
                             ),
                             child: Row(
                               children: [
-                                SizedBox(width: colCode, child: Text(t.symbol, style: styleCell.copyWith(fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                                SizedBox(width: colName, child: Text(t.name, style: styleMuted, maxLines: 1, overflow: TextOverflow.ellipsis)),
+                                SizedBox(
+                                    width: colCode,
+                                    child: Text(t.symbol,
+                                        style: styleCell.copyWith(
+                                            fontWeight: FontWeight.w600),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis)),
+                                SizedBox(
+                                    width: colName,
+                                    child: Text(t.name,
+                                        style: styleMuted,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis)),
                               ],
                             ),
                           ),
@@ -3865,10 +4879,13 @@ class _UsStocksTabState extends State<_UsStocksTab> {
                 child: Column(
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 8),
                       decoration: BoxDecoration(
                         color: const Color(0xFF1A1C21),
-                        border: Border(bottom: BorderSide(color: const Color(0xFF1F1F23), width: 0.6)),
+                        border: Border(
+                            bottom: BorderSide(
+                                color: const Color(0xFF1F1F23), width: 0.6)),
                       ),
                       child: headerDataRow,
                     ),
@@ -3895,24 +4912,88 @@ class _UsStocksTabState extends State<_UsStocksTab> {
                             color: const Color(0xFF111215),
                             child: InkWell(
                               onTap: () {
-                                final symbolList = _sortedTickers.map((x) => x.symbol).toList();
-                                _openDetail(t.symbol, name: t.name, symbolList: symbolList, symbolIndex: i);
+                                final symbolList = _sortedTickers
+                                    .map((x) => x.symbol)
+                                    .toList();
+                                _openDetail(t.symbol,
+                                    name: t.name,
+                                    symbolList: symbolList,
+                                    symbolIndex: i);
                               },
                               child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 8),
                                 decoration: const BoxDecoration(
-                                  border: Border(bottom: BorderSide(color: Color(0xFF1F1F23), width: 0.6)),
+                                  border: Border(
+                                      bottom: BorderSide(
+                                          color: Color(0xFF1F1F23),
+                                          width: 0.6)),
                                 ),
                                 child: Row(
                                   children: [
-                                    SizedBox(width: colPct, child: Text(hasError ? '—' : '${pct >= 0 ? '+' : ''}${pct.toStringAsFixed(2)}%', style: styleMuted.copyWith(color: color), textAlign: TextAlign.right)),
-                                    SizedBox(width: colPrice, child: Text(hasError || price <= 0 ? '—' : _formatPrice(price), style: styleMuted, textAlign: TextAlign.right)),
-                                    SizedBox(width: colChange, child: Text(hasError ? '—' : '${change >= 0 ? '+' : ''}${change.toStringAsFixed(2)}', style: styleMuted.copyWith(color: color), textAlign: TextAlign.right)),
-                                    SizedBox(width: colOpen, child: Text(open == null || open <= 0 ? '—' : _formatPrice(open), style: styleMuted, textAlign: TextAlign.right)),
-                                    SizedBox(width: colPrev, child: Text(prevClose == null || prevClose <= 0 ? '—' : _formatPrice(prevClose), style: styleMuted, textAlign: TextAlign.right)),
-                                    SizedBox(width: colHigh, child: Text(high == null || high <= 0 ? '—' : _formatPrice(high), style: styleMuted, textAlign: TextAlign.right)),
-                                    SizedBox(width: colLow, child: Text(low == null || low <= 0 ? '—' : _formatPrice(low), style: styleMuted, textAlign: TextAlign.right)),
-                                    SizedBox(width: colVol, child: Text(_formatVolume(vol), style: styleMuted, textAlign: TextAlign.right)),
+                                    SizedBox(
+                                        width: colPct,
+                                        child: Text(
+                                            hasError
+                                                ? '—'
+                                                : '${pct >= 0 ? '+' : ''}${pct.toStringAsFixed(2)}%',
+                                            style: styleMuted.copyWith(
+                                                color: color),
+                                            textAlign: TextAlign.right)),
+                                    SizedBox(
+                                        width: colPrice,
+                                        child: Text(
+                                            hasError || price <= 0
+                                                ? '—'
+                                                : _formatPrice(price),
+                                            style: styleMuted,
+                                            textAlign: TextAlign.right)),
+                                    SizedBox(
+                                        width: colChange,
+                                        child: Text(
+                                            hasError
+                                                ? '—'
+                                                : '${change >= 0 ? '+' : ''}${change.toStringAsFixed(2)}',
+                                            style: styleMuted.copyWith(
+                                                color: color),
+                                            textAlign: TextAlign.right)),
+                                    SizedBox(
+                                        width: colOpen,
+                                        child: Text(
+                                            open == null || open <= 0
+                                                ? '—'
+                                                : _formatPrice(open),
+                                            style: styleMuted,
+                                            textAlign: TextAlign.right)),
+                                    SizedBox(
+                                        width: colPrev,
+                                        child: Text(
+                                            prevClose == null || prevClose <= 0
+                                                ? '—'
+                                                : _formatPrice(prevClose),
+                                            style: styleMuted,
+                                            textAlign: TextAlign.right)),
+                                    SizedBox(
+                                        width: colHigh,
+                                        child: Text(
+                                            high == null || high <= 0
+                                                ? '—'
+                                                : _formatPrice(high),
+                                            style: styleMuted,
+                                            textAlign: TextAlign.right)),
+                                    SizedBox(
+                                        width: colLow,
+                                        child: Text(
+                                            low == null || low <= 0
+                                                ? '—'
+                                                : _formatPrice(low),
+                                            style: styleMuted,
+                                            textAlign: TextAlign.right)),
+                                    SizedBox(
+                                        width: colVol,
+                                        child: Text(_formatVolume(vol),
+                                            style: styleMuted,
+                                            textAlign: TextAlign.right)),
                                   ],
                                 ),
                               ),
@@ -3960,7 +5041,9 @@ class _UsStocksTabState extends State<_UsStocksTab> {
     final csv = sb.toString();
     Clipboard.setData(ClipboardData(text: csv));
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(AppLocalizations.of(context)!.marketCopyCsvSuccess(end), style: const TextStyle(color: Colors.white))),
+      SnackBar(
+          content: Text(AppLocalizations.of(context)!.marketCopyCsvSuccess(end),
+              style: const TextStyle(color: Colors.white))),
     );
   }
 
@@ -3971,11 +5054,13 @@ class _UsStocksTabState extends State<_UsStocksTab> {
       decoration: BoxDecoration(
         color: const Color(0xFFD4AF37).withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFD4AF37).withValues(alpha: 0.4)),
+        border:
+            Border.all(color: const Color(0xFFD4AF37).withValues(alpha: 0.4)),
       ),
       child: Row(
         children: [
-          Icon(Icons.wifi_off_rounded, size: 20, color: const Color(0xFFD4AF37)),
+          Icon(Icons.wifi_off_rounded,
+              size: 20, color: const Color(0xFFD4AF37)),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
@@ -3988,7 +5073,9 @@ class _UsStocksTabState extends State<_UsStocksTab> {
               setState(() => _quoteLoadError = null);
               _loadFirstVisibleQuotesAndStartTimer();
             },
-            child: Text(AppLocalizations.of(context)!.commonRetry, style: const TextStyle(color: Color(0xFFD4AF37), fontWeight: FontWeight.w600)),
+            child: Text(AppLocalizations.of(context)!.commonRetry,
+                style: const TextStyle(
+                    color: Color(0xFFD4AF37), fontWeight: FontWeight.w600)),
           ),
         ],
       ),
@@ -4002,7 +5089,8 @@ class _UsStocksTabState extends State<_UsStocksTab> {
       decoration: BoxDecoration(
         color: const Color(0xFFD4AF37).withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFD4AF37).withValues(alpha: 0.4)),
+        border:
+            Border.all(color: const Color(0xFFD4AF37).withValues(alpha: 0.4)),
       ),
       child: Row(
         children: [
@@ -4036,7 +5124,10 @@ class _UsStocksTabState extends State<_UsStocksTab> {
         final mockList = MockMarketData.indicesQuotes;
         Map<String, dynamic>? m;
         for (final x in mockList) {
-          if (x is Map<String, dynamic> && x['symbol'] == e.$2) { m = x; break; }
+          if (x is Map<String, dynamic> && x['symbol'] == e.$2) {
+            m = x;
+            break;
+          }
         }
         if (m != null) {
           final close = (m['close'] as num?)?.toDouble() ?? 0.0;
@@ -4065,20 +5156,26 @@ class _UsStocksTabState extends State<_UsStocksTab> {
             decoration: BoxDecoration(
               color: const Color(0xFF111215),
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: const Color(0xFFD4AF37).withValues(alpha: 0.2)),
+              border: Border.all(
+                  color: const Color(0xFFD4AF37).withValues(alpha: 0.2)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(name, style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 11)),
+                Text(name,
+                    style: const TextStyle(
+                        color: Color(0xFF9CA3AF), fontSize: 11)),
                 const SizedBox(height: 4),
                 Text(
                   value > 0 ? value.toStringAsFixed(2) : '—',
-                  style: TextStyle(color: color, fontWeight: FontWeight.w700, fontSize: 14),
+                  style: TextStyle(
+                      color: color, fontWeight: FontWeight.w700, fontSize: 14),
                 ),
                 Text(
-                  value > 0 ? '${ch >= 0 ? '+' : ''}${ch.toStringAsFixed(2)} ${pct >= 0 ? '+' : ''}${pct.toStringAsFixed(2)}%' : '—',
+                  value > 0
+                      ? '${ch >= 0 ? '+' : ''}${ch.toStringAsFixed(2)} ${pct >= 0 ? '+' : ''}${pct.toStringAsFixed(2)}%'
+                      : '—',
                   style: TextStyle(color: color, fontSize: 10),
                 ),
                 const SizedBox(height: 4),
@@ -4094,7 +5191,11 @@ class _UsStocksTabState extends State<_UsStocksTab> {
   /// PC 美股三大指数：TvIndexCard 横排
   Widget _buildUsIndexCardsTv() {
     final l10n = AppLocalizations.of(context)!;
-    final indices = [(l10n.marketIndexDowJones, 'DJI'), (l10n.marketIndexNasdaq, 'IXIC'), (l10n.marketIndexSp500, 'SPX')];
+    final indices = [
+      (l10n.marketIndexDowJones, 'DJI'),
+      (l10n.marketIndexNasdaq, 'IXIC'),
+      (l10n.marketIndexSp500, 'SPX')
+    ];
     return Row(
       children: indices.asMap().entries.map((entry) {
         final label = entry.value.$1;
@@ -4135,7 +5236,12 @@ class _UsStocksTabState extends State<_UsStocksTab> {
               onTap: () {
                 final symbolList = indices.map((e) => e.$2).toList();
                 Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => GenericChartPage(symbol: symbol, name: label, symbolList: symbolList, symbolIndex: entry.key)),
+                  MaterialPageRoute(
+                      builder: (_) => GenericChartPage(
+                          symbol: symbol,
+                          name: label,
+                          symbolList: symbolList,
+                          symbolIndex: entry.key)),
                 );
               },
             ),
@@ -4171,7 +5277,8 @@ class _Chip extends StatelessWidget {
           child: Text(
             label,
             style: TextStyle(
-              color: selected ? const Color(0xFFD4AF37) : const Color(0xFF9CA3AF),
+              color:
+                  selected ? const Color(0xFFD4AF37) : const Color(0xFF9CA3AF),
               fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
               fontSize: 13,
             ),
@@ -4377,20 +5484,40 @@ class _ForexTabState extends State<_ForexTab> {
   }
 
   Future<void> _loadCachedThenRefresh() async {
-    setState(() { _loading = true; _isMockData = false; });
+    setState(() {
+      _loading = true;
+      _isMockData = false;
+    });
     final out = <String, MarketQuote?>{};
-    final list = await _cache.getList('market_forex_tab', maxAge: _cacheMaxAge);
-    if (list != null) for (final m in list) {
-      if (m is Map<String, dynamic>) { final q = MarketQuote.fromSnapshotMap(m); if (q != null) out[q.symbol] = q; }
+    final forexSymbols = _pairs.map((e) => e.$2).toList();
+    final fromSqlite = await MarketDb.instance.getForexQuotes(forexSymbols);
+    for (final sym in forexSymbols) {
+      final q = fromSqlite[sym];
+      if (q != null) out[sym] = q;
+    }
+    if (out.length < _pairs.length) {
+      final list =
+          await _cache.getList('market_forex_tab', maxAge: _cacheMaxAge);
+      if (list != null)
+        for (final m in list) {
+          if (m is Map<String, dynamic>) {
+            final q = MarketQuote.fromSnapshotMap(m);
+            if (q != null) out[q.symbol] = q;
+          }
+        }
     }
     if (out.length < _pairs.length) {
       final fromDb = await _snapshotRepo.getQuotes('forex');
-      for (final m in fromDb) { final q = MarketQuote.fromSnapshotMap(m); if (q != null) out[q.symbol] = q; }
+      for (final m in fromDb) {
+        final q = MarketQuote.fromSnapshotMap(m);
+        if (q != null) out[q.symbol] = q;
+      }
     }
-    if (mounted) setState(() {
-      _quotes = out;
-      _loading = out.isEmpty;
-    });
+    if (mounted)
+      setState(() {
+        _quotes = out;
+        _loading = out.isEmpty;
+      });
     _load();
   }
 
@@ -4418,14 +5545,27 @@ class _ForexTabState extends State<_ForexTab> {
     final hasAny = _pairs.any((e) => out[e.$2] != null);
     if (hasAny) {
       final list = <Map<String, dynamic>>[];
+      final toSave = <String, MarketQuote>{};
       for (final e in _pairs) {
         final q = out[e.$2];
-        if (q != null) list.add({...q.toSnapshotMap(), 'name': e.$1});
+        if (q != null) {
+          list.add({...q.toSnapshotMap(), 'name': e.$1});
+          if (!q.hasError) toSave[e.$2] = q;
+        }
+      }
+      if (toSave.isNotEmpty) {
+        await MarketDb.instance.upsertForexQuotes(toSave);
       }
       if (list.isNotEmpty) {
         await _snapshotRepo.saveQuotes('forex', list);
         await _cache.setList('market_forex_tab', list);
       }
+    }
+    final fromSqlite = await MarketDb.instance
+        .getForexQuotes(_pairs.map((e) => e.$2).toList());
+    for (final e in _pairs) {
+      final q = fromSqlite[e.$2];
+      if (q != null && out[e.$2] == null) out[e.$2] = q;
     }
     final fromDb = await _snapshotRepo.getQuotes('forex');
     for (final m in fromDb) {
@@ -4433,7 +5573,8 @@ class _ForexTabState extends State<_ForexTab> {
       if (q != null && out[q.symbol] == null) out[q.symbol] = q;
     }
     if (mounted) {
-      if (out.isEmpty) _applyMockForex();
+      if (out.isEmpty)
+        _applyMockForex();
       else {
         _quotes = out;
         _isMockData = false;
@@ -4450,7 +5591,8 @@ class _ForexTabState extends State<_ForexTab> {
     }
     if (_quotes.isEmpty) {
       return Center(
-          child: Text(AppLocalizations.of(context)!.marketNoData, style: const TextStyle(color: Color(0xFF9CA3AF))));
+          child: Text(AppLocalizations.of(context)!.marketNoData,
+              style: const TextStyle(color: Color(0xFF9CA3AF))));
     }
     return RefreshIndicator(
       onRefresh: _load,
@@ -4474,7 +5616,11 @@ class _ForexTabState extends State<_ForexTab> {
                 final symbolList = _pairs.map((p) => p.$2).toList();
                 Navigator.of(context).push(
                   MaterialPageRoute(
-                    builder: (_) => GenericChartPage(symbol: symbol, name: name, symbolList: symbolList, symbolIndex: i),
+                    builder: (_) => GenericChartPage(
+                        symbol: symbol,
+                        name: name,
+                        symbolList: symbolList,
+                        symbolIndex: i),
                   ),
                 );
               },
@@ -4492,7 +5638,8 @@ class _ForexTabState extends State<_ForexTab> {
       decoration: BoxDecoration(
         color: const Color(0xFFD4AF37).withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFD4AF37).withValues(alpha: 0.4)),
+        border:
+            Border.all(color: const Color(0xFFD4AF37).withValues(alpha: 0.4)),
       ),
       child: Row(
         children: [
@@ -4521,7 +5668,6 @@ class _CryptoTab extends StatefulWidget {
 
 class _CryptoTabState extends State<_CryptoTab> {
   final _market = MarketRepository();
-  final _snapshotRepo = MarketSnapshotRepository();
   final _coins = [
     ('比特币', 'BTC/USD'),
     ('以太坊', 'ETH/USD'),
@@ -4530,6 +5676,7 @@ class _CryptoTabState extends State<_CryptoTab> {
     ('狗狗币', 'DOGE/USD'),
     ('雪崩', 'AVAX/USD'),
   ];
+
   /// 0=市值 1=领涨榜 2=领跌榜
   int _cryptoSubTab = 0;
   Map<String, MarketQuote?> _quotes = {};
@@ -4551,20 +5698,31 @@ class _CryptoTabState extends State<_CryptoTab> {
   }
 
   Future<void> _loadCachedThenRefresh() async {
-    setState(() { _loading = true; _isMockData = false; });
-    final out = <String, MarketQuote?>{};
-    final list = await _cache.getList('market_crypto_tab', maxAge: _cacheMaxAge);
-    if (list != null) for (final m in list) {
-      if (m is Map<String, dynamic>) { final q = MarketQuote.fromSnapshotMap(m); if (q != null) out[q.symbol] = q; }
-    }
-    if (out.length < _coins.length) {
-      final fromDb = await _snapshotRepo.getQuotes('crypto');
-      for (final m in fromDb) { final q = MarketQuote.fromSnapshotMap(m); if (q != null) out[q.symbol] = q; }
-    }
-    if (mounted) setState(() {
-      _quotes = out;
-      _loading = out.isEmpty;
+    setState(() {
+      _loading = true;
+      _isMockData = false;
     });
+    final out = <String, MarketQuote?>{};
+    final coinSymbols = _coins.map((e) => e.$2).toList();
+    final fromSqlite = await MarketDb.instance.getCryptoQuotes(coinSymbols);
+    for (final sym in coinSymbols) {
+      final q = fromSqlite[sym];
+      if (q != null) out[sym] = q;
+    }
+    final list =
+        await _cache.getList('market_crypto_tab', maxAge: _cacheMaxAge);
+    if (list != null)
+      for (final m in list) {
+        if (m is Map<String, dynamic>) {
+          final q = MarketQuote.fromSnapshotMap(m);
+          if (q != null) out[q.symbol] = q;
+        }
+      }
+    if (mounted)
+      setState(() {
+        _quotes = out;
+        _loading = out.isEmpty;
+      });
     _load();
   }
 
@@ -4584,26 +5742,34 @@ class _CryptoTabState extends State<_CryptoTab> {
       if (mounted) setState(() => _loading = false);
       return;
     }
-    final list = await _market.getCryptoQuotes(_coins.map((e) => e.$2).toList());
+    final list =
+        await _market.getCryptoQuotes(_coins.map((e) => e.$2).toList());
     final out = <String, MarketQuote?>{};
     for (final q in list) {
       out[q.symbol] = q;
     }
     final hasAny = out.isNotEmpty;
     if (hasAny) {
-      final toSave = list.map((q) => {...q.toSnapshotMap(), 'name': q.name ?? q.symbol}).toList();
+      final toSave = list
+          .map((q) => {...q.toSnapshotMap(), 'name': q.name ?? q.symbol})
+          .toList();
       if (toSave.isNotEmpty) {
-        await _snapshotRepo.saveQuotes('crypto', toSave);
+        await MarketDb.instance.upsertCryptoQuotes(
+          Map<String, MarketQuote>.fromEntries(
+            list.where((q) => !q.hasError).map((q) => MapEntry(q.symbol, q)),
+          ),
+        );
         await _cache.setList('market_crypto_tab', toSave);
       }
     }
-    final fromDb = await _snapshotRepo.getQuotes('crypto');
-    for (final m in fromDb) {
-      final q = MarketQuote.fromSnapshotMap(m);
-      if (q != null && out[q.symbol] == null) out[q.symbol] = q;
+    final fromSqlite = await MarketDb.instance
+        .getCryptoQuotes(_coins.map((e) => e.$2).toList());
+    for (final entry in fromSqlite.entries) {
+      out.putIfAbsent(entry.key, () => entry.value);
     }
     if (mounted) {
-      if (out.isEmpty) _applyMockCrypto();
+      if (out.isEmpty)
+        _applyMockCrypto();
       else {
         _quotes = out;
         _isMockData = false;
@@ -4620,7 +5786,8 @@ class _CryptoTabState extends State<_CryptoTab> {
     }
     if (_quotes.isEmpty) {
       return Center(
-          child: Text(AppLocalizations.of(context)!.marketNoData, style: const TextStyle(color: Color(0xFF9CA3AF))));
+          child: Text(AppLocalizations.of(context)!.marketNoData,
+              style: const TextStyle(color: Color(0xFF9CA3AF))));
     }
     final sorted = _sortedCryptoList();
     return RefreshIndicator(
@@ -4681,20 +5848,26 @@ class _CryptoTabState extends State<_CryptoTab> {
             decoration: BoxDecoration(
               color: const Color(0xFF111215),
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: const Color(0xFFD4AF37).withValues(alpha: 0.2)),
+              border: Border.all(
+                  color: const Color(0xFFD4AF37).withValues(alpha: 0.2)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(name, style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 12)),
+                Text(name,
+                    style: const TextStyle(
+                        color: Color(0xFF9CA3AF), fontSize: 12)),
                 const SizedBox(height: 4),
                 Text(
                   close > 0 ? _formatCryptoPrice(close) : '—',
-                  style: TextStyle(color: color, fontWeight: FontWeight.w700, fontSize: 15),
+                  style: TextStyle(
+                      color: color, fontWeight: FontWeight.w700, fontSize: 15),
                 ),
                 Text(
-                  close > 0 ? '${ch >= 0 ? '+' : ''}${ch.toStringAsFixed(2)} ${pct >= 0 ? '+' : ''}${pct.toStringAsFixed(2)}%' : '—',
+                  close > 0
+                      ? '${ch >= 0 ? '+' : ''}${ch.toStringAsFixed(2)} ${pct >= 0 ? '+' : ''}${pct.toStringAsFixed(2)}%'
+                      : '—',
                   style: TextStyle(color: color, fontSize: 11),
                 ),
                 const SizedBox(height: 6),
@@ -4720,52 +5893,79 @@ class _CryptoTabState extends State<_CryptoTab> {
       children: [
         Row(
           children: [
-            Text(AppLocalizations.of(context)!.marketHotNews, style: TextStyle(color: const Color(0xFFD4AF37), fontWeight: FontWeight.w600, fontSize: 15)),
+            Text(AppLocalizations.of(context)!.marketHotNews,
+                style: TextStyle(
+                    color: const Color(0xFFD4AF37),
+                    fontWeight: FontWeight.w600,
+                    fontSize: 15)),
             const SizedBox(width: 4),
-            Icon(Icons.arrow_forward_ios, size: 12, color: const Color(0xFFD4AF37)),
+            Icon(Icons.arrow_forward_ios,
+                size: 12, color: const Color(0xFFD4AF37)),
             const Spacer(),
             GestureDetector(
               onTap: () {},
-              child: Text('${AppLocalizations.of(context)!.marketSubscribeTopic} >', style: TextStyle(color: const Color(0xFF9CA3AF), fontSize: 12)),
+              child: Text(
+                  '${AppLocalizations.of(context)!.marketSubscribeTopic} >',
+                  style:
+                      TextStyle(color: const Color(0xFF9CA3AF), fontSize: 12)),
             ),
           ],
         ),
         const SizedBox(height: 10),
         ..._hotReads.map((title) => Padding(
-          padding: const EdgeInsets.only(bottom: 10),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(Icons.local_fire_department, size: 18, color: const Color(0xFFD4AF37)),
-              const SizedBox(width: 8),
-              Expanded(child: Text(title, style: const TextStyle(color: Color(0xFFE5E7EB), fontSize: 13))),
-            ],
-          ),
-        )),
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.local_fire_department,
+                      size: 18, color: const Color(0xFFD4AF37)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                      child: Text(title,
+                          style: const TextStyle(
+                              color: Color(0xFFE5E7EB), fontSize: 13))),
+                ],
+              ),
+            )),
       ],
     );
   }
 
   /// 可交易币种：子 Tab 市值/领涨榜/领跌榜 + 列表
-  Widget _buildTradableCryptoSection(BuildContext context, List<(String, String, MarketQuote?)> sorted) {
+  Widget _buildTradableCryptoSection(
+      BuildContext context, List<(String, String, MarketQuote?)> sorted) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            Text(AppLocalizations.of(context)!.marketTradableCoins, style: TextStyle(color: const Color(0xFFE8D5A3), fontWeight: FontWeight.w600, fontSize: 15)),
+            Text(AppLocalizations.of(context)!.marketTradableCoins,
+                style: TextStyle(
+                    color: const Color(0xFFE8D5A3),
+                    fontWeight: FontWeight.w600,
+                    fontSize: 15)),
             const SizedBox(width: 4),
-            Icon(Icons.arrow_forward_ios, size: 12, color: const Color(0xFFD4AF37)),
+            Icon(Icons.arrow_forward_ios,
+                size: 12, color: const Color(0xFFD4AF37)),
           ],
         ),
         const SizedBox(height: 10),
         Row(
           children: [
-            _CryptoSubChip(label: AppLocalizations.of(context)!.marketMarketCap, selected: _cryptoSubTab == 0, onTap: () => setState(() => _cryptoSubTab = 0)),
+            _CryptoSubChip(
+                label: AppLocalizations.of(context)!.marketMarketCap,
+                selected: _cryptoSubTab == 0,
+                onTap: () => setState(() => _cryptoSubTab = 0)),
             const SizedBox(width: 8),
-            _CryptoSubChip(label: AppLocalizations.of(context)!.marketTopGainers, selected: _cryptoSubTab == 1, onTap: () => setState(() => _cryptoSubTab = 1)),
+            _CryptoSubChip(
+                label: AppLocalizations.of(context)!.marketTopGainers,
+                selected: _cryptoSubTab == 1,
+                onTap: () => setState(() => _cryptoSubTab = 1)),
             const SizedBox(width: 8),
-            _CryptoSubChip(label: AppLocalizations.of(context)!.marketTopLosers, selected: _cryptoSubTab == 2, onTap: () => setState(() => _cryptoSubTab = 2)),
+            _CryptoSubChip(
+                label: AppLocalizations.of(context)!.marketTopLosers,
+                selected: _cryptoSubTab == 2,
+                onTap: () => setState(() => _cryptoSubTab = 2)),
           ],
         ),
         const SizedBox(height: 12),
@@ -4783,7 +5983,11 @@ class _CryptoTabState extends State<_CryptoTab> {
               final symbolList = sorted.map((x) => x.$2).toList();
               Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (_) => GenericChartPage(symbol: item.$2, name: item.$1, symbolList: symbolList, symbolIndex: i),
+                  builder: (_) => GenericChartPage(
+                      symbol: item.$2,
+                      name: item.$1,
+                      symbolList: symbolList,
+                      symbolIndex: i),
                 ),
               );
             },
@@ -4800,7 +6004,8 @@ class _CryptoTabState extends State<_CryptoTab> {
       decoration: BoxDecoration(
         color: const Color(0xFFD4AF37).withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFD4AF37).withValues(alpha: 0.4)),
+        border:
+            Border.all(color: const Color(0xFFD4AF37).withValues(alpha: 0.4)),
       ),
       child: Row(
         children: [
@@ -4819,7 +6024,8 @@ class _CryptoTabState extends State<_CryptoTab> {
 }
 
 class _CryptoSubChip extends StatelessWidget {
-  const _CryptoSubChip({required this.label, required this.selected, required this.onTap});
+  const _CryptoSubChip(
+      {required this.label, required this.selected, required this.onTap});
   final String label;
   final bool selected;
   final VoidCallback onTap;
@@ -4833,11 +6039,18 @@ class _CryptoSubChip extends StatelessWidget {
         decoration: BoxDecoration(
           color: selected ? const Color(0xFF2C2D31) : const Color(0xFF111215),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: selected ? const Color(0xFFD4AF37).withValues(alpha: 0.4) : const Color(0xFF2C2D31)),
+          border: Border.all(
+              color: selected
+                  ? const Color(0xFFD4AF37).withValues(alpha: 0.4)
+                  : const Color(0xFF2C2D31)),
         ),
-        child: Text(label, style: TextStyle(color: selected ? const Color(0xFFE8D5A3) : const Color(0xFF9CA3AF), fontSize: 13)),
+        child: Text(label,
+            style: TextStyle(
+                color: selected
+                    ? const Color(0xFFE8D5A3)
+                    : const Color(0xFF9CA3AF),
+                fontSize: 13)),
       ),
     );
   }
 }
-

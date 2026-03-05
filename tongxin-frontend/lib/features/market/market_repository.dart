@@ -121,11 +121,13 @@ class MarketRepository {
   late final PolygonRepository _polygon;
   final TwelveDataRepository _twelve;
   final BackendMarketClient? _backend;
+  // 业务要求：行情数据（搜索/报价/K线）直连第三方，不走后端 /api 代理。
+  static const bool _directThirdPartyOnly = true;
 
-  bool get polygonAvailable => _backend != null || _polygon.isAvailable;
-  bool get twelveDataAvailable => _backend != null || _twelve.isAvailable;
+  bool get polygonAvailable => useBackend || _polygon.isAvailable;
+  bool get twelveDataAvailable => useBackend || _twelve.isAvailable;
   /// 是否使用后端代理（有 TONGXIN_API_URL 时 K 线等优先走后端）
-  bool get useBackend => _backend != null;
+  bool get useBackend => !_directThirdPartyOnly && _backend != null;
 
   /// 是否美股代码（SymbolResolver 判定：非指数、纯字母 1～5 位）
   static bool _isUsStock(String symbol) => SymbolResolver.isUsStock(symbol);
@@ -135,7 +137,7 @@ class MarketRepository {
   /// 搜索标的（优先后端，否则 Polygon tickers）
   Future<List<MarketSearchResult>> searchSymbols(String query) async {
     if (query.trim().isEmpty) return [];
-    if (_backend != null) return _backend!.search(query);
+    if (useBackend) return _backend!.search(query);
     final list = await _polygon.searchTickers(query.trim(), limit: 20);
     return list.map((r) => MarketSearchResult(symbol: r.ticker, name: r.name, market: r.market)).toList();
   }
@@ -156,7 +158,7 @@ class MarketRepository {
       _quoteDebugLog(sym, 'result', 'hasError=true errorReason=${q.errorReason}');
       return q;
     }
-    if (_backend != null) {
+    if (useBackend) {
       final m = await _backend!.getQuotes([sym], realtime: realtime);
       return m[sym] ?? MarketQuote.failed(sym, '无数据');
     }
@@ -170,8 +172,8 @@ class MarketRepository {
         if (snap != null) {
           _quoteDebugLog(sym, 'Polygon', 'snapshot ok');
           final price = snap.price ?? (snap.prevClose ?? 0);
-          final change = snap.todaysChange ?? 0.0;
-          final changePercent = snap.todaysChangePerc ?? 0.0;
+          final change = snap.todaysChange;
+          final changePercent = snap.todaysChangePerc;
           final q = MarketQuote(
             symbol: sym,
             name: null,
@@ -261,7 +263,7 @@ class MarketRepository {
   /// 有后端时统一走后端 /api/quotes（后端已含 stock_quote_cache 兜底）
   Future<Map<String, MarketQuote>> getQuotes(List<String> symbols) async {
     if (symbols.isEmpty) return {};
-    if (_backend != null) return _backend!.getQuotes(symbols);
+    if (useBackend) return _backend!.getQuotes(symbols);
     final out = <String, MarketQuote>{};
     final twelveRequest = <String>[];
     for (final s in symbols) {
@@ -354,7 +356,7 @@ class MarketRepository {
   Future<List<ChartCandle>> getCandles(String symbol, String interval, {int? lastDays, void Function(String)? onError}) async {
     final sym = symbol.trim();
     if (sym.isEmpty) return [];
-    if (_backend != null) return _backend!.getCandles(sym, interval, lastDays: lastDays, onError: onError);
+    if (useBackend) return _backend!.getCandles(sym, interval, lastDays: lastDays, onError: onError);
     final r = SymbolResolver.resolve(sym);
     final toMs = DateTime.now().millisecondsSinceEpoch;
     int fromMs;
@@ -432,7 +434,7 @@ class MarketRepository {
   }) async {
     final sym = symbol.trim();
     if (sym.isEmpty) return [];
-    if (_backend != null) {
+    if (useBackend) {
       return _backend!.getCandlesOlderThan(sym, interval, olderThanMs: olderThanMs, limit: limit);
     }
     final r = SymbolResolver.resolve(sym);
@@ -635,7 +637,7 @@ class MarketRepository {
   /// 从后端 stock_quote_cache 读取美股列表（后端代理，避免前端直连 Supabase）
   /// 返回空列表表示后端未配置或表无数据；成功时异步写入本地缓存供下次秒开（不阻塞 UI）
   Future<List<MarketSearchResult>> getTickersFromStockQuoteCache() async {
-    if (_backend != null) {
+    if (useBackend) {
       final list = await _backend!.getTickersFromCache();
       if (list != null && list.isNotEmpty) {
         final payload = list.map((r) => {'s': r.symbol, 'n': r.name, 'm': r.market}).toList();
@@ -710,7 +712,7 @@ class MarketRepository {
   /// 将股票列表同步到服务器 stock_quote_cache（存在则更新，不存在则新增）
   /// 分批发送，每批最多 1000 条
   Future<void> syncTickersToServer(List<MarketSearchResult> tickers) async {
-    if (_backend == null || tickers.isEmpty) return;
+    if (!useBackend || tickers.isEmpty) return;
     const chunkSize = 1000;
     try {
       for (var i = 0; i < tickers.length; i += chunkSize) {
@@ -784,7 +786,7 @@ class MarketRepository {
   /// 美股前收（详情页涨跌幅等），有后端时从 quote 反推，否则 Polygon /prev
   Future<double?> getPreviousClose(String symbol) async {
     if (!_isUsStock(symbol)) return null;
-    if (_backend != null) {
+    if (useBackend) {
       final m = await _backend!.getQuotes([symbol.trim()], realtime: true);
       final q = m[symbol.trim()];
       if (q != null && !q.hasError && q.price > 0 && q.change != 0) {
@@ -798,7 +800,7 @@ class MarketRepository {
   /// 当日 OHLC + 成交量 + 昨收：有后端时走后端，否则 Polygon Snapshot
   Future<PolygonGainer?> getDaySnapshot(String symbol) async {
     if (!_isUsStock(symbol)) return null;
-    if (_backend != null) return _backend!.getDaySnapshot(symbol.trim());
+    if (useBackend) return _backend!.getDaySnapshot(symbol.trim());
     final resolved = SymbolResolver.forPolygon(symbol.trim());
     if (resolved.isEmpty) return null;
     return _polygon.getTickerSnapshot(resolved);

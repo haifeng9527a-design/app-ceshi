@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../trading/mock_market_data.dart';
 import '../trading/realtime_quote_service.dart';
+import '../trading/trading_cache.dart';
 import 'market_colors.dart';
 import 'market_repository.dart';
 import 'stock_chart_page.dart';
@@ -45,6 +47,9 @@ class _GainersLosersPageState extends State<GainersLosersPage>
   static const _green = Color(0xFF22C55E);
   static const _red = Color(0xFFEF4444);
   static const _indexSymbols = ['DJI', 'IXIC', 'SPX'];
+  static final _cache = TradingCache.instance;
+  static const _indexCacheKey = 'market_overview_indices';
+  static const _indexCacheMaxAge = Duration(days: 7);
 
   @override
   void initState() {
@@ -64,10 +69,57 @@ class _GainersLosersPageState extends State<GainersLosersPage>
   }
 
   Future<void> _loadIndices() async {
+    // 1) 先读缓存，避免首屏出现 “—”
+    try {
+      final raw = await _cache.getList(_indexCacheKey, maxAge: _indexCacheMaxAge);
+      if (raw != null && raw.isNotEmpty && mounted) {
+        final fromCache = <String, MarketQuote>{};
+        for (final e in raw) {
+          if (e is! Map<String, dynamic>) continue;
+          final q = MarketQuote.fromSnapshotMap(e);
+          if (q != null) fromCache[q.symbol] = q;
+        }
+        if (fromCache.isNotEmpty) {
+          setState(() => _indexQuotes = {..._indexQuotes, ...fromCache});
+        }
+      }
+    } catch (_) {}
+
+    // 2) 拉实时
     try {
       final q = await _market.getQuotes(_indexSymbols);
-      if (mounted) setState(() => _indexQuotes = q);
+      final merged = {..._indexQuotes, ...q};
+      _applyIndexFallback(merged);
+      if (!mounted) return;
+      setState(() => _indexQuotes = merged);
+      // 3) 回写缓存，供下次秒开
+      final payload = <Map<String, dynamic>>[];
+      for (final sym in _indexSymbols) {
+        final quote = merged[sym];
+        if (quote != null && !quote.hasError && quote.price > 0) {
+          payload.add(quote.toSnapshotMap());
+        }
+      }
+      if (payload.isNotEmpty) {
+        await _cache.setList(_indexCacheKey, payload);
+      }
     } catch (_) {}
+  }
+
+  void _applyIndexFallback(Map<String, MarketQuote> target) {
+    // 与行情首页一致：接口失败时用 mock 指数兜底，保证三大指数可见
+    final mock = <String, MarketQuote>{};
+    for (final m in MockMarketData.indicesQuotes) {
+      final q = MarketQuote.fromSnapshotMap(m);
+      if (q != null) mock[q.symbol] = q;
+    }
+    for (final sym in _indexSymbols) {
+      final current = target[sym];
+      final invalid = current == null || current.hasError || current.price <= 0;
+      if (invalid && mock.containsKey(sym)) {
+        target[sym] = mock[sym]!;
+      }
+    }
   }
 
   @override

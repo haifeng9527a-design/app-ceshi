@@ -13,7 +13,7 @@ class MarketDb {
   static final MarketDb instance = MarketDb._();
 
   Database? _db;
-  static const int _version = 1;
+  static const int _version = 3;
   static const String _dbName = 'market_local.db';
 
   final Map<String, StreamController<Object?>> _tickersControllers = {};
@@ -28,6 +28,7 @@ class MarketDb {
         dbPath,
         version: _version,
         onCreate: _onCreate,
+        onUpgrade: _onUpgrade,
       );
       return _db!;
     } catch (e) {
@@ -64,6 +65,55 @@ class MarketDb {
     await db.execute('CREATE INDEX idx_quotes_price ON quotes(price)');
     await db.execute('CREATE INDEX idx_quotes_volume ON quotes(volume)');
     await db.execute('CREATE INDEX idx_quotes_updated ON quotes(updated_at_ms)');
+    await _createForexQuotesTable(db);
+    await _createCryptoQuotesTable(db);
+  }
+
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await _createForexQuotesTable(db);
+    }
+    if (oldVersion < 3) {
+      await _createCryptoQuotesTable(db);
+    }
+  }
+
+  Future<void> _createForexQuotesTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS forex_quotes (
+        symbol TEXT PRIMARY KEY,
+        name TEXT,
+        price REAL NOT NULL DEFAULT 0,
+        change_val REAL NOT NULL DEFAULT 0,
+        change_percent REAL NOT NULL DEFAULT 0,
+        open_val REAL,
+        high_val REAL,
+        low_val REAL,
+        volume INTEGER,
+        updated_at_ms INTEGER NOT NULL
+      )
+    ''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_forex_quotes_updated ON forex_quotes(updated_at_ms)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_forex_quotes_change_pct ON forex_quotes(change_percent)');
+  }
+
+  Future<void> _createCryptoQuotesTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS crypto_quotes (
+        symbol TEXT PRIMARY KEY,
+        name TEXT,
+        price REAL NOT NULL DEFAULT 0,
+        change_val REAL NOT NULL DEFAULT 0,
+        change_percent REAL NOT NULL DEFAULT 0,
+        open_val REAL,
+        high_val REAL,
+        low_val REAL,
+        volume INTEGER,
+        updated_at_ms INTEGER NOT NULL
+      )
+    ''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_crypto_quotes_updated ON crypto_quotes(updated_at_ms)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_crypto_quotes_change_pct ON crypto_quotes(change_percent)');
   }
 
   /// 合并美股列表（以服务端为准，全量替换）
@@ -126,6 +176,142 @@ class MarketDb {
     }
   }
 
+  /// 外汇独立表：合并报价（不存在则插入，已存在则更新）
+  Future<void> upsertForexQuotes(Map<String, MarketQuote> map) async {
+    if (map.isEmpty) return;
+    try {
+      final db = await _getDb();
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final batch = db.batch();
+      for (final e in map.entries) {
+        final q = e.value;
+        if (q.hasError) continue;
+        batch.insert(
+          'forex_quotes',
+          {
+            'symbol': q.symbol,
+            'name': q.name,
+            'price': q.price,
+            'change_val': q.change,
+            'change_percent': q.changePercent,
+            'open_val': q.open,
+            'high_val': q.high,
+            'low_val': q.low,
+            'volume': q.volume,
+            'updated_at_ms': now,
+          },
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+      await batch.commit(noResult: true);
+    } catch (e) {
+      if (kDebugMode) debugPrint('MarketDb upsertForexQuotes: $e');
+    }
+  }
+
+  /// 外汇独立表：按 symbols 读取；symbols 为空时读取全部
+  Future<Map<String, MarketQuote>> getForexQuotes([List<String>? symbols]) async {
+    try {
+      final db = await _getDb();
+      final out = <String, MarketQuote>{};
+      final list = symbols?.where((s) => s.trim().isNotEmpty).map((s) => s.trim()).toList() ?? <String>[];
+      if (list.isEmpty) {
+        final rows = await db.query('forex_quotes', orderBy: 'symbol ASC');
+        for (final r in rows) {
+          final q = _rowToQuote(r);
+          if (q != null) out[q.symbol] = q;
+        }
+        return out;
+      }
+      for (int i = 0; i < list.length; i += _maxInBatch) {
+        final batch = list.sublist(i, (i + _maxInBatch).clamp(0, list.length));
+        if (batch.isEmpty) break;
+        final placeholders = List.filled(batch.length, '?').join(',');
+        final rows = await db.query(
+          'forex_quotes',
+          where: 'symbol IN ($placeholders)',
+          whereArgs: batch,
+        );
+        for (final r in rows) {
+          final q = _rowToQuote(r);
+          if (q != null) out[q.symbol] = q;
+        }
+      }
+      return out;
+    } catch (e) {
+      if (kDebugMode) debugPrint('MarketDb getForexQuotes: $e');
+      return {};
+    }
+  }
+
+  /// 加密货币独立表：合并报价（不存在则插入，已存在则更新）
+  Future<void> upsertCryptoQuotes(Map<String, MarketQuote> map) async {
+    if (map.isEmpty) return;
+    try {
+      final db = await _getDb();
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final batch = db.batch();
+      for (final e in map.entries) {
+        final q = e.value;
+        if (q.hasError) continue;
+        batch.insert(
+          'crypto_quotes',
+          {
+            'symbol': q.symbol,
+            'name': q.name,
+            'price': q.price,
+            'change_val': q.change,
+            'change_percent': q.changePercent,
+            'open_val': q.open,
+            'high_val': q.high,
+            'low_val': q.low,
+            'volume': q.volume,
+            'updated_at_ms': now,
+          },
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+      await batch.commit(noResult: true);
+    } catch (e) {
+      if (kDebugMode) debugPrint('MarketDb upsertCryptoQuotes: $e');
+    }
+  }
+
+  /// 加密货币独立表：按 symbols 读取；symbols 为空时读取全部
+  Future<Map<String, MarketQuote>> getCryptoQuotes([List<String>? symbols]) async {
+    try {
+      final db = await _getDb();
+      final out = <String, MarketQuote>{};
+      final list = symbols?.where((s) => s.trim().isNotEmpty).map((s) => s.trim()).toList() ?? <String>[];
+      if (list.isEmpty) {
+        final rows = await db.query('crypto_quotes', orderBy: 'symbol ASC');
+        for (final r in rows) {
+          final q = _rowToQuote(r);
+          if (q != null) out[q.symbol] = q;
+        }
+        return out;
+      }
+      for (int i = 0; i < list.length; i += _maxInBatch) {
+        final batch = list.sublist(i, (i + _maxInBatch).clamp(0, list.length));
+        if (batch.isEmpty) break;
+        final placeholders = List.filled(batch.length, '?').join(',');
+        final rows = await db.query(
+          'crypto_quotes',
+          where: 'symbol IN ($placeholders)',
+          whereArgs: batch,
+        );
+        for (final r in rows) {
+          final q = _rowToQuote(r);
+          if (q != null) out[q.symbol] = q;
+        }
+      }
+      return out;
+    } catch (e) {
+      if (kDebugMode) debugPrint('MarketDb getCryptoQuotes: $e');
+      return {};
+    }
+  }
+
   /// 获取美股列表（按 symbol 排序）
   Future<List<MarketSearchResult>> getTickers() async {
     try {
@@ -147,9 +333,11 @@ class MarketDb {
       final db = await _getDb();
       await db.delete('quotes');
       await db.delete('tickers');
+      await db.delete('forex_quotes');
+      await db.delete('crypto_quotes');
       _notifyTickers();
       _notifyQuotes();
-      if (kDebugMode) debugPrint('MarketDb clearAllMarketData: 已清空 tickers 和 quotes');
+      if (kDebugMode) debugPrint('MarketDb clearAllMarketData: 已清空 tickers/quotes/forex/crypto');
     } catch (e) {
       if (kDebugMode) debugPrint('MarketDb clearAllMarketData: $e');
       rethrow;

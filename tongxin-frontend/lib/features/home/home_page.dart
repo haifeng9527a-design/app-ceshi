@@ -17,6 +17,7 @@ import '../messages/messages_page.dart';
 import '../messages/messages_repository.dart';
 import '../market/market_page.dart';
 import '../market/watchlist_page.dart';
+import '../market/watchlist_repository.dart';
 import '../profile/profile_page.dart';
 import '../rankings/rankings_page.dart';
 
@@ -34,7 +35,8 @@ class _HomePageState extends State<HomePage> {
   int _pendingFriendRequestCount = 0;
   StreamSubscription? _incomingRequestsSubscription;
   StreamSubscription? _authSubscription;
-  final GlobalKey<NavigatorState> _desktopContentNavKey = GlobalKey<NavigatorState>();
+  final GlobalKey<NavigatorState> _desktopContentNavKey =
+      GlobalKey<NavigatorState>();
 
   static const double _kDesktopBreakpoint = 1100;
 
@@ -60,9 +62,11 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     _subscribeIncomingRequests();
+    unawaited(WatchlistRepository.instance.syncFromServerIfLoggedIn());
     if (FirebaseBootstrap.isReady) {
       _authSubscription = FirebaseAuth.instance.authStateChanges().listen((_) {
         _subscribeIncomingRequests();
+        unawaited(WatchlistRepository.instance.syncFromServerIfLoggedIn());
       });
     }
   }
@@ -96,9 +100,8 @@ class _HomePageState extends State<HomePage> {
       if (mounted) setState(() => _pendingFriendRequestCount = 0);
       return;
     }
-    _incomingRequestsSubscription = _friendsRepo
-        .watchIncomingRequests(userId: userId)
-        .listen((requests) {
+    _incomingRequestsSubscription =
+        _friendsRepo.watchIncomingRequests(userId: userId).listen((requests) {
       if (!mounted) return;
       setState(() {
         _pendingFriendRequestCount = requests.length;
@@ -111,8 +114,7 @@ class _HomePageState extends State<HomePage> {
     final userId = FirebaseBootstrap.isReady
         ? (FirebaseAuth.instance.currentUser?.uid ?? '')
         : '';
-    final canLoadMessages =
-        userId.isNotEmpty && ApiClient.instance.isAvailable;
+    final canLoadMessages = userId.isNotEmpty && ApiClient.instance.isAvailable;
     final width = MediaQuery.sizeOf(context).width;
     final useDesktopLayout = width >= _kDesktopBreakpoint;
 
@@ -166,9 +168,7 @@ class _HomePageState extends State<HomePage> {
 
         final mobileIndex = _currentIndex == 5
             ? 4
-            : (_currentIndex == 4
-                ? 0
-                : _currentIndex.clamp(0, 3));
+            : (_currentIndex == 4 ? 0 : _currentIndex.clamp(0, 3));
         return Scaffold(
           body: _pages[mobileIndex],
           bottomNavigationBar: Container(
@@ -199,7 +199,8 @@ class _HomePageState extends State<HomePage> {
                   label: AppLocalizations.of(context)!.navFollow,
                 ),
                 NavigationDestination(
-                  icon: _wrapMessageIcon(context, AppIcons.navMessages, totalUnread),
+                  icon: _wrapMessageIcon(
+                      context, AppIcons.navMessages, totalUnread),
                   selectedIcon: _wrapMessageIcon(
                     context,
                     AppIcons.navMessagesActive,

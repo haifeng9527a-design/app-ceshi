@@ -55,7 +55,9 @@ class _TeacherHubAppState extends State<TeacherHubApp>
     return ListenableBuilder(
       listenable: LocaleProvider.instance,
       builder: (_, __) {
-        final locale = LocaleProvider.instance.locale ?? const Locale('en');
+        // 未手动设置时返回 null，让 Flutter 按系统语言自动匹配；
+        // 手动设置后使用持久化的 locale 覆盖系统语言。
+        final locale = LocaleProvider.instance.locale;
         return MaterialApp(
           title: 'Tongxin',
           debugShowCheckedModeBanner: false,
