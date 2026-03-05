@@ -1077,10 +1077,54 @@ class AppLocalizationsZh extends AppLocalizations {
   String get addFriendMyQrCode => '我的二维码';
 
   @override
+  String get addFriendTabEmail => '邮箱';
+
+  @override
+  String get addFriendTabAccountId => '账号ID';
+
+  @override
+  String get addFriendTabQrCode => '二维码';
+
+  @override
   String get addFriendHintEmail => '请输入对方注册邮箱';
 
   @override
   String get addFriendHintId => '请输入对方账号 ID';
+
+  @override
+  String get addFriendLabelTargetEmail => '对方邮箱';
+
+  @override
+  String get addFriendLabelAccountIdRule => '账号 ID（6-9位数字）';
+
+  @override
+  String get addFriendEnterEmail => '请输入邮箱';
+
+  @override
+  String get addFriendEnterAccountId => '请输入账号ID';
+
+  @override
+  String get addFriendUserNotFound => '未找到该用户';
+
+  @override
+  String get addFriendRequestSent => '好友申请已发送';
+
+  @override
+  String get addFriendAlreadyFriends => '你们已是好友';
+
+  @override
+  String get addFriendAlreadyPending => '已发送过申请，请等待对方处理';
+
+  @override
+  String get commonGenerating => '生成中...';
+
+  @override
+  String get addFriendAccountIdGenerating => '账号ID：生成中...';
+
+  @override
+  String addFriendAccountIdValue(String id) {
+    return '账号ID：$id';
+  }
 
   @override
   String get commonAdd => '添加';
@@ -3460,6 +3504,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get roleVip => '会员';
+
+  @override
+  String get roleCustomerService => '客服';
 
   @override
   String get pcHome => '首页';

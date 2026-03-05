@@ -1,7 +1,9 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/design/design_tokens.dart';
 import '../../l10n/app_localizations.dart';
+import '../../ui/components/components.dart';
 import 'teacher_center_page.dart';
 import 'teacher_models.dart';
 import 'teacher_public_page.dart';
@@ -17,7 +19,8 @@ class TeacherListPage extends StatelessWidget {
       appBar: AppBar(
         title: Text(AppLocalizations.of(context)!.teachersTeacherHomepage),
         actions: [
-          TextButton(
+          AppButton(
+            variant: AppButtonVariant.text,
             onPressed: () {
               final userId = FirebaseAuth.instance.currentUser?.uid ?? '';
               if (userId.isEmpty) {
@@ -32,7 +35,7 @@ class TeacherListPage extends StatelessWidget {
                 ),
               );
             },
-            child: Text(AppLocalizations.of(context)!.teachersBecomeTeacher),
+            label: AppLocalizations.of(context)!.teachersBecomeTeacher,
           ),
         ],
       ),
@@ -41,12 +44,17 @@ class TeacherListPage extends StatelessWidget {
         builder: (context, snapshot) {
           final items = snapshot.data ?? const <TeacherProfile>[];
           if (items.isEmpty) {
-            return Center(child: Text(AppLocalizations.of(context)!.teachersNoTeachers));
+            return Center(
+              child: Text(
+                AppLocalizations.of(context)!.teachersNoTeachers,
+                style: AppTypography.bodySecondary,
+              ),
+            );
           }
           return ListView.separated(
-            padding: const EdgeInsets.all(16),
+            padding: AppSpacing.allMd,
             itemCount: items.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 12),
+            separatorBuilder: (_, __) => const SizedBox(height: AppSpacing.sm + AppSpacing.xs / 2),
             itemBuilder: (context, index) {
               final profile = items[index];
               final name = _displayName(profile);
@@ -54,9 +62,10 @@ class TeacherListPage extends StatelessWidget {
                   ? profile.title!
                   : '专业导师';
               final org = profile.organization?.trim();
-              return Card(
+              return AppCard(
+                padding: AppSpacing.symmetric(horizontal: AppSpacing.md - AppSpacing.xs / 2, vertical: AppSpacing.md - AppSpacing.xs / 2),
                 child: Padding(
-                  padding: const EdgeInsets.all(12),
+                  padding: EdgeInsets.zero,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -64,7 +73,7 @@ class TeacherListPage extends StatelessWidget {
                         children: [
                           CircleAvatar(
                             radius: 22,
-                            backgroundColor: const Color(0xFFD4AF37),
+                            backgroundColor: AppColors.primary,
                             backgroundImage:
                                 profile.avatarUrl?.trim().isNotEmpty == true
                                     ? NetworkImage(profile.avatarUrl!.trim())
@@ -73,12 +82,10 @@ class TeacherListPage extends StatelessWidget {
                                 ? null
                                 : Text(
                                     name.isEmpty ? '' : name[0],
-                                    style: const TextStyle(
-                                      color: Color(0xFF111215),
-                                    ),
+                                    style: const TextStyle(color: AppColors.surface),
                                   ),
                           ),
-                          const SizedBox(width: 12),
+                          const SizedBox(width: AppSpacing.md - AppSpacing.xs / 2),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -87,14 +94,14 @@ class TeacherListPage extends StatelessWidget {
                                   name,
                                   style: Theme.of(context).textTheme.titleMedium,
                                 ),
-                                const SizedBox(height: 4),
+                                const SizedBox(height: AppSpacing.xs),
                                 Text(
                                   title,
                                   style: Theme.of(context).textTheme.bodySmall,
                                 ),
                                 if (org != null && org.isNotEmpty)
                                   Padding(
-                                    padding: const EdgeInsets.only(top: 4),
+                                    padding: const EdgeInsets.only(top: AppSpacing.xs),
                                     child: Text(
                                       org,
                                       style:
@@ -104,7 +111,8 @@ class TeacherListPage extends StatelessWidget {
                               ],
                             ),
                           ),
-                          TextButton(
+                          AppButton(
+                            variant: AppButtonVariant.text,
                             onPressed: () {
                               Navigator.of(context).push(
                                 MaterialPageRoute(
@@ -114,21 +122,21 @@ class TeacherListPage extends StatelessWidget {
                                 ),
                               );
                             },
-                            child: Text(AppLocalizations.of(context)!.teachersHomepage),
+                            label: AppLocalizations.of(context)!.teachersHomepage,
                           ),
                         ],
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: AppSpacing.sm),
                       Wrap(
-                        spacing: 8,
+                        spacing: AppSpacing.sm,
                         runSpacing: -6,
                         children: [
                           if (profile.style?.trim().isNotEmpty == true)
-                            Chip(label: Text(profile.style!)),
+                            AppChip(label: profile.style!, selected: false),
                           if (profile.riskLevel?.trim().isNotEmpty == true)
-                            Chip(label: Text(profile.riskLevel!)),
+                            AppChip(label: profile.riskLevel!, selected: false),
                           ...((profile.specialties ?? const <String>[]).map(
-                            (item) => Chip(label: Text(item)),
+                            (item) => AppChip(label: item, selected: false),
                           )),
                         ],
                       ),

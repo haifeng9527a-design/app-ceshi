@@ -2186,6 +2186,24 @@ abstract class AppLocalizations {
   /// **'我的二维码'**
   String get addFriendMyQrCode;
 
+  /// No description provided for @addFriendTabEmail.
+  ///
+  /// In zh, this message translates to:
+  /// **'邮箱'**
+  String get addFriendTabEmail;
+
+  /// No description provided for @addFriendTabAccountId.
+  ///
+  /// In zh, this message translates to:
+  /// **'账号ID'**
+  String get addFriendTabAccountId;
+
+  /// No description provided for @addFriendTabQrCode.
+  ///
+  /// In zh, this message translates to:
+  /// **'二维码'**
+  String get addFriendTabQrCode;
+
   /// No description provided for @addFriendHintEmail.
   ///
   /// In zh, this message translates to:
@@ -2197,6 +2215,72 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'请输入对方账号 ID'**
   String get addFriendHintId;
+
+  /// No description provided for @addFriendLabelTargetEmail.
+  ///
+  /// In zh, this message translates to:
+  /// **'对方邮箱'**
+  String get addFriendLabelTargetEmail;
+
+  /// No description provided for @addFriendLabelAccountIdRule.
+  ///
+  /// In zh, this message translates to:
+  /// **'账号 ID（6-9位数字）'**
+  String get addFriendLabelAccountIdRule;
+
+  /// No description provided for @addFriendEnterEmail.
+  ///
+  /// In zh, this message translates to:
+  /// **'请输入邮箱'**
+  String get addFriendEnterEmail;
+
+  /// No description provided for @addFriendEnterAccountId.
+  ///
+  /// In zh, this message translates to:
+  /// **'请输入账号ID'**
+  String get addFriendEnterAccountId;
+
+  /// No description provided for @addFriendUserNotFound.
+  ///
+  /// In zh, this message translates to:
+  /// **'未找到该用户'**
+  String get addFriendUserNotFound;
+
+  /// No description provided for @addFriendRequestSent.
+  ///
+  /// In zh, this message translates to:
+  /// **'好友申请已发送'**
+  String get addFriendRequestSent;
+
+  /// No description provided for @addFriendAlreadyFriends.
+  ///
+  /// In zh, this message translates to:
+  /// **'你们已是好友'**
+  String get addFriendAlreadyFriends;
+
+  /// No description provided for @addFriendAlreadyPending.
+  ///
+  /// In zh, this message translates to:
+  /// **'已发送过申请，请等待对方处理'**
+  String get addFriendAlreadyPending;
+
+  /// No description provided for @commonGenerating.
+  ///
+  /// In zh, this message translates to:
+  /// **'生成中...'**
+  String get commonGenerating;
+
+  /// No description provided for @addFriendAccountIdGenerating.
+  ///
+  /// In zh, this message translates to:
+  /// **'账号ID：生成中...'**
+  String get addFriendAccountIdGenerating;
+
+  /// No description provided for @addFriendAccountIdValue.
+  ///
+  /// In zh, this message translates to:
+  /// **'账号ID：{id}'**
+  String addFriendAccountIdValue(String id);
 
   /// No description provided for @commonAdd.
   ///
@@ -6745,6 +6829,12 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'会员'**
   String get roleVip;
+
+  /// No description provided for @roleCustomerService.
+  ///
+  /// In zh, this message translates to:
+  /// **'客服'**
+  String get roleCustomerService;
 
   /// No description provided for @pcHome.
   ///

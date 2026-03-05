@@ -12,6 +12,7 @@ import 'firebase_bootstrap.dart';
 class ApiClient {
   ApiClient._();
   static final ApiClient instance = ApiClient._();
+  static const int _networkErrorStatusCode = 599;
 
   String? get _baseUrl {
     final url = dotenv.env['TONGXIN_API_URL']?.trim();
@@ -69,7 +70,7 @@ class ApiClient {
       return resp;
     } catch (e) {
       if (kDebugMode) debugPrint('[ApiClient GET $path] $e');
-      return http.Response('{"error":"${e.toString()}"}', 0);
+      return http.Response('{"error":"${e.toString()}"}', _networkErrorStatusCode);
     }
   }
 
@@ -104,7 +105,7 @@ class ApiClient {
       return resp;
     } catch (e) {
       if (kDebugMode) debugPrint('[ApiClient POST $path] $e');
-      return http.Response('{"error":"${e.toString()}"}', 0);
+      return http.Response('{"error":"${e.toString()}"}', _networkErrorStatusCode);
     }
   }
 
@@ -139,7 +140,7 @@ class ApiClient {
       return resp;
     } catch (e) {
       if (kDebugMode) debugPrint('[ApiClient PUT $path] $e');
-      return http.Response('{"error":"${e.toString()}"}', 0);
+      return http.Response('{"error":"${e.toString()}"}', _networkErrorStatusCode);
     }
   }
 
@@ -174,7 +175,7 @@ class ApiClient {
       return resp;
     } catch (e) {
       if (kDebugMode) debugPrint('[ApiClient PATCH $path] $e');
-      return http.Response('{"error":"${e.toString()}"}', 0);
+      return http.Response('{"error":"${e.toString()}"}', _networkErrorStatusCode);
     }
   }
 
@@ -200,7 +201,7 @@ class ApiClient {
       return resp;
     } catch (e) {
       if (kDebugMode) debugPrint('[ApiClient DELETE $path] $e');
-      return http.Response('{"error":"${e.toString()}"}', 0);
+      return http.Response('{"error":"${e.toString()}"}', _networkErrorStatusCode);
     }
   }
 
@@ -237,7 +238,7 @@ class ApiClient {
       return resp;
     } catch (e) {
       if (kDebugMode) debugPrint('[ApiClient UPLOAD $path] $e');
-      return http.Response('{"error":"${e.toString()}"}', 0);
+      return http.Response('{"error":"${e.toString()}"}', _networkErrorStatusCode);
     }
   }
 }

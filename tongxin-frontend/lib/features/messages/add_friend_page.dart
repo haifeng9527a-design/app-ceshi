@@ -37,9 +37,10 @@ class _AddFriendPageState extends State<AddFriendPage> {
   }
 
   Future<void> _searchEmail() async {
+    final l10n = AppLocalizations.of(context)!;
     final email = _emailController.text.trim();
     if (email.isEmpty) {
-      _showMessage('请输入邮箱');
+      _showMessage(l10n.addFriendEnterEmail);
       return;
     }
     setState(() => _loading = true);
@@ -47,19 +48,20 @@ class _AddFriendPageState extends State<AddFriendPage> {
       final profile = await _repository.findByEmail(email);
       setState(() => _result = profile);
       if (profile == null) {
-        _showMessage('未找到该用户');
+        _showMessage(l10n.addFriendUserNotFound);
       }
     } catch (error) {
-      _showMessage(NetworkErrorHelper.messageForUser(error, prefix: AppLocalizations.of(context)!.msgSearchFailed, l10n: AppLocalizations.of(context)));
+      _showMessage(NetworkErrorHelper.messageForUser(error, prefix: l10n.msgSearchFailed, l10n: l10n));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
   Future<void> _searchId() async {
+    final l10n = AppLocalizations.of(context)!;
     final shortId = _idController.text.trim();
     if (shortId.isEmpty) {
-      _showMessage('请输入账号ID');
+      _showMessage(l10n.addFriendEnterAccountId);
       return;
     }
     setState(() => _loading = true);
@@ -67,10 +69,10 @@ class _AddFriendPageState extends State<AddFriendPage> {
       final profile = await _repository.findByShortId(shortId);
       setState(() => _result = profile);
       if (profile == null) {
-        _showMessage('未找到该用户');
+        _showMessage(l10n.addFriendUserNotFound);
       }
     } catch (error) {
-      _showMessage(NetworkErrorHelper.messageForUser(error, prefix: AppLocalizations.of(context)!.msgSearchFailed, l10n: AppLocalizations.of(context)));
+      _showMessage(NetworkErrorHelper.messageForUser(error, prefix: l10n.msgSearchFailed, l10n: l10n));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -89,6 +91,7 @@ class _AddFriendPageState extends State<AddFriendPage> {
   }
 
   Future<void> _sendRequest() async {
+    final l10n = AppLocalizations.of(context)!;
     final currentUser = FirebaseAuth.instance.currentUser;
     final target = _result;
     if (currentUser == null || target == null) {
@@ -106,18 +109,18 @@ class _AddFriendPageState extends State<AddFriendPage> {
         requesterId: currentUser.uid,
         receiverId: target.userId,
       );
-      _showMessage('好友申请已发送');
+      _showMessage(l10n.addFriendRequestSent);
     } on Exception catch (e) {
       final msg = e.toString();
       if (msg.contains('already_friends')) {
-        _showMessage('你们已是好友');
+        _showMessage(l10n.addFriendAlreadyFriends);
       } else if (msg.contains('already_pending')) {
-        _showMessage('已发送过申请，请等待对方处理');
+        _showMessage(l10n.addFriendAlreadyPending);
       } else {
-        _showMessage(NetworkErrorHelper.messageForUser(e, prefix: AppLocalizations.of(context)!.msgSendFailed, l10n: AppLocalizations.of(context)));
+        _showMessage(NetworkErrorHelper.messageForUser(e, prefix: l10n.msgSendFailed, l10n: l10n));
       }
     } catch (error) {
-      _showMessage(NetworkErrorHelper.messageForUser(error, prefix: AppLocalizations.of(context)!.msgSendFailed, l10n: AppLocalizations.of(context)));
+      _showMessage(NetworkErrorHelper.messageForUser(error, prefix: l10n.msgSendFailed, l10n: l10n));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -131,6 +134,7 @@ class _AddFriendPageState extends State<AddFriendPage> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Scaffold(
       backgroundColor: PcDashboardTheme.surface,
       appBar: AppBar(
@@ -144,9 +148,9 @@ class _AddFriendPageState extends State<AddFriendPage> {
         padding: const EdgeInsets.all(PcDashboardTheme.contentPadding),
         children: [
           _SegmentTabs(
-            leftLabel: '邮箱',
-            middleLabel: '账号ID',
-            rightLabel: '二维码',
+            leftLabel: l10n.addFriendTabEmail,
+            middleLabel: l10n.addFriendTabAccountId,
+            rightLabel: l10n.addFriendTabQrCode,
             index: _tabIndex,
             onChanged: (value) => setState(() => _tabIndex = value),
           ),
@@ -158,7 +162,7 @@ class _AddFriendPageState extends State<AddFriendPage> {
               style: PcDashboardTheme.bodyLarge,
               decoration: PcDashboardTheme.inputDecoration(
                 hintText: AppLocalizations.of(context)!.addFriendHintEmail,
-              ).copyWith(labelText: '对方邮箱', labelStyle: PcDashboardTheme.bodyMedium),
+              ).copyWith(labelText: l10n.addFriendLabelTargetEmail, labelStyle: PcDashboardTheme.bodyMedium),
             ),
             const SizedBox(height: 16),
             _SearchButton(
@@ -173,7 +177,7 @@ class _AddFriendPageState extends State<AddFriendPage> {
               style: PcDashboardTheme.bodyLarge,
               decoration: PcDashboardTheme.inputDecoration(
                 hintText: AppLocalizations.of(context)!.addFriendHintId,
-              ).copyWith(labelText: '账号 ID（6-9位数字）', labelStyle: PcDashboardTheme.bodyMedium),
+              ).copyWith(labelText: l10n.addFriendLabelAccountIdRule, labelStyle: PcDashboardTheme.bodyMedium),
             ),
             const SizedBox(height: 16),
             _SearchButton(
@@ -213,7 +217,7 @@ class _AddFriendPageState extends State<AddFriendPage> {
                     backgroundColor: PcDashboardTheme.surfaceElevated,
                     child: Text(
                       _result!.displayName.isEmpty
-                          ? '用'
+                          ? '?'
                           : _result!.displayName[0],
                       style: PcDashboardTheme.titleMedium.copyWith(
                         color: PcDashboardTheme.accent,
@@ -420,6 +424,7 @@ class _MyQrCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
       return const SizedBox.shrink();
@@ -451,15 +456,15 @@ class _MyQrCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(PcDashboardTheme.radiusSm),
                   ),
                   child: Text(
-                    '生成中...',
+                    l10n.commonGenerating,
                     style: PcDashboardTheme.bodySmall,
                   ),
                 ),
               const SizedBox(height: 12),
               Text(
                 shortId == null || shortId.isEmpty
-                    ? '账号ID：生成中...'
-                    : '账号ID：$shortId',
+                    ? l10n.addFriendAccountIdGenerating
+                    : l10n.addFriendAccountIdValue(shortId),
                 style: PcDashboardTheme.bodySmall,
               ),
             ],

@@ -16,6 +16,7 @@ class RoleBadge extends StatelessWidget {
 
   /// 将后端返回的角色标识映射为样式 key（支持中英文）
   static String _toStyleKey(String label) {
+    if (label == '客服' || label == 'Customer Service' || label == 'customer_service') return '_cs';
     if (label == '交易员' || label == 'Trader' || label == 'trader') return '_trader';
     if (label == '管理员' || label == 'Admin' || label == 'admin') return '_admin';
     if (label == '会员' || label == 'Member' || label == 'member' || label == 'VIP' || label == 'vip') return '_vip';
@@ -24,6 +25,14 @@ class RoleBadge extends StatelessWidget {
 
   static ({IconData icon, Color color, Color? bgColor, List<Color>? gradientColors, FontWeight fontWeight}) _style(String key) {
     switch (key) {
+      case '_cs':
+        return (
+          icon: Icons.support_agent_rounded,
+          color: const Color(0xFF2AD37F),
+          bgColor: const Color(0x222AD37F),
+          gradientColors: null,
+          fontWeight: FontWeight.w700,
+        );
       case '_trader':
         return (
           icon: Icons.trending_up_rounded,
@@ -60,12 +69,18 @@ class RoleBadge extends StatelessWidget {
     }
   }
 
+  static String _customerServiceText(BuildContext context) {
+    final code = Localizations.localeOf(context).languageCode.toLowerCase();
+    return code.startsWith('en') ? 'Customer Service' : '客服';
+  }
+
   @override
   Widget build(BuildContext context) {
     final raw = roleLabel?.trim() ?? '';
     if (raw.isEmpty) return const SizedBox.shrink();
     final l10n = AppLocalizations.of(context)!;
     final displayLabel = switch (_toStyleKey(raw)) {
+      '_cs' => _customerServiceText(context),
       '_trader' => l10n.roleTrader,
       '_admin' => l10n.roleAdmin,
       '_vip' => l10n.roleVip,
@@ -94,7 +109,7 @@ class RoleBadge extends StatelessWidget {
         boxShadow: useGradient
             ? [
                 BoxShadow(
-                  color: s.gradientColors!.first.withOpacity(0.35),
+                  color: s.gradientColors!.first.withValues(alpha: 0.35),
                   blurRadius: 6,
                   offset: const Offset(0, 2),
                 ),
@@ -102,7 +117,7 @@ class RoleBadge extends StatelessWidget {
             : null,
         border: useGradient
             ? null
-            : Border.all(color: s.color.withOpacity(0.35), width: 0.8),
+            : Border.all(color: s.color.withValues(alpha: 0.35), width: 0.8),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,

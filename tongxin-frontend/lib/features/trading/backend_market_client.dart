@@ -67,6 +67,31 @@ class BackendMarketClient {
     }
   }
 
+  /// 批量写入 symbol+name 到服务器 stock_quote_cache（无报价也可，用于预填股票列表）
+  Future<bool> upsertTickersToServer(List<MarketSearchResult> tickers) async {
+    if (tickers.isEmpty) return true;
+    try {
+      final body = tickers.map((t) => {'symbol': t.symbol, 'name': t.name}).toList();
+      final uri = Uri.parse('${_base}api/tickers-upsert');
+      final resp = await http.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(body),
+      ).timeout(
+        const Duration(seconds: 30),
+        onTimeout: () => throw Exception('请求超时'),
+      );
+      if (resp.statusCode != 200) {
+        if (kDebugMode) debugPrint('[Backend upsertTickersToServer] ${resp.statusCode} ${resp.body}');
+        return false;
+      }
+      return true;
+    } catch (e) {
+      if (kDebugMode) debugPrint('[Backend upsertTickersToServer] $e');
+      return false;
+    }
+  }
+
   /// [realtime] 为 true 且仅请求单只时：不读本地缓存，请求带 realtime=1，后端直连 Polygon 返回实时数据（详情页用）
   Future<Map<String, MarketQuote>> getQuotes(List<String> symbols, {bool realtime = false}) async {
     if (symbols.isEmpty) return {};

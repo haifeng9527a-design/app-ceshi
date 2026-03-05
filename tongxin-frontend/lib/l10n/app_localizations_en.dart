@@ -1099,10 +1099,55 @@ class AppLocalizationsEn extends AppLocalizations {
   String get addFriendMyQrCode => 'My QR code';
 
   @override
+  String get addFriendTabEmail => 'Email';
+
+  @override
+  String get addFriendTabAccountId => 'Account ID';
+
+  @override
+  String get addFriendTabQrCode => 'QR Code';
+
+  @override
   String get addFriendHintEmail => 'Enter their registered email';
 
   @override
   String get addFriendHintId => 'Enter their account ID';
+
+  @override
+  String get addFriendLabelTargetEmail => 'Recipient email';
+
+  @override
+  String get addFriendLabelAccountIdRule => 'Account ID (6-9 digits)';
+
+  @override
+  String get addFriendEnterEmail => 'Please enter email';
+
+  @override
+  String get addFriendEnterAccountId => 'Please enter account ID';
+
+  @override
+  String get addFriendUserNotFound => 'User not found';
+
+  @override
+  String get addFriendRequestSent => 'Friend request sent';
+
+  @override
+  String get addFriendAlreadyFriends => 'You are already friends';
+
+  @override
+  String get addFriendAlreadyPending =>
+      'Request already sent. Please wait for response.';
+
+  @override
+  String get commonGenerating => 'Generating...';
+
+  @override
+  String get addFriendAccountIdGenerating => 'Account ID: generating...';
+
+  @override
+  String addFriendAccountIdValue(String id) {
+    return 'Account ID: $id';
+  }
 
   @override
   String get commonAdd => 'Add';
@@ -3522,6 +3567,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get roleVip => 'Member';
+
+  @override
+  String get roleCustomerService => 'Customer Service';
 
   @override
   String get pcHome => 'Home';

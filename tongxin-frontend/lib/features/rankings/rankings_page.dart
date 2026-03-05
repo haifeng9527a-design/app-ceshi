@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../api/teachers_api.dart';
 import '../../core/api_client.dart';
+import '../../core/design/design_tokens.dart';
 import '../../core/supabase_bootstrap.dart';
 import '../../l10n/app_localizations.dart';
 import '../teachers/teacher_models.dart';
@@ -46,7 +47,7 @@ class _RankingsPageState extends State<RankingsPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text(''),
+        title: Text(AppLocalizations.of(context)!.navRankings),
       ),
       body: StreamBuilder<List<TeacherProfile>>(
         key: ValueKey<int>(_streamKey),
@@ -62,7 +63,7 @@ class _RankingsPageState extends State<RankingsPage> {
           if (snapshot.connectionState == ConnectionState.waiting &&
               !snapshot.hasData) {
             return const Center(
-              child: CircularProgressIndicator(color: Color(0xFFD4AF37)),
+              child: CircularProgressIndicator(color: AppColors.primary),
             );
           }
           final list = snapshot.data ?? const <TeacherProfile>[];
@@ -88,7 +89,7 @@ class _RankingsPageState extends State<RankingsPage> {
                   ? teacher.displayName!
                   : (teacher.realName?.trim().isNotEmpty == true
                       ? teacher.realName!
-                      : '交易员');
+                      : 'Trader');
               final wins = teacher.wins ?? 0;
               final losses = teacher.losses ?? 0;
               final total = wins + losses;
@@ -103,7 +104,7 @@ class _RankingsPageState extends State<RankingsPage> {
                         name: name,
                         title: teacher.title?.trim().isNotEmpty == true
                             ? teacher.title!
-                            : '导师',
+                            : AppLocalizations.of(context)!.roleTrader,
                         avatarUrl: teacher.avatarUrl?.trim(),
                         wins: wins,
                         losses: losses,
@@ -123,7 +124,7 @@ class _RankingsPageState extends State<RankingsPage> {
                         name: name,
                         title: teacher.title?.trim().isNotEmpty == true
                             ? teacher.title!
-                            : '导师',
+                            : AppLocalizations.of(context)!.roleTrader,
                         avatarUrl: teacher.avatarUrl?.trim(),
                         wins: wins,
                         losses: losses,
@@ -154,28 +155,28 @@ class _RankingsPageState extends State<RankingsPage> {
     final errStr = error?.toString() ?? '';
     final msg = errStr.contains('Operation not permitted') ||
             errStr.contains('Connection failed')
-        ? '网络连接被限制，请检查网络或在本机终端运行应用后重试'
-        : '加载排行榜失败，请重试';
+        ? AppLocalizations.of(context)!.networkNoConnection
+        : AppLocalizations.of(context)!.networkTryAgain;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.cloud_off, size: 48, color: Colors.grey[600]),
+            const Icon(AppIcons.cloudOff, size: 48, color: AppColors.textTertiary),
             const SizedBox(height: 16),
             Text(
               msg,
-              style: TextStyle(color: Colors.grey[400], fontSize: 14),
+              style: const TextStyle(color: AppColors.textSecondary, fontSize: 14),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
             TextButton.icon(
               onPressed: onRetry,
-              icon: const Icon(Icons.refresh),
+              icon: const Icon(AppIcons.retry),
               label: Text(AppLocalizations.of(context)!.commonRetry),
               style: TextButton.styleFrom(
-                foregroundColor: const Color(0xFFD4AF37),
+                foregroundColor: AppColors.primary,
               ),
             ),
           ],
@@ -464,27 +465,6 @@ class _TopThreeRankBadge extends StatelessWidget {
           color: color,
           fontSize: 13,
           fontWeight: FontWeight.w800,
-        ),
-      ),
-    );
-  }
-}
-
-class _RankBadge extends StatelessWidget {
-  const _RankBadge({required this.rank});
-
-  final int rank;
-
-  @override
-  Widget build(BuildContext context) {
-    return CircleAvatar(
-      radius: 20,
-      backgroundColor: const Color(0xFFD4AF37),
-      child: Text(
-        '$rank',
-        style: const TextStyle(
-          color: Color(0xFF111215),
-          fontWeight: FontWeight.w700,
         ),
       ),
     );

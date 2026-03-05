@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/design/design_tokens.dart';
 import '../../core/firebase_bootstrap.dart';
 import '../../l10n/app_localizations.dart';
 import '../../core/notification_service.dart';
@@ -170,40 +171,49 @@ class _HomePageState extends State<HomePage> {
                 : _currentIndex.clamp(0, 3));
         return Scaffold(
           body: _pages[mobileIndex],
-          bottomNavigationBar: NavigationBar(
-            selectedIndex: mobileIndex,
-            onDestinationSelected: (index) {
-              setState(() => _currentIndex = index == 4 ? 5 : index);
-            },
-            destinations: [
-              NavigationDestination(
-                icon: const Icon(Icons.home_outlined),
-                selectedIcon: const Icon(Icons.home),
-                label: AppLocalizations.of(context)!.navMainPage,
+          bottomNavigationBar: Container(
+            decoration: const BoxDecoration(
+              border: Border(
+                top: BorderSide(color: AppColors.borderSubtle),
               ),
-              NavigationDestination(
-                icon: const Icon(Icons.show_chart_outlined),
-                selectedIcon: const Icon(Icons.show_chart),
-                label: AppLocalizations.of(context)!.navMarket,
-              ),
-              NavigationDestination(
-                icon: const Icon(Icons.emoji_events_outlined),
-                selectedIcon: const Icon(Icons.emoji_events),
-                label: AppLocalizations.of(context)!.navFollow,
-              ),
-              NavigationDestination(
-                icon: _wrapMessageIcon(context,
-                    Icons.chat_bubble_outline, totalUnread),
-                selectedIcon: _wrapMessageIcon(context,
-                    Icons.chat_bubble, totalUnread),
-                label: AppLocalizations.of(context)!.navMessages,
-              ),
-              NavigationDestination(
-                icon: const Icon(Icons.person_outline),
-                selectedIcon: const Icon(Icons.person),
-                label: AppLocalizations.of(context)!.navProfile,
-              ),
-            ],
+            ),
+            child: NavigationBar(
+              selectedIndex: mobileIndex,
+              onDestinationSelected: (index) {
+                setState(() => _currentIndex = index == 4 ? 5 : index);
+              },
+              destinations: [
+                NavigationDestination(
+                  icon: const Icon(AppIcons.navHome),
+                  selectedIcon: const Icon(AppIcons.navHomeActive),
+                  label: AppLocalizations.of(context)!.navMainPage,
+                ),
+                NavigationDestination(
+                  icon: const Icon(AppIcons.navMarket),
+                  selectedIcon: const Icon(AppIcons.navMarketActive),
+                  label: AppLocalizations.of(context)!.navMarket,
+                ),
+                NavigationDestination(
+                  icon: const Icon(AppIcons.navFollow),
+                  selectedIcon: const Icon(AppIcons.navFollowActive),
+                  label: AppLocalizations.of(context)!.navFollow,
+                ),
+                NavigationDestination(
+                  icon: _wrapMessageIcon(context, AppIcons.navMessages, totalUnread),
+                  selectedIcon: _wrapMessageIcon(
+                    context,
+                    AppIcons.navMessagesActive,
+                    totalUnread,
+                  ),
+                  label: AppLocalizations.of(context)!.navMessages,
+                ),
+                NavigationDestination(
+                  icon: const Icon(AppIcons.navProfile),
+                  selectedIcon: const Icon(AppIcons.navProfileActive),
+                  label: AppLocalizations.of(context)!.navProfile,
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -222,7 +232,7 @@ class _HomePageState extends State<HomePage> {
         style: const TextStyle(
           fontSize: 10,
           fontWeight: FontWeight.w600,
-          color: Colors.white,
+          color: AppColors.textPrimary,
         ),
       ),
       backgroundColor: Theme.of(context).colorScheme.error,

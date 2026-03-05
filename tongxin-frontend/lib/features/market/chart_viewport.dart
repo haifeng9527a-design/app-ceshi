@@ -500,10 +500,12 @@ class _ChartViewportState extends State<ChartViewport> {
         const rightAxisWidth = 56.0;
         const horizontalPad = 4.0;
         final chartAreaWidth = (layoutConstraints.maxWidth - horizontalPad - 2 - rightAxisWidth).clamp(0.0, double.infinity);
-        const timeRatio = 22 / 376;
+        const timeRatio = 28 / 376;
+        /// 时间轴最小高度，确保底部日期标签完整显示不被裁切
+        const minTimeAxisHeight = 28.0;
 
         return Padding(
-          padding: const EdgeInsets.fromLTRB(0, 4, 4, 4),
+          padding: const EdgeInsets.fromLTRB(0, 4, 4, 12),
           child: ClipRect(
             child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -529,9 +531,10 @@ class _ChartViewportState extends State<ChartViewport> {
                 child: LayoutBuilder(
                   builder: (context, chartConstraints) {
                     final remaining = chartConstraints.maxHeight.clamp(120.0, double.infinity);
-                    final chartH = remaining * 0.92 * (1 - timeRatio);
-                    final subH = remaining * 0.08 * (1 - timeRatio);
-                    final timeH = remaining * timeRatio;
+                    final timeH = (remaining * timeRatio).clamp(minTimeAxisHeight, 36.0);
+                    final rest = remaining - timeH;
+                    final chartH = rest * 0.92;
+                    final subH = rest * 0.08;
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisSize: MainAxisSize.min,

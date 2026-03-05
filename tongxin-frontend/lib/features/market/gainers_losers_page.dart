@@ -17,7 +17,7 @@ class GainersLosersPage extends StatefulWidget {
 }
 
 class _GainersLosersPageState extends State<GainersLosersPage>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late TabController _tabController;
   final _market = MarketRepository();
   final _realtime = RealtimeQuoteService();
@@ -34,6 +34,9 @@ class _GainersLosersPageState extends State<GainersLosersPage>
   /// 排序列：code/name/pct/price/change/open/prev/high/low/vol；默认涨跌幅
   String _sortColumn = 'pct';
   bool _sortAscending = false;
+  static const _latestRefreshInterval = Duration(seconds: 15);
+  Timer? _latestRefreshTimer;
+  bool _refreshingLatest = false;
 
   static const _bg = Color(0xFF0B0C0E);
   static const _surface = Color(0xFF111215);
@@ -46,6 +49,7 @@ class _GainersLosersPageState extends State<GainersLosersPage>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _tabController = TabController(length: 2, vsync: this);
     _gainersSub = _realtime.gainersStream.listen((list) {
       if (mounted) setState(() => _gainers = list);
@@ -56,6 +60,7 @@ class _GainersLosersPageState extends State<GainersLosersPage>
     _loadGainers();
     _loadLosers();
     _loadIndices();
+    _startLatestRefreshTimer();
   }
 
   Future<void> _loadIndices() async {
@@ -67,11 +72,41 @@ class _GainersLosersPageState extends State<GainersLosersPage>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _latestRefreshTimer?.cancel();
     _gainersSub?.cancel();
     _losersSub?.cancel();
     _realtime.dispose();
     _tabController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _refreshLatestData();
+    }
+  }
+
+  void _startLatestRefreshTimer() {
+    _latestRefreshTimer?.cancel();
+    _latestRefreshTimer = Timer.periodic(_latestRefreshInterval, (_) {
+      _refreshLatestData();
+    });
+  }
+
+  Future<void> _refreshLatestData() async {
+    if (!mounted || _refreshingLatest) return;
+    _refreshingLatest = true;
+    try {
+      await Future.wait([
+        _loadIndices(),
+        _loadGainers(),
+        _loadLosers(),
+      ]);
+    } finally {
+      _refreshingLatest = false;
+    }
   }
 
   Future<void> _loadGainers() async {

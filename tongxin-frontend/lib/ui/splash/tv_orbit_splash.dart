@@ -69,10 +69,11 @@ class _TvOrbitSplashState extends State<TvOrbitSplash>
       await NotificationSettingsGuide.showIfNeeded(context);
     }
     if (!mounted) return;
-    if (widget.nextBuilder != null) {
+    final nextWidget = widget.nextBuilder != null ? widget.nextBuilder!() : null;
+    if (nextWidget != null) {
       Navigator.of(context).pushReplacement(
         PageRouteBuilder(
-          pageBuilder: (_, __, ___) => widget.nextBuilder!(),
+          pageBuilder: (_, __, ___) => nextWidget,
           transitionsBuilder: (_, animation, __, child) {
             return FadeTransition(opacity: animation, child: child);
           },

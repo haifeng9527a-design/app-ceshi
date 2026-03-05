@@ -96,6 +96,30 @@ async function setBatch(entries) {
 }
 
 /**
+ * 批量写入 symbol+name（无报价时也可写入，用于预填股票列表）
+ * entries: [{ symbol, name }, ...]
+ */
+async function upsertSymbolsAndNames(entries) {
+  const supabase = getClient();
+  if (!supabase || !entries.length) return;
+  const now = new Date().toISOString();
+  const rows = entries
+    .map((e) => {
+      const symbol = (e.symbol || '').toUpperCase().trim();
+      if (!symbol) return null;
+      return {
+        symbol,
+        name: e.name ?? symbol,
+        updated_at: now,
+      };
+    })
+    .filter(Boolean);
+  if (rows.length > 0) {
+    await supabase.from(TABLE).upsert(rows, { onConflict: 'symbol' });
+  }
+}
+
+/**
  * 获取 stock_quote_cache 表中所有 symbol+name（24 小时内更新过的），用于美股列表秒开
  * 返回 [{ symbol, name }, ...]，按 symbol 排序
  */
@@ -116,5 +140,6 @@ module.exports = {
   isConfigured,
   getBySymbols,
   setBatch,
+  upsertSymbolsAndNames,
   getAllSymbolsAndNames,
 };

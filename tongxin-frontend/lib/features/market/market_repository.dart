@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -537,25 +538,25 @@ class MarketRepository {
 
   /// 仅读缓存领涨（不请求 API），用于首屏秒出；走后端时由后端缓存
   Future<List<PolygonGainer>?> getCachedGainersOnly({Duration maxAge = const Duration(hours: 48)}) async {
-    if (_backend != null) return _backend!.getGainers(limit: 20);
+    // 业务要求：涨跌幅相关榜单数据始终直连第三方，不走后端代理
     return _polygon.getCachedGainersOnly(maxAge: maxAge);
   }
 
   /// 仅读缓存领跌（不请求 API）
   Future<List<PolygonGainer>?> getCachedLosersOnly({Duration maxAge = const Duration(hours: 48)}) async {
-    if (_backend != null) return _backend!.getLosers(limit: 20);
+    // 业务要求：涨跌幅相关榜单数据始终直连第三方，不走后端代理
     return _polygon.getCachedLosersOnly(maxAge: maxAge);
   }
 
   /// 领涨榜（优先后端，否则 Polygon + 缓存/Supabase 回退）
   Future<List<PolygonGainer>> getTopGainers({int limit = 20}) async {
-    if (_backend != null) return _backend!.getGainers(limit: limit);
+    // 业务要求：涨跌幅相关榜单数据始终直连第三方，不走后端代理
     return _polygon.getTopGainers(limit: limit);
   }
 
   /// 领跌榜
   Future<List<PolygonGainer>> getTopLosers({int limit = 20}) async {
-    if (_backend != null) return _backend!.getLosers(limit: limit);
+    // 业务要求：涨跌幅相关榜单数据始终直连第三方，不走后端代理
     return _polygon.getTopLosers(limit: limit);
   }
 
@@ -563,9 +564,23 @@ class MarketRepository {
   static const _usTickersCacheMaxAge = Duration(days: 7);
 
   /// 将报价写入本地 DB（拉取到新数据后调用，供下次秒开）
+  /// 同时 upsert 对应 tickers：不存在则新增，存在则更新，保持数据全面
+  /// 异步存储，调用方不应 await，避免影响 UI 显示
   Future<void> persistQuotesToLocalDb(Map<String, MarketQuote> quotes) async {
     if (quotes.isEmpty) return;
     try {
+      final tickers = quotes.entries
+          .where((e) => !e.value.hasError)
+          .map((e) => MarketSearchResult(
+                symbol: e.key,
+                name: e.value.name ?? e.key,
+                market: 'stocks',
+              ))
+          .toList();
+      if (tickers.isNotEmpty) {
+        await MarketDb.instance.upsertTickers(tickers);
+        unawaited(syncTickersToServer(tickers));
+      }
       await MarketDb.instance.upsertQuotes(quotes);
     } catch (_) {}
   }
@@ -587,14 +602,44 @@ class MarketRepository {
     }
   }
 
+  /// 分页从本地 DB 读取美股列表+报价（一次加载 [limit] 条，避免 UI 卡顿）
+  Future<({List<MarketSearchResult> tickers, Map<String, MarketQuote> quotes})?> getTickersFromLocalDbPage({
+    String? sortColumn,
+    bool sortAscending = false,
+    required int limit,
+    int offset = 0,
+  }) async {
+    try {
+      final result = await MarketDb.instance.getTickersAndQuotesPage(
+        sortColumn: sortColumn,
+        sortAscending: sortAscending,
+        limit: limit,
+        offset: offset,
+      );
+      if (result.tickers.isEmpty) return null;
+      return result;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 本地 DB 中 tickers 总数
+  Future<int> getTickerCount() async {
+    try {
+      return await MarketDb.instance.getTickerCount();
+    } catch (_) {
+      return 0;
+    }
+  }
+
   /// 从后端 stock_quote_cache 读取美股列表（后端代理，避免前端直连 Supabase）
-  /// 返回空列表表示后端未配置或表无数据；成功时写入本地缓存供下次秒开
+  /// 返回空列表表示后端未配置或表无数据；成功时异步写入本地缓存供下次秒开（不阻塞 UI）
   Future<List<MarketSearchResult>> getTickersFromStockQuoteCache() async {
     if (_backend != null) {
       final list = await _backend!.getTickersFromCache();
       if (list != null && list.isNotEmpty) {
         final payload = list.map((r) => {'s': r.symbol, 'n': r.name, 'm': r.market}).toList();
-        await TradingCache.instance.setList(_usTickersCacheKey, payload);
+        unawaited(TradingCache.instance.setList(_usTickersCacheKey, payload));
         return list;
       }
       return [];
@@ -602,7 +647,7 @@ class MarketRepository {
     final list = await _quoteCacheRepo.getAllTickers();
     if (list.isNotEmpty) {
       final payload = list.map((r) => {'s': r.symbol, 'n': r.name, 'm': r.market}).toList();
-      await TradingCache.instance.setList(_usTickersCacheKey, payload);
+      unawaited(TradingCache.instance.setList(_usTickersCacheKey, payload));
     }
     return list;
   }
@@ -649,7 +694,7 @@ class MarketRepository {
     return list;
   }
 
-  /// 全量美股列表（Polygon v3 reference tickers，market=stocks 含各 type，约 8000+ 条）；结果写入本地缓存
+  /// 全量美股列表（Polygon v3 reference tickers，market=stocks 含各 type，约 8000+ 条）；结果异步写入本地缓存（不阻塞 UI）
   /// 按 symbol 排序以保证跨会话/设备/语言的一致性
   Future<List<MarketSearchResult>> getAllUsTickers() async {
     final list = await _polygon.getAllUsTickers();
@@ -657,14 +702,27 @@ class MarketRepository {
     result.sort((a, b) => a.symbol.compareTo(b.symbol));
     if (result.isNotEmpty) {
       final payload = result.map((r) => {'s': r.symbol, 'n': r.name, 'm': r.market}).toList();
-      await TradingCache.instance.setList(_usTickersCacheKey, payload);
+      unawaited(TradingCache.instance.setList(_usTickersCacheKey, payload));
     }
     return result;
   }
 
+  /// 将股票列表同步到服务器 stock_quote_cache（存在则更新，不存在则新增）
+  /// 分批发送，每批最多 1000 条
+  Future<void> syncTickersToServer(List<MarketSearchResult> tickers) async {
+    if (_backend == null || tickers.isEmpty) return;
+    const chunkSize = 1000;
+    try {
+      for (var i = 0; i < tickers.length; i += chunkSize) {
+        final chunk = tickers.sublist(i, (i + chunkSize).clamp(0, tickers.length));
+        await _backend!.upsertTickersToServer(chunk);
+      }
+    } catch (_) {}
+  }
+
   /// 缓存领涨（短 TTL），用于交易 Tab 等
   Future<List<PolygonGainer>?> getCachedGainers({int limit = 10, Duration maxAge = const Duration(seconds: 60)}) async {
-    if (_backend != null) return _backend!.getGainers(limit: limit);
+    // 业务要求：涨跌幅相关榜单数据始终直连第三方，不走后端代理
     return _polygon.getCachedGainers(limit: limit, maxAge: maxAge);
   }
 

@@ -1,19 +1,19 @@
 import 'dart:convert';
-import 'dart:math' as math;
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/design/design_tokens.dart';
 import '../../l10n/app_localizations.dart';
+import '../../ui/components/components.dart';
 import '../auth/login_page.dart';
 import '../../api/users_api.dart';
 import '../../core/api_client.dart';
 import '../../core/firebase_bootstrap.dart';
 import '../../core/models.dart';
 import '../../core/supabase_bootstrap.dart';
-import '../messages/chat_detail_page.dart';
 import '../messages/message_models.dart';
 import '../messages/messages_repository.dart';
 import '../strategies/strategy_dialog.dart';
@@ -238,7 +238,7 @@ class _FeaturedTeacherPageState extends State<FeaturedTeacherPage> {
     if (_loading) {
       return const Scaffold(
         body: Center(
-          child: CircularProgressIndicator(color: Color(0xFFD4AF37)),
+          child: CircularProgressIndicator(color: AppColors.primary),
         ),
       );
     }
@@ -248,7 +248,7 @@ class _FeaturedTeacherPageState extends State<FeaturedTeacherPage> {
       return Scaffold(
         body: Center(
           child: Padding(
-            padding: const EdgeInsets.all(24),
+            padding: AppSpacing.allLg,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -256,13 +256,15 @@ class _FeaturedTeacherPageState extends State<FeaturedTeacherPage> {
                   isNotLoggedIn
                       ? l10n.featuredNotStartedInvestment
                       : (_error ?? l10n.commonNoData),
-                  style:
-                      const TextStyle(color: Color(0xFF6C6F77), fontSize: 15),
+                  style: AppTypography.bodySecondary.copyWith(
+                    color: AppColors.textTertiary,
+                    fontSize: 15,
+                  ),
                   textAlign: TextAlign.center,
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: AppSpacing.lg),
                 if (isNotLoggedIn)
-                  FilledButton.icon(
+                  AppButton(
                     onPressed: () {
                       Navigator.of(context).push(
                         MaterialPageRoute(
@@ -271,19 +273,14 @@ class _FeaturedTeacherPageState extends State<FeaturedTeacherPage> {
                       );
                     },
                     icon: const Icon(Icons.login, size: 20),
-                    label: Text(l10n.authLoginOrRegister),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFFD4AF37),
-                      foregroundColor: const Color(0xFF111215),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 24, vertical: 12),
-                    ),
+                    label: l10n.authLoginOrRegister,
                   )
                 else
-                  TextButton.icon(
+                  AppButton(
+                    variant: AppButtonVariant.text,
                     onPressed: _load,
                     icon: const Icon(Icons.refresh),
-                    label: Text(l10n.commonRetry),
+                    label: l10n.commonRetry,
                   ),
               ],
             ),
@@ -297,7 +294,12 @@ class _FeaturedTeacherPageState extends State<FeaturedTeacherPage> {
         child: CustomScrollView(
           slivers: [
             SliverPadding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              padding: AppSpacing.only(
+                left: AppSpacing.md,
+                top: AppSpacing.sm,
+                right: AppSpacing.md,
+                bottom: AppSpacing.md,
+              ),
               sliver: SliverList(
                 delegate: SliverChildListDelegate(
                   [
@@ -311,7 +313,7 @@ class _FeaturedTeacherPageState extends State<FeaturedTeacherPage> {
                           itemBuilder: (context, i) {
                             final t = _teachers[i];
                             return Padding(
-                              padding: const EdgeInsets.only(right: 8),
+                              padding: const EdgeInsets.only(right: AppSpacing.sm),
                               child: _HeroHeader(
                                 teacher: t,
                                 onTap: () {
@@ -327,25 +329,25 @@ class _FeaturedTeacherPageState extends State<FeaturedTeacherPage> {
                           },
                         ),
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: AppSpacing.sm),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: List.generate(
                           _teachers.length,
                           (i) => Container(
-                            margin: const EdgeInsets.symmetric(horizontal: 3),
+                            margin: const EdgeInsets.symmetric(horizontal: AppSpacing.xs - 1),
                             width: 6,
                             height: 6,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
                               color: i == _selectedIndex
-                                  ? const Color(0xFFD4AF37)
-                                  : const Color(0xFFD4AF37).withOpacity(0.3),
+                                  ? AppColors.primary
+                                  : AppColors.primarySubtle(0.3),
                             ),
                           ),
                         ),
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: AppSpacing.sm),
                     ] else
                       _HeroHeader(
                         teacher: teacher,
@@ -358,12 +360,12 @@ class _FeaturedTeacherPageState extends State<FeaturedTeacherPage> {
                           );
                         },
                       ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: AppSpacing.md),
                     _SectionTitle(
                         title:
                             AppLocalizations.of(context)!.featuredPnlOverview),
                     _KpiGrid(teacher: teacher),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: AppSpacing.md),
                     _SectionTitle(
                         title: AppLocalizations.of(context)!
                             .featuredTodayStrategy),
@@ -376,10 +378,12 @@ class _FeaturedTeacherPageState extends State<FeaturedTeacherPage> {
                       currentUserId:
                           FirebaseAuth.instance.currentUser?.uid ?? '',
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: AppSpacing.sm),
                     Align(
                       alignment: Alignment.centerRight,
-                      child: TextButton(
+                      child: AppButton(
+                        variant: AppButtonVariant.text,
+                        label: AppLocalizations.of(context)!.featuredViewAllStrategies,
                         onPressed: () {
                           Navigator.of(context).push(
                             MaterialPageRoute(
@@ -387,17 +391,15 @@ class _FeaturedTeacherPageState extends State<FeaturedTeacherPage> {
                             ),
                           );
                         },
-                        child: Text(AppLocalizations.of(context)!
-                            .featuredViewAllStrategies),
                       ),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: AppSpacing.md),
                     _SectionTitle(
                         title: AppLocalizations.of(context)!
                             .featuredCurrentPositions),
                     _PositionsStream(
                         teacherId: teacher.id, repo: _repo, isHistory: false),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: AppSpacing.md),
                     _SectionTitle(
                         title: AppLocalizations.of(context)!
                             .featuredHistoryPositions),
@@ -425,21 +427,26 @@ class _HeroHeader extends StatelessWidget {
     return Stack(
       children: [
         Container(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+          padding: AppSpacing.only(
+            left: AppSpacing.md,
+            top: AppSpacing.md,
+            right: AppSpacing.md,
+            bottom: AppSpacing.sm + AppSpacing.xs,
+          ),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(24),
             gradient: const LinearGradient(
               colors: [
-                Color(0xFF1A1C20),
-                Color(0xFF0D0E11),
+                AppColors.surface2,
+                AppColors.scaffold,
               ],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
-            border: Border.all(color: const Color(0xFFD4AF37), width: 0.6),
+            border: Border.all(color: AppColors.primary, width: 0.6),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFFD4AF37).withOpacity(0.15),
+                color: AppColors.primarySubtle(0.15),
                 blurRadius: 16,
                 offset: const Offset(0, 10),
               ),
@@ -469,31 +476,36 @@ class _TeacherGlassCard extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(18),
       child: Ink(
-        padding: const EdgeInsets.fromLTRB(14, 18, 14, 14),
+        padding: AppSpacing.only(
+          left: AppSpacing.md - AppSpacing.xs / 2,
+          top: AppSpacing.md + AppSpacing.xs / 2,
+          right: AppSpacing.md - AppSpacing.xs / 2,
+          bottom: AppSpacing.md - AppSpacing.xs / 2,
+        ),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(18),
-          color: const Color(0xFF15171B),
-          border: Border.all(color: const Color(0xFFD4AF37), width: 0.4),
+          color: AppColors.surfaceElevated,
+          border: Border.all(color: AppColors.primary, width: 0.4),
         ),
         child: Row(
           children: [
             CircleAvatar(
               radius: 30,
-              backgroundColor: const Color(0xFFD4AF37),
+              backgroundColor: AppColors.primary,
               backgroundImage: teacher.avatarUrl.trim().isNotEmpty
                   ? NetworkImage(teacher.avatarUrl.trim())
                   : null,
               child: teacher.avatarUrl.trim().isEmpty
                   ? Text(
                       _initial(teacher.name),
-                      style: const TextStyle(
+                      style: AppTypography.title.copyWith(
                         fontSize: 20,
-                        color: Color(0xFF111215),
+                        color: AppColors.surface,
                       ),
                     )
                   : null,
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: AppSpacing.md - AppSpacing.xs),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -502,80 +514,12 @@ class _TeacherGlassCard extends StatelessWidget {
                     teacher.name,
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: AppSpacing.xs),
                   Text(
                     teacher.title,
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
-                  const SizedBox(height: 10),
-                  _BattleStats(teacher: teacher),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _FeaturedHeader extends StatelessWidget {
-  const _FeaturedHeader({required this.teacher, required this.onTap});
-
-  final Teacher teacher;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
-      child: Ink(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-          color: const Color(0xFF111215),
-          border: Border.all(color: const Color(0xFFD4AF37), width: 0.6),
-        ),
-        child: Row(
-          children: [
-            CircleAvatar(
-              radius: 32,
-              backgroundColor: const Color(0xFFD4AF37),
-              backgroundImage: teacher.avatarUrl.trim().isNotEmpty
-                  ? NetworkImage(teacher.avatarUrl.trim())
-                  : null,
-              child: teacher.avatarUrl.trim().isEmpty
-                  ? Text(
-                      _initial(teacher.name),
-                      style: const TextStyle(
-                        fontSize: 22,
-                        color: Color(0xFF111215),
-                      ),
-                    )
-                  : null,
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Text(
-                        teacher.name,
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
-                      const Spacer(),
-                      _MonthPnlChip(value: teacher.pnlMonth),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    teacher.title,
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: AppSpacing.sm + AppSpacing.xs / 2),
                   _BattleStats(teacher: teacher),
                 ],
               ),
@@ -615,29 +559,6 @@ class _BattleStats extends StatelessWidget {
   }
 }
 
-class _StatChip extends StatelessWidget {
-  const _StatChip({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1D1F23),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFD4AF37), width: 0.4),
-      ),
-      child: Text(
-        '$label $value',
-        style: Theme.of(context).textTheme.labelMedium,
-      ),
-    );
-  }
-}
-
 class _StatChipCompact extends StatelessWidget {
   const _StatChipCompact({required this.label, required this.value});
 
@@ -646,13 +567,8 @@ class _StatChipCompact extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1D1F23),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFD4AF37), width: 0.4),
-      ),
+    return AppCard(
+      padding: AppSpacing.symmetric(horizontal: AppSpacing.sm - AppSpacing.xs / 2, vertical: AppSpacing.sm - AppSpacing.xs / 2),
       child: FittedBox(
         fit: BoxFit.scaleDown,
         child: Text(
@@ -674,14 +590,14 @@ class _SectionTitle extends StatelessWidget {
     return Row(
       children: [
         Container(
-          width: 4,
-          height: 16,
+          width: AppSpacing.xs,
+          height: AppSpacing.md,
           decoration: BoxDecoration(
-            color: const Color(0xFFD4AF37),
-            borderRadius: BorderRadius.circular(4),
+            color: AppColors.primary,
+            borderRadius: BorderRadius.circular(AppSpacing.xs),
           ),
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: AppSpacing.sm),
         Text(
           title,
           style: Theme.of(context).textTheme.titleMedium,
@@ -726,14 +642,9 @@ class _KpiTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isProfit = value >= 0;
-    final color = isProfit ? const Color(0xFF29C36A) : const Color(0xFFE54848);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: const Color(0xFF111215),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFD4AF37), width: 0.4),
-      ),
+    final color = isProfit ? AppColors.positive : AppColors.negative;
+    return AppCard(
+      padding: AppSpacing.symmetric(horizontal: AppSpacing.sm + AppSpacing.xs / 2, vertical: AppSpacing.sm),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -747,63 +658,6 @@ class _KpiTile extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({
-    required this.title,
-    required this.actionText,
-    required this.onActionTap,
-    required this.trailing,
-    required this.onTitleTap,
-  });
-
-  final String title;
-  final String actionText;
-  final VoidCallback onActionTap;
-  final Widget trailing;
-  final VoidCallback onTitleTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        InkWell(
-          onTap: onTitleTap,
-          child: Text(
-            title,
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-        ),
-        const SizedBox(width: 8),
-        TextButton(
-          onPressed: onActionTap,
-          child: Text(actionText),
-        ),
-        const Spacer(),
-        trailing,
-      ],
-    );
-  }
-}
-
-class _InfoCard extends StatelessWidget {
-  const _InfoCard({required this.child});
-
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF111215),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFD4AF37), width: 0.4),
-      ),
-      child: child,
     );
   }
 }
@@ -930,7 +784,7 @@ class _HeroStrategyCardState extends State<_HeroStrategyCard> {
           right: 0,
           bottom: 0,
           child: Material(
-            color: const Color(0xFF0D0E11),
+            color: AppColors.scaffold,
             child: SafeArea(
               top: false,
               child: Padding(
@@ -1011,7 +865,7 @@ class _HeroStrategyCardState extends State<_HeroStrategyCard> {
 
   /// 抖音式评论：父评论按时间倒序，回复紧贴父评论下方、按时间正序；默认只显示 1 条回复，可展开
   List<Widget> _buildThreadedCommentsInline(List<Comment> list) {
-    const accent = Color(0xFFD4AF37);
+    const accent = AppColors.primary;
     void onReplyTap(Comment c) {
       setState(() {
         _replyToComment = c;
@@ -1080,7 +934,7 @@ class _HeroStrategyCardState extends State<_HeroStrategyCard> {
                     ? l10n.featuredCollapse
                     : l10n.featuredExpandReplies(replies.length - 1),
                 style: TextStyle(
-                  color: accent.withOpacity(0.9),
+                  color: accent.withValues(alpha: 0.9),
                   fontSize: 13,
                   fontWeight: FontWeight.w500,
                 ),
@@ -1124,7 +978,7 @@ class _HeroStrategyCardState extends State<_HeroStrategyCard> {
     };
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: const Color(0xFF1A1C21),
+      backgroundColor: AppColors.surface2,
       builder: (ctx) => _ForwardConversationSheet(
         teacherPayload: payload,
         currentUserId: widget.currentUserId,
@@ -1145,16 +999,16 @@ class _HeroStrategyCardState extends State<_HeroStrategyCard> {
               borderRadius: BorderRadius.circular(18),
               gradient: const LinearGradient(
                 colors: [
-                  Color(0xFF1B1C20),
-                  Color(0xFF0F1012),
+                  AppColors.surface2,
+                  AppColors.surface,
                 ],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
-              border: Border.all(color: const Color(0xFFD4AF37), width: 0.6),
-              boxShadow: [
+              border: Border.all(color: AppColors.primary, width: 0.6),
+              boxShadow: const [
                 BoxShadow(
-                  color: Color(0xFFD4AF37),
+                  color: AppColors.primary,
                   blurRadius: 12,
                   spreadRadius: -6,
                   offset: Offset(0, 6),
@@ -1202,32 +1056,32 @@ class _HeroStrategyCardState extends State<_HeroStrategyCard> {
                         Row(
                           children: [
                             Container(
-                              padding: const EdgeInsets.all(8),
+                              padding: const EdgeInsets.all(AppSpacing.sm),
                               decoration: BoxDecoration(
-                                color: const Color(0xFFD4AF37),
-                                borderRadius: BorderRadius.circular(10),
+                                color: AppColors.primary,
+                                borderRadius: BorderRadius.circular(AppRadius.sm + AppSpacing.xs / 2),
                               ),
                               child: const Icon(
                                 Icons.trending_up,
-                                color: Color(0xFF111215),
+                                color: AppColors.surface,
                                 size: 18,
                               ),
                             ),
-                            const SizedBox(width: 10),
+                            const SizedBox(width: AppSpacing.sm + AppSpacing.xs / 2),
                             Expanded(
                               child: Text(
                                 widget.title,
                                 style: Theme.of(context)
                                     .textTheme
                                     .titleSmall
-                                    ?.copyWith(color: const Color(0xFFD4AF37)),
+                                    ?.copyWith(color: AppColors.primary),
                               ),
                             ),
                             const Spacer(),
                             const Icon(Icons.open_in_new, size: 16),
                           ],
                         ),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: AppSpacing.sm + AppSpacing.xs / 2),
                         Text(
                           widget.text,
                           maxLines: 3,
@@ -1245,15 +1099,20 @@ class _HeroStrategyCardState extends State<_HeroStrategyCard> {
                           style: Theme.of(context)
                               .textTheme
                               .labelSmall
-                              ?.copyWith(color: const Color(0xFFD4AF37)),
+                              ?.copyWith(color: AppColors.primary),
                         ),
                       ],
                     ),
                   ),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: AppSpacing.sm + AppSpacing.xs / 2),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+                  padding: AppSpacing.only(
+                    left: AppSpacing.md + AppSpacing.xs / 2,
+                    top: 0,
+                    right: AppSpacing.md + AppSpacing.xs / 2,
+                    bottom: AppSpacing.md + AppSpacing.xs / 2,
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -1271,7 +1130,7 @@ class _HeroStrategyCardState extends State<_HeroStrategyCard> {
                                   ? Icons.expand_less
                                   : Icons.expand_more,
                               size: 18,
-                              color: const Color(0xFFD4AF37),
+                              color: AppColors.primary,
                             ),
                             label: Text(
                               _showComments
@@ -1279,7 +1138,7 @@ class _HeroStrategyCardState extends State<_HeroStrategyCard> {
                                       .featuredHideComments
                                   : AppLocalizations.of(context)!
                                       .featuredViewComments,
-                              style: const TextStyle(color: Color(0xFFD4AF37)),
+                              style: const TextStyle(color: AppColors.primary),
                             ),
                           ),
                           StreamBuilder<int>(
@@ -1299,9 +1158,10 @@ class _HeroStrategyCardState extends State<_HeroStrategyCard> {
                                   if (likeSnap.hasData && likedSnap.hasData) {
                                     WidgetsBinding.instance
                                         .addPostFrameCallback((_) {
-                                      if (mounted)
+                                      if (mounted) {
                                         _syncLikeFromStream(
                                             streamCount, streamLiked);
+                                      }
                                     });
                                   }
                                   final liked = _likedOverride ?? streamLiked;
@@ -1321,7 +1181,7 @@ class _HeroStrategyCardState extends State<_HeroStrategyCard> {
                                           : Icons.thumb_up_outlined,
                                       size: 18,
                                       color: liked
-                                          ? const Color(0xFFD4AF37)
+                                          ? AppColors.primary
                                           : null,
                                     ),
                                     label: Text('$likeCount'),
@@ -1350,7 +1210,7 @@ class _HeroStrategyCardState extends State<_HeroStrategyCard> {
                       ),
                       if (_showComments) ...[
                         const SizedBox(height: 8),
-                        const Divider(height: 1, color: Color(0xFF2A2C31)),
+                        const Divider(height: 1, color: AppColors.border),
                         const SizedBox(height: 8),
                         ConstrainedBox(
                           constraints: const BoxConstraints(maxHeight: 500),
@@ -1394,7 +1254,7 @@ class _ForwardConversationSheet extends StatelessWidget {
   final String currentUserId;
   final VoidCallback onSent;
 
-  static const Color _accent = Color(0xFFD4AF37);
+  static const Color _accent = AppColors.primary;
 
   Future<String> _getUserName(BuildContext context) async {
     try {
@@ -1474,7 +1334,7 @@ class _ForwardConversationSheet extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Padding(
-              padding: const EdgeInsets.all(16),
+              padding: AppSpacing.allMd,
               child: Row(
                 children: [
                   Text(
@@ -1515,7 +1375,7 @@ class _ForwardConversationSheet extends StatelessWidget {
                           backgroundColor: _accent,
                           child: Text(
                             (conv.title.isNotEmpty ? conv.title[0] : '?'),
-                            style: const TextStyle(color: Color(0xFF111215)),
+                            style: const TextStyle(color: AppColors.surface),
                           ),
                         ),
                         title: Text(conv.title),
@@ -1537,68 +1397,6 @@ class _ForwardConversationSheet extends StatelessWidget {
       },
     );
   }
-}
-
-/// 四角花纹装饰
-class _CornerOrnament extends StatelessWidget {
-  const _CornerOrnament(
-      {required this.rotation, required this.size, required this.color});
-
-  final double rotation;
-  final double size;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Transform.rotate(
-      angle: rotation,
-      child: SizedBox(
-        width: size,
-        height: size,
-        child: CustomPaint(
-          painter: _CornerOrnamentPainter(color: color),
-        ),
-      ),
-    );
-  }
-}
-
-class _CornerOrnamentPainter extends CustomPainter {
-  _CornerOrnamentPainter({required this.color});
-
-  final Color color;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    const len = 40.0;
-    const r = 10.0;
-
-    void drawL(Paint p, double offset) {
-      final path = Path();
-      path.moveTo(offset, size.height);
-      path.lineTo(offset, r + offset);
-      path.quadraticBezierTo(offset, offset, r + offset, offset);
-      path.lineTo(size.width, offset);
-      canvas.drawPath(path, p);
-    }
-
-    final paint = Paint()
-      ..color = color.withOpacity(0.85)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.2;
-    drawL(paint, 0);
-
-    paint.strokeWidth = 1.0;
-    paint.color = color.withOpacity(0.5);
-    drawL(paint, 8);
-
-    paint.strokeWidth = 0.8;
-    paint.color = color.withOpacity(0.3);
-    drawL(paint, 14);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 /// 评论输入框与发表按钮
@@ -1695,7 +1493,7 @@ class _CommentFormState extends State<_CommentForm> {
     } catch (e) {
       if (mounted) {
         final msg = e.toString();
-        final displayMsg = msg.length > 120 ? msg.substring(0, 120) + '…' : msg;
+        final displayMsg = msg.length > 120 ? '${msg.substring(0, 120)}…' : msg;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(AppLocalizations.of(context)!
@@ -1711,12 +1509,12 @@ class _CommentFormState extends State<_CommentForm> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-      decoration: BoxDecoration(
-        color: const Color(0xFF111215),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFD4AF37), width: 0.4),
+    return AppCard(
+      padding: AppSpacing.only(
+        left: AppSpacing.sm + AppSpacing.xs / 2,
+        top: AppSpacing.sm,
+        right: AppSpacing.sm + AppSpacing.xs / 2,
+        bottom: AppSpacing.sm,
       ),
       child: Row(
         children: [
@@ -1730,28 +1528,27 @@ class _CommentFormState extends State<_CommentForm> {
               decoration: InputDecoration(
                 hintText: AppLocalizations.of(context)!.featuredCommentHint,
                 filled: true,
-                fillColor: const Color(0xFF0B0C0E),
+                fillColor: AppColors.scaffold,
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide:
-                      const BorderSide(color: Color(0xFFD4AF37), width: 0.4),
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                  borderSide: const BorderSide(color: AppColors.primary, width: 0.4),
                 ),
                 enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide:
-                      const BorderSide(color: Color(0xFFD4AF37), width: 0.4),
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                  borderSide: const BorderSide(color: AppColors.primary, width: 0.4),
                 ),
                 contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    const EdgeInsets.symmetric(horizontal: AppSpacing.sm + AppSpacing.xs / 2, vertical: AppSpacing.sm),
               ),
             ),
           ),
-          const SizedBox(width: 10),
-          FilledButton(
+          const SizedBox(width: AppSpacing.sm + AppSpacing.xs / 2),
+          AppButton(
             onPressed: _submitting ? null : _submit,
-            child: Text(_submitting
+            label: _submitting
                 ? AppLocalizations.of(context)!.featuredPublishing
-                : AppLocalizations.of(context)!.featuredPublish),
+                : AppLocalizations.of(context)!.featuredPublish,
+            loading: _submitting,
           ),
         ],
       ),
@@ -1781,7 +1578,7 @@ class _CommentItem extends StatelessWidget {
       if (match.start > lastEnd) {
         spans.add(TextSpan(
           text: content.substring(lastEnd, match.start),
-          style: const TextStyle(color: Colors.white70),
+          style: const TextStyle(color: AppColors.textSecondary),
         ));
       }
       spans.add(TextSpan(
@@ -1793,13 +1590,13 @@ class _CommentItem extends StatelessWidget {
     if (lastEnd < content.length) {
       spans.add(TextSpan(
         text: content.substring(lastEnd),
-        style: const TextStyle(color: Colors.white70),
+        style: const TextStyle(color: AppColors.textSecondary),
       ));
     }
     if (spans.isEmpty) {
       spans.add(TextSpan(
         text: content,
-        style: const TextStyle(color: Colors.white70),
+        style: const TextStyle(color: AppColors.textSecondary),
       ));
     }
     return spans;
@@ -1807,7 +1604,7 @@ class _CommentItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const accent = Color(0xFFD4AF37);
+    const accent = AppColors.primary;
     final content = Padding(
       padding: EdgeInsets.only(
         bottom: 12,
@@ -1827,7 +1624,7 @@ class _CommentItem extends StatelessWidget {
                 comment.avatarUrl == null || comment.avatarUrl!.trim().isEmpty
                     ? Text(
                         comment.userName.characters.first,
-                        style: const TextStyle(color: Color(0xFF111215)),
+                        style: const TextStyle(color: AppColors.surface),
                       )
                     : null,
           ),
@@ -1850,7 +1647,7 @@ class _CommentItem extends StatelessWidget {
                     Text(
                       comment.date,
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color: Colors.white54,
+                            color: AppColors.textSecondary,
                             fontSize: 11,
                           ),
                     ),
@@ -1863,17 +1660,17 @@ class _CommentItem extends StatelessWidget {
                     padding:
                         const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.06),
-                      borderRadius: BorderRadius.circular(8),
+                      color: AppColors.textPrimary.withValues(alpha: 0.06),
+                      borderRadius: BorderRadius.circular(AppSpacing.sm),
                       border: Border(
                         left: BorderSide(
-                            color: accent.withOpacity(0.5), width: 3),
+                            color: accent.withValues(alpha: 0.5), width: 3),
                       ),
                     ),
                     child: Text(
                       comment.replyToContent!,
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color: Colors.white54,
+                            color: AppColors.textSecondary,
                             fontSize: 12,
                             fontStyle: FontStyle.italic,
                           ),
@@ -1888,7 +1685,7 @@ class _CommentItem extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   text: TextSpan(
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.white70,
+                          color: AppColors.textSecondary,
                         ),
                     children:
                         _buildContentSpans(comment.content, _mentionColor),
@@ -1950,8 +1747,8 @@ class _PositionCardStyle extends StatelessWidget {
 
   final tmodels.TeacherPosition position;
 
-  static const Color _accent = Color(0xFFD4AF37);
-  static const Color _muted = Color(0xFF6C6F77);
+  static const Color _accent = AppColors.primary;
+  static const Color _muted = AppColors.textTertiary;
 
   @override
   Widget build(BuildContext context) {
@@ -1962,7 +1759,7 @@ class _PositionCardStyle extends StatelessWidget {
     if (isHistory) {
       final amount = position.realizedPnlAmount ?? 0;
       final ratio = position.realizedPnlRatioPercent;
-      final pnlColor = amount >= 0 ? Colors.green : Colors.red;
+      final pnlColor = amount >= 0 ? AppColors.positive : AppColors.negative;
       final rows = <Widget>[
         if (position.buyTime != null)
           _positionLine(dateFmt.format(position.buyTime!),
@@ -1996,7 +1793,7 @@ class _PositionCardStyle extends StatelessWidget {
 
     final pnl = position.floatingPnl ?? 0;
     final ratio = position.pnlRatio;
-    final pnlColor = pnl >= 0 ? Colors.green : Colors.red;
+    final pnlColor = pnl >= 0 ? AppColors.positive : AppColors.negative;
     final rows = <Widget>[
       if (position.buyTime != null)
         _positionLine(dateFmt.format(position.buyTime!),
@@ -2029,15 +1826,11 @@ class _PositionCardStyle extends StatelessWidget {
     String? ratioText,
     required List<Widget> detailRows,
   }) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      color: const Color(0xFF1A1C21),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(10),
-        side: const BorderSide(color: _accent, width: 0.4),
-      ),
+    return AppCard(
+      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md - 4, vertical: AppSpacing.sm),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: EdgeInsets.zero,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
@@ -2094,7 +1887,7 @@ class _PositionCardStyle extends StatelessWidget {
         style: const TextStyle(fontSize: 12),
         children: [
           TextSpan(text: '$prefix ', style: const TextStyle(color: _muted)),
-          TextSpan(text: value, style: const TextStyle(color: Colors.white)),
+          TextSpan(text: value, style: const TextStyle(color: AppColors.textPrimary)),
         ],
       ),
       overflow: TextOverflow.ellipsis,
@@ -2107,296 +1900,21 @@ class _PositionCardStyle extends StatelessWidget {
     if (pairs.isEmpty) return const SizedBox.shrink();
     final spans = <InlineSpan>[];
     for (var i = 0; i < pairs.length; i++) {
-      if (i > 0)
-        spans.add(TextSpan(
+      if (i > 0) {
+        spans.add(const TextSpan(
             text: '  ', style: TextStyle(color: _muted, fontSize: 12)));
+      }
       spans.add(TextSpan(
           text: '${pairs[i].$1} ',
           style: const TextStyle(color: _muted, fontSize: 12)));
       spans.add(TextSpan(
           text: pairs[i].$2,
-          style: const TextStyle(color: Colors.white, fontSize: 12)));
+          style: const TextStyle(color: AppColors.textPrimary, fontSize: 12)));
     }
     return Text.rich(
         TextSpan(style: const TextStyle(fontSize: 12), children: spans),
         maxLines: 1,
         overflow: TextOverflow.ellipsis);
-  }
-
-  static Widget _labelVal(String label, String value) {
-    return RichText(
-      text: TextSpan(
-        style: const TextStyle(fontSize: 13),
-        children: [
-          TextSpan(text: '$label ', style: const TextStyle(color: _muted)),
-          TextSpan(text: value, style: const TextStyle(color: Colors.white)),
-        ],
-      ),
-    );
-  }
-}
-
-class _MiniTag extends StatelessWidget {
-  const _MiniTag({
-    required this.label,
-    required this.value,
-    this.valueColor,
-  });
-
-  final String label;
-  final String value;
-  final Color? valueColor;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: const Color(0xFF0B0C0E),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFD4AF37), width: 0.3),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            label,
-            style: Theme.of(context).textTheme.labelSmall,
-          ),
-          const SizedBox(width: 6),
-          Text(
-            value,
-            style: Theme.of(context)
-                .textTheme
-                .labelMedium
-                ?.copyWith(color: valueColor ?? const Color(0xFFE5E5E7)),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _StatStack extends StatelessWidget {
-  const _StatStack({
-    required this.label,
-    required this.value,
-    this.valueColor,
-  });
-
-  final String label;
-  final String value;
-  final Color? valueColor;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      decoration: BoxDecoration(
-        color: const Color(0xFF0B0C0E),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFD4AF37), width: 0.3),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  fontSize: 10,
-                  color: const Color(0xFFB9A56A),
-                ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            value,
-            style: Theme.of(context)
-                .textTheme
-                .labelSmall
-                ?.copyWith(color: valueColor ?? const Color(0xFFEAE7DF)),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PnlGrid extends StatelessWidget {
-  const _PnlGrid({required this.teacher});
-
-  final Teacher teacher;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    return Column(
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: _PnlTile(
-                label: l10n.featuredCurrentPositionPnl,
-                value: teacher.pnlCurrent,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _PnlTile(
-                label: l10n.featuredYearPnl,
-                value: teacher.pnlYear,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _PnlTile(
-                label: l10n.featuredTotalPnl,
-                value: teacher.pnlTotal,
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-class _PnlSection extends StatelessWidget {
-  const _PnlSection({required this.teacher});
-
-  final Teacher teacher;
-
-  @override
-  Widget build(BuildContext context) {
-    return _PnlGrid(teacher: teacher);
-  }
-}
-
-class _PnlStrip extends StatelessWidget {
-  const _PnlStrip({required this.teacher});
-
-  final Teacher teacher;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: const Color(0xFF111215),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFD4AF37), width: 0.4),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: _PnlMini(
-                label: l10n.featuredCurrentPosition, value: teacher.pnlCurrent),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child:
-                _PnlMini(label: l10n.featuredYearPnl, value: teacher.pnlYear),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child:
-                _PnlMini(label: l10n.featuredTotalPnl, value: teacher.pnlTotal),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PnlMini extends StatelessWidget {
-  const _PnlMini({required this.label, required this.value});
-
-  final String label;
-  final double value;
-
-  @override
-  Widget build(BuildContext context) {
-    final isProfit = value >= 0;
-    final color = isProfit ? const Color(0xFF29C36A) : const Color(0xFFE54848);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: Theme.of(context).textTheme.labelSmall,
-        ),
-        const SizedBox(height: 4),
-        Text(
-          _formatAmount(value),
-          style: Theme.of(context).textTheme.labelLarge?.copyWith(color: color),
-        ),
-      ],
-    );
-  }
-}
-
-class _MainTabs extends StatelessWidget {
-  const _MainTabs();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: const Color(0xFF111215),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFD4AF37), width: 0.4),
-      ),
-      child: TabBar(
-        indicator: const BoxDecoration(
-          color: Color(0xFFD4AF37),
-          borderRadius: BorderRadius.all(Radius.circular(10)),
-        ),
-        labelColor: const Color(0xFF111215),
-        unselectedLabelColor: const Color(0xFFE5E5E7),
-        tabs: [
-          Tab(text: AppLocalizations.of(context)!.featuredTodayStrategyTab),
-          Tab(text: AppLocalizations.of(context)!.featuredPositionTab),
-          Tab(text: AppLocalizations.of(context)!.featuredHistoryTab),
-        ],
-      ),
-    );
-  }
-}
-
-class _PnlTile extends StatelessWidget {
-  const _PnlTile({required this.label, required this.value});
-
-  final String label;
-  final double value;
-
-  @override
-  Widget build(BuildContext context) {
-    final isProfit = value >= 0;
-    final color = isProfit ? const Color(0xFF29C36A) : const Color(0xFFE54848);
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: const Color(0xFF0B0C0E),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFD4AF37), width: 0.4),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: Theme.of(context).textTheme.labelSmall,
-          ),
-          const SizedBox(height: 6),
-          Text(
-            _formatAmount(value),
-            style:
-                Theme.of(context).textTheme.titleMedium?.copyWith(color: color),
-          ),
-        ],
-      ),
-    );
   }
 }
 
@@ -2408,13 +1926,13 @@ class _MonthPnlChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isProfit = value >= 0;
-    final color = isProfit ? const Color(0xFF29C36A) : const Color(0xFFE54848);
+    final color = isProfit ? AppColors.positive : AppColors.danger;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: const Color(0xFF111215),
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFD4AF37), width: 0.4),
+        border: Border.all(color: AppColors.primary, width: 0.4),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2435,210 +1953,6 @@ class _MonthPnlChip extends StatelessWidget {
   }
 }
 
-class _PositionCard extends StatelessWidget {
-  const _PositionCard({required this.position});
-
-  final PositionRecord position;
-
-  @override
-  Widget build(BuildContext context) {
-    final isProfit = position.pnlAmount >= 0;
-    final pnlColor =
-        isProfit ? const Color(0xFF29C36A) : const Color(0xFFE54848);
-    final pnlRatioText = _formatPercent(position.pnlRatio);
-    final floatingColor = position.floatingPnl >= 0
-        ? const Color(0xFF29C36A)
-        : const Color(0xFFE54848);
-    return Container(
-      margin: EdgeInsets.zero,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFF111215),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFD4AF37), width: 0.4),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Text(
-                position.asset,
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-              const Spacer(),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    _formatAmount(position.pnlAmount),
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleMedium
-                        ?.copyWith(color: pnlColor),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    AppLocalizations.of(context)!.featuredPositionPnlAmount,
-                    style: Theme.of(context).textTheme.labelSmall,
-                  ),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: _InfoPair(
-                  label: AppLocalizations.of(context)!.featuredBuyTime,
-                  value: position.buyTime,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _InfoPair(
-                  label: AppLocalizations.of(context)!.featuredBuyShares,
-                  value: position.buyShares,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: _InfoPair(
-                  label: AppLocalizations.of(context)!.featuredBuyPrice,
-                  value: position.buyPrice,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _InfoPair(
-                  label: AppLocalizations.of(context)!.featuredPositionCost,
-                  value: position.costPrice,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: _InfoPair(
-                  label: AppLocalizations.of(context)!.featuredCurrentPrice,
-                  value: position.currentPrice,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _InfoPair(
-                  label: AppLocalizations.of(context)!.featuredFloatingPnl,
-                  value: _formatAmount(position.floatingPnl),
-                  valueColor: floatingColor,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '${AppLocalizations.of(context)!.featuredPositionPnlRatio}  $pnlRatioText',
-            style: Theme.of(context)
-                .textTheme
-                .labelMedium
-                ?.copyWith(color: pnlColor),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _InfoPair extends StatelessWidget {
-  const _InfoPair({
-    required this.label,
-    required this.value,
-    this.valueColor,
-  });
-
-  final String label;
-  final String value;
-  final Color? valueColor;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: const Color(0xFF0B0C0E),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFD4AF37), width: 0.3),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: Theme.of(context).textTheme.labelSmall,
-          ),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: Theme.of(context)
-                .textTheme
-                .labelMedium
-                ?.copyWith(color: valueColor ?? const Color(0xFFE5E5E7)),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _StrategyCard extends StatelessWidget {
-  const _StrategyCard({required this.item});
-
-  final StrategyItem item;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFF111215),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFD4AF37), width: 0.4),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  item.title,
-                  style: Theme.of(context).textTheme.titleSmall,
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  item.summary,
-                  style: Theme.of(context).textTheme.labelMedium,
-                ),
-              ],
-            ),
-          ),
-          Text(
-            item.date,
-            style: Theme.of(context).textTheme.labelMedium,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _EmptyHint extends StatelessWidget {
   const _EmptyHint({required this.text});
 
@@ -2649,9 +1963,9 @@ class _EmptyHint extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFF111215),
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFD4AF37), width: 0.4),
+        border: Border.all(color: AppColors.primary, width: 0.4),
       ),
       child: Text(
         text,
@@ -2659,85 +1973,6 @@ class _EmptyHint extends StatelessWidget {
       ),
     );
   }
-}
-
-class _TradeCard extends StatelessWidget {
-  const _TradeCard({required this.trade});
-
-  final TradeRecord trade;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final isProfit = trade.pnlAmount >= 0;
-    final pnlColor =
-        isProfit ? const Color(0xFF29C36A) : const Color(0xFFE54848);
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFF111215),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFD4AF37), width: 0.4),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            trade.asset,
-            style: Theme.of(context).textTheme.titleSmall,
-          ),
-          const SizedBox(height: 8),
-          _tradeRow(context, l10n.featuredBuy, trade.buyTime, trade.buyShares,
-              trade.buyPrice),
-          const SizedBox(height: 6),
-          _tradeRow(context, l10n.featuredSell, trade.sellTime,
-              trade.sellShares, trade.sellPrice),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Text(
-                '${l10n.featuredProfitRatio}  ${_formatPercent(trade.pnlRatio)}',
-                style: Theme.of(context)
-                    .textTheme
-                    .labelMedium
-                    ?.copyWith(color: pnlColor),
-              ),
-              const Spacer(),
-              Text(
-                '${l10n.featuredPnlAmount}  ${_formatAmount(trade.pnlAmount)}',
-                style: Theme.of(context)
-                    .textTheme
-                    .labelMedium
-                    ?.copyWith(color: pnlColor),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _tradeRow(BuildContext context, String label, String time,
-      String shares, String price) {
-    final l10n = AppLocalizations.of(context)!;
-    return Row(
-      children: [
-        Text(label),
-        const SizedBox(width: 8),
-        Expanded(child: Text(time)),
-        const SizedBox(width: 8),
-        Text('${l10n.featuredShares} $shares'),
-        const SizedBox(width: 8),
-        Text('${l10n.featuredPrice} $price'),
-      ],
-    );
-  }
-}
-
-String _formatPercent(double value) {
-  final prefix = value > 0 ? '+' : '';
-  return '$prefix${value.toStringAsFixed(1)}%';
 }
 
 String _formatAmount(double value) {

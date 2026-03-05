@@ -40,6 +40,53 @@ class RealtimeQuoteService {
   /// 最大订阅数（Polygon 单连接有上限，通常 30～50）
   static const int _maxSubscribeSymbols = 40;
 
+  /// 订阅全部股票时的过滤集合（仅更新此集合内的 symbol）；acceptAllSymbols 时可为空
+  Set<String> _symbolsToFilter = {};
+  bool _acceptAllSymbols = false;
+
+  /// 订阅所有美股成交（T.*）
+  /// [symbolsToFilter] 基础过滤集合；[acceptAllSymbols] 为 true 时接受任意新 symbol（不在集合内也新增）
+  /// [initialQuotes] 可选，已有报价时传入以便正确计算涨跌
+  void subscribeToAllSymbols(
+    Set<String> symbolsToFilter, {
+    Map<String, MarketQuote>? initialQuotes,
+    bool acceptAllSymbols = false,
+  }) {
+    if (!acceptAllSymbols && symbolsToFilter.isEmpty) return;
+    if (initialQuotes != null && initialQuotes.isNotEmpty) {
+      _quotes = Map.from(initialQuotes);
+      if (!_quotesController.isClosed) _quotesController.add(_quotes);
+    }
+    _symbolsToFilter = symbolsToFilter;
+    _acceptAllSymbols = acceptAllSymbols;
+    _subscribeForQuotesAll();
+  }
+
+  void _subscribeForQuotesAll() {
+    if (!_acceptAllSymbols && _symbolsToFilter.isEmpty) return;
+    if (!_useDirectPolygon && (_backendUrl == null || _backendUrl!.isEmpty)) return;
+
+    _realtime?.dispose();
+    _backendRealtime?.dispose();
+    _sub?.cancel();
+
+    if (_useDirectPolygon) {
+      _realtime = PolygonRealtimeMulti(apiKey: _apiKey!, subscribeAll: true);
+      _realtime!.connect();
+      _sub = _realtime!.stream.listen(_onQuotesTradeFiltered);
+    } else {
+      _backendRealtime = BackendRealtimeClient(baseUrl: _backendUrl!);
+      _backendRealtime!.connect(subscribeAll: true);
+      _sub = _backendRealtime!.stream.listen(_onQuotesTradeFiltered);
+    }
+  }
+
+  void _onQuotesTradeFiltered(PolygonTradeUpdate u) {
+    if (u.symbol == null || u.price <= 0) return;
+    if (!_acceptAllSymbols && !_symbolsToFilter.contains(u.symbol)) return;
+    _onQuotesTrade(u);
+  }
+
   /// 设置涨跌榜并订阅 WebSocket，有成交即更新并推流
   void setGainersLosers({
     required List<PolygonGainer> gainers,
@@ -123,10 +170,12 @@ class RealtimeQuoteService {
   /// 仅订阅可见区域 WebSocket（无初始报价时也可订阅，收到推送会创建报价）
   void subscribeToSymbols(List<String> symbols) {
     if (symbols.isEmpty) return;
+    _symbolsToFilter = {}; // 清除全量订阅模式
     _subscribeForQuotes(prioritySymbols: symbols);
   }
 
   void _subscribeForQuotes({List<String>? prioritySymbols}) {
+    _symbolsToFilter = {}; // 切换回按 symbol 订阅模式
     List<String> symbols;
     if (prioritySymbols != null && prioritySymbols.isNotEmpty) {
       // 优先订阅可见区域，即使暂无报价也订阅，WebSocket 推送时可创建新报价
@@ -156,6 +205,15 @@ class RealtimeQuoteService {
       _backendRealtime!.connect(symbols: symbols);
       _sub = _backendRealtime!.stream.listen(_onQuotesTrade);
     }
+  }
+
+  /// 是否处于全量订阅模式（T.*）
+  bool get isSubscribeAll => _symbolsToFilter.isNotEmpty || _acceptAllSymbols;
+
+  /// 同步报价到服务（全量订阅模式下，REST 拉取后调用，不触发重连）
+  void syncQuotes(Map<String, MarketQuote> quotes) {
+    if (quotes.isEmpty) return;
+    _quotes.addAll(quotes);
   }
 
   void _onQuotesTrade(PolygonTradeUpdate u) {

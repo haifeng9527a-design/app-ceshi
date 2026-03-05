@@ -12,12 +12,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../api/users_api.dart';
+import '../../core/design/design_tokens.dart';
 import '../auth/auth_service.dart';
 import '../auth/login_page.dart';
 import '../../core/api_client.dart';
 import '../../core/firebase_bootstrap.dart';
 import '../../core/locale_provider.dart';
 import '../../l10n/app_localizations.dart';
+import '../../ui/components/components.dart';
 import '../../core/role_badge.dart';
 import '../../core/notification_settings_guide.dart';
 import '../../core/notification_service.dart';
@@ -251,19 +253,20 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
       builder: (context) {
         return AlertDialog(
           title: Text(AppLocalizations.of(context)!.profileEditSignature),
-          content: TextField(
+          content: AppInput(
             controller: controller,
             maxLines: 2,
-            decoration: InputDecoration(hintText: AppLocalizations.of(context)!.profileSignatureHint),
+            hintText: AppLocalizations.of(context)!.profileSignatureHint,
           ),
           actions: [
-            TextButton(
+            AppButton(
+              variant: AppButtonVariant.secondary,
+              label: AppLocalizations.of(context)!.commonCancel,
               onPressed: () => Navigator.of(context).pop(false),
-              child: Text(AppLocalizations.of(context)!.commonCancel),
             ),
-            FilledButton(
+            AppButton(
+              label: AppLocalizations.of(context)!.commonSave,
               onPressed: () => Navigator.of(context).pop(true),
-              child: Text(AppLocalizations.of(context)!.commonSave),
             ),
           ],
         );
@@ -333,88 +336,102 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
 
   Widget _buildLevelTag(String text) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      padding: AppSpacing.symmetric(horizontal: AppSpacing.sm, vertical: AppSpacing.xs),
       decoration: BoxDecoration(
-        color: const Color(0x1AD4AF37),
-        borderRadius: BorderRadius.circular(12),
+        color: AppColors.primarySubtle(0.12),
+        borderRadius: AppRadius.mdAll,
       ),
       child: Text(
         text,
-        style: const TextStyle(color: Color(0xFFD4AF37), fontSize: 12),
+        style: AppTypography.caption.copyWith(color: AppColors.primary),
+      ),
+    );
+  }
+
+  Widget _buildMenuItemCard({
+    required Widget leading,
+    required String title,
+    String? subtitle,
+    required VoidCallback onTap,
+    Color? titleColor,
+  }) {
+    return AppCard(
+      padding: EdgeInsets.zero,
+      margin: const EdgeInsets.only(bottom: AppSpacing.md),
+      onTap: onTap,
+      child: ListTile(
+        leading: leading,
+        title: Text(
+          title,
+          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                color: titleColor ?? AppColors.textPrimary,
+                fontWeight: FontWeight.w600,
+              ),
+        ),
+        subtitle: subtitle == null
+            ? null
+            : Text(
+                subtitle,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
+              ),
+        trailing: const Icon(Icons.chevron_right, color: AppColors.textTertiary),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(AppLocalizations.of(context)!.profileMy),
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          if (!FirebaseBootstrap.isReady)
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFF111215),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFD4AF37), width: 0.4),
-              ),
-              child: Text(
-                AppLocalizations.of(context)!.profileFirebaseNotConfigured,
-              ),
+    return StreamBuilder<User?>(
+      stream: FirebaseBootstrap.isReady
+          ? FirebaseAuth.instance.authStateChanges()
+          : Stream.value(null),
+      builder: (context, snapshot) {
+        final user = snapshot.data;
+        if (user == null) {
+          _loadedUserId = null;
+          _avatarUrl = null;
+          _shortId = null;
+          _signature = null;
+          return Scaffold(
+            appBar: AppBar(
+              title: Text(AppLocalizations.of(context)!.profileMy),
             ),
-          StreamBuilder<User?>(
-            stream: FirebaseBootstrap.isReady
-                ? FirebaseAuth.instance.authStateChanges()
-                : Stream.value(null),
-            builder: (context, snapshot) {
-              final user = snapshot.data;
-              if (user == null) {
-                _loadedUserId = null;
-                _avatarUrl = null;
-                _shortId = null;
-                _signature = null;
-                return Column(
-                  children: [
-                    ListTile(
-                      leading: const CircleAvatar(child: Icon(Icons.person)),
-                      title: Text(AppLocalizations.of(context)!.profileStudentAccount),
-                      subtitle: Text(AppLocalizations.of(context)!.profileNotLoggedIn),
-                      trailing: TextButton(
-                        onPressed: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(builder: (_) => const LoginPage()),
-                          );
-                        },
-                        child: Text(AppLocalizations.of(context)!.authLoginOrRegister),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Card(
-                      child: ListTile(
-                        leading: const Icon(Icons.star_border),
-                        title: Text(AppLocalizations.of(context)!.profileBecomeTeacher),
-                        subtitle: Text(AppLocalizations.of(context)!.profileLoginToSubmit),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(builder: (_) => const LoginPage()),
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                );
-              }
-              final verified = user.emailVerified;
-              final name = user.displayName?.trim();
-              _loadAvatar(user.uid);
-              final roleFuture = _fetchRoleInfo(user.uid);
-              return Column(
-                children: [
+            body: const LoginPage(
+              popOnSuccess: false,
+              showBackButton: false,
+            ),
+          );
+        }
+        return Scaffold(
+          appBar: AppBar(
+            title: Text(AppLocalizations.of(context)!.profileMy),
+          ),
+          body: ListView(
+            padding: AppSpacing.allMd,
+            children: [
+              if (!FirebaseBootstrap.isReady)
+                AppCard(
+                  padding: AppSpacing.allMd,
+                  child: Text(
+                    AppLocalizations.of(context)!.profileFirebaseNotConfigured,
+                    style: AppTypography.bodySecondary.copyWith(color: AppColors.primary),
+                  ),
+                ),
+              _buildLoggedInContent(user),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildLoggedInContent(User user) {
+    final verified = user.emailVerified;
+    final name = user.displayName?.trim();
+    _loadAvatar(user.uid);
+    final roleFuture = _fetchRoleInfo(user.uid);
+    return Column(
+      children: [
                   FutureBuilder<Map<String, dynamic>?>(
                     future: UserRestrictions.getMyRestrictionRow(),
                     builder: (context, restrictionSnap) {
@@ -424,31 +441,22 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                       }
                       final msg = UserRestrictions.getAccountStatusMessage(row, context);
                       final isBanned = UserRestrictions.isBannedOrFrozen(row);
-                      return Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        margin: const EdgeInsets.only(bottom: 8),
-                        decoration: BoxDecoration(
-                          color: isBanned ? Colors.red.shade900.withOpacity(0.3) : Colors.orange.shade900.withOpacity(0.3),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: isBanned ? Colors.red.shade700 : Colors.orange.shade700,
-                            width: 1,
-                          ),
-                        ),
+                      return AppCard(
+                        padding: AppSpacing.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm + AppSpacing.xs),
+                        margin: const EdgeInsets.only(bottom: AppSpacing.sm),
                         child: Row(
                           children: [
                             Icon(
                               isBanned ? Icons.block : Icons.info_outline,
-                              color: isBanned ? Colors.red.shade200 : Colors.orange.shade200,
+                              color: isBanned ? AppColors.negative : AppColors.warning,
                               size: 20,
                             ),
-                            const SizedBox(width: 8),
+                            const SizedBox(width: AppSpacing.sm),
                             Expanded(
                               child: Text(
                                 msg,
-                                style: TextStyle(
-                                  color: isBanned ? Colors.red.shade100 : Colors.orange.shade100,
+                                style: AppTypography.body.copyWith(
+                                  color: isBanned ? AppColors.negative : AppColors.warning,
                                   fontSize: 13,
                                 ),
                               ),
@@ -459,48 +467,42 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                     },
                   ),
                   if (!kIsWeb && Platform.isAndroid && _notificationDenied)
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      margin: const EdgeInsets.only(bottom: 8),
-                      decoration: BoxDecoration(
-                        color: Colors.orange.shade900.withValues(alpha: 0.3),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: Colors.orange.shade700,
-                          width: 1,
-                        ),
-                      ),
+                    AppCard(
+                      padding: AppSpacing.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm + AppSpacing.xs),
+                      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
                       child: Row(
                         children: [
-                          Icon(
+                          const Icon(
                             Icons.notifications_off_outlined,
-                            color: Colors.orange.shade200,
+                            color: AppColors.warning,
                             size: 22,
                           ),
-                          const SizedBox(width: 10),
+                          const SizedBox(width: AppSpacing.sm + AppSpacing.xs),
                           Expanded(
                             child: Text(
                               AppLocalizations.of(context)!.profileNotificationNotEnabled,
-                              style: TextStyle(
-                                color: Colors.orange.shade100,
+                              style: AppTypography.body.copyWith(
+                                color: AppColors.warning,
                                 fontSize: 13,
                               ),
                             ),
                           ),
-                          TextButton(
+                          AppButton(
+                            variant: AppButtonVariant.text,
+                            label: AppLocalizations.of(context)!.commonGoToEnable,
                             onPressed: () async {
                               await NotificationSettingsGuide.showIfPermissionDenied(context);
                               _checkNotificationPermission();
                             },
-                            child: Text(AppLocalizations.of(context)!.commonGoToEnable),
                           ),
                         ],
                       ),
                     ),
-                  Card(
+                  AppCard(
+                    padding: AppSpacing.allMd,
+                    margin: const EdgeInsets.only(bottom: AppSpacing.md),
                     child: Padding(
-                      padding: const EdgeInsets.all(16),
+                      padding: EdgeInsets.zero,
                       child: FutureBuilder<UserRoleInfo?>(
                         future: roleFuture,
                         builder: (context, roleSnapshot) {
@@ -541,7 +543,7 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                                                       child: Center(
                                                         child: Icon(
                                                           Icons.person,
-                                                          color: Color(0xFF111215),
+                                                          color: AppColors.surface,
                                                           size: 32,
                                                         ),
                                                       ),
@@ -553,20 +555,19 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                                                       child: Center(
                                                         child: Icon(
                                                           Icons.person,
-                                                          color: Color(0xFF111215),
+                                                          color: AppColors.surface,
                                                           size: 32,
                                                         ),
                                                       ),
                                                     ),
                                                   ),
                                                 )
-                                              : CircleAvatar(
+                                              : const CircleAvatar(
                                                   radius: 36,
-                                                  backgroundColor:
-                                                      const Color(0xFFD4AF37),
-                                                  child: const Icon(
+                                                  backgroundColor: AppColors.primary,
+                                                  child: Icon(
                                                     Icons.person,
-                                                    color: Color(0xFF111215),
+                                                    color: AppColors.surface,
                                                     size: 32,
                                                   ),
                                                 ),
@@ -575,20 +576,19 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                                             bottom: 0,
                                             child: Container(
                                               decoration: BoxDecoration(
-                                                color: const Color(0xFF111215),
+                                                color: AppColors.surface,
                                                 borderRadius:
-                                                    BorderRadius.circular(12),
+                                                    BorderRadius.circular(AppRadius.md),
                                                 border: Border.all(
-                                                  color:
-                                                      const Color(0xFFD4AF37),
+                                                  color: AppColors.primary,
                                                   width: 0.6,
                                                 ),
                                               ),
-                                              padding: const EdgeInsets.all(3),
+                                              padding: const EdgeInsets.all(AppSpacing.xs),
                                               child: const Icon(
                                                 Icons.camera_alt_outlined,
                                                 size: 14,
-                                                color: Color(0xFFD4AF37),
+                                                color: AppColors.primary,
                                               ),
                                             ),
                                           ),
@@ -596,7 +596,7 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                                       ),
                                     ),
                                   ),
-                                  const SizedBox(width: 12),
+                                  const SizedBox(width: AppSpacing.sm + AppSpacing.xs),
                                   Expanded(
                                     child: Column(
                                       crossAxisAlignment:
@@ -618,7 +618,7 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                                                         .textTheme
                                                         .titleMedium,
                                                   ),
-                                                  const SizedBox(height: 4),
+                                                  const SizedBox(height: AppSpacing.xs),
                                                   Text(
                                                     _shortId == null ||
                                                             _shortId!
@@ -626,9 +626,8 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                                                                 .isEmpty
                                                         ? AppLocalizations.of(context)!.profileAccountIdDash
                                                         : AppLocalizations.of(context)!.profileAccountIdValue(_shortId!.trim()),
-                                                    style: const TextStyle(
-                                                      fontSize: 12,
-                                                      color: Color(0xFF6C6F77),
+                                                    style: AppTypography.caption.copyWith(
+                                                      color: AppColors.textTertiary,
                                                     ),
                                                   ),
                                                 ],
@@ -646,13 +645,13 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                                                     teacherStatus: role.teacherStatus,
                                                   ),
                                                 ),
-                                                const SizedBox(height: 6),
+                                                const SizedBox(height: AppSpacing.sm),
                                                 _buildLevelTag('Lv ${role.level}'),
                                               ],
                                             ),
                                           ],
                                         ),
-                                        const SizedBox(height: 10),
+                                        const SizedBox(height: AppSpacing.md - AppSpacing.xs),
                                         Row(
                                           children: [
                                             Expanded(
@@ -661,8 +660,8 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                                                         true
                                                     ? _signature!.trim()
                                                     : AppLocalizations.of(context)!.profileLazySignature,
-                                                style: const TextStyle(
-                                                  color: Color(0xFF6C6F77),
+                                                style: AppTypography.bodySecondary.copyWith(
+                                                  color: AppColors.textTertiary,
                                                 ),
                                               ),
                                             ),
@@ -675,6 +674,7 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                                               icon: const Icon(
                                                 Icons.edit_outlined,
                                                 size: 18,
+                                                color: AppColors.textSecondary,
                                               ),
                                             ),
                                           ],
@@ -684,9 +684,10 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                                   ),
                                 ],
                               ),
-                              const SizedBox(height: 8),
-                              const SizedBox(height: 16),
-                              Card(
+                              const SizedBox(height: AppSpacing.sm),
+                              const SizedBox(height: AppSpacing.md),
+                              AppCard(
+                                padding: EdgeInsets.zero,
                                 child: ListTile(
                                   leading: Icon(
                                     role.teacherStatus.toString().trim().toLowerCase() == 'approved'
@@ -714,8 +715,9 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                                 ),
                               ),
                               if (role.role.toString().trim().toLowerCase() == 'customer_service') ...[
-                                const SizedBox(height: 16),
-                                Card(
+                                const SizedBox(height: AppSpacing.md),
+                                AppCard(
+                                  padding: EdgeInsets.zero,
                                   child: ListTile(
                                     leading: const Icon(Icons.support_agent_outlined),
                                     title: Text(AppLocalizations.of(context)!.profileCsWorkbench),
@@ -737,58 +739,39 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                       ),
                     ),
                   ),
-                ],
+          const SizedBox(height: AppSpacing.md),
+          _buildMenuItemCard(
+            leading: const Icon(Icons.people_outline),
+            title: AppLocalizations.of(context)!.profileTraderFriends,
+            subtitle: AppLocalizations.of(context)!.profileTraderFriendsSubtitle,
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const FeaturedTeacherPage()),
               );
             },
           ),
-          const SizedBox(height: 16),
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.people_outline),
-              title: Text(AppLocalizations.of(context)!.profileTraderFriends),
-              subtitle: Text(AppLocalizations.of(context)!.profileTraderFriendsSubtitle),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const FeaturedTeacherPage()),
-                );
-              },
-            ),
+          _buildMenuItemCard(
+            leading: const Icon(Icons.help_outline),
+            title: AppLocalizations.of(context)!.profileHelp,
+            subtitle: AppLocalizations.of(context)!.profileNotificationGuideSubtitle,
+            onTap: () => _showHelpSheet(context),
           ),
-          const SizedBox(height: 16),
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.help_outline),
-              title: Text(AppLocalizations.of(context)!.profileHelp),
-              subtitle: Text(AppLocalizations.of(context)!.profileNotificationGuideSubtitle),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => _showHelpSheet(context),
-            ),
+          _buildMenuItemCard(
+            leading: const Icon(Icons.privacy_tip_outlined),
+            title: AppLocalizations.of(context)!.profilePrivacyPolicy,
+            subtitle: AppLocalizations.of(context)!.profilePrivacyPolicySubtitle,
+            onTap: () => _showPrivacyPolicy(context),
           ),
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.privacy_tip_outlined),
-              title: Text(AppLocalizations.of(context)!.profilePrivacyPolicy),
-              subtitle: Text(AppLocalizations.of(context)!.profilePrivacyPolicySubtitle),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => _showPrivacyPolicy(context),
-            ),
+          _buildMenuItemCard(
+            leading: const Icon(Icons.flag_outlined),
+            title: AppLocalizations.of(context)!.profileReport,
+            subtitle: AppLocalizations.of(context)!.profileReportSubtitle,
+            onTap: () => _showReport(context),
           ),
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.flag_outlined),
-              title: Text(AppLocalizations.of(context)!.profileReport),
-              subtitle: Text(AppLocalizations.of(context)!.profileReportSubtitle),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => _showReport(context),
-            ),
-          ),
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.logout_outlined),
-              title: Text(AppLocalizations.of(context)!.profileLogout),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () async {
+          _buildMenuItemCard(
+            leading: const Icon(Icons.logout_outlined),
+            title: AppLocalizations.of(context)!.profileLogout,
+            onTap: () async {
                 final authService = AuthService();
                 final currentUser = FirebaseBootstrap.isReady
                     ? FirebaseAuth.instance.currentUser
@@ -801,14 +784,14 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                 }
                 final confirmed = await showModalBottomSheet<bool>(
                   context: context,
-                  backgroundColor: const Color(0xFF111215),
+                  backgroundColor: AppColors.surface,
                   shape: const RoundedRectangleBorder(
-                    borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
                   ),
                   builder: (context) {
                     return SafeArea(
                       child: Padding(
-                        padding: const EdgeInsets.all(16),
+                        padding: AppSpacing.allMd,
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -817,17 +800,18 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                               currentUser.email ?? AppLocalizations.of(context)!.profileLoggedIn,
                               style: Theme.of(context).textTheme.titleMedium,
                             ),
-                            const SizedBox(height: 12),
-                            OutlinedButton(
+                            const SizedBox(height: AppSpacing.md),
+                            AppButton(
+                              label: AppLocalizations.of(context)!.commonCancel,
+                              variant: AppButtonVariant.secondary,
                               onPressed: () =>
                                   Navigator.of(context).pop(false),
-                              child: Text(AppLocalizations.of(context)!.commonCancel),
                             ),
-                            const SizedBox(height: 8),
-                            FilledButton(
+                            const SizedBox(height: AppSpacing.sm),
+                            AppButton(
+                              label: AppLocalizations.of(context)!.profileLogout,
                               onPressed: () =>
                                   Navigator.of(context).pop(true),
-                              child: Text(AppLocalizations.of(context)!.profileLogout),
                             ),
                           ],
                         ),
@@ -838,8 +822,7 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                 if (confirmed == true) {
                   await authService.signOut();
                 }
-              },
-            ),
+            },
           ),
           StreamBuilder<User?>(
             stream: FirebaseBootstrap.isReady
@@ -848,73 +831,73 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
             builder: (context, snapshot) {
               final user = snapshot.data;
               if (user == null) return const SizedBox.shrink();
-              return Card(
-                child: ListTile(
-                  leading: Icon(Icons.person_off_outlined, color: Colors.red.shade300),
-                  title: Text(
-                    AppLocalizations.of(context)!.profileAccountDeletion,
-                    style: TextStyle(color: Colors.red.shade300),
-                  ),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => _showAccountDeletion(context, user),
-                ),
+              return _buildMenuItemCard(
+                leading: const Icon(Icons.person_off_outlined, color: AppColors.negative),
+                title: AppLocalizations.of(context)!.profileAccountDeletion,
+                titleColor: AppColors.negative,
+                onTap: () => _showAccountDeletion(context, user),
               );
             },
           ),
-          const SizedBox(height: 16),
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.language_outlined),
-              title: Text(AppLocalizations.of(context)!.settingsLanguage),
-              subtitle: Text(
-                LocaleProvider.instance.locale?.languageCode == 'en'
-                    ? AppLocalizations.of(context)!.settingsLanguageEnglish
-                    : AppLocalizations.of(context)!.settingsLanguageChinese,
-              ),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () async {
-                final l10n = AppLocalizations.of(context)!;
-                final choice = await showModalBottomSheet<String>(
-                  context: context,
-                  backgroundColor: const Color(0xFF111215),
-                  shape: const RoundedRectangleBorder(
-                    borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-                  ),
-                  builder: (context) {
-                    return SafeArea(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Text(
-                              l10n.settingsLanguage,
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
-                            const SizedBox(height: 12),
-                            ListTile(
+          const SizedBox(height: AppSpacing.md),
+          _buildMenuItemCard(
+            leading: const Icon(Icons.language_outlined),
+            title: AppLocalizations.of(context)!.settingsLanguage,
+            subtitle: LocaleProvider.instance.locale?.languageCode == 'en'
+                ? AppLocalizations.of(context)!.settingsLanguageEnglish
+                : AppLocalizations.of(context)!.settingsLanguageChinese,
+            onTap: () async {
+              final l10n = AppLocalizations.of(context)!;
+              final choice = await showModalBottomSheet<String>(
+                context: context,
+                backgroundColor: AppColors.surface,
+                shape: const RoundedRectangleBorder(
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
+                ),
+                builder: (context) {
+                  return SafeArea(
+                    child: Padding(
+                      padding: AppSpacing.allMd,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text(
+                            l10n.settingsLanguage,
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: AppSpacing.md),
+                          AppCard(
+                            padding: EdgeInsets.zero,
+                            margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+                            onTap: () => Navigator.of(context).pop('zh'),
+                            child: ListTile(
+                              leading: const Icon(Icons.translate, color: AppColors.primary),
                               title: Text(l10n.settingsLanguageChinese),
-                              onTap: () => Navigator.of(context).pop('zh'),
+                              trailing: const Icon(Icons.chevron_right, color: AppColors.textTertiary),
                             ),
-                            ListTile(
+                          ),
+                          AppCard(
+                            padding: EdgeInsets.zero,
+                            onTap: () => Navigator.of(context).pop('en'),
+                            child: ListTile(
+                              leading: const Icon(Icons.language, color: AppColors.primary),
                               title: Text(l10n.settingsLanguageEnglish),
-                              onTap: () => Navigator.of(context).pop('en'),
+                              trailing: const Icon(Icons.chevron_right, color: AppColors.textTertiary),
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
-                    );
-                  },
-                );
-                if (choice != null && context.mounted) {
-                  await LocaleProvider.instance.setLocale(Locale(choice));
-                }
-              },
-            ),
+                    ),
+                  );
+                },
+              );
+              if (choice != null && context.mounted) {
+                await LocaleProvider.instance.setLocale(Locale(choice));
+              }
+            },
           ),
         ],
-      ),
     );
   }
 
@@ -922,14 +905,14 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
     final l10n = AppLocalizations.of(context)!;
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: const Color(0xFF111215),
+      backgroundColor: AppColors.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
       ),
       builder: (ctx) {
         return SafeArea(
           child: Padding(
-            padding: const EdgeInsets.all(16),
+            padding: AppSpacing.allMd,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -938,16 +921,15 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                   l10n.profileHelpTitle,
                   style: Theme.of(ctx).textTheme.titleLarge,
                 ),
-                const SizedBox(height: 16),
-                ListTile(
-                  leading: const Icon(Icons.notifications_active_outlined),
-                  title: Text(l10n.profilePushNotificationGuide),
-                  subtitle: Text(l10n.profileNotificationGuideSubtitle),
+                const SizedBox(height: AppSpacing.md),
+                AppCard(
+                  padding: EdgeInsets.zero,
                   onTap: () async {
                     Navigator.of(ctx).pop();
                     if (!kIsWeb && Platform.isAndroid) {
                       final status = await Permission.notification.status;
                       if (!status.isGranted) {
+                        if (!context.mounted) return;
                         await NotificationSettingsGuide.showIfPermissionDenied(context);
                         _checkNotificationPermission();
                         return;
@@ -961,38 +943,45 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                         content: SingleChildScrollView(
                           child: Text(
                             l10n.profileNotificationPermissionGuide,
-                            style: const TextStyle(height: 1.4),
+                            style: AppTypography.body.copyWith(height: 1.4),
                           ),
                         ),
                         actions: [
-                          TextButton(
+                          AppButton(
+                            variant: AppButtonVariant.secondary,
+                            label: l10n.commonKnowIt,
                             onPressed: () => Navigator.of(dctx).pop(),
-                            child: Text(l10n.commonKnowIt),
                           ),
-                          FilledButton(
+                          AppButton(
+                            label: l10n.profileReRequestPermission,
                             onPressed: () async {
                               Navigator.of(dctx).pop();
                               await NotificationSettingsGuide.requestAllPermissionsNow(context);
                             },
-                            child: Text(l10n.profileReRequestPermission),
                           ),
-                          FilledButton(
+                          AppButton(
+                            variant: AppButtonVariant.secondary,
+                            label: l10n.commonGoToSettings,
                             onPressed: () {
                               Navigator.of(dctx).pop();
                               openAppSettings();
                             },
-                            child: Text(l10n.commonGoToSettings),
                           ),
                         ],
                       ),
                     );
                   },
+                  child: ListTile(
+                    leading: const Icon(Icons.notifications_active_outlined, color: AppColors.primary),
+                    title: Text(l10n.profilePushNotificationGuide),
+                    subtitle: Text(l10n.profileNotificationGuideSubtitle),
+                    trailing: const Icon(Icons.chevron_right, color: AppColors.textTertiary),
+                  ),
                 ),
                 if (!kIsWeb && Platform.isAndroid)
-                  ListTile(
-                    leading: const Icon(Icons.call_outlined),
-                    title: Text(l10n.profileIncomingCallFullScreen),
-                    subtitle: Text(l10n.profileIncomingCallFullScreenSubtitle),
+                  AppCard(
+                    padding: EdgeInsets.zero,
+                    margin: const EdgeInsets.only(top: AppSpacing.sm),
                     onTap: () async {
                       Navigator.of(ctx).pop();
                       final canUse = await NotificationService.canUseFullScreenIntent();
@@ -1002,11 +991,18 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                         );
                         return;
                       }
+                      if (!context.mounted) return;
                       await NotificationSettingsGuide.showFullScreenIntentPermissionGuide(context);
                       if (context.mounted) {
                         await NotificationSettingsGuide.showCallFullScreenPermissionGuide(context);
                       }
                     },
+                    child: ListTile(
+                      leading: const Icon(Icons.call_outlined, color: AppColors.primary),
+                      title: Text(l10n.profileIncomingCallFullScreen),
+                      subtitle: Text(l10n.profileIncomingCallFullScreenSubtitle),
+                      trailing: const Icon(Icons.chevron_right, color: AppColors.textTertiary),
+                    ),
                   ),
               ],
             ),
@@ -1025,13 +1021,14 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
         content: SingleChildScrollView(
           child: Text(
             l10n.profilePrivacyPolicyContent,
-            style: const TextStyle(height: 1.5),
+            style: AppTypography.body.copyWith(height: 1.5),
           ),
         ),
         actions: [
-          TextButton(
+          AppButton(
+            variant: AppButtonVariant.secondary,
+            label: l10n.commonKnowIt,
             onPressed: () => Navigator.of(ctx).pop(),
-            child: Text(l10n.commonKnowIt),
           ),
         ],
       ),
@@ -1052,14 +1049,15 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
         title: Text(l10n.profileAccountDeletion),
         content: Text(l10n.profileAccountDeletionConfirm),
         actions: [
-          TextButton(
+          AppButton(
+            variant: AppButtonVariant.secondary,
+            label: l10n.commonCancel,
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: Text(l10n.commonCancel),
           ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+          AppButton(
+            variant: AppButtonVariant.primary,
+            label: l10n.profileAccountDeletion,
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: Text(l10n.profileAccountDeletion),
           ),
         ],
       ),
@@ -1067,14 +1065,14 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
     if (confirmed != true || !mounted) return;
     try {
       await user.delete();
-      if (!mounted) return;
+      if (!context.mounted) return;
       await AuthService().signOut();
-      if (!mounted) return;
+      if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(l10n.profileDeletionSuccess)),
       );
     } catch (e) {
-      if (!mounted) return;
+      if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('${l10n.profileAccountDeletion}: $e')),
       );

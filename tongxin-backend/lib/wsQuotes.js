@@ -32,9 +32,14 @@ function createQuotesWsServer(httpServer, polygonKey) {
 
     function connectPolygon(symbols) {
       if (!symbols || symbols.length === 0) return;
+      const subscribeAll = symbols.includes('*');
       if (polygonWs && polygonWs.readyState === WebSocket.OPEN) {
-        for (const sym of symbols) {
-          polygonWs.send(JSON.stringify({ action: 'subscribe', params: `T.${sym}` }));
+        if (subscribeAll) {
+          polygonWs.send(JSON.stringify({ action: 'subscribe', params: 'T.*' }));
+        } else {
+          for (const sym of symbols) {
+            polygonWs.send(JSON.stringify({ action: 'subscribe', params: `T.${sym}` }));
+          }
         }
         return;
       }
@@ -42,8 +47,12 @@ function createQuotesWsServer(httpServer, polygonKey) {
       polygonWs = new WebSocket(POLYGON_WS);
       polygonWs.on('open', () => {
         polygonWs.send(JSON.stringify({ action: 'auth', params: polygonKey }));
-        for (const sym of symbols) {
-          polygonWs.send(JSON.stringify({ action: 'subscribe', params: `T.${sym}` }));
+        if (subscribeAll) {
+          polygonWs.send(JSON.stringify({ action: 'subscribe', params: 'T.*' }));
+        } else {
+          for (const sym of symbols) {
+            polygonWs.send(JSON.stringify({ action: 'subscribe', params: `T.${sym}` }));
+          }
         }
       });
       polygonWs.on('message', (data) => {
@@ -70,10 +79,9 @@ function createQuotesWsServer(httpServer, polygonKey) {
       try {
         const msg = JSON.parse(data.toString());
         if (msg.action === 'subscribe' && Array.isArray(msg.symbols)) {
-          const symbols = msg.symbols
-            .map((s) => String(s).trim().toUpperCase())
-            .filter((s) => s.length > 0)
-            .slice(0, 50);
+          const raw = msg.symbols.map((s) => String(s).trim().toUpperCase()).filter((s) => s.length > 0);
+          const subscribeAll = raw.includes('*');
+          const symbols = subscribeAll ? ['*'] : raw.slice(0, 50);
           connectPolygon(symbols);
         } else if (msg.action === 'unsubscribe') {
           unsubscribeAll();

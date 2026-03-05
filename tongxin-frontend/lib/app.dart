@@ -4,6 +4,7 @@ import 'core/finance_background.dart';
 import 'core/last_online_service.dart';
 import 'core/locale_provider.dart';
 import 'core/notification_service.dart';
+import 'core/theme/app_theme.dart';
 import 'features/home/home_page.dart';
 import 'l10n/app_localizations.dart';
 import 'ui/splash/tv_orbit_splash.dart';
@@ -54,7 +55,7 @@ class _TeacherHubAppState extends State<TeacherHubApp>
     return ListenableBuilder(
       listenable: LocaleProvider.instance,
       builder: (_, __) {
-        final locale = LocaleProvider.instance.locale ?? const Locale('zh');
+        final locale = LocaleProvider.instance.locale ?? const Locale('en');
         return MaterialApp(
           title: 'Tongxin',
           debugShowCheckedModeBanner: false,
@@ -63,21 +64,7 @@ class _TeacherHubAppState extends State<TeacherHubApp>
           supportedLocales: AppLocalizations.supportedLocales,
           locale: locale,
           routes: const {},
-          theme: ThemeData(
-        brightness: Brightness.dark,
-        colorScheme: const ColorScheme.dark(
-          primary: Color(0xFFD4AF37),
-          secondary: Color(0xFF8A6D1D),
-          surface: Color(0xFF111215),
-        ),
-        scaffoldBackgroundColor: const Color(0xFF0B0C0E),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Color(0xFF0B0C0E),
-          foregroundColor: Color(0xFFD4AF37),
-          elevation: 0,
-        ),
-        useMaterial3: true,
-      ),
+          theme: AppTheme.dark(),
       builder: (context, child) {
         if (child == null) {
           return const SizedBox.shrink();

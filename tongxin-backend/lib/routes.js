@@ -466,11 +466,33 @@ async function handleTickersFromCache(req, res) {
   }
 }
 
+/** POST /api/tickers-upsert — 批量写入 symbol+name 到 stock_quote_cache（无报价也可，用于预填股票列表） */
+async function handleTickersUpsert(req, res) {
+  if (!supabaseQuoteCache.isConfigured()) {
+    return res.status(503).json({ error: 'Supabase 未配置' });
+  }
+  const body = req.body;
+  if (!Array.isArray(body) || body.length === 0) {
+    return res.status(400).json({ error: 'body 需为 [{ symbol, name }, ...] 非空数组' });
+  }
+  if (body.length > 10000) {
+    return res.status(400).json({ error: '单次最多 10000 条' });
+  }
+  try {
+    const entries = body.map((e) => ({ symbol: e.symbol, name: e.name }));
+    await supabaseQuoteCache.upsertSymbolsAndNames(entries);
+    return res.json({ ok: true, count: entries.length });
+  } catch (e) {
+    return res.status(502).json({ error: String(e.message || e) });
+  }
+}
+
 function registerRoutes(app, polygonKey, twelveKey) {
   rateLimiter.init(require('./config').POLYGON_RATE_LIMIT_PER_SEC);
   app.get('/api/market/snapshots', handleMarketSnapshotsGet);
   app.put('/api/market/snapshots', handleMarketSnapshotsPut);
   app.get('/api/tickers-from-cache', handleTickersFromCache);
+  app.post('/api/tickers-upsert', handleTickersUpsert);
   app.get('/api/quotes', (req, res) => handleQuotes(req, res, polygonKey, twelveKey));
   app.get('/api/candles', (req, res) => handleCandles(req, res, polygonKey, twelveKey));
   app.get('/api/gainers', (req, res) => handleGainers(req, res, polygonKey));

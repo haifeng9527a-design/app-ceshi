@@ -141,6 +141,21 @@ class MarketDb {
     }
   }
 
+  /// 清空所有股票行情数据（tickers + quotes）
+  Future<void> clearAllMarketData() async {
+    try {
+      final db = await _getDb();
+      await db.delete('quotes');
+      await db.delete('tickers');
+      _notifyTickers();
+      _notifyQuotes();
+      if (kDebugMode) debugPrint('MarketDb clearAllMarketData: 已清空 tickers 和 quotes');
+    } catch (e) {
+      if (kDebugMode) debugPrint('MarketDb clearAllMarketData: $e');
+      rethrow;
+    }
+  }
+
   /// 获取美股数量
   Future<int> getTickersCount() async {
     try {
@@ -335,6 +350,80 @@ class MarketDb {
     bool sortAscending = false,
   }) async {
     final tickers = await getAllTickersWithQuotes(sortColumn: sortColumn, sortAscending: sortAscending);
+    final symbols = tickers.map((t) => t.symbol).toList();
+    final quotes = await getQuotes(symbols);
+    return (tickers: tickers, quotes: quotes);
+  }
+
+  /// tickers 表总条数
+  Future<int> getTickerCount() async {
+    try {
+      final db = await _getDb();
+      final r = await db.rawQuery('SELECT COUNT(*) as c FROM tickers');
+      return (r.first['c'] as int?) ?? 0;
+    } catch (e) {
+      if (kDebugMode) debugPrint('MarketDb getTickerCount: $e');
+      return 0;
+    }
+  }
+
+  /// 返回尚未写入 quotes 的 ticker symbols（用于首轮补齐缺失行情）
+  Future<List<String>> getTickerSymbolsMissingQuotes({int limit = 200}) async {
+    try {
+      final db = await _getDb();
+      final rows = await db.rawQuery('''
+        SELECT t.symbol
+        FROM tickers t
+        LEFT JOIN quotes q ON t.symbol = q.symbol
+        WHERE q.symbol IS NULL
+        ORDER BY t.symbol ASC
+        LIMIT ?
+      ''', [limit]);
+      return rows
+          .map((e) => (e['symbol'] as String?)?.trim() ?? '')
+          .where((s) => s.isNotEmpty)
+          .toList();
+    } catch (e) {
+      if (kDebugMode) debugPrint('MarketDb getTickerSymbolsMissingQuotes: $e');
+      return [];
+    }
+  }
+
+  /// 返回最久未刷新的 symbols（用于后台异步刷新“最新数据”）
+  Future<List<String>> getOldestQuoteSymbols({int limit = 200}) async {
+    try {
+      final db = await _getDb();
+      final rows = await db.rawQuery('''
+        SELECT t.symbol
+        FROM tickers t
+        LEFT JOIN quotes q ON t.symbol = q.symbol
+        ORDER BY COALESCE(q.updated_at_ms, 0) ASC, t.symbol ASC
+        LIMIT ?
+      ''', [limit]);
+      return rows
+          .map((e) => (e['symbol'] as String?)?.trim() ?? '')
+          .where((s) => s.isNotEmpty)
+          .toList();
+    } catch (e) {
+      if (kDebugMode) debugPrint('MarketDb getOldestQuoteSymbols: $e');
+      return [];
+    }
+  }
+
+  /// 分页获取 tickers + 对应 quotes（用于避免一次性加载过多导致 UI 卡顿）
+  Future<({List<MarketSearchResult> tickers, Map<String, MarketQuote> quotes})> getTickersAndQuotesPage({
+    String? sortColumn,
+    bool sortAscending = false,
+    required int limit,
+    int offset = 0,
+  }) async {
+    final tickers = await getTickersWithQuotes(
+      sortColumn: sortColumn,
+      sortAscending: sortAscending,
+      limit: limit,
+      offset: offset,
+    );
+    if (tickers.isEmpty) return (tickers: <MarketSearchResult>[], quotes: <String, MarketQuote>{});
     final symbols = tickers.map((t) => t.symbol).toList();
     final quotes = await getQuotes(symbols);
     return (tickers: tickers, quotes: quotes);
