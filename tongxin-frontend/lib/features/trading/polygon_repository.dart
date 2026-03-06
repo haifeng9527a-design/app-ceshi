@@ -428,7 +428,15 @@ class PolygonRepository {
             if (ticker == null || ticker.isEmpty) continue;
             final name = r['name'] as String? ?? ticker;
             final market = r['market'] as String?;
-            list.add(PolygonTickerSearchResult(ticker: ticker, name: name, market: market));
+            final type = r['type'] as String?;
+            final primaryExchange = r['primary_exchange'] as String?;
+            list.add(PolygonTickerSearchResult(
+              ticker: ticker,
+              name: name,
+              market: market,
+              type: type,
+              primaryExchange: primaryExchange,
+            ));
           }
         }
         nextUrl = map['next_url'] as String?;
@@ -471,7 +479,15 @@ class PolygonRepository {
         if (ticker == null || ticker.isEmpty) continue;
         final name = r['name'] as String? ?? ticker;
         final market = r['market'] as String?;
-        list.add(PolygonTickerSearchResult(ticker: ticker, name: name, market: market));
+        final type = r['type'] as String?;
+        final primaryExchange = r['primary_exchange'] as String?;
+        list.add(PolygonTickerSearchResult(
+          ticker: ticker,
+          name: name,
+          market: market,
+          type: type,
+          primaryExchange: primaryExchange,
+        ));
       }
       return list;
     } catch (e) {
@@ -694,9 +710,15 @@ class PolygonTickerSearchResult {
     required this.ticker,
     required this.name,
     this.market,
+    this.type,
+    this.primaryExchange,
   });
   final String ticker;
   final String name;
   /// 市场类型：stocks, crypto, fx, indices 等（Polygon API 返回）
   final String? market;
+  /// 证券类型（如 CS, ETF, ETN, ADRC...）
+  final String? type;
+  /// 主交易所代码（Polygon reference 字段）
+  final String? primaryExchange;
 }

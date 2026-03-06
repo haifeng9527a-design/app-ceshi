@@ -21,6 +21,10 @@
 - `GET /api/ratios?symbol=AAPL` — 财务比率（市盈率、市净率、股息率等）
 - `GET /api/dividends?symbol=AAPL` — 分红历史
 - `GET /api/splits?symbol=AAPL` — 拆股历史
+- `GET /api/watchlist` — 当前登录用户自选股列表（需鉴权）
+- `POST /api/watchlist` — 新增自选（body: `{ symbol }`，需鉴权）
+- `DELETE /api/watchlist/:symbol` — 移除自选（需鉴权）
+- `PUT /api/watchlist` — 覆盖自选列表（body: `{ symbols: string[] }`，需鉴权）
 
 后端使用**按 symbol 的缓存**（内存 → Supabase → SQLite）：
 - **Supabase**（可选）：配置 `SUPABASE_URL` + `SUPABASE_ANON_KEY` 后，会在 Supabase 中读写表 `stock_quote_cache`，作为跨实例的报价缓存。需在 Supabase Dashboard → SQL Editor 中执行 `supabase/stock_quote_cache.sql` 建表。
@@ -29,6 +33,10 @@
 - **SingleFlight**：同一 symbol 并发请求只打一次 Polygon，避免羊群。
 - **后台刷新**：定时从 `meta_symbol` 按优先级取到期 symbol，在预算内拉取并写回，失败做指数退避。
 - 其余接口（涨跌榜、K 线、搜索等）仍用通用 key-value 缓存。
+
+自选股服务端存储：
+- 使用 Supabase 独立表 `user_watchlists`（不再使用 `app_config`）。
+- 建表 SQL 见 `docs/user_watchlists_schema.sql`（含旧 `app_config` 的迁移语句）。
 
 ## 运行
 

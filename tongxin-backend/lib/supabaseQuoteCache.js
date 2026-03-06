@@ -22,11 +22,20 @@ function isConfigured() {
 
 /** 把表的一行转成前端用的 payload（与 toQuoteSnapshot 结构一致） */
 function rowToPayload(row) {
+  const close = row.close != null ? Number(row.close) : null;
+  const prevClose = row.prev_close != null ? Number(row.prev_close) : null;
+  const changeByPrev =
+    close != null && prevClose != null && prevClose > 0 ? close - prevClose : null;
+  const pctByPrev =
+    changeByPrev != null && prevClose != null && prevClose > 0
+      ? (changeByPrev / prevClose) * 100
+      : null;
   return {
     symbol: row.symbol,
-    close: row.close != null ? Number(row.close) : null,
-    change: row.change != null ? Number(row.change) : null,
-    percent_change: row.percent_change != null ? Number(row.percent_change) : null,
+    close,
+    change: changeByPrev ?? (row.change != null ? Number(row.change) : null),
+    percent_change: pctByPrev ?? (row.percent_change != null ? Number(row.percent_change) : null),
+    prev_close: prevClose,
     open: row.open != null ? Number(row.open) : null,
     high: row.high != null ? Number(row.high) : null,
     low: row.low != null ? Number(row.low) : null,
@@ -84,8 +93,35 @@ async function setBatch(entries) {
         high: p.high != null ? p.high : null,
         low: p.low != null ? p.low : null,
         volume: p.volume != null ? p.volume : null,
-        prev_close: close != null && change != null ? close - change : null,
+        prev_close:
+          p.prev_close != null
+            ? p.prev_close
+            : (close != null && change != null ? close - change : null),
         error_reason: p.error_reason || null,
+        updated_at: now,
+      };
+    })
+    .filter(Boolean);
+  if (rows.length > 0) {
+    await supabase.from(TABLE).upsert(rows, { onConflict: 'symbol' });
+  }
+}
+
+/**
+ * 批量写入 symbol+name（无报价时也可写入，用于预填股票列表）
+ * entries: [{ symbol, name }, ...]
+ */
+async function upsertSymbolsAndNames(entries) {
+  const supabase = getClient();
+  if (!supabase || !entries.length) return;
+  const now = new Date().toISOString();
+  const rows = entries
+    .map((e) => {
+      const symbol = (e.symbol || '').toUpperCase().trim();
+      if (!symbol) return null;
+      return {
+        symbol,
+        name: e.name ?? symbol,
         updated_at: now,
       };
     })
@@ -116,5 +152,6 @@ module.exports = {
   isConfigured,
   getBySymbols,
   setBatch,
+  upsertSymbolsAndNames,
   getAllSymbolsAndNames,
 };

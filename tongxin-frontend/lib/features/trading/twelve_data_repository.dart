@@ -16,6 +16,7 @@ class TwelveDataRepository {
   final String? _apiKey;
   static const _base = 'https://api.twelvedata.com';
   final _cache = TradingCache.instance;
+  static const _symbolsCacheMaxAge = Duration(days: 7);
 
   bool get isAvailable => _apiKey != null && _apiKey!.isNotEmpty;
 
@@ -26,8 +27,9 @@ class TwelveDataRepository {
     final sym = symbol.trim();
     if (sym.isEmpty) return null;
     final cacheKey = 'td_quote_$sym';
-    final cached = await _cache.get(cacheKey, maxAge: const Duration(seconds: 30));
-    if (cached != null && cached is Map<String, dynamic>) {
+    final cached =
+        await _cache.get(cacheKey, maxAge: const Duration(seconds: 30));
+    if (cached is Map<String, dynamic>) {
       return TwelveDataQuote.fromJson(cached, symbol: sym);
     }
     try {
@@ -35,13 +37,16 @@ class TwelveDataRepository {
         queryParameters: {'symbol': sym, 'apikey': _apiKey!},
       );
       final resp = await http.get(uri).timeout(
-        const Duration(seconds: 12),
-        onTimeout: () => throw Exception('请求超时'),
-      );
+            const Duration(seconds: 12),
+            onTimeout: () => throw Exception('请求超时'),
+          );
       if (resp.statusCode != 200) {
         if (kDebugMode) {
-          final body = resp.body.length > 200 ? '${resp.body.substring(0, 200)}…' : resp.body;
-          debugPrint('[Twelve getQuote $sym] HTTP ${resp.statusCode} body=$body');
+          final body = resp.body.length > 200
+              ? '${resp.body.substring(0, 200)}…'
+              : resp.body;
+          debugPrint(
+              '[Twelve getQuote $sym] HTTP ${resp.statusCode} body=$body');
         }
         return null;
       }
@@ -57,7 +62,8 @@ class TwelveDataRepository {
       if (q != null) {
         await _cache.set(cacheKey, map);
       } else if (kDebugMode && map.isNotEmpty) {
-        debugPrint('TwelveData quote $sym: parse failed, keys=${map.keys.toList()}');
+        debugPrint(
+            'TwelveData quote $sym: parse failed, keys=${map.keys.toList()}');
       }
       return q;
     } catch (e) {
@@ -71,19 +77,22 @@ class TwelveDataRepository {
   Future<Map<String, TwelveDataQuote?>> getQuotes(List<String> symbols) async {
     final out = <String, TwelveDataQuote?>{};
     if (!isAvailable || symbols.isEmpty) return out;
-    final list = symbols.map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+    final list =
+        symbols.map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
     if (list.isEmpty) return out;
     try {
       final uri = Uri.parse('$_base/quote').replace(
         queryParameters: {'symbol': list.join(','), 'apikey': _apiKey!},
       );
       final resp = await http.get(uri).timeout(
-        const Duration(seconds: 15),
-        onTimeout: () => throw Exception('请求超时'),
-      );
+            const Duration(seconds: 15),
+            onTimeout: () => throw Exception('请求超时'),
+          );
       if (resp.statusCode != 200) {
         if (kDebugMode) {
-          final body = resp.body.length > 200 ? '${resp.body.substring(0, 200)}…' : resp.body;
+          final body = resp.body.length > 200
+              ? '${resp.body.substring(0, 200)}…'
+              : resp.body;
           debugPrint('[Twelve getQuotes] HTTP ${resp.statusCode} body=$body');
         }
         return out;
@@ -108,6 +117,22 @@ class TwelveDataRepository {
         return out;
       }
       if (decoded is Map<String, dynamic>) {
+        // 批量 quote 常见返回：{ "EUR/USD": {...}, "USD/JPY": {...} }
+        // 该结构没有 data 字段，顶层 key 即 symbol。
+        var parsedAnyFromSymbolMap = false;
+        for (final e in decoded.entries) {
+          final sym = e.key.trim();
+          final item = e.value;
+          if (sym.isEmpty || item is! Map<String, dynamic>) continue;
+          final q = TwelveDataQuote.fromJson(item, symbol: sym);
+          if (q != null) {
+            out[sym] = q;
+            await _cache.set('td_quote_$sym', item);
+            parsedAnyFromSymbolMap = true;
+          }
+        }
+        if (parsedAnyFromSymbolMap) return out;
+
         final code = decoded['code'];
         if (code != null && code != 200 && code != 0) {
           debugPrint('TwelveData getQuotes: code=$code ${decoded['message']}');
@@ -128,7 +153,7 @@ class TwelveDataRepository {
           return out;
         }
         if (data is Map) {
-          for (final e in (data as Map).entries) {
+          for (final e in data.entries) {
             final sym = e.key is String ? e.key as String : e.key?.toString();
             if (sym == null || sym.isEmpty) continue;
             final item = e.value;
@@ -171,7 +196,8 @@ class TwelveDataRepository {
     final sym = symbol.trim();
     if (sym.isEmpty) return [];
     final cacheKey = 'td_ts_${sym}_${interval}_${outputsize}_${endDateMs ?? 0}';
-    final cached = await _cache.getList(cacheKey, maxAge: const Duration(minutes: 2));
+    final cached =
+        await _cache.getList(cacheKey, maxAge: const Duration(minutes: 2));
     if (cached != null && cached.isNotEmpty) {
       final list = <ChartCandle>[];
       for (final e in cached) {
@@ -191,15 +217,16 @@ class TwelveDataRepository {
       };
       if (endDateMs != null) {
         final end = DateTime.fromMillisecondsSinceEpoch(endDateMs);
-        params['end_date'] = '${end.year}-${end.month.toString().padLeft(2, '0')}-${end.day.toString().padLeft(2, '0')} ${end.hour.toString().padLeft(2, '0')}:${end.minute.toString().padLeft(2, '0')}:${end.second.toString().padLeft(2, '0')}';
+        params['end_date'] =
+            '${end.year}-${end.month.toString().padLeft(2, '0')}-${end.day.toString().padLeft(2, '0')} ${end.hour.toString().padLeft(2, '0')}:${end.minute.toString().padLeft(2, '0')}:${end.second.toString().padLeft(2, '0')}';
       }
       final uri = Uri.parse('$_base/time_series').replace(
         queryParameters: params,
       );
       final resp = await http.get(uri).timeout(
-        const Duration(seconds: 15),
-        onTimeout: () => throw Exception('请求超时'),
-      );
+            const Duration(seconds: 15),
+            onTimeout: () => throw Exception('请求超时'),
+          );
       if (resp.statusCode != 200) return [];
       final map = jsonDecode(resp.body) as Map<String, dynamic>?;
       if (map == null) return [];
@@ -251,13 +278,16 @@ class TwelveDataRepository {
         queryParameters: params,
       );
       final resp = await http.get(uri).timeout(
-        const Duration(seconds: 15),
-        onTimeout: () => throw Exception('请求超时'),
-      );
+            const Duration(seconds: 15),
+            onTimeout: () => throw Exception('请求超时'),
+          );
       if (resp.statusCode != 200) {
         if (kDebugMode) {
-          final body = resp.body.length > 200 ? '${resp.body.substring(0, 200)}…' : resp.body;
-          debugPrint('[Twelve getTimeSeriesRange $sym] HTTP ${resp.statusCode} body=$body');
+          final body = resp.body.length > 200
+              ? '${resp.body.substring(0, 200)}…'
+              : resp.body;
+          debugPrint(
+              '[Twelve getTimeSeriesRange $sym] HTTP ${resp.statusCode} body=$body');
         }
         return [];
       }
@@ -265,7 +295,9 @@ class TwelveDataRepository {
       if (map == null) return [];
       final code = map['code'];
       if (code != null && code != 200 && code != 0) {
-        if (kDebugMode) debugPrint('TwelveData getTimeSeriesRange $sym: code=$code ${map['message']}');
+        if (kDebugMode)
+          debugPrint(
+              'TwelveData getTimeSeriesRange $sym: code=$code ${map['message']}');
         return [];
       }
       final values = map['values'] as List<dynamic>?;
@@ -284,10 +316,120 @@ class TwelveDataRepository {
     }
   }
 
+  /// 获取全部外汇交易对列表（symbol + name）
+  /// 优先命中本地缓存，失败时返回空列表
+  Future<List<TwelveDataInstrument>> getForexPairs() async {
+    return _getInstruments(
+      endpoint: '/forex_pairs',
+      cacheKey: 'td_forex_pairs',
+      market: 'forex',
+    );
+  }
+
+  /// 获取全部加密货币交易对列表（symbol + name）
+  /// 优先命中本地缓存，失败时返回空列表
+  Future<List<TwelveDataInstrument>> getCryptoPairs() async {
+    return _getInstruments(
+      endpoint: '/cryptocurrencies',
+      cacheKey: 'td_crypto_pairs',
+      market: 'crypto',
+    );
+  }
+
+  Future<List<TwelveDataInstrument>> _getInstruments({
+    required String endpoint,
+    required String cacheKey,
+    required String market,
+  }) async {
+    final cached = await _cache.getList(cacheKey, maxAge: _symbolsCacheMaxAge);
+    if (cached != null && cached.isNotEmpty) {
+      final parsed = <TwelveDataInstrument>[];
+      for (final e in cached) {
+        if (e is! Map<String, dynamic>) continue;
+        final symbol = (e['symbol'] as String?)?.trim();
+        final name = (e['name'] as String?)?.trim();
+        if (symbol == null || symbol.isEmpty) continue;
+        parsed.add(TwelveDataInstrument(
+          symbol: symbol,
+          name: (name == null || name.isEmpty) ? symbol : name,
+          market: market,
+        ));
+      }
+      if (parsed.isNotEmpty) return parsed;
+    }
+    if (!isAvailable) return [];
+    try {
+      final uri = Uri.parse('$_base$endpoint').replace(
+        queryParameters: {'apikey': _apiKey!},
+      );
+      final resp = await http.get(uri).timeout(
+            const Duration(seconds: 20),
+            onTimeout: () => throw Exception('请求超时'),
+          );
+      if (resp.statusCode != 200) return [];
+      final map = jsonDecode(resp.body) as Map<String, dynamic>?;
+      if (map == null) return [];
+      final code = map['code'];
+      if (code != null && code != 200 && code != 0) return [];
+
+      final rows = map['data'];
+      if (rows is! List) return [];
+      final result = <TwelveDataInstrument>[];
+      final toCache = <Map<String, dynamic>>[];
+      final seen = <String>{};
+
+      for (final row in rows) {
+        if (row is! Map<String, dynamic>) continue;
+        final symbol = (row['symbol'] as String?)?.trim();
+        if (symbol == null || symbol.isEmpty) continue;
+        if (!symbol.contains('/')) continue;
+        if (seen.contains(symbol)) continue;
+        final base = (row['currency_base'] as String?)?.trim();
+        final quote = (row['currency_quote'] as String?)?.trim();
+        final rowName = (row['name'] as String?)?.trim();
+        final name = (rowName != null && rowName.isNotEmpty)
+            ? rowName
+            : (base != null &&
+                    base.isNotEmpty &&
+                    quote != null &&
+                    quote.isNotEmpty)
+                ? '$base/$quote'
+                : symbol;
+        result.add(TwelveDataInstrument(
+          symbol: symbol,
+          name: name,
+          market: market,
+        ));
+        toCache.add({'symbol': symbol, 'name': name});
+        seen.add(symbol);
+      }
+      result.sort((a, b) => a.symbol.compareTo(b.symbol));
+      if (toCache.isNotEmpty) {
+        await _cache.setList(cacheKey, toCache);
+      }
+      return result;
+    } catch (e) {
+      debugPrint('TwelveDataRepository _getInstruments($endpoint): $e');
+      return [];
+    }
+  }
+
   static String _formatDateTimeForApi(DateTime dt) {
     return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')} '
         '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}:${dt.second.toString().padLeft(2, '0')}';
   }
+}
+
+class TwelveDataInstrument {
+  const TwelveDataInstrument({
+    required this.symbol,
+    required this.name,
+    required this.market,
+  });
+
+  final String symbol;
+  final String name;
+  final String market;
 }
 
 /// Twelve Data 报价（quote 接口）
@@ -311,7 +453,8 @@ class TwelveDataQuote {
   final double? low;
   final int? volume;
 
-  static TwelveDataQuote? fromJson(Map<String, dynamic> json, {required String symbol}) {
+  static TwelveDataQuote? fromJson(Map<String, dynamic> json,
+      {required String symbol}) {
     final close = _toDouble(json['close']);
     if (close == null) return null;
     return TwelveDataQuote(

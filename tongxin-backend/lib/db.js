@@ -36,6 +36,20 @@ function getDb() {
       fail_count INTEGER NOT NULL DEFAULT 0,
       next_eligible_refresh_ms INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS forex_pair_cache (
+      symbol TEXT PRIMARY KEY,
+      name TEXT,
+      market TEXT DEFAULT 'forex',
+      updated_at_ms INTEGER NOT NULL,
+      last_quote_at_ms INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS forex_quote_cache (
+      symbol TEXT PRIMARY KEY,
+      payload_json TEXT NOT NULL,
+      updated_at_ms INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_forex_pair_updated ON forex_pair_cache(updated_at_ms);
+    CREATE INDEX IF NOT EXISTS idx_forex_quote_updated ON forex_quote_cache(updated_at_ms);
   `);
   return db;
 }
@@ -181,6 +195,118 @@ function recordQuoteFetchFailure(symbol) {
   } catch (e) {}
 }
 
+// ---------- Forex 缓存（服务端轮询） ----------
+function upsertForexPairs(pairs) {
+  if (!pairs?.length) return;
+  try {
+    const d = getDb();
+    const now = Date.now();
+    const stmt = d.prepare(`
+      INSERT INTO forex_pair_cache (symbol, name, market, updated_at_ms, last_quote_at_ms)
+      VALUES (?, ?, 'forex', ?, NULL)
+      ON CONFLICT(symbol) DO UPDATE SET
+        name=excluded.name,
+        market='forex',
+        updated_at_ms=excluded.updated_at_ms
+    `);
+    const trans = d.transaction(() => {
+      for (const p of pairs) {
+        const symbol = String(p.symbol || '').trim();
+        if (!symbol) continue;
+        const name = String(p.name || symbol).trim() || symbol;
+        stmt.run(symbol, name, now);
+      }
+    });
+    trans();
+  } catch (_) {}
+}
+
+function getForexPairsPage(page = 1, pageSize = 120) {
+  try {
+    const d = getDb();
+    const p = Math.max(1, parseInt(page, 10) || 1);
+    const ps = Math.min(500, Math.max(1, parseInt(pageSize, 10) || 120));
+    const offset = (p - 1) * ps;
+    const totalRow = d.prepare('SELECT COUNT(*) AS c FROM forex_pair_cache').get();
+    const total = Number(totalRow?.c || 0);
+    const rows = d
+      .prepare('SELECT symbol, name, market FROM forex_pair_cache ORDER BY symbol ASC LIMIT ? OFFSET ?')
+      .all(ps, offset);
+    return { rows, total, page: p, pageSize: ps, hasMore: offset + rows.length < total };
+  } catch (_) {
+    return { rows: [], total: 0, page: 1, pageSize: 120, hasMore: false };
+  }
+}
+
+function getForexSymbolsBatch(offset = 0, limit = 120) {
+  try {
+    const d = getDb();
+    const rows = d
+      .prepare('SELECT symbol FROM forex_pair_cache ORDER BY symbol ASC LIMIT ? OFFSET ?')
+      .all(Math.max(1, limit), Math.max(0, offset));
+    return rows.map((r) => r.symbol).filter(Boolean);
+  } catch (_) {
+    return [];
+  }
+}
+
+function getForexPairsCount() {
+  try {
+    const row = getDb().prepare('SELECT COUNT(*) AS c FROM forex_pair_cache').get();
+    return Number(row?.c || 0);
+  } catch (_) {
+    return 0;
+  }
+}
+
+function setForexQuotesBatch(entries) {
+  if (!entries?.length) return;
+  try {
+    const d = getDb();
+    const now = Date.now();
+    const insQuote = d.prepare(`
+      INSERT INTO forex_quote_cache (symbol, payload_json, updated_at_ms)
+      VALUES (?, ?, ?)
+      ON CONFLICT(symbol) DO UPDATE SET
+        payload_json=excluded.payload_json,
+        updated_at_ms=excluded.updated_at_ms
+    `);
+    const touchPair = d.prepare(`
+      UPDATE forex_pair_cache
+      SET last_quote_at_ms = ?
+      WHERE symbol = ?
+    `);
+    const trans = d.transaction(() => {
+      for (const { symbol, payload } of entries) {
+        if (!symbol || !payload) continue;
+        insQuote.run(symbol, JSON.stringify(payload), now);
+        touchPair.run(now, symbol);
+      }
+    });
+    trans();
+  } catch (_) {}
+}
+
+function getForexQuotesBySymbols(symbols) {
+  if (!symbols?.length) return new Map();
+  try {
+    const d = getDb();
+    const placeholders = symbols.map(() => '?').join(',');
+    const rows = d
+      .prepare(`SELECT symbol, payload_json, updated_at_ms FROM forex_quote_cache WHERE symbol IN (${placeholders})`)
+      .all(...symbols);
+    const out = new Map();
+    for (const r of rows) {
+      try {
+        out.set(r.symbol, { payload: JSON.parse(r.payload_json), updated_at_ms: r.updated_at_ms });
+      } catch (_) {}
+    }
+    return out;
+  } catch (_) {
+    return new Map();
+  }
+}
+
 module.exports = {
   getDb,
   getStale,
@@ -191,4 +317,10 @@ module.exports = {
   getMetaBySymbols,
   getEligibleSymbolsForRefresh,
   recordQuoteFetchFailure,
+  upsertForexPairs,
+  getForexPairsPage,
+  getForexSymbolsBatch,
+  getForexPairsCount,
+  setForexQuotesBatch,
+  getForexQuotesBySymbols,
 };

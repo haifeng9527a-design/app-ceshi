@@ -2,11 +2,15 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../core/design/design_tokens.dart';
 import '../../l10n/app_localizations.dart';
+import '../../ui/components/components.dart';
 import '../trading/fills_and_positions_tab.dart';
+import '../trading/account_ledger_tab.dart';
 import '../trading/market_trade_tab.dart';
 import '../trading/order_history_tab.dart';
 import '../trading/orders_tab.dart';
+import '../trading/trading_ui.dart';
 import 'teacher_models.dart';
 import 'teacher_public_page.dart';
 import 'teacher_repository.dart';
@@ -114,7 +118,7 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
     final approved = (_statusLabel.toString().trim().toLowerCase() == 'approved');
     _tabController?.dispose();
     if (approved) {
-      _tabController = TabController(length: 5, vsync: this);
+      _tabController = TabController(length: 6, vsync: this);
     } else {
       _tabController = null;
     }
@@ -230,9 +234,11 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
       builder: (dialogContext) {
         return Theme(
           data: Theme.of(context).copyWith(
-            dialogBackgroundColor: const Color(0xFF1A1C21),
-            colorScheme: ColorScheme.dark(
-              surface: const Color(0xFF1A1C21),
+            dialogTheme: const DialogThemeData(
+              backgroundColor: Color(0xFF1A1C21),
+            ),
+            colorScheme: const ColorScheme.dark(
+              surface: Color(0xFF1A1C21),
               onSurface: Colors.white,
               primary: _accent,
             ),
@@ -270,7 +276,7 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
                           Text(
                             l10n.teachersStrategyImage,
                             style: TextStyle(
-                              color: Colors.white.withOpacity(0.7),
+                              color: Colors.white.withValues(alpha: 0.7),
                               fontSize: 12,
                             ),
                           ),
@@ -428,133 +434,8 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
     );
   }
 
-  Future<void> _addTradeRecordDialog() async {
-    final symbolController = TextEditingController();
-    final sideController = TextEditingController();
-    final pnlController = TextEditingController();
-    XFile? selectedFile;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: Text(AppLocalizations.of(context)!.teachersUploadRecord),
-              content: SingleChildScrollView(
-                child: Column(
-                  children: [
-                    TextField(
-                      controller: symbolController,
-                      decoration: InputDecoration(labelText: AppLocalizations.of(context)!.teachersTradeRecordSymbol),
-                    ),
-                    TextField(
-                      controller: sideController,
-                      decoration: InputDecoration(labelText: AppLocalizations.of(context)!.teachersTradeRecordSide),
-                    ),
-                    TextField(
-                      controller: pnlController,
-                      decoration: InputDecoration(labelText: AppLocalizations.of(context)!.teachersTradeRecordPnl),
-                      keyboardType: TextInputType.number,
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            selectedFile == null
-                                ? AppLocalizations.of(context)!.teachersNoScreenshotSelected
-                                : selectedFile!.name,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Color(0xFF6C6F77),
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        TextButton(
-                          onPressed: () async {
-                            final picked = await _imagePicker.pickImage(
-                              source: ImageSource.gallery,
-                            );
-                            if (picked == null) {
-                              return;
-                            }
-                            setDialogState(() {
-                              selectedFile = picked;
-                            });
-                          },
-                          child: Text(AppLocalizations.of(context)!.teachersSelectScreenshot),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                onPressed: () => Navigator.of(context).pop(false),
-                child: Text(AppLocalizations.of(context)!.commonCancel),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.of(context).pop(true),
-                child: Text(AppLocalizations.of(context)!.commonSave),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-    if (confirmed != true) {
-      symbolController.dispose();
-      sideController.dispose();
-      pnlController.dispose();
-      return;
-    }
-    final userId = FirebaseAuth.instance.currentUser?.uid ?? '';
-    if (userId.isEmpty) {
-      return;
-    }
-    final pnl = num.tryParse(pnlController.text.trim()) ?? 0;
-    String? attachmentUrl;
-    try {
-      if (selectedFile != null) {
-        final bytes = await selectedFile!.readAsBytes();
-        final name = selectedFile!.name;
-        final contentType = _guessImageContentType(name);
-        attachmentUrl = await _repository.uploadTradeRecordFile(
-          teacherId: userId,
-          fileName: name,
-          bytes: bytes,
-          contentType: contentType,
-        );
-      }
-      await _repository.addTradeRecord(
-        teacherId: userId,
-        symbol: symbolController.text.trim(),
-        side: sideController.text.trim(),
-        pnl: pnl,
-        attachmentUrl: attachmentUrl,
-      );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(AppLocalizations.of(context)!.teachersRecordSaved)),
-      );
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${AppLocalizations.of(context)!.teachersSaveFailed}：$error')),
-      );
-    }
-    symbolController.dispose();
-    sideController.dispose();
-    pnlController.dispose();
-  }
-
-  static const Color _accent = Color(0xFFD4AF37);
-  static const Color _muted = Color(0xFF6C6F77);
-  static const Color _surface = Color(0xFF1A1C21);
+  static const Color _accent = AppColors.primary;
+  static const Color _muted = AppColors.textTertiary;
 
   Widget _sectionTitle(String text) {
     return Padding(
@@ -583,9 +464,8 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
   }
 
   Widget _sectionCard(String title, List<Widget> children) {
-    return Card(
+    return AppCard(
       margin: const EdgeInsets.only(bottom: 16),
-      color: _surface,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -603,13 +483,13 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
         width: 56,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: const Color(0xFF111215),
+          color: AppColors.surface,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: const Color(0xFF2A2D34)),
+          border: Border.all(color: AppColors.border),
         ),
         child: Text(
           label,
-          style: const TextStyle(fontSize: 10, color: Color(0xFF6C6F77)),
+          style: const TextStyle(fontSize: 10, color: AppColors.textTertiary),
         ),
       );
     }
@@ -637,32 +517,55 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
       );
     }
     return Scaffold(
+      backgroundColor: TradingUi.pageBg,
       appBar: AppBar(
         title: Text(l10n.teachersTeacherCenter),
+        backgroundColor: TradingUi.pageBg,
         bottom: (_isApproved && _tabController != null)
             ? TabBar(
                 controller: _tabController!,
                 isScrollable: true,
+                tabAlignment: TabAlignment.start,
+                dividerColor: Colors.transparent,
+                indicatorColor: TradingUi.accent,
+                indicatorWeight: 3,
+                labelColor: TradingUi.accent,
+                unselectedLabelColor: TradingUi.textMuted,
+                labelStyle: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
+                ),
+                unselectedLabelStyle: const TextStyle(
+                  fontWeight: FontWeight.w500,
+                  fontSize: 14,
+                ),
                 tabs: [
                   Tab(text: l10n.teachersStrategyTab),
                   Tab(text: l10n.teachersQuoteAndTradeTab),
                   Tab(text: l10n.teachersOrderTab),
                   Tab(text: l10n.teachersHistoryOrderTab),
                   Tab(text: l10n.teachersFillsAndPositionsTab),
+                  Tab(text: l10n.teachersAccountAndLedgerTab),
                 ],
               )
             : null,
       ),
       body: (_isApproved && _tabController != null)
-          ? TabBarView(
-              controller: _tabController!,
-              children: [
-                _buildStrategiesTab(user.uid),
-                MarketTradeTab(teacherId: user.uid),
-                OrdersTab(teacherId: user.uid),
-                OrderHistoryTab(teacherId: user.uid),
-                FillsAndPositionsTab(teacherId: user.uid),
-              ],
+          ? Container(
+              decoration: const BoxDecoration(
+                color: TradingUi.pageBg,
+              ),
+              child: TabBarView(
+                controller: _tabController!,
+                children: [
+                  _buildStrategiesTab(user.uid),
+                  MarketTradeTab(teacherId: user.uid),
+                  OrdersTab(teacherId: user.uid),
+                  OrderHistoryTab(teacherId: user.uid),
+                  FillsAndPositionsTab(teacherId: user.uid),
+                  AccountLedgerTab(teacherId: user.uid),
+                ],
+              ),
             )
           : _buildProfileTab(),
     );
@@ -686,7 +589,7 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
                     : null,
                 child: user?.photoURL?.trim().isNotEmpty == true
                     ? null
-                    : const Icon(Icons.person, color: Color(0xFF111215)),
+                    : const Icon(Icons.person, color: AppColors.surface),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -702,7 +605,7 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
                     const SizedBox(height: 4),
                     Text(
                       l10n.teachersAvatarNicknameHint,
-                      style: TextStyle(fontSize: 12, color: _muted),
+                      style: const TextStyle(fontSize: 12, color: _muted),
                     ),
                   ],
                 ),
@@ -723,7 +626,7 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
             decoration: InputDecoration(labelText: l10n.teachersOrgCompany),
           ),
           DropdownButtonFormField<String>(
-            value: _countryValue,
+            initialValue: _countryValue,
             decoration: InputDecoration(labelText: l10n.teachersCountryRegion),
             items: l10n.teachersCountryOptions.split(', ').map((item) => DropdownMenuItem(value: item.trim(), child: Text(item.trim()))).toList(),
             onChanged: (value) => setState(() => _countryValue = value),
@@ -733,7 +636,7 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
             decoration: InputDecoration(labelText: l10n.teachersCityLabel),
           ),
           DropdownButtonFormField<int>(
-            value: _yearsValue,
+            initialValue: _yearsValue,
             decoration: InputDecoration(labelText: l10n.teachersYearsExperience),
             items: List.generate(21, (index) => index)
                 .where((item) => item > 0)
@@ -785,7 +688,7 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
           const SizedBox(height: 12),
           Row(
             children: [
-              _buildVerifyThumb(_certificationPhotoUrl, '资质照片'),
+              _buildVerifyThumb(_certificationPhotoUrl, l10n.teachersQualificationPhoto),
               const SizedBox(width: 12),
               Expanded(
                 child: OutlinedButton.icon(
@@ -862,8 +765,7 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
             ],
           ),
         ]),
-        Card(
-          color: _surface,
+        AppCard(
           margin: const EdgeInsets.only(bottom: 16),
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -878,23 +780,23 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
                   title: Text(AppLocalizations.of(context)!.teachersRiskAckTitle),
                 ),
                 const SizedBox(height: 12),
-                FilledButton(
+                AppButton(
                   onPressed: (_saving ||
                           _statusLabel.toString().trim().toLowerCase() ==
                               'pending')
                       ? null
                       : _saveProfile,
-                  child: Text(
-                    _saving
-                        ? '提交中…'
-                        : (_statusLabel.toString().trim().toLowerCase() ==
-                                'pending'
-                            ? '已提交等待审核'
-                            : '提交申请'),
-                  ),
+                  label: _saving
+                      ? l10n.teachersSubmitting
+                      : (_statusLabel.toString().trim().toLowerCase() ==
+                              'pending'
+                          ? l10n.teachersSubmittedPendingReview
+                          : l10n.teachersSubmitApplication),
                 ),
                 const SizedBox(height: 8),
-                TextButton(
+                AppButton(
+                  variant: AppButtonVariant.text,
+                  label: AppLocalizations.of(context)!.teachersPreviewHomepage,
                   onPressed: () {
                     final userId =
                         FirebaseAuth.instance.currentUser?.uid ?? '';
@@ -906,7 +808,6 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
                       ),
                     );
                   },
-                  child: Text(AppLocalizations.of(context)!.teachersPreviewHomepage),
                 ),
               ],
             ),
@@ -922,33 +823,36 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
     Color color;
     IconData icon;
     if (status == 'frozen') {
-      color = Colors.blue;
+      color = AppColors.warning;
       icon = Icons.ac_unit;
-      message = '您当前处于冻结状态，无法发布策略与交易记录。';
+      message = AppLocalizations.of(context)!.teachersStatusFrozenMessage;
       if (_frozenUntil != null) {
         final until = _frozenUntil!.toLocal();
-        message += '解冻时间：${until.year}-${until.month.toString().padLeft(2, '0')}-${until.day.toString().padLeft(2, '0')} ${until.hour.toString().padLeft(2, '0')}:${until.minute.toString().padLeft(2, '0')}';
+        final dateLabel =
+            '${until.year}-${until.month.toString().padLeft(2, '0')}-${until.day.toString().padLeft(2, '0')} ${until.hour.toString().padLeft(2, '0')}:${until.minute.toString().padLeft(2, '0')}';
+        message += AppLocalizations.of(context)!
+            .teachersStatusUnfreezeTime(dateLabel);
       }
     } else if (status == 'blocked') {
-      color = Colors.red;
+      color = AppColors.negative;
       icon = Icons.block;
-      message = '您当前处于封禁状态，无法发布策略与交易记录。如有疑问请联系客服。';
+      message = AppLocalizations.of(context)!.teachersStatusBlockedMessage;
     } else if (status == 'rejected') {
-      color = Colors.grey;
+      color = AppColors.textTertiary;
       icon = Icons.cancel_outlined;
-      message = '您的申请已被拒绝，无法发布策略与交易记录。如有疑问请联系客服。';
+      message = AppLocalizations.of(context)!.teachersStatusRejectedMessage;
     } else {
       color = _accent;
       icon = Icons.info_outline;
-      message = '审核中，通过后可发布策略与交易记录';
+      message = AppLocalizations.of(context)!.teachersStatusPendingMessage;
     }
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
+        color: color.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.4)),
+        border: Border.all(color: color.withValues(alpha: 0.4)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -970,14 +874,18 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
     if (_statusLabel != 'approved') {
       final status = _statusLabel.toString().trim().toLowerCase();
       final hint = (status == 'frozen' || status == 'blocked')
-          ? '您当前处于${status == 'frozen' ? '冻结' : '封禁'}状态，无法发布策略'
-          : '审核通过后开放策略发布';
+          ? AppLocalizations.of(context)!.teachersStatusCannotPublishHint(
+              status == 'frozen'
+                  ? AppLocalizations.of(context)!.teachersFrozen
+                  : AppLocalizations.of(context)!.teachersBlocked,
+            )
+          : AppLocalizations.of(context)!.teachersStatusOpenAfterApproval;
       return ListView(
         padding: const EdgeInsets.all(16),
         children: [
           Text(
             hint,
-            style: const TextStyle(color: Color(0xFF6C6F77)),
+            style: const TextStyle(color: AppColors.textTertiary),
           ),
         ],
       );
@@ -991,16 +899,16 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
           children: [
             Align(
               alignment: Alignment.centerRight,
-              child: FilledButton(
+              child: AppButton(
                 onPressed: _addStrategyDialog,
-                child: Text(AppLocalizations.of(context)!.teachersPublishStrategy),
+                label: AppLocalizations.of(context)!.teachersPublishStrategy,
               ),
             ),
             const SizedBox(height: 12),
             if (items.isEmpty)
               Text(
                 AppLocalizations.of(context)!.teachersNoStrategy,
-                style: const TextStyle(color: Color(0xFF6C6F77)),
+                style: const TextStyle(color: AppColors.textTertiary),
               )
             else
               ...items.map(
@@ -1012,7 +920,7 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
                               : '')
                       .trim();
                   final urls = item.imageUrls ?? const [];
-                  return Card(
+                  return AppCard(
                     child: ListTile(
                       title: Text(item.title),
                       subtitle: Column(
@@ -1088,86 +996,6 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
                   ),
                 );
                 },
-              ),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _buildRecordsTab(String userId) {
-    if (_statusLabel != 'approved') {
-      final l10n = AppLocalizations.of(context)!;
-      final status = _statusLabel.toString().trim().toLowerCase();
-      final hint = (status == 'frozen' || status == 'blocked')
-          ? l10n.teachersFrozenOrBlocked(status == 'frozen' ? l10n.teachersFrozen : l10n.teachersBlocked)
-          : l10n.teachersReviewRequired;
-      return ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Text(
-            hint,
-            style: const TextStyle(color: Color(0xFF6C6F77)),
-          ),
-        ],
-      );
-    }
-    return StreamBuilder<List<TradeRecord>>(
-      stream: _repository.watchTradeRecords(userId),
-      builder: (context, snapshot) {
-        final items = snapshot.data ?? const <TradeRecord>[];
-        return ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            Align(
-              alignment: Alignment.centerRight,
-              child: FilledButton(
-                onPressed: _addTradeRecordDialog,
-                child: Text(AppLocalizations.of(context)!.teachersUploadRecord),
-              ),
-            ),
-            const SizedBox(height: 12),
-            if (items.isEmpty)
-              Text(
-                AppLocalizations.of(context)!.teachersNoRecord,
-                style: const TextStyle(color: Color(0xFF6C6F77)),
-              )
-            else
-              ...items.map(
-                (item) => Card(
-                  child: ListTile(
-                    title: Text(item.symbol),
-                    subtitle: Text('${item.side}  PnL: ${item.pnl}'),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (item.attachmentUrl != null &&
-                            item.attachmentUrl!.isNotEmpty)
-                          IconButton(
-                            icon: const Icon(Icons.image_outlined),
-                            onPressed: () {
-                              showDialog(
-                                context: context,
-                                builder: (_) => Dialog(
-                                  child: Image.network(item.attachmentUrl!),
-                                ),
-                              );
-                            },
-                          ),
-                        Text(
-                          item.tradeTime == null
-                              ? ''
-                              : item.tradeTime!
-                                  .toLocal()
-                                  .toString()
-                                  .split('.')
-                                  .first,
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
               ),
           ],
         );

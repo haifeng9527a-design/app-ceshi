@@ -80,13 +80,18 @@ class PolygonRealtime {
 }
 
 /// 多标的实时成交流：一次连接订阅多个股票，推送带 [symbol]
+/// [subscribeAll] 为 true 时订阅 T.*（所有美股成交），不传 symbols
 class PolygonRealtimeMulti {
-  PolygonRealtimeMulti({required String apiKey, required List<String> symbols})
-      : _apiKey = apiKey,
+  PolygonRealtimeMulti({
+    required String apiKey,
+    List<String> symbols = const [],
+    this.subscribeAll = false,
+  })  : _apiKey = apiKey,
         _symbols = symbols.map((s) => s.trim().toUpperCase()).where((s) => s.isNotEmpty).toList();
 
   final String _apiKey;
   final List<String> _symbols;
+  final bool subscribeAll;
   static const _wsUrl = 'wss://socket.polygon.io/stocks';
 
   WebSocketChannel? _channel;
@@ -96,7 +101,8 @@ class PolygonRealtimeMulti {
   Stream<PolygonTradeUpdate> get stream => _controller.stream;
 
   void connect() {
-    if (_closed || _symbols.isEmpty) return;
+    if (_closed) return;
+    if (!subscribeAll && _symbols.isEmpty) return;
     try {
       _channel = WebSocketChannel.connect(Uri.parse(_wsUrl));
       _channel!.stream.listen(
@@ -108,8 +114,12 @@ class PolygonRealtimeMulti {
         cancelOnError: false,
       );
       _channel!.sink.add(jsonEncode({'action': 'auth', 'params': _apiKey}));
-      for (final sym in _symbols) {
-        _channel!.sink.add(jsonEncode({'action': 'subscribe', 'params': 'T.$sym'}));
+      if (subscribeAll) {
+        _channel!.sink.add(jsonEncode({'action': 'subscribe', 'params': 'T.*'}));
+      } else {
+        for (final sym in _symbols) {
+          _channel!.sink.add(jsonEncode({'action': 'subscribe', 'params': 'T.$sym'}));
+        }
       }
     } catch (e) {
       debugPrint('PolygonRealtimeMulti connect: $e');
@@ -122,7 +132,9 @@ class PolygonRealtimeMulti {
     try {
       final data = jsonDecode(message);
       if (data is List) {
-        for (final item in data) _handleEvent(item);
+        for (final item in data) {
+          _handleEvent(item);
+        }
       } else {
         _handleEvent(data);
       }
@@ -134,7 +146,8 @@ class PolygonRealtimeMulti {
     final ev = data['ev'] as String?;
     if (ev == 'T') {
       final sym = data['sym'] as String?;
-      if (sym == null || !_symbols.contains(sym)) return;
+      if (sym == null || sym.isEmpty) return;
+      if (!subscribeAll && !_symbols.contains(sym)) return;
       final p = (data['p'] as num?)?.toDouble();
       final s = (data['s'] as num?)?.toInt() ?? 0;
       final t = (data['t'] as num?)?.toInt();

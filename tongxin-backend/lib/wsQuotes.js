@@ -70,10 +70,9 @@ function createQuotesWsServer(httpServer, polygonKey) {
       try {
         const msg = JSON.parse(data.toString());
         if (msg.action === 'subscribe' && Array.isArray(msg.symbols)) {
-          const symbols = msg.symbols
-            .map((s) => String(s).trim().toUpperCase())
-            .filter((s) => s.length > 0)
-            .slice(0, 50);
+          const raw = msg.symbols.map((s) => String(s).trim().toUpperCase()).filter((s) => s.length > 0);
+          const symbols = raw.filter((s) => s !== '*').slice(0, 30);
+          if (symbols.length === 0) return;
           connectPolygon(symbols);
         } else if (msg.action === 'unsubscribe') {
           unsubscribeAll();

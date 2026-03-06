@@ -2,9 +2,10 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/design/design_tokens.dart';
 import '../../l10n/app_localizations.dart';
 import '../../core/network_error_helper.dart';
-import '../../core/pc_dashboard_theme.dart';
+import '../../ui/components/components.dart';
 import 'chat_detail_page.dart';
 import 'chat_media_cache.dart';
 import 'friend_models.dart';
@@ -107,16 +108,24 @@ class _SystemNotificationsPageState extends State<SystemNotificationsPage> {
   Widget build(BuildContext context) {
     final userId = FirebaseAuth.instance.currentUser?.uid ?? '';
     return Scaffold(
-      backgroundColor: PcDashboardTheme.surface,
+      backgroundColor: AppColors.surface,
       appBar: AppBar(
-        title: Text(AppLocalizations.of(context)!.messagesSystemNotifications, style: PcDashboardTheme.titleMedium),
-        backgroundColor: PcDashboardTheme.surfaceVariant,
-        foregroundColor: PcDashboardTheme.text,
+        title: Text(
+          AppLocalizations.of(context)!.messagesSystemNotifications,
+          style: AppTypography.subtitle,
+        ),
+        backgroundColor: AppColors.surface2,
+        foregroundColor: AppColors.textPrimary,
         elevation: 0,
         scrolledUnderElevation: 0,
       ),
       body: userId.isEmpty
-          ? Center(child: Text(AppLocalizations.of(context)!.teachersPleaseLoginFirst, style: PcDashboardTheme.bodyLarge))
+          ? Center(
+              child: Text(
+                AppLocalizations.of(context)!.teachersPleaseLoginFirst,
+                style: AppTypography.body,
+              ),
+            )
           : StreamBuilder<List<FriendRequestItem>>(
               stream: _friendsRepository.watchAllFriendRequestRecords(userId: userId),
               builder: (context, snapshot) {
@@ -124,25 +133,25 @@ class _SystemNotificationsPageState extends State<SystemNotificationsPage> {
                 if (items.isEmpty) {
                   return Center(
                     child: Padding(
-                      padding: const EdgeInsets.all(PcDashboardTheme.contentPadding),
+                      padding: AppSpacing.allMd,
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(
+                          const Icon(
                             Icons.notifications_none_outlined,
                             size: 64,
-                            color: PcDashboardTheme.textMuted,
+                            color: AppColors.textTertiary,
                           ),
-                          const SizedBox(height: 20),
+                          const SizedBox(height: AppSpacing.lg),
                           Text(
                             AppLocalizations.of(context)!.msgSystemNotificationsEmptyHint,
-                            style: PcDashboardTheme.bodyLarge,
+                            style: AppTypography.body,
                             textAlign: TextAlign.center,
                           ),
-                          const SizedBox(height: 8),
+                          const SizedBox(height: AppSpacing.sm),
                           Text(
                             AppLocalizations.of(context)!.msgNoSystemNotifications,
-                            style: PcDashboardTheme.bodySmall,
+                            style: AppTypography.bodySecondary,
                           ),
                         ],
                       ),
@@ -150,9 +159,9 @@ class _SystemNotificationsPageState extends State<SystemNotificationsPage> {
                   );
                 }
                 return ListView.separated(
-                  padding: const EdgeInsets.all(PcDashboardTheme.contentPadding),
+                  padding: AppSpacing.allMd,
                   itemCount: items.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 12),
+                  separatorBuilder: (_, __) => const SizedBox(height: AppSpacing.sm + 4),
                   itemBuilder: (context, index) {
                     final item = items[index];
                     final busy = _isBusy(item.requestId);
@@ -176,17 +185,13 @@ class _SystemNotificationsPageState extends State<SystemNotificationsPage> {
                     final initial = item.otherDisplayName.isEmpty
                         ? (AppLocalizations.of(context)!.commonUser.isNotEmpty ? AppLocalizations.of(context)!.commonUser[0] : '?')
                         : item.otherDisplayName[0];
-                    return Container(
-                      decoration: PcDashboardTheme.cardDecoration(),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
-                      ),
+                    return AppCard(
+                      padding: AppSpacing.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm + 4),
                       child: Row(
                         children: [
                           CircleAvatar(
                             radius: 24,
-                            backgroundColor: PcDashboardTheme.surfaceElevated,
+                            backgroundColor: AppColors.surfaceElevated,
                             child: avatarUrl.isNotEmpty
                                 ? ClipOval(
                                     child: CachedNetworkImage(
@@ -200,16 +205,16 @@ class _SystemNotificationsPageState extends State<SystemNotificationsPage> {
                                       placeholder: (_, __) => Center(
                                         child: Text(
                                           initial,
-                                          style: PcDashboardTheme.titleSmall.copyWith(
-                                            color: PcDashboardTheme.accent,
+                                          style: AppTypography.subtitle.copyWith(
+                                            color: AppColors.primary,
                                           ),
                                         ),
                                       ),
                                       errorWidget: (_, __, ___) => Center(
                                         child: Text(
                                           initial,
-                                          style: PcDashboardTheme.titleSmall.copyWith(
-                                            color: PcDashboardTheme.accent,
+                                          style: AppTypography.subtitle.copyWith(
+                                            color: AppColors.primary,
                                           ),
                                         ),
                                       ),
@@ -217,12 +222,12 @@ class _SystemNotificationsPageState extends State<SystemNotificationsPage> {
                                   )
                                 : Text(
                                     initial,
-                                    style: PcDashboardTheme.titleSmall.copyWith(
-                                      color: PcDashboardTheme.accent,
+                                    style: AppTypography.subtitle.copyWith(
+                                      color: AppColors.primary,
                                     ),
                                   ),
                           ),
-                          const SizedBox(width: 16),
+                          const SizedBox(width: AppSpacing.md),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -230,31 +235,31 @@ class _SystemNotificationsPageState extends State<SystemNotificationsPage> {
                               children: [
                                 Text(
                                   item.otherDisplayName,
-                                  style: PcDashboardTheme.titleSmall,
+                                  style: AppTypography.subtitle,
                                 ),
-                                const SizedBox(height: 2),
-                                Text(idLabel, style: PcDashboardTheme.bodySmall),
+                                const SizedBox(height: AppSpacing.xs / 2),
+                                Text(idLabel, style: AppTypography.bodySecondary),
                                 if (item.isOutgoing) ...[
-                                  const SizedBox(height: 2),
+                                  const SizedBox(height: AppSpacing.xs / 2),
                                   Text(
                                     l10n.msgYouRequestAddFriend,
-                                    style: PcDashboardTheme.bodySmall,
+                                    style: AppTypography.bodySecondary,
                                   ),
                                 ],
-                                const SizedBox(height: 2),
+                                const SizedBox(height: AppSpacing.xs / 2),
                                 Text(
                                   statusLabel,
-                                  style: PcDashboardTheme.bodySmall.copyWith(
+                                  style: AppTypography.bodySecondary.copyWith(
                                     color: item.isPending
-                                        ? PcDashboardTheme.accent
-                                        : PcDashboardTheme.textMuted,
+                                        ? AppColors.primary
+                                        : AppColors.textTertiary,
                                   ),
                                 ),
                                 if (item.createdAt != null) ...[
-                                  const SizedBox(height: 2),
+                                  const SizedBox(height: AppSpacing.xs / 2),
                                   Text(
                                     _formatTime(item.createdAt),
-                                    style: PcDashboardTheme.label,
+                                    style: AppTypography.caption,
                                   ),
                                 ],
                               ],
@@ -264,39 +269,26 @@ class _SystemNotificationsPageState extends State<SystemNotificationsPage> {
                             Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                TextButton(
+                                AppButton(
+                                  variant: AppButtonVariant.secondary,
+                                  label: l10n.callDecline,
                                   onPressed: busy
                                       ? null
                                       : () => _rejectRequest(item),
-                                  child: Text(
-                                    l10n.callDecline,
-                                    style: PcDashboardTheme.titleSmall.copyWith(
-                                      color: PcDashboardTheme.textSecondary,
-                                    ),
-                                  ),
                                 ),
-                                const SizedBox(width: 8),
-                                FilledButton(
+                                const SizedBox(width: AppSpacing.sm),
+                                AppButton(
+                                  label: l10n.msgAcceptShort,
                                   onPressed: busy
                                       ? null
                                       : () => _acceptRequest(item, userId),
-                                  style: FilledButton.styleFrom(
-                                    backgroundColor: PcDashboardTheme.accent,
-                                    foregroundColor: PcDashboardTheme.surface,
-                                  ),
-                                  child: Text(
-                                    l10n.msgAcceptShort,
-                                    style: PcDashboardTheme.titleSmall.copyWith(
-                                      color: PcDashboardTheme.surface,
-                                    ),
-                                  ),
                                 ),
                               ],
                             )
                           else
                             Text(
                               statusLabel,
-                              style: PcDashboardTheme.bodySmall,
+                              style: AppTypography.bodySecondary,
                             ),
                         ],
                       ),

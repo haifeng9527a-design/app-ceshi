@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 
 /// TradingView 风格设计系统：深色、通透、专业
 /// 用于行情页（美股/外汇/加密货币）统一视觉
+///
+/// @deprecated 请优先使用 lib/core/design/design_tokens.dart 与 AppTheme。
+/// 保留本类用于桥接旧代码，新代码禁止引用。
+@Deprecated('Use design_tokens and AppTheme instead')
 class TvTheme {
   TvTheme._();
 

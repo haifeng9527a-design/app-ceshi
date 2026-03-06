@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -15,8 +16,10 @@ import '../trading/trading_cache.dart';
 import '../trading/twelve_data_repository.dart';
 
 // Re-export types so UI only imports market_repository (no direct PolygonRepository)
-export '../trading/polygon_repository.dart' show ChartCandle, PolygonBar, PolygonGainer;
-export '../trading/polygon_realtime.dart' show PolygonRealtime, PolygonRealtimeMulti, PolygonTradeUpdate;
+export '../trading/polygon_repository.dart'
+    show ChartCandle, PolygonBar, PolygonGainer;
+export '../trading/polygon_realtime.dart'
+    show PolygonRealtime, PolygonRealtimeMulti, PolygonTradeUpdate;
 
 // ---------- Symbol 规范化与降级 ----------
 
@@ -25,7 +28,16 @@ class SymbolResolver {
   SymbolResolver._();
 
   /// Polygon 常见指数需加 "I:" 前缀（如 I:SPX, I:DJI, I:RUT）
-  static const _polygonIndices = {'SPX', 'NDX', 'DJI', 'IXIC', 'VIX', 'RUT', 'HSI', 'N225'};
+  static const _polygonIndices = {
+    'SPX',
+    'NDX',
+    'DJI',
+    'IXIC',
+    'VIX',
+    'RUT',
+    'HSI',
+    'N225'
+  };
 
   /// 是否已知指数（走 Polygon 时用 I: 前缀，或 Twelve Data 兜底）
   static bool isIndex(String symbol) {
@@ -44,7 +56,12 @@ class SymbolResolver {
     final s = symbol.trim();
     if (s.contains('/')) return true;
     final u = s.toUpperCase();
-    return u == 'BTC' || u == 'ETH' || u == 'SOL' || u == 'XRP' || u == 'DOGE' || u == 'AVAX' ||
+    return u == 'BTC' ||
+        u == 'ETH' ||
+        u == 'SOL' ||
+        u == 'XRP' ||
+        u == 'DOGE' ||
+        u == 'AVAX' ||
         (u.endsWith('USD') && u.length >= 6);
   }
 
@@ -78,10 +95,12 @@ class SymbolResolver {
   }
 
   /// 解析结果：用哪个数据源、对应 symbol
-  static ({String polygon, String twelve, bool usePolygon, bool useTwelve}) resolve(String symbol) {
+  static ({String polygon, String twelve, bool usePolygon, bool useTwelve})
+      resolve(String symbol) {
     final s = symbol.trim();
     final u = s.toUpperCase();
-    if (s.isEmpty) return (polygon: s, twelve: s, usePolygon: false, useTwelve: false);
+    if (s.isEmpty)
+      return (polygon: s, twelve: s, usePolygon: false, useTwelve: false);
     if (isUsStock(s)) {
       return (polygon: u, twelve: s, usePolygon: true, useTwelve: false);
     }
@@ -89,9 +108,19 @@ class SymbolResolver {
       return (polygon: 'I:$u', twelve: u, usePolygon: true, useTwelve: true);
     }
     if (isFx(s) || isCrypto(s)) {
-      return (polygon: '', twelve: forTwelve(s), usePolygon: false, useTwelve: true);
+      return (
+        polygon: '',
+        twelve: forTwelve(s),
+        usePolygon: false,
+        useTwelve: true
+      );
     }
-    return (polygon: u, twelve: forTwelve(s), usePolygon: true, useTwelve: true);
+    return (
+      polygon: u,
+      twelve: forTwelve(s),
+      usePolygon: true,
+      useTwelve: true
+    );
   }
 }
 
@@ -111,7 +140,8 @@ class MarketRepository {
   }
 
   static BackendMarketClient? _createBackend() {
-    final url = dotenv.env['TONGXIN_API_URL']?.trim() ?? dotenv.env['BACKEND_URL']?.trim();
+    final url = dotenv.env['TONGXIN_API_URL']?.trim() ??
+        dotenv.env['BACKEND_URL']?.trim();
     return (url != null && url.isNotEmpty) ? BackendMarketClient(url) : null;
   }
 
@@ -120,23 +150,111 @@ class MarketRepository {
   late final PolygonRepository _polygon;
   final TwelveDataRepository _twelve;
   final BackendMarketClient? _backend;
+  // 业务要求：行情数据（搜索/报价/K线）直连第三方，不走后端 /api 代理。
+  static const bool _directThirdPartyOnly = true;
 
-  bool get polygonAvailable => _backend != null || _polygon.isAvailable;
-  bool get twelveDataAvailable => _backend != null || _twelve.isAvailable;
+  bool get polygonAvailable => useBackend || _polygon.isAvailable;
+  bool get twelveDataAvailable => useBackend || _twelve.isAvailable;
+  bool get forexBackendAvailable => _backend != null;
+
   /// 是否使用后端代理（有 TONGXIN_API_URL 时 K 线等优先走后端）
-  bool get useBackend => _backend != null;
+  bool get useBackend => !_directThirdPartyOnly && _backend != null;
 
   /// 是否美股代码（SymbolResolver 判定：非指数、纯字母 1～5 位）
   static bool _isUsStock(String symbol) => SymbolResolver.isUsStock(symbol);
 
+  static Set<String>? _stock24hSymbolsCache;
+
+  static Set<String> _stock24hSymbols() {
+    if (_stock24hSymbolsCache != null) return _stock24hSymbolsCache!;
+    final raw = dotenv.env['STOCK_24H_SYMBOLS']?.trim() ?? '';
+    if (raw.isEmpty) {
+      _stock24hSymbolsCache = <String>{};
+      return _stock24hSymbolsCache!;
+    }
+    final set = raw
+        .split(RegExp(r'[,\s;|]+'))
+        .map((e) => e.trim().toUpperCase())
+        .where((e) => e.isNotEmpty)
+        .toSet();
+    _stock24hSymbolsCache = set;
+    return set;
+  }
+
+  static bool _is24hStock({
+    required String symbol,
+    String? name,
+    String? type,
+    String? primaryExchange,
+  }) {
+    final s = symbol.trim().toUpperCase();
+    if (s.isEmpty) return false;
+    if (_stock24hSymbols().contains(s)) return true;
+    final n = (name ?? '').toLowerCase();
+    if (n.contains('24h') || n.contains('24 hour') || n.contains('overnight')) {
+      return true;
+    }
+    final t = (type ?? '').trim().toUpperCase();
+    if (t == '24H') return true;
+    final ex = (primaryExchange ?? '').trim().toUpperCase();
+    if (ex == 'BOATS' || ex == 'BLUEOCEAN') return true;
+    return false;
+  }
+
   // ---------- 搜索 ----------
 
-  /// 搜索标的（优先后端，否则 Polygon tickers）
+  /// 搜索标的（股票 + 外汇 + 加密货币）
   Future<List<MarketSearchResult>> searchSymbols(String query) async {
-    if (query.trim().isEmpty) return [];
-    if (_backend != null) return _backend!.search(query);
-    final list = await _polygon.searchTickers(query.trim(), limit: 20);
-    return list.map((r) => MarketSearchResult(symbol: r.ticker, name: r.name, market: r.market)).toList();
+    final q = query.trim();
+    if (q.isEmpty) return [];
+
+    final out = <MarketSearchResult>[];
+    final seen = <String>{};
+    void add(MarketSearchResult item) {
+      final key = item.symbol.toUpperCase();
+      if (seen.contains(key)) return;
+      out.add(item);
+      seen.add(key);
+    }
+
+    if (useBackend) {
+      final backendList = await _backend!.search(q);
+      for (final item in backendList) {
+        add(item);
+      }
+    } else {
+      final list = await _polygon.searchTickers(q, limit: 20);
+      for (final r in list) {
+        add(MarketSearchResult(
+          symbol: r.ticker,
+          name: r.name,
+          market: r.market,
+          stockType: r.type,
+          is24HourTrading: _is24hStock(
+            symbol: r.ticker,
+            name: r.name,
+            type: r.type,
+            primaryExchange: r.primaryExchange,
+          ),
+        ));
+      }
+    }
+
+    // 叠加 Twelve Data 的全量外汇/加密列表检索，保证与股票搜索体验一致
+    try {
+      final lc = q.toLowerCase();
+      final forex = await getAllForexPairs();
+      final crypto = await getAllCryptoPairs();
+      for (final item in [...forex, ...crypto]) {
+        final sym = item.symbol.toLowerCase();
+        final name = item.name.toLowerCase();
+        if (sym.contains(lc) || name.contains(lc)) {
+          add(item);
+          if (out.length >= 100) break;
+        }
+      }
+    } catch (_) {}
+    return out;
   }
 
   // ---------- 报价 ----------
@@ -152,15 +270,27 @@ class MarketRepository {
     final sym = symbol.trim();
     if (sym.isEmpty) {
       final q = MarketQuote.failed(sym, 'symbol 为空');
-      _quoteDebugLog(sym, 'result', 'hasError=true errorReason=${q.errorReason}');
+      _quoteDebugLog(
+          sym, 'result', 'hasError=true errorReason=${q.errorReason}');
       return q;
     }
-    if (_backend != null) {
+    if (SymbolResolver.isFx(sym)) {
+      if (_backend == null) {
+        final q = MarketQuote.failed(sym, '外汇仅支持后端 API 数据');
+        _quoteDebugLog(
+            sym, 'result', 'hasError=true errorReason=${q.errorReason}');
+        return q;
+      }
+      final m = await _backend!.getForexQuotes([sym]);
+      return m[sym] ?? m[SymbolResolver.forTwelve(sym)] ?? MarketQuote.failed(sym, '无数据');
+    }
+    if (useBackend) {
       final m = await _backend!.getQuotes([sym], realtime: realtime);
       return m[sym] ?? MarketQuote.failed(sym, '无数据');
     }
     final r = SymbolResolver.resolve(sym);
-    _quoteDebugLog(sym, 'resolve', 'polygonSymbol=${r.polygon.isEmpty ? "(none)" : r.polygon} twelveSymbol=${r.twelve} usePolygon=${r.usePolygon} useTwelve=${r.useTwelve}');
+    _quoteDebugLog(sym, 'resolve',
+        'polygonSymbol=${r.polygon.isEmpty ? "(none)" : r.polygon} twelveSymbol=${r.twelve} usePolygon=${r.usePolygon} useTwelve=${r.useTwelve}');
 
     if (r.usePolygon && _polygon.isAvailable) {
       try {
@@ -169,14 +299,20 @@ class MarketRepository {
         if (snap != null) {
           _quoteDebugLog(sym, 'Polygon', 'snapshot ok');
           final price = snap.price ?? (snap.prevClose ?? 0);
-          final change = snap.todaysChange ?? 0.0;
-          final changePercent = snap.todaysChangePerc ?? 0.0;
+          final prevClose = snap.prevClose;
+          final change = (prevClose != null && prevClose > 0)
+              ? (price - prevClose)
+              : snap.todaysChange;
+          final changePercent = (prevClose != null && prevClose > 0)
+              ? ((change / prevClose) * 100)
+              : snap.todaysChangePerc;
           final q = MarketQuote(
             symbol: sym,
             name: null,
             price: price,
             change: change,
             changePercent: changePercent,
+            prevClose: prevClose,
             open: snap.dayOpen,
             high: snap.dayHigh,
             low: snap.dayLow,
@@ -190,14 +326,18 @@ class MarketRepository {
         if (trade != null || prev != null) {
           _quoteDebugLog(sym, 'Polygon', 'ok (last+prev)');
           final price = trade?.price ?? (prev ?? 0);
-          final change = prev != null && prev > 0 && trade != null ? trade.price - prev : 0.0;
-          final changePercent = prev != null && prev > 0 ? (change / prev * 100) : 0.0;
+          final change = prev != null && prev > 0 && trade != null
+              ? trade.price - prev
+              : 0.0;
+          final changePercent =
+              prev != null && prev > 0 ? (change / prev * 100) : 0.0;
           final q = MarketQuote(
             symbol: sym,
             name: null,
             price: price,
             change: change,
             changePercent: changePercent,
+            prevClose: prev,
             open: null,
             high: null,
             low: null,
@@ -206,12 +346,14 @@ class MarketRepository {
           _quoteDebugLog(sym, 'result', 'hasError=false');
           return q;
         }
-        _quoteDebugLog(sym, 'Polygon', 'fail: 无数据(statusCode/body 见上方 Polygon 日志)');
+        _quoteDebugLog(
+            sym, 'Polygon', 'fail: 无数据(statusCode/body 见上方 Polygon 日志)');
       } catch (e) {
         _quoteDebugLog(sym, 'Polygon', 'fail: $e');
         if (!r.useTwelve) {
           final q = MarketQuote.failed(sym, 'Polygon: $e');
-          _quoteDebugLog(sym, 'result', 'hasError=true errorReason=${q.errorReason}');
+          _quoteDebugLog(
+              sym, 'result', 'hasError=true errorReason=${q.errorReason}');
           return q;
         }
       }
@@ -239,20 +381,24 @@ class MarketRepository {
       } catch (e) {
         _quoteDebugLog(sym, 'Twelve', 'fail: $e');
         final q = MarketQuote.failed(sym, 'Twelve Data: $e');
-        _quoteDebugLog(sym, 'result', 'hasError=true errorReason=${q.errorReason}');
+        _quoteDebugLog(
+            sym, 'result', 'hasError=true errorReason=${q.errorReason}');
         return q;
       }
       final q2 = MarketQuote.failed(sym, 'Twelve Data 无数据');
-      _quoteDebugLog(sym, 'result', 'hasError=true errorReason=${q2.errorReason}');
+      _quoteDebugLog(
+          sym, 'result', 'hasError=true errorReason=${q2.errorReason}');
       return q2;
     }
     if (!_polygon.isAvailable && !_twelve.isAvailable) {
       final q = MarketQuote.failed(sym, '未配置 API Key');
-      _quoteDebugLog(sym, 'result', 'hasError=true errorReason=${q.errorReason} (权限/配置)');
+      _quoteDebugLog(
+          sym, 'result', 'hasError=true errorReason=${q.errorReason} (权限/配置)');
       return q;
     }
     final q3 = MarketQuote.failed(sym, '数据源无数据');
-    _quoteDebugLog(sym, 'result', 'hasError=true errorReason=${q3.errorReason}');
+    _quoteDebugLog(
+        sym, 'result', 'hasError=true errorReason=${q3.errorReason}');
     return q3;
   }
 
@@ -260,15 +406,21 @@ class MarketRepository {
   /// 有后端时统一走后端 /api/quotes（后端已含 stock_quote_cache 兜底）
   Future<Map<String, MarketQuote>> getQuotes(List<String> symbols) async {
     if (symbols.isEmpty) return {};
-    if (_backend != null) return _backend!.getQuotes(symbols);
+    if (useBackend) return _backend!.getQuotes(symbols);
     final out = <String, MarketQuote>{};
     final twelveRequest = <String>[];
+    final fxSymbols = <String>[];
     for (final s in symbols) {
       final sym = s.trim();
       if (sym.isEmpty) continue;
+      if (SymbolResolver.isFx(sym)) {
+        fxSymbols.add(sym);
+        continue;
+      }
       final r = SymbolResolver.resolve(sym);
       if (kDebugMode) {
-        _quoteDebugLog(sym, 'resolve', 'polygonSymbol=${r.polygon.isEmpty ? "(none)" : r.polygon} twelveSymbol=${r.twelve} usePolygon=${r.usePolygon} useTwelve=${r.useTwelve}');
+        _quoteDebugLog(sym, 'resolve',
+            'polygonSymbol=${r.polygon.isEmpty ? "(none)" : r.polygon} twelveSymbol=${r.twelve} usePolygon=${r.usePolygon} useTwelve=${r.useTwelve}');
       }
       if (!r.usePolygon && !r.useTwelve) {
         out[sym] = MarketQuote.failed(sym, '无法解析 symbol');
@@ -276,6 +428,22 @@ class MarketRepository {
         continue;
       }
       if (r.useTwelve) twelveRequest.add(r.twelve);
+    }
+    if (fxSymbols.isNotEmpty) {
+      if (_backend != null) {
+        final fxMap = await _backend!.getForexQuotes(fxSymbols);
+        for (final s in fxSymbols) {
+          out[s] = fxMap[s] ??
+              fxMap[SymbolResolver.forTwelve(s)] ??
+              MarketQuote.failed(s, '无数据');
+        }
+      } else {
+        for (final s in fxSymbols) {
+          out[s] = MarketQuote.failed(s, '外汇仅支持后端 API 数据');
+          _quoteDebugLog(
+              s, 'result', 'hasError=true errorReason=外汇仅支持后端 API 数据');
+        }
+      }
     }
     if (twelveRequest.isNotEmpty && _twelve.isAvailable) {
       try {
@@ -305,12 +473,14 @@ class MarketRepository {
             if (!out.containsKey(s)) {
               out[s] = MarketQuote.failed(s, 'Twelve Data 无数据');
               _quoteDebugLog(s, 'Twelve', 'fail: 无数据');
-              _quoteDebugLog(s, 'result', 'hasError=true errorReason=Twelve Data 无数据');
+              _quoteDebugLog(
+                  s, 'result', 'hasError=true errorReason=Twelve Data 无数据');
             }
           }
         }
       } catch (e) {
-        if (kDebugMode) debugPrint('[Quote batch] Twelve request exception: $e');
+        if (kDebugMode)
+          debugPrint('[Quote batch] Twelve request exception: $e');
         for (final sym in symbols) {
           final s = sym.trim();
           if (s.isEmpty) continue;
@@ -318,7 +488,8 @@ class MarketRepository {
           if (r.useTwelve && !out.containsKey(s)) {
             out[s] = MarketQuote.failed(s, 'Twelve Data: $e');
             _quoteDebugLog(s, 'Twelve', 'fail: $e');
-            _quoteDebugLog(s, 'result', 'hasError=true errorReason=Twelve Data: $e');
+            _quoteDebugLog(
+                s, 'result', 'hasError=true errorReason=Twelve Data: $e');
           }
         }
       }
@@ -330,7 +501,8 @@ class MarketRepository {
         if (r.useTwelve && !r.usePolygon && !out.containsKey(s)) {
           out[s] = MarketQuote.failed(s, '未配置 TWELVE_DATA_API_KEY');
           _quoteDebugLog(s, 'Twelve', 'fail: 未配置 API Key');
-          _quoteDebugLog(s, 'result', 'hasError=true errorReason=未配置 TWELVE_DATA_API_KEY (权限/配置)');
+          _quoteDebugLog(s, 'result',
+              'hasError=true errorReason=未配置 TWELVE_DATA_API_KEY (权限/配置)');
         }
       }
     }
@@ -350,10 +522,13 @@ class MarketRepository {
   /// K 线或分时：interval 如 "1min", "5min", "15min", "1h", "1day"（symbol 经 SymbolResolver）
   /// [lastDays] 非 null 时覆盖默认时间范围，用于多日分时（如 2/3/4 天）
   /// [onError] 请求失败时回调，便于界面展示原因
-  Future<List<ChartCandle>> getCandles(String symbol, String interval, {int? lastDays, void Function(String)? onError}) async {
+  Future<List<ChartCandle>> getCandles(String symbol, String interval,
+      {int? lastDays, void Function(String)? onError}) async {
     final sym = symbol.trim();
     if (sym.isEmpty) return [];
-    if (_backend != null) return _backend!.getCandles(sym, interval, lastDays: lastDays, onError: onError);
+    if (useBackend)
+      return _backend!
+          .getCandles(sym, interval, lastDays: lastDays, onError: onError);
     final r = SymbolResolver.resolve(sym);
     final toMs = DateTime.now().millisecondsSinceEpoch;
     int fromMs;
@@ -392,7 +567,10 @@ class MarketRepository {
         timespan = 'minute';
       }
       final bars = await _polygon.getAggregates(r.polygon,
-          multiplier: multiplier, timespan: timespan, fromMs: fromMs, toMs: toMs);
+          multiplier: multiplier,
+          timespan: timespan,
+          fromMs: fromMs,
+          toMs: toMs);
       if (bars != null && bars.isNotEmpty) {
         return bars.map((b) => ChartCandle.fromBar(b)).toList();
       }
@@ -409,7 +587,8 @@ class MarketRepository {
         );
         if (list.isNotEmpty) return list;
       } else {
-        final list = await _twelve.getTimeSeries(r.twelve, interval: tdInterval, outputsize: 120);
+        final list = await _twelve.getTimeSeries(r.twelve,
+            interval: tdInterval, outputsize: 120);
         if (list.isNotEmpty) return list;
       }
     }
@@ -431,8 +610,9 @@ class MarketRepository {
   }) async {
     final sym = symbol.trim();
     if (sym.isEmpty) return [];
-    if (_backend != null) {
-      return _backend!.getCandlesOlderThan(sym, interval, olderThanMs: olderThanMs, limit: limit);
+    if (useBackend) {
+      return _backend!.getCandlesOlderThan(sym, interval,
+          olderThanMs: olderThanMs, limit: limit);
     }
     final r = SymbolResolver.resolve(sym);
     final toMs = olderThanMs - 1;
@@ -473,7 +653,10 @@ class MarketRepository {
         timespan = 'minute';
       }
       final bars = await _polygon.getAggregates(r.polygon,
-          multiplier: multiplier, timespan: timespan, fromMs: fromMs, toMs: toMs);
+          multiplier: multiplier,
+          timespan: timespan,
+          fromMs: fromMs,
+          toMs: toMs);
       if (bars != null && bars.isNotEmpty) {
         final list = bars.map((b) => ChartCandle.fromBar(b)).toList();
         return list.length > limit ? list.sublist(list.length - limit) : list;
@@ -508,7 +691,8 @@ class MarketRepository {
   }
 
   /// 合并 prepend + existing，按 timestamp 升序排序，同一 timestampMs 只保留一根（优先 OHLCV 更完整）
-  static List<ChartCandle> mergeAndDedupeCandles(List<ChartCandle> prepend, List<ChartCandle> existing) {
+  static List<ChartCandle> mergeAndDedupeCandles(
+      List<ChartCandle> prepend, List<ChartCandle> existing) {
     final combined = [...prepend, ...existing];
     combined.sort((a, b) => a.time.compareTo(b.time));
     final byTsMs = <int, ChartCandle>{};
@@ -536,26 +720,28 @@ class MarketRepository {
   // ---------- 美股领涨/领跌 ----------
 
   /// 仅读缓存领涨（不请求 API），用于首屏秒出；走后端时由后端缓存
-  Future<List<PolygonGainer>?> getCachedGainersOnly({Duration maxAge = const Duration(hours: 48)}) async {
-    if (_backend != null) return _backend!.getGainers(limit: 20);
+  Future<List<PolygonGainer>?> getCachedGainersOnly(
+      {Duration maxAge = const Duration(hours: 48)}) async {
+    // 业务要求：涨跌幅相关榜单数据始终直连第三方，不走后端代理
     return _polygon.getCachedGainersOnly(maxAge: maxAge);
   }
 
   /// 仅读缓存领跌（不请求 API）
-  Future<List<PolygonGainer>?> getCachedLosersOnly({Duration maxAge = const Duration(hours: 48)}) async {
-    if (_backend != null) return _backend!.getLosers(limit: 20);
+  Future<List<PolygonGainer>?> getCachedLosersOnly(
+      {Duration maxAge = const Duration(hours: 48)}) async {
+    // 业务要求：涨跌幅相关榜单数据始终直连第三方，不走后端代理
     return _polygon.getCachedLosersOnly(maxAge: maxAge);
   }
 
   /// 领涨榜（优先后端，否则 Polygon + 缓存/Supabase 回退）
   Future<List<PolygonGainer>> getTopGainers({int limit = 20}) async {
-    if (_backend != null) return _backend!.getGainers(limit: limit);
+    // 业务要求：涨跌幅相关榜单数据始终直连第三方，不走后端代理
     return _polygon.getTopGainers(limit: limit);
   }
 
   /// 领跌榜
   Future<List<PolygonGainer>> getTopLosers({int limit = 20}) async {
-    if (_backend != null) return _backend!.getLosers(limit: limit);
+    // 业务要求：涨跌幅相关榜单数据始终直连第三方，不走后端代理
     return _polygon.getTopLosers(limit: limit);
   }
 
@@ -563,15 +749,30 @@ class MarketRepository {
   static const _usTickersCacheMaxAge = Duration(days: 7);
 
   /// 将报价写入本地 DB（拉取到新数据后调用，供下次秒开）
+  /// 同时 upsert 对应 tickers：不存在则新增，存在则更新，保持数据全面
+  /// 异步存储，调用方不应 await，避免影响 UI 显示
   Future<void> persistQuotesToLocalDb(Map<String, MarketQuote> quotes) async {
     if (quotes.isEmpty) return;
     try {
+      final tickers = quotes.entries
+          .where((e) => !e.value.hasError)
+          .map((e) => MarketSearchResult(
+                symbol: e.key,
+                name: e.value.name ?? e.key,
+                market: 'stocks',
+              ))
+          .toList();
+      if (tickers.isNotEmpty) {
+        await MarketDb.instance.upsertTickers(tickers);
+        unawaited(syncTickersToServer(tickers));
+      }
       await MarketDb.instance.upsertQuotes(quotes);
     } catch (_) {}
   }
 
   /// 从本地 DB 读取美股列表+报价（优先，有则秒开）
-  Future<({List<MarketSearchResult> tickers, Map<String, MarketQuote> quotes})?> getTickersFromLocalDb({
+  Future<({List<MarketSearchResult> tickers, Map<String, MarketQuote> quotes})?>
+      getTickersFromLocalDb({
     String? sortColumn,
     bool sortAscending = false,
   }) async {
@@ -587,22 +788,70 @@ class MarketRepository {
     }
   }
 
+  /// 分页从本地 DB 读取美股列表+报价（一次加载 [limit] 条，避免 UI 卡顿）
+  Future<({List<MarketSearchResult> tickers, Map<String, MarketQuote> quotes})?>
+      getTickersFromLocalDbPage({
+    String? sortColumn,
+    bool sortAscending = false,
+    required int limit,
+    int offset = 0,
+  }) async {
+    try {
+      final result = await MarketDb.instance.getTickersAndQuotesPage(
+        sortColumn: sortColumn,
+        sortAscending: sortAscending,
+        limit: limit,
+        offset: offset,
+      );
+      if (result.tickers.isEmpty) return null;
+      return result;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 本地 DB 中 tickers 总数
+  Future<int> getTickerCount() async {
+    try {
+      return await MarketDb.instance.getTickerCount();
+    } catch (_) {
+      return 0;
+    }
+  }
+
   /// 从后端 stock_quote_cache 读取美股列表（后端代理，避免前端直连 Supabase）
-  /// 返回空列表表示后端未配置或表无数据；成功时写入本地缓存供下次秒开
+  /// 返回空列表表示后端未配置或表无数据；成功时异步写入本地缓存供下次秒开（不阻塞 UI）
   Future<List<MarketSearchResult>> getTickersFromStockQuoteCache() async {
-    if (_backend != null) {
+    if (useBackend) {
       final list = await _backend!.getTickersFromCache();
       if (list != null && list.isNotEmpty) {
-        final payload = list.map((r) => {'s': r.symbol, 'n': r.name, 'm': r.market}).toList();
-        await TradingCache.instance.setList(_usTickersCacheKey, payload);
+        final payload = list
+            .map((r) => {
+                  's': r.symbol,
+                  'n': r.name,
+                  'm': r.market,
+                  't': r.stockType,
+                  'h24': r.is24HourTrading == true ? 1 : 0,
+                })
+            .toList();
+        unawaited(TradingCache.instance.setList(_usTickersCacheKey, payload));
         return list;
       }
       return [];
     }
     final list = await _quoteCacheRepo.getAllTickers();
     if (list.isNotEmpty) {
-      final payload = list.map((r) => {'s': r.symbol, 'n': r.name, 'm': r.market}).toList();
-      await TradingCache.instance.setList(_usTickersCacheKey, payload);
+      final payload =
+          list
+              .map((r) => {
+                    's': r.symbol,
+                    'n': r.name,
+                    'm': r.market,
+                    't': r.stockType,
+                    'h24': r.is24HourTrading == true ? 1 : 0,
+                  })
+              .toList();
+      unawaited(TradingCache.instance.setList(_usTickersCacheKey, payload));
     }
     return list;
   }
@@ -634,7 +883,8 @@ class MarketRepository {
   /// 从本地缓存读取全量美股列表（若有且未过期），用于首屏秒开
   /// 按 symbol 排序以保证与 getAllUsTickers 一致（旧缓存可能未排序）
   Future<List<MarketSearchResult>?> getCachedUsTickers() async {
-    final raw = await TradingCache.instance.getList(_usTickersCacheKey, maxAge: _usTickersCacheMaxAge);
+    final raw = await TradingCache.instance
+        .getList(_usTickersCacheKey, maxAge: _usTickersCacheMaxAge);
     if (raw == null || raw.isEmpty) return null;
     final list = <MarketSearchResult>[];
     for (final e in raw) {
@@ -642,29 +892,124 @@ class MarketRepository {
       final s = e['s'] as String?;
       final n = e['n'] as String?;
       if (s == null || s.isEmpty) continue;
-      list.add(MarketSearchResult(symbol: s, name: n ?? s, market: e['m'] as String?));
+      list.add(MarketSearchResult(
+        symbol: s,
+        name: n ?? s,
+        market: e['m'] as String?,
+        stockType: e['t'] as String?,
+        is24HourTrading: ((e['h24'] as num?)?.toInt() ?? 0) == 1,
+      ));
     }
     if (list.isEmpty) return null;
     list.sort((a, b) => a.symbol.compareTo(b.symbol));
     return list;
   }
 
-  /// 全量美股列表（Polygon v3 reference tickers，market=stocks 含各 type，约 8000+ 条）；结果写入本地缓存
+  /// 全量美股列表（Polygon v3 reference tickers，market=stocks 含各 type，约 8000+ 条）；结果异步写入本地缓存（不阻塞 UI）
   /// 按 symbol 排序以保证跨会话/设备/语言的一致性
   Future<List<MarketSearchResult>> getAllUsTickers() async {
     final list = await _polygon.getAllUsTickers();
-    final result = list.map((r) => MarketSearchResult(symbol: r.ticker, name: r.name, market: r.market)).toList();
+    final result = list
+        .map((r) => MarketSearchResult(
+              symbol: r.ticker,
+              name: r.name,
+              market: r.market,
+              stockType: r.type,
+              is24HourTrading: _is24hStock(
+                symbol: r.ticker,
+                name: r.name,
+                type: r.type,
+                primaryExchange: r.primaryExchange,
+              ),
+            ))
+        .toList();
     result.sort((a, b) => a.symbol.compareTo(b.symbol));
     if (result.isNotEmpty) {
-      final payload = result.map((r) => {'s': r.symbol, 'n': r.name, 'm': r.market}).toList();
-      await TradingCache.instance.setList(_usTickersCacheKey, payload);
+      final payload = result
+          .map((r) => {
+                's': r.symbol,
+                'n': r.name,
+                'm': r.market,
+                't': r.stockType,
+                'h24': r.is24HourTrading == true ? 1 : 0,
+              })
+          .toList();
+      unawaited(TradingCache.instance.setList(_usTickersCacheKey, payload));
     }
     return result;
   }
 
+  /// 获取全部外汇交易对（symbol + name）
+  Future<List<MarketSearchResult>> getAllForexPairs() async {
+    if (_backend == null) return [];
+    const pageSize = 240;
+    var page = 1;
+    final all = <MarketSearchResult>[];
+    while (true) {
+      final chunk = await _backend!.getForexPairsPage(page: page, pageSize: pageSize);
+      if (chunk.items.isEmpty) break;
+      all.addAll(chunk.items);
+      if (!chunk.hasMore) break;
+      page += 1;
+    }
+    return all;
+  }
+
+  /// 服务端分页外汇交易对（优先后端；无后端时本地分页兜底）
+  Future<BackendForexPairsPage> getForexPairsPage({
+    required int page,
+    int pageSize = 30,
+  }) async {
+    if (_backend != null) {
+      return _backend!.getForexPairsPage(page: page, pageSize: pageSize);
+    }
+    return BackendForexPairsPage(
+      items: const [],
+      total: 0,
+      page: page < 1 ? 1 : page,
+      pageSize: pageSize <= 0 ? 30 : pageSize,
+      hasMore: false,
+    );
+  }
+
+  /// 从服务端按 symbols 获取外汇报价（会触发后端更新并落库）
+  Future<Map<String, MarketQuote>> getForexQuotesBySymbols(
+      List<String> symbols) async {
+    if (symbols.isEmpty) return {};
+    if (_backend != null) return _backend!.getForexQuotes(symbols);
+    return {};
+  }
+
+  /// 获取全部加密货币交易对（symbol + name）
+  Future<List<MarketSearchResult>> getAllCryptoPairs() async {
+    final list = await _twelve.getCryptoPairs();
+    return list
+        .map((e) => MarketSearchResult(
+              symbol: e.symbol,
+              name: e.name,
+              market: 'crypto',
+            ))
+        .toList();
+  }
+
+  /// 将股票列表同步到服务器 stock_quote_cache（存在则更新，不存在则新增）
+  /// 分批发送，每批最多 1000 条
+  Future<void> syncTickersToServer(List<MarketSearchResult> tickers) async {
+    if (!useBackend || tickers.isEmpty) return;
+    const chunkSize = 1000;
+    try {
+      for (var i = 0; i < tickers.length; i += chunkSize) {
+        final chunk =
+            tickers.sublist(i, (i + chunkSize).clamp(0, tickers.length));
+        await _backend!.upsertTickersToServer(chunk);
+      }
+    } catch (_) {}
+  }
+
   /// 缓存领涨（短 TTL），用于交易 Tab 等
-  Future<List<PolygonGainer>?> getCachedGainers({int limit = 10, Duration maxAge = const Duration(seconds: 60)}) async {
-    if (_backend != null) return _backend!.getGainers(limit: limit);
+  Future<List<PolygonGainer>?> getCachedGainers(
+      {int limit = 10, Duration maxAge = const Duration(seconds: 60)}) async {
+    // 业务要求：涨跌幅相关榜单数据始终直连第三方，不走后端代理
     return _polygon.getCachedGainers(limit: limit, maxAge: maxAge);
   }
 
@@ -726,7 +1071,7 @@ class MarketRepository {
   /// 美股前收（详情页涨跌幅等），有后端时从 quote 反推，否则 Polygon /prev
   Future<double?> getPreviousClose(String symbol) async {
     if (!_isUsStock(symbol)) return null;
-    if (_backend != null) {
+    if (useBackend) {
       final m = await _backend!.getQuotes([symbol.trim()], realtime: true);
       final q = m[symbol.trim()];
       if (q != null && !q.hasError && q.price > 0 && q.change != 0) {
@@ -740,7 +1085,7 @@ class MarketRepository {
   /// 当日 OHLC + 成交量 + 昨收：有后端时走后端，否则 Polygon Snapshot
   Future<PolygonGainer?> getDaySnapshot(String symbol) async {
     if (!_isUsStock(symbol)) return null;
-    if (_backend != null) return _backend!.getDaySnapshot(symbol.trim());
+    if (useBackend) return _backend!.getDaySnapshot(symbol.trim());
     final resolved = SymbolResolver.forPolygon(symbol.trim());
     if (resolved.isEmpty) return null;
     return _polygon.getTickerSnapshot(resolved);
@@ -755,8 +1100,12 @@ class MarketRepository {
     required int toMs,
   }) async {
     final resolved = SymbolResolver.forPolygon(symbol.trim());
-    final bars = await _polygon.getAggregates(resolved.isEmpty ? symbol : resolved,
-        multiplier: multiplier, timespan: timespan, fromMs: fromMs, toMs: toMs);
+    final bars = await _polygon.getAggregates(
+        resolved.isEmpty ? symbol : resolved,
+        multiplier: multiplier,
+        timespan: timespan,
+        fromMs: fromMs,
+        toMs: toMs);
     if (bars == null || bars.isEmpty) return [];
     return bars.map((b) => ChartCandle.fromBar(b)).toList();
   }
@@ -788,11 +1137,18 @@ class MarketSearchResult {
     required this.symbol,
     required this.name,
     this.market,
+    this.stockType,
+    this.is24HourTrading,
   });
   final String symbol;
   final String name;
+
   /// 市场类型：stocks, crypto, fx, indices 等
   final String? market;
+  /// 证券类型（如 CS, ETF, ETN, ADRC ...）
+  final String? stockType;
+  /// 是否 24 小时可交易（来源：配置或启发式识别）
+  final bool? is24HourTrading;
 }
 
 /// 统一报价（美股来自 Polygon last+prev，其余来自 Twelve Data）
@@ -811,6 +1167,7 @@ class MarketQuote {
     this.ask,
     this.bidSize,
     this.askSize,
+    this.prevClose,
     this.errorReason,
   });
   final String symbol;
@@ -822,14 +1179,20 @@ class MarketQuote {
   final double? high;
   final double? low;
   final int? volume;
+
   /// 买一价（Polygon lastQuote，需 Stocks Quote 权限）
   final double? bid;
+
   /// 卖一价
   final double? ask;
+
   /// 买一量
   final int? bidSize;
+
   /// 卖一量
   final int? askSize;
+  final double? prevClose;
+
   /// 非空表示加载失败，UI 可显示「加载失败·点重试」
   final String? errorReason;
 
@@ -850,12 +1213,18 @@ class MarketQuote {
     final symbol = m['symbol'] as String?;
     final close = _toDouble(m['close']);
     if (symbol == null || close == null) return null;
+    final prevClose = _toDouble(m['prev_close']);
+    final rawChange = _toDouble(m['change']) ?? 0;
+    final change = (prevClose != null && prevClose > 0) ? (close - prevClose) : rawChange;
+    final changePercent = (prevClose != null && prevClose > 0)
+        ? (change / prevClose * 100)
+        : (_toDouble(m['percent_change']) ?? 0);
     return MarketQuote(
       symbol: symbol,
       name: m['name'] as String?,
       price: close,
-      change: _toDouble(m['change']) ?? 0,
-      changePercent: _toDouble(m['percent_change']) ?? 0,
+      change: change,
+      changePercent: changePercent,
       open: _toDouble(m['open']),
       high: _toDouble(m['high']),
       low: _toDouble(m['low']),
@@ -864,6 +1233,7 @@ class MarketQuote {
       ask: _toDouble(m['ask']),
       bidSize: _toInt(m['bidSize']),
       askSize: _toInt(m['askSize']),
+      prevClose: prevClose,
       errorReason: m['error_reason'] as String?,
     );
   }
@@ -883,6 +1253,7 @@ class MarketQuote {
         if (ask != null) 'ask': ask,
         if (bidSize != null) 'bidSize': bidSize,
         if (askSize != null) 'askSize': askSize,
+        if (prevClose != null) 'prev_close': prevClose,
         if (errorReason != null) 'error_reason': errorReason,
       };
 

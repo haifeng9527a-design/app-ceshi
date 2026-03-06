@@ -1,12 +1,14 @@
 import 'dart:async';
 
 import 'package:fl_chart/fl_chart.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../market/market_colors.dart';
 import '../market/market_repository.dart';
+import 'trading_api_client.dart';
+import 'trading_models.dart';
+import 'trading_ui.dart';
 
 /// 行情与交易 Tab：整体行情（Polygon）→ 搜索标的 → 行情区 → 买入/卖出
 class MarketTradeTab extends StatefulWidget {
@@ -17,24 +19,6 @@ class MarketTradeTab extends StatefulWidget {
   @override
   State<MarketTradeTab> createState() => _MarketTradeTabState();
 }
-
-/// 行情展示用（仅来自 Polygon getLastTrade；涨跌幅为 null 时显示 --）
-class _MarketQuote {
-  const _MarketQuote({required this.symbol, required this.current, this.percentChange});
-  final String symbol;
-  final double current;
-  final double? percentChange;
-}
-
-/// 整体行情预设标的
-const _overallSymbols = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA'];
-Map<String, String> _overallNames(BuildContext context) => {
-  'AAPL': AppLocalizations.of(context)!.tradingApple,
-  'MSFT': AppLocalizations.of(context)!.tradingMicrosoft,
-  'GOOGL': AppLocalizations.of(context)!.tradingGoogle,
-  'AMZN': AppLocalizations.of(context)!.tradingAmazon,
-  'TSLA': AppLocalizations.of(context)!.tradingTesla,
-};
 
 class _MarketTradeTabState extends State<MarketTradeTab> {
   static const Color _accent = Color(0xFFD6B46A);
@@ -48,10 +32,6 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
   final _qtyController = TextEditingController();
   final _market = MarketRepository();
 
-  /// 整体行情：symbol -> quote（仅 Polygon 数据）
-  Map<String, _MarketQuote?> _overallQuotes = {};
-  bool _loadingOverall = false;
-
   String? _selectedSymbol;
   String? _selectedName;
   double? _currentPrice;
@@ -60,6 +40,9 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
   bool _loadingSearch = false;
 
   bool _orderTypeLimit = true;
+  bool _placingOrder = false;
+  TradingAccountSummary? _summary;
+  final _tradingApi = TradingApiClient.instance;
 
   Timer? _refreshTimer;
   Timer? _chartRefreshTimer;
@@ -81,19 +64,27 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
   PolygonRealtime? _realtime;
   StreamSubscription<PolygonTradeUpdate>? _realtimeSub;
 
-  /// 整体行情多标的 WebSocket，有成交即更新价格与「更新时间」
-  PolygonRealtimeMulti? _overallRealtime;
-  StreamSubscription<PolygonTradeUpdate>? _overallRealtimeSub;
-
   @override
   void initState() {
     super.initState();
     _applyCachedDataThenLoad();
+    _refreshTradingSummary();
     _refreshTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
       _loadGainers();
       if (_selectedSymbol != null && _market.polygonAvailable) _refreshSelectedQuote();
+      if (DateTime.now().second % 4 == 0) {
+        _refreshTradingSummary();
+      }
     });
+  }
+
+  Future<void> _refreshTradingSummary() async {
+    try {
+      final s = await _tradingApi.getSummary();
+      if (!mounted) return;
+      setState(() => _summary = s);
+    } catch (_) {}
   }
 
   /// 先展示本地缓存（秒出），再请求网络更新
@@ -108,29 +99,6 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
       });
     }
     _loadGainers();
-  }
-
-  void _startOverallRealtime() {
-    if (!_market.polygonAvailable) return;
-    _overallRealtimeSub?.cancel();
-    _overallRealtime?.dispose();
-    _overallRealtime = _market.openRealtimeMulti(_overallSymbols);
-    if (_overallRealtime == null) return;
-    _overallRealtime!.connect();
-    _overallRealtimeSub = _overallRealtime!.stream.listen((update) {
-      if (!mounted || update.symbol == null) return;
-      final sym = update.symbol!;
-      setState(() {
-        final existing = _overallQuotes[sym];
-        _overallQuotes = Map.from(_overallQuotes);
-        _overallQuotes[sym] = _MarketQuote(
-          symbol: sym,
-          current: update.price,
-          percentChange: existing?.percentChange,
-        );
-        _lastUpdate = DateTime.now();
-      });
-    });
   }
 
   Future<void> _loadGainers() async {
@@ -225,48 +193,12 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
   void dispose() {
     _refreshTimer?.cancel();
     _chartRefreshTimer?.cancel();
-    _overallRealtimeSub?.cancel();
-    _overallRealtime?.dispose();
     _realtimeSub?.cancel();
     _realtime?.dispose();
     _searchController.dispose();
     _priceController.dispose();
     _qtyController.dispose();
     super.dispose();
-  }
-
-  Future<void> _loadOverallMarket() async {
-    if (!_market.polygonAvailable) return;
-    final isFirstLoad = _overallQuotes.isEmpty;
-    if (isFirstLoad) setState(() => _loadingOverall = true);
-    try {
-      final quotes = await _market.getQuotes(_overallSymbols);
-      if (!mounted) return;
-      final merged = <String, _MarketQuote?>{};
-      for (final sym in _overallSymbols) {
-        final q = quotes[sym];
-        merged[sym] = (q != null && !q.hasError) ? _MarketQuote(symbol: sym, current: q.price, percentChange: q.changePercent) : null;
-      }
-      if (mounted) setState(() {
-        _overallQuotes = merged;
-        _loadingOverall = false;
-        _lastUpdate = DateTime.now();
-      });
-    } catch (e, st) {
-      if (kDebugMode) {
-        // ignore: avoid_print
-        print('_loadOverallMarket error: $e\n$st');
-      }
-      if (mounted) {
-        setState(() {
-          _loadingOverall = false;
-          _lastUpdate = DateTime.now(); // 失败也推进更新时间，让用户看到在尝试
-        });
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          SnackBar(content: Text(AppLocalizations.of(context)!.tradingQuoteRefreshFailedWithError(e.toString().replaceAll(RegExp(r'^Exception:\s*'), '')))),
-        );
-      }
-    }
   }
 
   Future<void> _onSearch() async {
@@ -330,18 +262,48 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
           priceController: _priceController,
           qtyController: _qtyController,
           onOrderTypeChanged: (limit) => setState(() => _orderTypeLimit = limit),
-          onSubmit: () {
-            Navigator.of(ctx).pop();
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  AppLocalizations.of(context)!.tradingBuySellSubmitted(
-                    isBuy ? AppLocalizations.of(context)!.tradingBuy : AppLocalizations.of(context)!.tradingSell,
-                    _selectedSymbol!,
+          onSubmit: (orderTypeLimit) async {
+            if (_placingOrder) return;
+            final qty = double.tryParse(_qtyController.text.trim());
+            final limitPrice = double.tryParse(_priceController.text.trim());
+            if (qty == null || qty <= 0) return;
+            if (orderTypeLimit && (limitPrice == null || limitPrice <= 0)) return;
+            setState(() {
+              _placingOrder = true;
+              _orderTypeLimit = orderTypeLimit;
+            });
+            try {
+              await _tradingApi.placeOrder(
+                symbol: _selectedSymbol!,
+                side: isBuy ? OrderSide.buy : OrderSide.sell,
+                type: orderTypeLimit ? OrderType.limit : OrderType.market,
+                quantity: qty,
+                limitPrice: orderTypeLimit ? limitPrice : null,
+              );
+              if (!mounted || !ctx.mounted) return;
+              Navigator.of(ctx).pop();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    AppLocalizations.of(context)!.tradingBuySellSubmitted(
+                      isBuy ? AppLocalizations.of(context)!.tradingBuy : AppLocalizations.of(context)!.tradingSell,
+                      _selectedSymbol!,
+                    ),
                   ),
                 ),
-              ),
-            );
+              );
+              _refreshTradingSummary();
+            } catch (e) {
+              if (!mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('$e'),
+                  backgroundColor: Colors.red.shade700,
+                ),
+              );
+            } finally {
+              if (mounted) setState(() => _placingOrder = false);
+            }
           },
           onCancel: () => Navigator.of(ctx).pop(),
         ),
@@ -351,21 +313,32 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
 
   @override
   Widget build(BuildContext context) {
-    return RefreshIndicator(
-      onRefresh: _loadGainers,
-      color: _accent,
-      child: ListView(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        children: [
-          _buildSearchSection(),
-          const SizedBox(height: 12),
-          _buildGainersStrip(),
-          const SizedBox(height: 14),
-          if (_selectedSymbol != null) _buildSelectedSymbolCard() else _buildPlaceholderCard(),
-          const SizedBox(height: 12),
-          _buildBuySellButtons(),
-        ],
+    return TradingPageScaffold(
+      child: RefreshIndicator(
+        onRefresh: _loadGainers,
+        color: _accent,
+        child: ListView(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          children: [
+            _buildSearchSection(),
+            const SizedBox(height: 12),
+            _buildGainersStrip(),
+            const SizedBox(height: 14),
+            _buildAccountSummaryCard(),
+            const SizedBox(height: 12),
+            if (_selectedSymbol != null) _buildSelectedSymbolCard() else _buildPlaceholderCard(),
+            const SizedBox(height: 12),
+            _buildBuySellButtons(),
+          ],
+        ),
       ),
+    );
+  }
+
+  Widget _buildAccountSummaryCard() {
+    return TradingSummaryStrip(
+      summary: _summary,
+      loading: false,
     );
   }
 
@@ -867,35 +840,8 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
     );
   }
 
-  Widget _priceChip(String label, String value, bool? isUp) {
-    Color? valueColor;
-    if (isUp != null) valueColor = isUp ? MarketColors.up : MarketColors.down;
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
-      decoration: BoxDecoration(
-        color: _bg,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: TextStyle(color: _muted, fontSize: 10)),
-          const SizedBox(height: 2),
-          Text(
-            value,
-            style: TextStyle(
-              color: valueColor ?? Colors.white,
-              fontWeight: FontWeight.w600,
-              fontSize: 13,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildBuySellButtons() {
-    final enabled = _selectedSymbol != null;
+    final enabled = _selectedSymbol != null && !_placingOrder;
     return Row(
       children: [
         Expanded(
@@ -983,7 +929,7 @@ class _OrderSheet extends StatefulWidget {
   final TextEditingController priceController;
   final TextEditingController qtyController;
   final ValueChanged<bool> onOrderTypeChanged;
-  final VoidCallback onSubmit;
+  final Future<void> Function(bool orderTypeLimit) onSubmit;
   final VoidCallback onCancel;
 
   @override
@@ -991,8 +937,6 @@ class _OrderSheet extends StatefulWidget {
 }
 
 class _OrderSheetState extends State<_OrderSheet> {
-  static const Color _accent = Color(0xFFD4AF37);
-  static const Color _muted = Color(0xFF6C6F77);
   static const Color _bg = Color(0xFF111215);
 
   late bool _orderTypeLimit;
@@ -1026,7 +970,10 @@ class _OrderSheetState extends State<_OrderSheet> {
                 ButtonSegment(value: false, label: Text(AppLocalizations.of(context)!.tradingMarketOrder)),
               ],
               selected: {_orderTypeLimit},
-              onSelectionChanged: (s) => setState(() => _orderTypeLimit = s.first),
+              onSelectionChanged: (s) {
+                setState(() => _orderTypeLimit = s.first);
+                widget.onOrderTypeChanged(s.first);
+              },
             ),
             const SizedBox(height: 16),
             if (_orderTypeLimit)
@@ -1070,7 +1017,7 @@ class _OrderSheetState extends State<_OrderSheet> {
                 Expanded(
                   flex: 2,
                   child: FilledButton(
-                    onPressed: () {
+                    onPressed: () async {
                       final qtyStr = widget.qtyController.text.trim();
                       final qty = double.tryParse(qtyStr);
                       if (qty == null || qty <= 0) {
@@ -1089,7 +1036,8 @@ class _OrderSheetState extends State<_OrderSheet> {
                           return;
                         }
                       }
-                      widget.onSubmit();
+                      widget.onOrderTypeChanged(_orderTypeLimit);
+                      await widget.onSubmit(_orderTypeLimit);
                     },
                     style: FilledButton.styleFrom(
                       backgroundColor: widget.isBuy ? Colors.green : Colors.red,

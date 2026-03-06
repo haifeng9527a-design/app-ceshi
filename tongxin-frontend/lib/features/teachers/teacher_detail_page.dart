@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../core/design/design_tokens.dart';
 import '../../core/models.dart';
+import '../../ui/components/components.dart';
 import '../../l10n/app_localizations.dart';
 
 class TeacherDetailPage extends StatelessWidget {
@@ -15,17 +17,17 @@ class TeacherDetailPage extends StatelessWidget {
         title: Text(teacher.name),
       ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(AppSpacing.md),
         children: [
           _HeaderSection(teacher: teacher),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppSpacing.md),
           _SectionTitle(title: AppLocalizations.of(context)!.teachersPerformanceSection),
           _BattleStats(teacher: teacher),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppSpacing.md),
           _SectionTitle(title: AppLocalizations.of(context)!.teachersIntroSection),
           Text(teacher.bio, style: Theme.of(context).textTheme.bodyMedium),
-          const SizedBox(height: 16),
-          _SectionTitle(title: '最新文章'),
+          const SizedBox(height: AppSpacing.md),
+          const _SectionTitle(title: '最新文章'),
           ...teacher.articles.map(
             (article) => ListTile(
               contentPadding: EdgeInsets.zero,
@@ -34,7 +36,7 @@ class TeacherDetailPage extends StatelessWidget {
               trailing: Text(article.date),
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppSpacing.md),
           _SectionTitle(title: AppLocalizations.of(context)!.teachersRecentSchedule),
           ...teacher.schedules.map(
             (item) => ListTile(
@@ -44,10 +46,10 @@ class TeacherDetailPage extends StatelessWidget {
               trailing: Text(item.date),
             ),
           ),
-          const SizedBox(height: 16),
-          FilledButton(
+          const SizedBox(height: AppSpacing.md),
+          AppButton(
             onPressed: () {},
-            child: Text(AppLocalizations.of(context)!.featuredFollowTrader),
+            label: AppLocalizations.of(context)!.featuredFollowTrader,
           ),
         ],
       ),
@@ -91,7 +93,7 @@ class _HeaderSection extends StatelessWidget {
                 spacing: 8,
                 runSpacing: -6,
                 children: teacher.tags
-                    .map((tag) => Chip(label: Text(tag)))
+                    .map((tag) => AppChip(label: tag))
                     .toList(),
               ),
             ],
@@ -134,12 +136,8 @@ class _StatTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.black12),
-        ),
+      child: AppCard(
+        padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm + 4),
         child: Column(
           children: [
             Text(

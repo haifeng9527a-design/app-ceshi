@@ -1,6 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 
-import '../core/supabase_bootstrap.dart';
+import '../core/admin_api_client.dart';
 import '../l10n/admin_strings.dart';
 import 'admin_reports_panel.dart';
 import 'admin_settings_panel.dart';
@@ -79,19 +81,20 @@ class _DashboardPanel extends StatefulWidget {
 
 class _DashboardPanelState extends State<_DashboardPanel> {
   static const Color _accent = Color(0xFFD4AF37);
+  final _api = AdminApiClient.instance;
 
   Future<Map<String, int>> _loadStats() async {
     try {
-      final res = await SupabaseBootstrap.client.from('teacher_profiles').select('status');
-      final list = res as List<dynamic>? ?? [];
-      final counts = <String, int>{'pending': 0, 'approved': 0, 'rejected': 0, 'frozen': 0, 'blocked': 0};
-      for (final e in list) {
-        if (e is Map<String, dynamic>) {
-          final s = (e['status'] as String?) ?? 'pending';
-          counts[s] = (counts[s] ?? 0) + 1;
-        }
-      }
-      return counts;
+      final resp = await _api.get('api/admin/teachers/stats');
+      if (resp.statusCode != 200) return {};
+      final json = jsonDecode(resp.body) as Map<String, dynamic>;
+      return {
+        'pending': (json['pending'] as num?)?.toInt() ?? 0,
+        'approved': (json['approved'] as num?)?.toInt() ?? 0,
+        'rejected': (json['rejected'] as num?)?.toInt() ?? 0,
+        'frozen': (json['frozen'] as num?)?.toInt() ?? 0,
+        'blocked': (json['blocked'] as num?)?.toInt() ?? 0,
+      };
     } catch (_) {
       return {};
     }
@@ -213,16 +216,31 @@ class _AdminUserPanel extends StatefulWidget {
 
 class _AdminUserPanelState extends State<_AdminUserPanel> {
   static const Color _accent = Color(0xFFD4AF37);
+  final _api = AdminApiClient.instance;
 
   List<Map<String, dynamic>> _users = [];
+  final Map<String, String> _userNameById = {};
+  final Map<String, int> _reportCountByUser = {};
+  final Map<String, List<Map<String, dynamic>>> _reportHistoryByUser = {};
+  final Map<String, List<Map<String, dynamic>>> _reportSubmittedHistoryByUser = {};
   bool _loading = true;
   String? _loadError;
-  int? _selectedIndex;
+  String? _selectedUserId;
+  String _roleFilter = 'all';
+  String _statusFilter = 'all';
+  String _keyword = '';
+  final TextEditingController _searchController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _loadUsers();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadUsers() async {
@@ -232,17 +250,71 @@ class _AdminUserPanelState extends State<_AdminUserPanel> {
       _loadError = null;
     });
     try {
-      final res = await SupabaseBootstrap.client.from('user_profiles').select(
-        'user_id, display_name, avatar_url, role, email, signature, short_id, '
-        'banned_until, frozen_until, restrict_login, restrict_send_message, '
-        'restrict_add_friend, restrict_join_group, restrict_create_group',
-      );
-      final list = (res as List<dynamic>).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      final usersResp = await _api.get('api/admin/users/detailed');
+      if (usersResp.statusCode != 200) {
+        throw StateError('加载用户失败(${usersResp.statusCode})：${usersResp.body}');
+      }
+      final usersJson = jsonDecode(usersResp.body) as List<dynamic>;
+      final list = usersJson.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      final userNameById = <String, String>{};
+      for (final u in list) {
+        final uid = u['user_id']?.toString();
+        if (uid == null || uid.isEmpty) continue;
+        final display = u['display_name']?.toString().trim();
+        final email = u['email']?.toString().trim();
+        final shortId = u['short_id']?.toString().trim();
+        userNameById[uid] = (display != null && display.isNotEmpty)
+            ? display
+            : ((email != null && email.isNotEmpty) ? email : (shortId != null && shortId.isNotEmpty ? shortId : uid));
+      }
+      final userIds = list
+          .map((e) => e['user_id']?.toString())
+          .whereType<String>()
+          .where((e) => e.isNotEmpty)
+          .toList(growable: false);
+      final userIdSet = userIds.toSet();
+      final reportCountByUser = <String, int>{};
+      final reportHistoryByUser = <String, List<Map<String, dynamic>>>{};
+      final reportSubmittedHistoryByUser = <String, List<Map<String, dynamic>>>{};
+      if (userIds.isNotEmpty) {
+        final reportsResp = await _api.get('api/reports');
+        if (reportsResp.statusCode != 200) {
+          throw StateError('加载举报失败(${reportsResp.statusCode})：${reportsResp.body}');
+        }
+        final reportsRes = jsonDecode(reportsResp.body) as List<dynamic>;
+        for (final raw in reportsRes) {
+          final row = Map<String, dynamic>.from(raw as Map);
+          final rid = row['reported_user_id']?.toString();
+          final sid = row['reporter_id']?.toString();
+          if (rid != null && rid.isNotEmpty && userIdSet.contains(rid)) {
+            reportCountByUser[rid] = (reportCountByUser[rid] ?? 0) + 1;
+            final listByUser = reportHistoryByUser.putIfAbsent(rid, () => <Map<String, dynamic>>[]);
+            if (listByUser.length < 10) listByUser.add(row);
+          }
+          if (sid != null && sid.isNotEmpty && userIdSet.contains(sid)) {
+            final submitted = reportSubmittedHistoryByUser.putIfAbsent(sid, () => <Map<String, dynamic>>[]);
+            if (submitted.length < 10) submitted.add(row);
+          }
+        }
+      }
       if (!mounted) return;
       setState(() {
         _users = list;
+        _userNameById
+          ..clear()
+          ..addAll(userNameById);
+        _reportCountByUser
+          ..clear()
+          ..addAll(reportCountByUser);
+        _reportHistoryByUser
+          ..clear()
+          ..addAll(reportHistoryByUser);
+        _reportSubmittedHistoryByUser
+          ..clear()
+          ..addAll(reportSubmittedHistoryByUser);
         _loading = false;
-        if (_selectedIndex != null && _selectedIndex! >= list.length) _selectedIndex = null;
+        final hasSelected = _selectedUserId != null && list.any((u) => u['user_id']?.toString() == _selectedUserId);
+        if (!hasSelected) _selectedUserId = null;
       });
     } catch (e, st) {
       debugPrint('_AdminUserPanel _loadUsers: $e\n$st');
@@ -256,7 +328,10 @@ class _AdminUserPanelState extends State<_AdminUserPanel> {
 
   Future<void> _updateRestrictions(String userId, Map<String, dynamic> payload) async {
     try {
-      await SupabaseBootstrap.client.from('user_profiles').update(payload).eq('user_id', userId);
+      final resp = await _api.patch('api/admin/users/$userId/restrictions', body: payload);
+      if (resp.statusCode != 200) {
+        throw StateError('更新限制失败(${resp.statusCode})：${resp.body}');
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AdminStrings.adminSaved)));
       _loadUsers();
@@ -272,8 +347,55 @@ class _AdminUserPanelState extends State<_AdminUserPanel> {
     await _updateRestrictions(userId, {key: until?.toIso8601String(), 'updated_at': DateTime.now().toIso8601String()});
   }
 
+  String _roleLabel(Map<String, dynamic> user) {
+    final role = user['role']?.toString().trim().toLowerCase() ?? 'user';
+    if (role.contains('customer_service')) return '客服';
+    if (role.contains('teacher')) return '交易员';
+    return '普通会员';
+  }
+
+  bool _isRestricted(Map<String, dynamic> user) {
+    final bannedUntil = user['banned_until'] != null ? DateTime.tryParse(user['banned_until'].toString()) : null;
+    final frozenUntil = user['frozen_until'] != null ? DateTime.tryParse(user['frozen_until'].toString()) : null;
+    final now = DateTime.now();
+    final hardRestricted = (bannedUntil != null && bannedUntil.isAfter(now)) || (frozenUntil != null && frozenUntil.isAfter(now));
+    if (hardRestricted) return true;
+    return user['restrict_login'] == true ||
+        user['restrict_send_message'] == true ||
+        user['restrict_add_friend'] == true ||
+        user['restrict_join_group'] == true ||
+        user['restrict_create_group'] == true;
+  }
+
+  String _statusLabel(Map<String, dynamic> user) => _isRestricted(user) ? '受限' : '正常';
+
+  List<Map<String, dynamic>> get _filteredUsers {
+    return _users.where((u) {
+      if (_roleFilter != 'all' && _roleLabel(u) != _roleFilter) return false;
+      if (_statusFilter != 'all' && _statusLabel(u) != _statusFilter) return false;
+      if (_keyword.isNotEmpty) {
+        final k = _keyword.toLowerCase();
+        final text = <String>[
+          u['display_name']?.toString() ?? '',
+          u['email']?.toString() ?? '',
+          u['short_id']?.toString() ?? '',
+          u['user_id']?.toString() ?? '',
+        ].join(' ').toLowerCase();
+        if (!text.contains(k)) return false;
+      }
+      return true;
+    }).toList(growable: false);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final filteredUsers = _filteredUsers;
+    final selectedUser = _selectedUserId == null
+        ? null
+        : filteredUsers.where((u) => u['user_id']?.toString() == _selectedUserId).cast<Map<String, dynamic>?>().firstWhere(
+              (u) => u != null,
+              orElse: () => null,
+            );
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -286,12 +408,69 @@ class _AdminUserPanelState extends State<_AdminUserPanel> {
                 children: [
                   Text(AdminStrings.adminUserManagement, style: Theme.of(context).textTheme.headlineSmall?.copyWith(color: _accent, fontWeight: FontWeight.w600)),
                   const SizedBox(width: 12),
-                  Text(AdminStrings.adminUsersCount(_users.length), style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6))),
+                  Text(
+                    '共 ${_users.length} 人 · 当前 ${filteredUsers.length} 人',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6)),
+                  ),
                   const Spacer(),
                   IconButton(icon: const Icon(Icons.refresh), onPressed: _loading ? null : _loadUsers, tooltip: AdminStrings.adminRefresh),
                 ],
               ),
               const SizedBox(height: 16),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  const Text('角色'),
+                  ...<String>['all', '普通会员', '客服', '交易员'].map(
+                    (r) => ChoiceChip(
+                      label: Text(r == 'all' ? '全部' : r),
+                      selected: _roleFilter == r,
+                      onSelected: (_) {
+                        setState(() => _roleFilter = r);
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  const Text('状态'),
+                  ...<String>['all', '正常', '受限'].map(
+                    (s) => ChoiceChip(
+                      label: Text(s == 'all' ? '全部' : s),
+                      selected: _statusFilter == s,
+                      onSelected: (_) {
+                        setState(() => _statusFilter = s);
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  SizedBox(
+                    width: 260,
+                    child: TextField(
+                      controller: _searchController,
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        hintText: '搜索昵称 / 邮箱 / 用户ID',
+                        prefixIcon: Icon(Icons.search, size: 18),
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (v) => setState(() => _keyword = v.trim()),
+                    ),
+                  ),
+                  if (_roleFilter != 'all' || _statusFilter != 'all' || _keyword.isNotEmpty)
+                    TextButton.icon(
+                      onPressed: () => setState(() {
+                        _roleFilter = 'all';
+                        _statusFilter = 'all';
+                        _keyword = '';
+                        _searchController.clear();
+                      }),
+                      icon: const Icon(Icons.clear_all, size: 18),
+                      label: const Text('清空筛选'),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
               if (_loading)
                 const Center(child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator(color: Color(0xFFD4AF37))))
               else if (_loadError != null)
@@ -321,24 +500,32 @@ class _AdminUserPanelState extends State<_AdminUserPanel> {
                       children: [
                         Icon(Icons.people_outline, size: 56, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.4)),
                         const SizedBox(height: 12),
-                        Text(AdminStrings.adminNoUserData, style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7))),
+                        Text('没有匹配当前筛选条件的用户', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7))),
                       ],
                     ),
                   ),
                 )
               else
-                ...List.generate(_users.length, (i) {
-                  final u = _users[i];
+                ...List.generate(filteredUsers.length, (i) {
+                  final u = filteredUsers[i];
                   final name = u['display_name']?.toString().trim() ?? '—';
-                  final selected = _selectedIndex == i;
+                  final uid = u['user_id']?.toString() ?? '';
+                  final reportCount = _reportCountByUser[uid] ?? 0;
+                  final role = _roleLabel(u);
+                  final status = _statusLabel(u);
+                  final selected = _selectedUserId == uid;
                   return ListTile(
                     selected: selected,
                     leading: u['avatar_url'] != null && u['avatar_url'].toString().trim().isNotEmpty
                         ? CircleAvatar(backgroundImage: NetworkImage(u['avatar_url'].toString()))
                         : const CircleAvatar(child: Icon(Icons.person)),
                     title: Text(name),
-                    subtitle: Text(u['email']?.toString().trim() ?? u['user_id']?.toString() ?? '—'),
-                    onTap: () => setState(() => _selectedIndex = i),
+                    subtitle: Text(
+                      '${u['email']?.toString().trim() ?? u['user_id']?.toString() ?? '—'}'
+                      '  ·  $role  ·  $status'
+                      '${reportCount > 0 ? '  ·  被投诉 $reportCount 次' : ''}',
+                    ),
+                    onTap: () => setState(() => _selectedUserId = uid),
                   );
                 }),
             ],
@@ -347,10 +534,14 @@ class _AdminUserPanelState extends State<_AdminUserPanel> {
         const VerticalDivider(width: 1),
         Expanded(
           flex: 1,
-          child: _selectedIndex == null || _selectedIndex! >= _users.length
+          child: selectedUser == null
               ? Center(child: Text(AdminStrings.adminSelectUser, style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5))))
               : _UserDetailPanel(
-                  user: _users[_selectedIndex!],
+                  user: selectedUser,
+                  userNameById: _userNameById,
+                  reportCount: _reportCountByUser[selectedUser['user_id']?.toString() ?? ''] ?? 0,
+                  reportHistory: _reportHistoryByUser[selectedUser['user_id']?.toString() ?? ''] ?? const [],
+                  submittedReportHistory: _reportSubmittedHistoryByUser[selectedUser['user_id']?.toString() ?? ''] ?? const [],
                   onUpdate: _updateRestrictions,
                   onSetBannedOrFrozen: _setBannedOrFrozen,
                   onRefresh: _loadUsers,
@@ -364,12 +555,20 @@ class _AdminUserPanelState extends State<_AdminUserPanel> {
 class _UserDetailPanel extends StatelessWidget {
   const _UserDetailPanel({
     required this.user,
+    required this.userNameById,
+    required this.reportCount,
+    required this.reportHistory,
+    required this.submittedReportHistory,
     required this.onUpdate,
     required this.onSetBannedOrFrozen,
     required this.onRefresh,
   });
 
   final Map<String, dynamic> user;
+  final Map<String, String> userNameById;
+  final int reportCount;
+  final List<Map<String, dynamic>> reportHistory;
+  final List<Map<String, dynamic>> submittedReportHistory;
   final Future<void> Function(String userId, Map<String, dynamic> payload) onUpdate;
   final Future<void> Function(String userId, bool isBanned, int? days) onSetBannedOrFrozen;
   final VoidCallback onRefresh;
@@ -449,6 +648,29 @@ class _UserDetailPanel extends StatelessWidget {
           children: [
             OutlinedButton(onPressed: () => _showBannedFrozenDialog(context, true), style: OutlinedButton.styleFrom(foregroundColor: Colors.red), child: Text(AdminStrings.adminBan)),
             OutlinedButton(onPressed: () => _showBannedFrozenDialog(context, false), style: OutlinedButton.styleFrom(foregroundColor: Colors.blue), child: Text(AdminStrings.adminFreeze)),
+            OutlinedButton(
+              onPressed: () => onSetBannedOrFrozen(userId, true, null),
+              child: const Text('解除封禁'),
+            ),
+            OutlinedButton(
+              onPressed: () => onSetBannedOrFrozen(userId, false, null),
+              child: const Text('解除冻结'),
+            ),
+            OutlinedButton(
+              onPressed: () async {
+                await onUpdate(userId, {
+                  'banned_until': null,
+                  'frozen_until': null,
+                  'restrict_login': false,
+                  'restrict_send_message': false,
+                  'restrict_add_friend': false,
+                  'restrict_join_group': false,
+                  'restrict_create_group': false,
+                  'updated_at': DateTime.now().toIso8601String(),
+                });
+              },
+              child: const Text('解除全部限制'),
+            ),
           ],
         ),
         const SizedBox(height: 16),
@@ -459,6 +681,86 @@ class _UserDetailPanel extends StatelessWidget {
         SwitchListTile(title: Text(AdminStrings.adminRestrictAddFriend), value: _bool('restrict_add_friend'), onChanged: (v) => _toggle(context, 'restrict_add_friend', v)),
         SwitchListTile(title: Text(AdminStrings.adminRestrictJoinGroup), value: _bool('restrict_join_group'), onChanged: (v) => _toggle(context, 'restrict_join_group', v)),
         SwitchListTile(title: Text(AdminStrings.adminRestrictCreateGroup), value: _bool('restrict_create_group'), onChanged: (v) => _toggle(context, 'restrict_create_group', v)),
+        const SizedBox(height: 24),
+        Text('投诉画像', style: Theme.of(context).textTheme.titleMedium?.copyWith(color: _accent)),
+        const SizedBox(height: 8),
+        _row('被投诉次数', '$reportCount'),
+        if (reportHistory.isEmpty)
+          Text(
+            '暂无投诉记录',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                ),
+          )
+        else
+          ...reportHistory.map((r) {
+            final reason = r['reason']?.toString() ?? '—';
+            final status = r['status']?.toString() ?? '—';
+            final reporterId = r['reporter_id']?.toString() ?? '—';
+            final reporter = userNameById[reporterId] ?? reporterId;
+            final content = r['content']?.toString().trim();
+            final createdAt = r['created_at']?.toString() ?? '';
+            return Container(
+              margin: const EdgeInsets.only(top: 8),
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.white24),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('举报人：$reporter  ·  原因：$reason  ·  状态：$status'),
+                  if (createdAt.isNotEmpty)
+                    Text(createdAt, style: Theme.of(context).textTheme.bodySmall),
+                  if (content != null && content.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    SelectableText(content),
+                  ],
+                ],
+              ),
+            );
+          }),
+        const SizedBox(height: 16),
+        Text('发起投诉历史', style: Theme.of(context).textTheme.titleMedium?.copyWith(color: _accent)),
+        const SizedBox(height: 8),
+        _row('发起投诉次数', '${submittedReportHistory.length}'),
+        if (submittedReportHistory.isEmpty)
+          Text(
+            '暂无发起投诉记录',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                ),
+          )
+        else
+          ...submittedReportHistory.map((r) {
+            final reason = r['reason']?.toString() ?? '—';
+            final status = r['status']?.toString() ?? '—';
+            final targetId = r['reported_user_id']?.toString() ?? '—';
+            final target = userNameById[targetId] ?? targetId;
+            final content = r['content']?.toString().trim();
+            final createdAt = r['created_at']?.toString() ?? '';
+            return Container(
+              margin: const EdgeInsets.only(top: 8),
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.white24),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('投诉对象：$target  ·  原因：$reason  ·  状态：$status'),
+                  if (createdAt.isNotEmpty)
+                    Text(createdAt, style: Theme.of(context).textTheme.bodySmall),
+                  if (content != null && content.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    SelectableText(content),
+                  ],
+                ],
+              ),
+            );
+          }),
       ],
     );
   }

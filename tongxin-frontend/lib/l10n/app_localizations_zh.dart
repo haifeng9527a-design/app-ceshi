@@ -604,7 +604,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get tradingSearchAndSelectFirst => '请先搜索并选择标的';
 
   @override
-  String get tradingOrderSubmitted => '已提交（模拟，接口待接入）';
+  String get tradingOrderSubmitted => '下单已提交';
 
   @override
   String get tradingVolume => '成交量';
@@ -679,7 +679,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String tradingBuySellSubmitted(String action, String symbol) {
-    return '$action $symbol 已提交（模拟，接口待接入）';
+    return '$action $symbol 下单已提交';
   }
 
   @override
@@ -1077,10 +1077,54 @@ class AppLocalizationsZh extends AppLocalizations {
   String get addFriendMyQrCode => '我的二维码';
 
   @override
+  String get addFriendTabEmail => '邮箱';
+
+  @override
+  String get addFriendTabAccountId => '账号ID';
+
+  @override
+  String get addFriendTabQrCode => '二维码';
+
+  @override
   String get addFriendHintEmail => '请输入对方注册邮箱';
 
   @override
   String get addFriendHintId => '请输入对方账号 ID';
+
+  @override
+  String get addFriendLabelTargetEmail => '对方邮箱';
+
+  @override
+  String get addFriendLabelAccountIdRule => '账号 ID（6-9位数字）';
+
+  @override
+  String get addFriendEnterEmail => '请输入邮箱';
+
+  @override
+  String get addFriendEnterAccountId => '请输入账号ID';
+
+  @override
+  String get addFriendUserNotFound => '未找到该用户';
+
+  @override
+  String get addFriendRequestSent => '好友申请已发送';
+
+  @override
+  String get addFriendAlreadyFriends => '你们已是好友';
+
+  @override
+  String get addFriendAlreadyPending => '已发送过申请，请等待对方处理';
+
+  @override
+  String get commonGenerating => '生成中...';
+
+  @override
+  String get addFriendAccountIdGenerating => '账号ID：生成中...';
+
+  @override
+  String addFriendAccountIdValue(String id) {
+    return '账号ID：$id';
+  }
 
   @override
   String get commonAdd => '添加';
@@ -1800,6 +1844,31 @@ class AppLocalizationsZh extends AppLocalizations {
   String tradesSellPending(String symbol) {
     return '卖出 $symbol（待接入）';
   }
+
+  @override
+  String get tradesConfirmMarketSellTitle => '确认市价卖出';
+
+  @override
+  String tradesConfirmMarketSellContent(String symbol, String qty) {
+    return '确认按市价卖出 $symbol，数量 $qty ?';
+  }
+
+  @override
+  String tradesSellSubmitted(String symbol) {
+    return '已提交卖出 $symbol';
+  }
+
+  @override
+  String get tradesPositionBuyMarketValue => '买入市值';
+
+  @override
+  String get tradesPositionCurrentMarketValue => '当前市值';
+
+  @override
+  String get tradesPositionTotalPnl => '总盈亏';
+
+  @override
+  String get tradesPositionTodayFloatingPnl => '当日浮动盈亏';
 
   @override
   String get teachersProfileTitle => '交易员资料';
@@ -3462,6 +3531,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get roleVip => '会员';
 
   @override
+  String get roleCustomerService => '客服';
+
+  @override
   String get pcHome => '首页';
 
   @override
@@ -3618,4 +3690,116 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get adminCsBroadcastEmpty => '消息不能为空';
+
+  @override
+  String get tradingSummaryUnavailable => '账户数据不可用';
+
+  @override
+  String get tradingSummaryAvailable => '可用';
+
+  @override
+  String get tradingSummaryEquity => '总资产';
+
+  @override
+  String get tradingSummaryMarketValue => '市值';
+
+  @override
+  String get tradingSummaryOpenOrders => '挂单';
+
+  @override
+  String get tradingSummaryAvailableFunds => '可用资金';
+
+  @override
+  String get tradingSummaryFrozenFunds => '冻结资金';
+
+  @override
+  String get tradingSummaryCashBalance => '现金余额';
+
+  @override
+  String get tradingSummaryRealizedPnl => '已实现盈亏';
+
+  @override
+  String get tradingSummaryUnrealizedPnl => '未实现盈亏';
+
+  @override
+  String get tradingSummaryTodayPnl => '今日盈亏';
+
+  @override
+  String get tradingSummaryFundDistribution => '资金分布';
+
+  @override
+  String get tradingSummaryAssetStructure => '资产结构';
+
+  @override
+  String get tradingSummaryProfitOverview => '收益情况';
+
+  @override
+  String get tradingLedgerTitle => '账户流水';
+
+  @override
+  String get tradingLedgerTypeFilter => '类型筛选: ';
+
+  @override
+  String get tradingLedgerEmpty => '暂无流水';
+
+  @override
+  String get tradingLedgerBalanceLabel => '余额';
+
+  @override
+  String get tradingLedgerCsvCopied => 'CSV 已复制到剪贴板';
+
+  @override
+  String get tradingLedgerTypeAccountReset => '账户重置';
+
+  @override
+  String get tradingLedgerTypeOrderCashFrozen => '下单冻结资金';
+
+  @override
+  String get tradingLedgerTypeOrderCancelUnfreeze => '撤单解冻资金';
+
+  @override
+  String get tradingLedgerTypeOrderFilledBuy => '买入成交';
+
+  @override
+  String get tradingLedgerTypeOrderFilledSell => '卖出成交';
+
+  @override
+  String get teachersAccountAndLedgerTab => '账户与流水';
+
+  @override
+  String get teachersQualificationPhoto => '资质照片';
+
+  @override
+  String get teachersSubmitting => '提交中…';
+
+  @override
+  String get teachersSubmittedPendingReview => '已提交等待审核';
+
+  @override
+  String get teachersSubmitApplication => '提交申请';
+
+  @override
+  String get teachersStatusFrozenMessage => '您当前处于冻结状态，无法发布策略与交易记录。';
+
+  @override
+  String teachersStatusUnfreezeTime(String date) {
+    return '解冻时间：$date';
+  }
+
+  @override
+  String get teachersStatusBlockedMessage => '您当前处于封禁状态，无法发布策略与交易记录。如有疑问请联系客服。';
+
+  @override
+  String get teachersStatusRejectedMessage => '您的申请已被拒绝，无法发布策略与交易记录。如有疑问请联系客服。';
+
+  @override
+  String get teachersStatusPendingMessage => '审核中，通过后可发布策略与交易记录';
+
+  @override
+  String teachersStatusCannotPublishHint(String status) {
+    return '您当前处于$status状态，无法发布策略';
+  }
+
+  @override
+  String get teachersStatusOpenAfterApproval => '审核通过后开放策略发布';
 }

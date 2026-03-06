@@ -6,10 +6,13 @@ import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../core/api_client.dart';
+import '../../core/design/design_tokens.dart';
 import '../../core/firebase_bootstrap.dart';
+import '../../core/layout_mode.dart';
 import '../../l10n/app_localizations.dart';
 import '../../core/network_error_helper.dart';
 import '../../core/role_badge.dart';
+import '../../ui/components/components.dart';
 import '../auth/login_page.dart';
 import 'chat_detail_page.dart';
 import 'add_friend_page.dart';
@@ -24,24 +27,24 @@ import 'messages_repository.dart';
 import 'system_notifications_page.dart';
 
 Widget _messagesAvatarPlaceholder(String initial, [bool isGroup = false]) {
-    if (isGroup) {
-      return CircleAvatar(
-        radius: 26,
-        backgroundColor: const Color(0xFF1E3A5F),
-        child: const Icon(Icons.people, color: Color(0xFF07C160), size: 26),
-      );
-    }
-    return Container(
-      width: 40,
-      height: 40,
-      color: const Color(0xFF1A1C21),
-      alignment: Alignment.center,
-      child: Text(
-        initial.isEmpty ? '?' : initial,
-        style: const TextStyle(color: Color(0xFFD4AF37), fontSize: 16),
-      ),
+  if (isGroup) {
+    return const CircleAvatar(
+      radius: 26,
+      backgroundColor: AppColors.borderFocus,
+      child: Icon(Icons.people, color: AppColors.success, size: 26),
     );
   }
+  return Container(
+    width: 40,
+    height: 40,
+    color: AppColors.surfaceElevated,
+    alignment: Alignment.center,
+    child: Text(
+      initial.isEmpty ? '?' : initial,
+      style: const TextStyle(color: AppColors.primary, fontSize: 16),
+    ),
+  );
+}
 
 class MessagesPage extends StatefulWidget {
   const MessagesPage({super.key});
@@ -75,10 +78,12 @@ class _MessagesPageState extends State<MessagesPage> {
   List<Conversation> _cachedConversations = [];
   List<FriendProfile> _cachedFriends = [];
   List<FriendRequestItem> _cachedIncomingRequests = [];
+  final Set<String> _customerServiceIds = <String>{};
   Timer? _cleanupTimer;
   bool _localStateLoaded = false;
   Key _conversationStreamKey = UniqueKey();
   Key _friendsStreamKey = UniqueKey();
+
   /// PC 双栏下在右侧内嵌展示的会话（不 push 全屏）
   Conversation? _selectedConversation;
 
@@ -91,19 +96,23 @@ class _MessagesPageState extends State<MessagesPage> {
     super.initState();
     _friendSearchController.addListener(_handleFriendQuery);
     _conversationSearchController.addListener(() {
-      if (mounted) setState(() => _conversationSearchQuery = _conversationSearchController.text.trim());
+      if (mounted)
+        setState(() => _conversationSearchQuery =
+            _conversationSearchController.text.trim());
     });
     _loadLocalState();
     _subscribeRemarks();
     _subscribeFriends();
     _subscribeIncomingRequests();
     _ensureCustomerServiceFriend();
+    _refreshCustomerServiceIds();
     if (FirebaseBootstrap.isReady) {
       _authSubscription = FirebaseAuth.instance.authStateChanges().listen((_) {
         _subscribeFriends();
         _subscribeRemarks();
         _subscribeIncomingRequests();
         _ensureCustomerServiceFriend();
+        _refreshCustomerServiceIds();
       });
     }
   }
@@ -113,7 +122,8 @@ class _MessagesPageState extends State<MessagesPage> {
     final userId = _currentUser?.uid ?? '';
     if (userId.isEmpty) return;
     try {
-      final csId = await CustomerServiceRepository().getSystemCustomerServiceUserId();
+      final csId =
+          await CustomerServiceRepository().getSystemCustomerServiceUserId();
       if (csId == null || csId.isEmpty) return;
       await _friendsRepository.ensureCustomerServiceFriend(
         userId: userId,
@@ -122,6 +132,43 @@ class _MessagesPageState extends State<MessagesPage> {
     } catch (_) {
       // 静默失败
     }
+  }
+
+  Future<void> _refreshCustomerServiceIds() async {
+    try {
+      final repo = CustomerServiceRepository();
+      final ids = <String>{};
+      final systemId = await repo.getSystemCustomerServiceUserId();
+      if (systemId != null && systemId.trim().isNotEmpty) {
+        ids.add(systemId.trim());
+      }
+      final staffs = await repo.getAllCustomerServiceStaff();
+      for (final id in staffs) {
+        if (id.trim().isNotEmpty) {
+          ids.add(id.trim());
+        }
+      }
+      if (!mounted) return;
+      setState(() {
+        _customerServiceIds
+          ..clear()
+          ..addAll(ids);
+      });
+    } catch (_) {
+      // 静默失败，不影响主流程
+    }
+  }
+
+  bool _isCustomerServiceFriend(FriendProfile friend) {
+    final role = (friend.roleLabel ?? '').trim();
+    return role == '客服' ||
+        role.toLowerCase() == 'customer_service' ||
+        _customerServiceIds.contains(friend.userId);
+  }
+
+  String _customerServiceDisplayName(BuildContext context) {
+    final code = Localizations.localeOf(context).languageCode.toLowerCase();
+    return code.startsWith('en') ? 'Customer Service' : '客服';
   }
 
   @override
@@ -151,7 +198,7 @@ class _MessagesPageState extends State<MessagesPage> {
         _pendingFriendRequestCount = requests.length;
         if (countIncreased) _lastRequestCount = requests.length;
       });
-      if (countIncreased && requests.length > 0 && mounted) {
+      if (countIncreased && requests.isNotEmpty && mounted) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
@@ -159,7 +206,8 @@ class _MessagesPageState extends State<MessagesPage> {
               content: Text(
                 requests.length == 1
                     ? AppLocalizations.of(context)!.msgNewFriendRequest
-                    : AppLocalizations.of(context)!.msgNewFriendRequests(requests.length),
+                    : AppLocalizations.of(context)!
+                        .msgNewFriendRequests(requests.length),
               ),
             ),
           );
@@ -172,7 +220,8 @@ class _MessagesPageState extends State<MessagesPage> {
     final userId = _currentUser?.uid ?? '';
     if (userId.isEmpty) return;
     _friendsSubscription?.cancel();
-    _friendsSubscription = _friendsRepository.watchFriends(userId: userId).listen((friends) {
+    _friendsSubscription =
+        _friendsRepository.watchFriends(userId: userId).listen((friends) {
       if (!mounted) return;
       setState(() {
         _cachedFriends = friends;
@@ -225,9 +274,8 @@ class _MessagesPageState extends State<MessagesPage> {
       return;
     }
     _remarkSubscription?.cancel();
-    _remarkSubscription = _friendsRepository
-        .watchRemarks(userId: userId)
-        .listen((remarks) {
+    _remarkSubscription =
+        _friendsRepository.watchRemarks(userId: userId).listen((remarks) {
       if (!mounted) return;
       setState(() {
         _friendRemarks = remarks;
@@ -267,8 +315,7 @@ class _MessagesPageState extends State<MessagesPage> {
         continue;
       }
       final lastTime = convo.lastTime;
-      final hasNewerMessage =
-          lastTime != null && lastTime.isAfter(hiddenAt);
+      final hasNewerMessage = lastTime != null && lastTime.isAfter(hiddenAt);
       final hasUnread = convo.unreadCount > 0;
       if (hasNewerMessage || hasUnread) {
         nextHidden.remove(convo.id);
@@ -413,8 +460,12 @@ class _MessagesPageState extends State<MessagesPage> {
   }
 
   String _resolveFriendName(FriendProfile friend) {
-    final remark = _friendRemarks['id:${friend.userId}'] ??
-        _friendRemarks[friend.userId];
+    if (_isCustomerServiceFriend(friend)) {
+      // 用户端固定显示客服身份，不暴露客服内部用户名。
+      return _customerServiceDisplayName(context);
+    }
+    final remark =
+        _friendRemarks['id:${friend.userId}'] ?? _friendRemarks[friend.userId];
     if (remark != null && remark.trim().isNotEmpty) {
       return remark.trim();
     }
@@ -441,6 +492,9 @@ class _MessagesPageState extends State<MessagesPage> {
       }
       for (final f in _cachedFriends) {
         if (f.userId == peerId) {
+          if (_isCustomerServiceFriend(f)) {
+            return _customerServiceDisplayName(context);
+          }
           final name = _resolveFriendName(f);
           if (name.trim().isNotEmpty && name.trim() != myName) return name;
           return AppLocalizations.of(context)!.msgNoNicknameSet;
@@ -448,7 +502,8 @@ class _MessagesPageState extends State<MessagesPage> {
       }
       // 没有好友资料或后端 title 存错了：若是自己的名字则显示占位
       final fallback = conversation.title.trim();
-      if (fallback.isEmpty || fallback == myName) return AppLocalizations.of(context)!.msgNoNicknameSet;
+      if (fallback.isEmpty || fallback == myName)
+        return AppLocalizations.of(context)!.msgNoNicknameSet;
       return fallback;
     }
     return conversation.title;
@@ -490,24 +545,6 @@ class _MessagesPageState extends State<MessagesPage> {
     }).toList();
   }
 
-  Widget _buildFriendSearchBar() {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Column(
-        children: [
-          TextField(
-            controller: _friendSearchController,
-            decoration: InputDecoration(
-              hintText: AppLocalizations.of(context)!.msgSearchHint,
-              isDense: true,
-              prefixIcon: Icon(Icons.search),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildBlacklistToggle() {
     return Align(
       alignment: Alignment.centerRight,
@@ -521,7 +558,9 @@ class _MessagesPageState extends State<MessagesPage> {
           _showBlacklist ? Icons.visibility_off : Icons.visibility,
           size: 18,
         ),
-        label: Text(_showBlacklist ? AppLocalizations.of(context)!.msgHideBlacklist : AppLocalizations.of(context)!.msgShowBlacklist),
+        label: Text(_showBlacklist
+            ? AppLocalizations.of(context)!.msgHideBlacklist
+            : AppLocalizations.of(context)!.msgShowBlacklist),
       ),
     );
   }
@@ -544,25 +583,29 @@ class _MessagesPageState extends State<MessagesPage> {
             _SectionTitle(title: AppLocalizations.of(context)!.msgBlacklist),
             const SizedBox(height: 8),
             ...blacklisted.map((friend) {
+              final isCustomerService = _isCustomerServiceFriend(friend);
               return Padding(
                 padding: const EdgeInsets.only(bottom: 0),
                 child: _FriendCard(
                   name: _resolveFriendName(friend),
-                  subtitle: friend.shortId?.trim().isNotEmpty == true
-                      ? AppLocalizations.of(context)!.profileAccountIdValue(friend.shortId!.trim())
-                      : AppLocalizations.of(context)!.profileAccountIdDash,
-                  status: AppLocalizations.of(context)!.msgBlocked,
-                  isOnline: false,
-                  avatarText:
-                      friend.displayName.isEmpty ? AppLocalizations.of(context)!.commonUserInitial : friend.displayName[0],
+                  subtitle: isCustomerService
+                      ? ''
+                      : (friend.shortId?.trim().isNotEmpty == true
+                          ? AppLocalizations.of(context)!
+                              .profileAccountIdValue(friend.shortId!.trim())
+                          : AppLocalizations.of(context)!.profileAccountIdDash),
+                  avatarText: friend.displayName.isEmpty
+                      ? AppLocalizations.of(context)!.commonUserInitial
+                      : friend.displayName[0],
                   avatarUrl: friend.avatarUrl,
-                  levelLabel: 'Lv ${friend.level}',
-                  roleLabel: friend.roleLabel,
+                  levelLabel: isCustomerService ? null : 'Lv ${friend.level}',
+                  roleLabel:
+                      isCustomerService ? 'customer_service' : friend.roleLabel,
                   onTap: () {},
                   onMore: () => _showFriendActions(context, friend),
                 ),
               );
-            }).toList(),
+            }),
           ],
         );
       },
@@ -573,9 +616,9 @@ class _MessagesPageState extends State<MessagesPage> {
     final isBlocked = _blacklist.contains(friend.userId);
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: const Color(0xFF0E0F14),
+      backgroundColor: AppColors.scaffold,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
       ),
       builder: (context) {
         return SafeArea(
@@ -583,7 +626,7 @@ class _MessagesPageState extends State<MessagesPage> {
             mainAxisSize: MainAxisSize.min,
             children: [
               ListTile(
-                leading: const Icon(Icons.edit_outlined),
+                leading: const Icon(Icons.edit_note_rounded),
                 title: Text(AppLocalizations.of(context)!.msgSetRemark),
                 onTap: () {
                   Navigator.of(context).pop();
@@ -591,16 +634,19 @@ class _MessagesPageState extends State<MessagesPage> {
                 },
               ),
               ListTile(
-                leading:
-                    Icon(isBlocked ? Icons.lock_open : Icons.block_outlined),
-                title: Text(isBlocked ? AppLocalizations.of(context)!.msgRemoveFromBlacklist : AppLocalizations.of(context)!.msgAddToBlacklist),
+                leading: Icon(
+                    isBlocked ? Icons.lock_open_rounded : Icons.block_rounded),
+                title: Text(isBlocked
+                    ? AppLocalizations.of(context)!.msgRemoveFromBlacklist
+                    : AppLocalizations.of(context)!.msgAddToBlacklist),
                 onTap: () {
                   Navigator.of(context).pop();
                   _toggleBlacklist(friend);
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                leading: const Icon(Icons.delete_outline_rounded,
+                    color: Colors.redAccent),
                 title: Text(AppLocalizations.of(context)!.msgDeleteFriend),
                 onTap: () {
                   Navigator.of(context).pop();
@@ -627,17 +673,18 @@ class _MessagesPageState extends State<MessagesPage> {
           title: Text(AppLocalizations.of(context)!.msgSetRemark),
           content: TextField(
             controller: controller,
-            decoration: InputDecoration(hintText: AppLocalizations.of(context)!.msgRemarkHint),
+            decoration: InputDecoration(
+                hintText: AppLocalizations.of(context)!.msgRemarkHint),
           ),
           actions: [
-            TextButton(
+            AppButton(
+              variant: AppButtonVariant.secondary,
+              label: AppLocalizations.of(context)!.commonCancel,
               onPressed: () => Navigator.of(dialogContext).pop(null),
-              child: Text(AppLocalizations.of(context)!.commonCancel),
             ),
-            FilledButton(
-              onPressed: () =>
-                  Navigator.of(dialogContext).pop(controller.text),
-              child: Text(AppLocalizations.of(context)!.commonSave),
+            AppButton(
+              label: AppLocalizations.of(context)!.commonSave,
+              onPressed: () => Navigator.of(dialogContext).pop(controller.text),
             ),
           ],
         );
@@ -671,8 +718,7 @@ class _MessagesPageState extends State<MessagesPage> {
   final _conversationSearchController = TextEditingController();
   String _conversationSearchQuery = '';
 
-  bool get _isPcLayout =>
-      MediaQuery.sizeOf(context).width >= 1100;
+  bool get _isPcLayout => LayoutMode.useDesktopLikeLayout(context);
 
   bool get _apiReady => ApiClient.instance.isAvailable;
 
@@ -683,7 +729,7 @@ class _MessagesPageState extends State<MessagesPage> {
     final user = _currentUser;
     final userId = user?.uid ?? '';
     return Scaffold(
-      backgroundColor: const Color(0xFF0D0D0F),
+      backgroundColor: AppColors.scaffold,
       body: SafeArea(
         child: firebaseReady && apiReady && _currentUser != null && _isPcLayout
             ? _buildPcTwoPaneLayout(context, userId)
@@ -695,11 +741,13 @@ class _MessagesPageState extends State<MessagesPage> {
                     _buildSearchBar(context),
                     _buildWeChatTabs(context),
                     Expanded(
-                      child: _buildBodyContent(context, userId, firebaseReady, apiReady),
+                      child: _buildBodyContent(
+                          context, userId, firebaseReady, apiReady),
                     ),
                   ] else
                     Expanded(
-                      child: _buildLoginOrConfigPrompt(context, firebaseReady, apiReady),
+                      child: _buildLoginOrConfigPrompt(
+                          context, firebaseReady, apiReady),
                     ),
                 ],
               ),
@@ -714,9 +762,10 @@ class _MessagesPageState extends State<MessagesPage> {
       children: [
         Container(
           width: 380,
-          decoration: BoxDecoration(
-            color: const Color(0xFF0D0D0F),
-            border: Border(right: BorderSide(color: const Color(0xFF2A2D34), width: 1)),
+          decoration: const BoxDecoration(
+            color: AppColors.scaffold,
+            border:
+                Border(right: BorderSide(color: Color(0xFF2A2D34), width: 1)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -733,7 +782,7 @@ class _MessagesPageState extends State<MessagesPage> {
         ),
         Expanded(
           child: Container(
-            color: const Color(0xFF111318),
+            color: AppColors.surface,
             child: _selectedConversation == null
                 ? const _ChatWindowPlaceholder()
                 : ChatDetailPage(
@@ -757,30 +806,27 @@ class _MessagesPageState extends State<MessagesPage> {
   ) {
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
-      decoration: BoxDecoration(
-        color: const Color(0xFF0D0D0F),
-        border: Border(bottom: BorderSide(color: const Color(0xFF2A2D34), width: 0.6)),
+      decoration: const BoxDecoration(
+        color: AppColors.scaffold,
+        border:
+            Border(bottom: BorderSide(color: Color(0xFF2A2D34), width: 0.6)),
       ),
       child: Row(
         children: [
           Text(
             AppLocalizations.of(context)!.navMessages,
-            style: const TextStyle(
-              color: Color(0xFFE8D5A3),
-              fontWeight: FontWeight.w600,
-              fontSize: 18,
-            ),
+            style: AppTypography.subtitle,
           ),
           const Spacer(),
           IconButton(
-            icon: const Icon(Icons.person_add_alt_1_outlined, size: 22),
-            color: const Color(0xFF9CA3AF),
+            icon: const Icon(AppIcons.addFriend, size: 22),
+            color: AppColors.textSecondary,
             onPressed: () => _openAddFriend(context),
             tooltip: AppLocalizations.of(context)!.messagesAddFriend,
           ),
           IconButton(
-            icon: const Icon(Icons.group_add_outlined, size: 22),
-            color: const Color(0xFF9CA3AF),
+            icon: const Icon(AppIcons.createGroup, size: 22),
+            color: AppColors.textSecondary,
             onPressed: () => _openCreateGroup(context),
             tooltip: AppLocalizations.of(context)!.messagesCreateGroup,
           ),
@@ -788,25 +834,33 @@ class _MessagesPageState extends State<MessagesPage> {
             clipBehavior: Clip.none,
             children: [
               IconButton(
-                icon: const Icon(Icons.notifications_outlined, size: 22),
-                color: const Color(0xFF9CA3AF),
+                icon: const Icon(AppIcons.notifications, size: 22),
+                color: AppColors.textSecondary,
                 onPressed: () => _openSystemNotifications(context),
-                tooltip: AppLocalizations.of(context)!.messagesSystemNotifications,
+                tooltip:
+                    AppLocalizations.of(context)!.messagesSystemNotifications,
               ),
               if (_pendingFriendRequestCount > 0)
                 Positioned(
                   right: 8,
                   top: 8,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                    constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                    constraints:
+                        const BoxConstraints(minWidth: 16, minHeight: 16),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF07C160),
+                      color: AppColors.success,
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(
-                      _pendingFriendRequestCount > 99 ? '99+' : '$_pendingFriendRequestCount',
-                      style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.w600),
+                      _pendingFriendRequestCount > 99
+                          ? '99+'
+                          : '$_pendingFriendRequestCount',
+                      style: const TextStyle(
+                          fontSize: 10,
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600),
                     ),
                   ),
                 ),
@@ -820,27 +874,21 @@ class _MessagesPageState extends State<MessagesPage> {
   Widget _buildSearchBar(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-      child: TextField(
-        controller: _tabIndex == 0 ? _conversationSearchController : _friendSearchController,
+      child: AppInput(
+        controller: _tabIndex == 0
+            ? _conversationSearchController
+            : _friendSearchController,
         onChanged: (_) {
           setState(() {
-            if (_tabIndex == 0) _conversationSearchQuery = _conversationSearchController.text.trim();
+            if (_tabIndex == 0)
+              _conversationSearchQuery =
+                  _conversationSearchController.text.trim();
           });
         },
-        decoration: InputDecoration(
-          hintText: _tabIndex == 0 ? AppLocalizations.of(context)!.messagesSearchConversations : AppLocalizations.of(context)!.messagesSearchFriends,
-          hintStyle: const TextStyle(color: Color(0xFF6C6F77), fontSize: 14),
-          prefixIcon: const Icon(Icons.search, size: 20, color: Color(0xFF6C6F77)),
-          filled: true,
-          fillColor: const Color(0xFF1A1C21),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(20),
-            borderSide: BorderSide.none,
-          ),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          isDense: true,
-        ),
-        style: const TextStyle(color: Color(0xFFE8D5A3), fontSize: 14),
+        hintText: _tabIndex == 0
+            ? AppLocalizations.of(context)!.messagesSearchConversations
+            : AppLocalizations.of(context)!.messagesSearchFriends,
+        prefixIcon: const Icon(Icons.search, size: 20),
       ),
     );
   }
@@ -915,7 +963,9 @@ class _MessagesPageState extends State<MessagesPage> {
         stream: _repository.watchConversations(userId: userId),
         initialData: _cachedConversations,
         builder: (context, snapshot) {
-          final hasValidStream = snapshot.connectionState == ConnectionState.active && !snapshot.hasError;
+          final hasValidStream =
+              snapshot.connectionState == ConnectionState.active &&
+                  !snapshot.hasError;
           final items = snapshot.data;
           if (hasValidStream && items != null) {
             _cachedConversations = items;
@@ -926,7 +976,11 @@ class _MessagesPageState extends State<MessagesPage> {
           }
           if (!_localStateLoaded) {
             return const Center(
-              child: SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF07C160))),
+              child: SizedBox(
+                  width: 28,
+                  height: 28,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Color(0xFF07C160))),
             );
           }
           if (snapshot.hasError) {
@@ -936,27 +990,35 @@ class _MessagesPageState extends State<MessagesPage> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.cloud_off, size: 48, color: Colors.orange.shade300),
+                    Icon(Icons.cloud_off,
+                        size: 48, color: Colors.orange.shade300),
                     const SizedBox(height: 12),
                     Text(
-                      snapshot.error?.toString() ?? '加载失败',
+                      NetworkErrorHelper.messageForUser(
+                        snapshot.error,
+                        l10n: AppLocalizations.of(context),
+                      ),
                       textAlign: TextAlign.center,
-                      style: const TextStyle(color: Color(0xFF6C6F77), fontSize: 14),
+                      style: const TextStyle(
+                          color: Color(0xFF6C6F77), fontSize: 14),
                     ),
                     const SizedBox(height: 16),
                     TextButton.icon(
-                      onPressed: () => setState(() => _conversationStreamKey = UniqueKey()),
-                      icon: const Icon(Icons.refresh, size: 18),
-                      label: const Text('重试'),
+                      onPressed: () =>
+                          setState(() => _conversationStreamKey = UniqueKey()),
+                      icon: const Icon(AppIcons.retry, size: 18),
+                      label: Text(AppLocalizations.of(context)!.commonRetry),
                     ),
                   ],
                 ),
               ),
             );
           }
-          final sourceItems = hasValidStream && items != null ? items : _cachedConversations;
+          final sourceItems =
+              hasValidStream && items != null ? items : _cachedConversations;
           final friendIds = _cachedFriends.map((f) => f.userId).toSet();
-          final onlyFriends = _filterConversationsByFriends(sourceItems, friendIds);
+          final onlyFriends =
+              _filterConversationsByFriends(sourceItems, friendIds);
           final visible = _applyHiddenConversations(onlyFriends);
           final deduped = _dedupeDirectConversations(visible);
           final sorted = _sortConversations(deduped);
@@ -971,7 +1033,9 @@ class _MessagesPageState extends State<MessagesPage> {
           if (filtered.isEmpty) {
             return Center(
               child: Text(
-                _conversationSearchQuery.isEmpty ? AppLocalizations.of(context)!.msgNoConversations : AppLocalizations.of(context)!.msgNoMatchingConversations,
+                _conversationSearchQuery.isEmpty
+                    ? AppLocalizations.of(context)!.msgNoConversations
+                    : AppLocalizations.of(context)!.msgNoMatchingConversations,
                 style: const TextStyle(color: Color(0xFF6C6F77), fontSize: 14),
               ),
             );
@@ -979,7 +1043,10 @@ class _MessagesPageState extends State<MessagesPage> {
           return ListView.separated(
             padding: const EdgeInsets.only(top: 4, bottom: 16),
             itemCount: filtered.length,
-            separatorBuilder: (_, __) => Divider(height: 1, indent: 72, color: const Color(0xFF2A2D34).withValues(alpha: 0.6)),
+            separatorBuilder: (_, __) => Divider(
+                height: 1,
+                indent: 72,
+                color: const Color(0xFF2A2D34).withValues(alpha: 0.6)),
             itemBuilder: (_, i) => _buildConversationItem(context, filtered[i]),
           );
         },
@@ -989,152 +1056,164 @@ class _MessagesPageState extends State<MessagesPage> {
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
       children: [
         StreamBuilder<List<FriendRequestItem>>(
-              stream: _friendsRepository.watchIncomingRequests(userId: userId),
-              initialData: _cachedIncomingRequests,
-              builder: (context, snapshot) {
-                final requests = snapshot.data ?? _cachedIncomingRequests;
-                if (snapshot.hasData && snapshot.data != null && userId.isNotEmpty) {
-                  _cachedIncomingRequests = snapshot.data!;
-                  _localStore.saveCachedIncomingRequests(userId, _cachedIncomingRequests);
-                }
-                if (requests.isNotEmpty && requests.length != _lastRequestCount) {
-                  _lastRequestCount = requests.length;
-                }
-                if (requests.isEmpty) {
-                  return const SizedBox.shrink();
-                }
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.only(left: 4, bottom: 8),
-                      child: Text(
-                        AppLocalizations.of(context)!.msgFriendRequest,
+          stream: _friendsRepository.watchIncomingRequests(userId: userId),
+          initialData: _cachedIncomingRequests,
+          builder: (context, snapshot) {
+            final requests = snapshot.data ?? _cachedIncomingRequests;
+            if (snapshot.hasData &&
+                snapshot.data != null &&
+                userId.isNotEmpty) {
+              _cachedIncomingRequests = snapshot.data!;
+              _localStore.saveCachedIncomingRequests(
+                  userId, _cachedIncomingRequests);
+            }
+            if (requests.isNotEmpty && requests.length != _lastRequestCount) {
+              _lastRequestCount = requests.length;
+            }
+            if (requests.isEmpty) {
+              return const SizedBox.shrink();
+            }
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(left: 4, bottom: 8),
+                  child: Text(
+                    AppLocalizations.of(context)!.msgFriendRequest,
+                    style: const TextStyle(
+                      color: Color(0xFF6C6F77),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                ...requests.map(
+                  (item) => Padding(
+                    padding: const EdgeInsets.only(bottom: 0),
+                    child: _FriendRequestCard(
+                      item: item,
+                      onAccept: () => _acceptRequest(context, item),
+                      onReject: () => _rejectRequest(context, item),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+              ],
+            );
+          },
+        ),
+        StreamBuilder<List<FriendProfile>>(
+          key: _friendsStreamKey,
+          stream: _friendsRepository.watchFriends(userId: userId),
+          initialData: _cachedFriends,
+          builder: (context, snapshot) {
+            final hasValidStream =
+                snapshot.connectionState == ConnectionState.active &&
+                    !snapshot.hasError;
+            final friends = snapshot.data;
+            if (hasValidStream && friends != null) {
+              _cachedFriends = friends;
+              if (userId.isNotEmpty) {
+                _localStore.saveCachedFriends(userId, friends);
+              }
+            }
+            if (!_localStateLoaded) {
+              return const Padding(
+                padding: EdgeInsets.symmetric(vertical: 24),
+                child: Center(
+                    child: SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2))),
+              );
+            }
+            if (snapshot.hasError) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 24),
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.cloud_off,
+                          size: 40, color: Colors.orange.shade300),
+                      const SizedBox(height: 8),
+                      Text(
+                        NetworkErrorHelper.messageForUser(
+                          snapshot.error,
+                          l10n: AppLocalizations.of(context),
+                        ),
+                        textAlign: TextAlign.center,
                         style: const TextStyle(
-                          color: Color(0xFF6C6F77),
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                        ),
+                            color: Color(0xFF6C6F77), fontSize: 13),
+                      ),
+                      const SizedBox(height: 12),
+                      TextButton.icon(
+                        onPressed: () =>
+                            setState(() => _friendsStreamKey = UniqueKey()),
+                        icon: const Icon(AppIcons.retry, size: 16),
+                        label: Text(AppLocalizations.of(context)!.commonRetry),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+            final sourceFriends =
+                hasValidStream && friends != null ? friends : _cachedFriends;
+            final filtered = _filterFriends(sourceFriends);
+            final blacklisted = _filterBlacklisted(sourceFriends);
+            if (filtered.isEmpty && (!_showBlacklist || blacklisted.isEmpty)) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 20),
+                child: Center(
+                  child: Text(
+                    AppLocalizations.of(context)!.msgNoFriends,
+                    style: const TextStyle(color: Color(0xFF6C6F77)),
+                  ),
+                ),
+              );
+            }
+            return Column(
+              children: sourceFriends
+                  .where((friend) => filtered.contains(friend))
+                  .map(
+                    (friend) => Padding(
+                      padding: const EdgeInsets.only(bottom: 0),
+                      child: _FriendCard(
+                        name: _resolveFriendName(friend),
+                        subtitle: _isCustomerServiceFriend(friend)
+                            ? ''
+                            : (friend.shortId?.trim().isNotEmpty == true
+                                ? AppLocalizations.of(context)!
+                                    .profileAccountIdValue(
+                                        friend.shortId!.trim())
+                                : AppLocalizations.of(context)!
+                                    .profileAccountIdDash),
+                        avatarText: friend.displayName.isEmpty
+                            ? AppLocalizations.of(context)!.commonUserInitial
+                            : friend.displayName[0],
+                        avatarUrl: friend.avatarUrl,
+                        levelLabel: _isCustomerServiceFriend(friend)
+                            ? null
+                            : 'Lv ${friend.level}',
+                        roleLabel: _isCustomerServiceFriend(friend)
+                            ? 'customer_service'
+                            : friend.roleLabel,
+                        onTap: () => _openDirectChat(context, friend),
+                        onLongPress: () =>
+                            _confirmDeleteFriend(context, friend),
+                        onMore: () => _showFriendActions(context, friend),
                       ),
                     ),
-                    ...requests.map(
-                      (item) => Padding(
-                        padding: const EdgeInsets.only(bottom: 0),
-                        child: _FriendRequestCard(
-                          item: item,
-                          onAccept: () => _acceptRequest(context, item),
-                          onReject: () => _rejectRequest(context, item),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                  ],
-                );
-              },
-            ),
-            StreamBuilder<List<FriendProfile>>(
-              key: _friendsStreamKey,
-              stream: _friendsRepository.watchFriends(userId: userId),
-              initialData: _cachedFriends,
-              builder: (context, snapshot) {
-                final hasValidStream = snapshot.connectionState == ConnectionState.active && !snapshot.hasError;
-                final friends = snapshot.data;
-                if (hasValidStream && friends != null) {
-                  _cachedFriends = friends;
-                  if (userId.isNotEmpty) {
-                    _localStore.saveCachedFriends(userId, friends);
-                  }
-                }
-                if (!_localStateLoaded) {
-                  return const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 24),
-                    child: Center(child: SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))),
-                  );
-                }
-                if (snapshot.hasError) {
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 24),
-                    child: Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.cloud_off, size: 40, color: Colors.orange.shade300),
-                          const SizedBox(height: 8),
-                          Text(
-                            snapshot.error?.toString() ?? '加载失败',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(color: Color(0xFF6C6F77), fontSize: 13),
-                          ),
-                          const SizedBox(height: 12),
-                          TextButton.icon(
-                            onPressed: () => setState(() => _friendsStreamKey = UniqueKey()),
-                            icon: const Icon(Icons.refresh, size: 16),
-                            label: const Text('重试'),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                }
-                final sourceFriends = hasValidStream && friends != null ? friends : _cachedFriends;
-                final filtered = _filterFriends(sourceFriends);
-                final blacklisted = _filterBlacklisted(sourceFriends);
-                if (filtered.isEmpty && (!_showBlacklist || blacklisted.isEmpty)) {
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 20),
-                    child: Center(
-                      child: Text(
-                        AppLocalizations.of(context)!.msgNoFriends,
-                        style: TextStyle(color: Color(0xFF6C6F77)),
-                      ),
-                    ),
-                  );
-                }
-                return Column(
-                  children: sourceFriends
-                      .where((friend) => filtered.contains(friend))
-                      .map(
-                        (friend) => Padding(
-                          padding: const EdgeInsets.only(bottom: 0),
-                          child: _FriendCard(
-                            name: _resolveFriendName(friend),
-                            subtitle: friend.shortId?.trim().isNotEmpty == true
-                                ? AppLocalizations.of(context)!.profileAccountIdValue(friend.shortId!.trim())
-                                : AppLocalizations.of(context)!.profileAccountIdDash,
-                            status: friend.status == 'online' ? AppLocalizations.of(context)!.msgOnline : AppLocalizations.of(context)!.msgOffline,
-                            isOnline: friend.status == 'online',
-                            avatarText:
-                                friend.displayName.isEmpty ? AppLocalizations.of(context)!.commonUserInitial : friend.displayName[0],
-                            avatarUrl: friend.avatarUrl,
-                            levelLabel: 'Lv ${friend.level}',
-                            roleLabel: friend.roleLabel,
-                            onTap: () => _openDirectChat(context, friend),
-                            onLongPress: () =>
-                                _confirmDeleteFriend(context, friend),
-                            onMore: () => _showFriendActions(context, friend),
-                          ),
-                        ),
-                      )
-                      .toList(),
-                );
-              },
-            ),
-            if (_showBlacklist) _buildBlacklistSection(),
-            const SizedBox(height: 8),
-            _buildBlacklistToggle(),
-          ],
-        );
-  }
-
-  void _guardAuth(BuildContext context) {
-    if (_currentUser == null) {
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const LoginPage()),
-      );
-      return;
-    }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(AppLocalizations.of(context)!.msgFeatureDeveloping)),
+                  )
+                  .toList(),
+            );
+          },
+        ),
+        if (_showBlacklist) _buildBlacklistSection(),
+        const SizedBox(height: 8),
+        _buildBlacklistToggle(),
+      ],
     );
   }
 
@@ -1147,10 +1226,11 @@ class _MessagesPageState extends State<MessagesPage> {
     }
     Navigator.of(context)
         .push<Conversation>(
-          MaterialPageRoute(builder: (_) => const CreateGroupPage()),
-        )
+      MaterialPageRoute(builder: (_) => const CreateGroupPage()),
+    )
         .then((conversation) {
-      if (conversation != null && mounted) {
+      if (!context.mounted) return;
+      if (conversation != null) {
         _openConversation(context, conversation);
       }
     });
@@ -1179,14 +1259,16 @@ class _MessagesPageState extends State<MessagesPage> {
       setState(() => _selectedConversation = conversation);
       return;
     }
-    Navigator.of(context).push(
+    Navigator.of(context)
+        .push(
       MaterialPageRoute(
         builder: (_) => ChatDetailPage(
           conversation: conversation,
           initialMessages: const <ChatMessage>[],
         ),
       ),
-    ).then((_) {
+    )
+        .then((_) {
       if (mounted) _loadLocalState();
     });
   }
@@ -1207,14 +1289,20 @@ class _MessagesPageState extends State<MessagesPage> {
         }
       }
     }
-    final avatarUrl = conversation.isGroup
-        ? conversation.avatarUrl
-        : peerProfile?.avatarUrl;
-    final levelLabel = peerProfile != null ? 'Lv ${peerProfile.level}' : null;
-    final roleLabel = peerProfile?.roleLabel;
+    final avatarUrl =
+        conversation.isGroup ? conversation.avatarUrl : peerProfile?.avatarUrl;
+    final isCustomerService =
+        peerProfile != null && _isCustomerServiceFriend(peerProfile);
+    final displayTitleForCard =
+        isCustomerService ? _resolveFriendName(peerProfile) : displayTitle;
+    final levelLabel = (peerProfile != null && !isCustomerService)
+        ? 'Lv ${peerProfile.level}'
+        : null;
+    final roleLabel =
+        isCustomerService ? 'customer_service' : peerProfile?.roleLabel;
     return Padding(
       padding: const EdgeInsets.only(bottom: 0),
-        child: Dismissible(
+      child: Dismissible(
         key: ValueKey('conversation-${conversation.id}'),
         direction: DismissDirection.endToStart,
         background: Container(
@@ -1232,7 +1320,7 @@ class _MessagesPageState extends State<MessagesPage> {
         },
         child: _ConversationCard(
           conversation: conversation,
-          displayTitle: displayTitle,
+          displayTitle: displayTitleForCard,
           avatarUrl: avatarUrl,
           levelLabel: levelLabel,
           roleLabel: roleLabel,
@@ -1268,9 +1356,9 @@ class _MessagesPageState extends State<MessagesPage> {
     final isPinned = _pinnedConversations.contains(conversation.id);
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: const Color(0xFF0E0F14),
+      backgroundColor: AppColors.scaffold,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
       ),
       builder: (context) {
         return SafeArea(
@@ -1278,16 +1366,21 @@ class _MessagesPageState extends State<MessagesPage> {
             mainAxisSize: MainAxisSize.min,
             children: [
               ListTile(
-                leading: Icon(isPinned ? Icons.push_pin : Icons.push_pin_outlined),
-                title: Text(isPinned ? AppLocalizations.of(context)!.msgUnpin : AppLocalizations.of(context)!.msgPin),
+                leading: Icon(isPinned
+                    ? Icons.push_pin_rounded
+                    : Icons.push_pin_outlined),
+                title: Text(isPinned
+                    ? AppLocalizations.of(context)!.msgUnpin
+                    : AppLocalizations.of(context)!.msgPin),
                 onTap: () {
                   Navigator.of(context).pop();
                   _togglePin(conversation.id);
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.delete_outline),
-                title: Text(AppLocalizations.of(context)!.msgDeleteConversation),
+                leading: const Icon(Icons.delete_outline_rounded),
+                title:
+                    Text(AppLocalizations.of(context)!.msgDeleteConversation),
                 onTap: () {
                   Navigator.of(context).pop();
                   _hideConversation(conversation);
@@ -1328,12 +1421,17 @@ class _MessagesPageState extends State<MessagesPage> {
       );
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(AppLocalizations.of(context)!.msgAcceptFriendSuccess)),
+        SnackBar(
+            content:
+                Text(AppLocalizations.of(context)!.msgAcceptFriendSuccess)),
       );
     } catch (error) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(NetworkErrorHelper.messageForUser(error, prefix: AppLocalizations.of(context)!.msgOperationFailed, l10n: AppLocalizations.of(context)))),
+        SnackBar(
+            content: Text(NetworkErrorHelper.messageForUser(error,
+                prefix: AppLocalizations.of(context)!.msgOperationFailed,
+                l10n: AppLocalizations.of(context)))),
       );
     }
   }
@@ -1346,13 +1444,54 @@ class _MessagesPageState extends State<MessagesPage> {
       await _friendsRepository.rejectRequest(requestId: item.requestId);
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(AppLocalizations.of(context)!.msgRejectFriendSuccess)),
+        SnackBar(
+            content:
+                Text(AppLocalizations.of(context)!.msgRejectFriendSuccess)),
       );
     } catch (error) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(NetworkErrorHelper.messageForUser(error, prefix: AppLocalizations.of(context)!.msgOperationFailed, l10n: AppLocalizations.of(context)))),
+        SnackBar(
+            content: Text(NetworkErrorHelper.messageForUser(error,
+                prefix: AppLocalizations.of(context)!.msgOperationFailed,
+                l10n: AppLocalizations.of(context)))),
       );
+    }
+  }
+
+  Conversation? _findCachedDirectConversation(String friendId) {
+    if (friendId.isEmpty) return null;
+    for (final conversation in _cachedConversations) {
+      if (!conversation.isGroup && conversation.peerId == friendId) {
+        return conversation;
+      }
+    }
+    return null;
+  }
+
+  Future<Conversation> _ensureDirectConversation(
+    String currentUserId,
+    FriendProfile friend,
+  ) async {
+    if (_isCustomerServiceFriend(friend)) {
+      // 不阻塞 UI；仅确保客服分配关系存在。
+      await CustomerServiceRepository().assignOrGetStaffForUser(currentUserId);
+    }
+    return _repository.createOrGetDirectConversation(
+      currentUserId: currentUserId,
+      friendId: friend.userId,
+      friendName: _resolveFriendName(friend),
+    );
+  }
+
+  Future<void> _warmUpDirectConversation(
+    String currentUserId,
+    FriendProfile friend,
+  ) async {
+    try {
+      await _ensureDirectConversation(currentUserId, friend);
+    } catch (_) {
+      // 已有会话时仅做后台预热，失败不打断当前聊天页。
     }
   }
 
@@ -1363,47 +1502,36 @@ class _MessagesPageState extends State<MessagesPage> {
   ) async {
     final current = _currentUser;
     if (current == null) return;
+
+    final cached = _findCachedDirectConversation(friend.userId);
+    if (cached != null) {
+      _openConversation(context, cached);
+      unawaited(_warmUpDirectConversation(current.uid, friend));
+      return;
+    }
+
     if (_startingChat) return;
     setState(() => _startingChat = true);
     try {
-      final csId = await CustomerServiceRepository().getSystemCustomerServiceUserId();
-      if (csId != null && friend.userId == csId) {
-        await CustomerServiceRepository().assignOrGetStaffForUser(current.uid);
-      }
-      final conversation = await _repository.createOrGetDirectConversation(
-        currentUserId: current.uid,
-        friendId: friend.userId,
-        friendName: friend.displayName,
-      );
+      final conversation = await _ensureDirectConversation(current.uid, friend);
       if (!context.mounted) return;
       if (conversation.isGroup) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(AppLocalizations.of(context)!.msgOpenChatFailed)),
+            SnackBar(
+                content: Text(AppLocalizations.of(context)!.msgOpenChatFailed)),
           );
         }
         return;
       }
-      if (_isPcLayout) {
-        if (mounted) setState(() => _selectedConversation = conversation);
-        return;
-      }
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(
-          builder: (_) => ChatDetailPage(
-            conversation: conversation,
-            initialMessages: const <ChatMessage>[],
-          ),
-        ),
-        (route) => route.isFirst,
-      ).then((_) {
-        if (mounted) _loadLocalState();
-      });
+      _openConversation(context, conversation);
     } catch (error) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(NetworkErrorHelper.messageForUser(error, prefix: AppLocalizations.of(context)!.msgOpenChatFailedPrefix, l10n: AppLocalizations.of(context))),
+          content: Text(NetworkErrorHelper.messageForUser(error,
+              prefix: AppLocalizations.of(context)!.msgOpenChatFailedPrefix,
+              l10n: AppLocalizations.of(context))),
         ),
       );
     } finally {
@@ -1422,15 +1550,17 @@ class _MessagesPageState extends State<MessagesPage> {
       builder: (dialogContext) {
         return AlertDialog(
           title: Text(AppLocalizations.of(context)!.msgDeleteFriend),
-          content: Text(AppLocalizations.of(context)!.msgDeleteFriendConfirm(friend.displayName)),
+          content: Text(AppLocalizations.of(context)!
+              .msgDeleteFriendConfirm(friend.displayName)),
           actions: [
-            TextButton(
+            AppButton(
+              variant: AppButtonVariant.secondary,
+              label: AppLocalizations.of(context)!.commonCancel,
               onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: Text(AppLocalizations.of(context)!.commonCancel),
             ),
-            FilledButton(
+            AppButton(
+              label: AppLocalizations.of(context)!.msgDelete,
               onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: Text(AppLocalizations.of(context)!.msgDelete),
             ),
           ],
         );
@@ -1498,10 +1628,10 @@ class _ChatWindowPlaceholder extends StatelessWidget {
               borderRadius: BorderRadius.circular(40),
             ),
             alignment: Alignment.center,
-            child: Icon(
+            child: const Icon(
               Icons.chat_bubble_outline_rounded,
               size: 40,
-              color: const Color(0xFF6C6F77),
+              color: Color(0xFF6C6F77),
             ),
           ),
           const SizedBox(height: 20),
@@ -1517,8 +1647,8 @@ class _ChatWindowPlaceholder extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             AppLocalizations.of(context)!.msgClickLeftToOpen,
-            style: TextStyle(
-              color: const Color(0xFF6C6F77),
+            style: const TextStyle(
+              color: Color(0xFF6C6F77),
               fontSize: 13,
               decoration: TextDecoration.none,
             ),
@@ -1553,7 +1683,7 @@ class _WeChatTab extends StatelessWidget {
             Text(
               label,
               style: TextStyle(
-                color: selected ? const Color(0xFF07C160) : const Color(0xFF6C6F77),
+                color: selected ? AppColors.success : AppColors.textTertiary,
                 fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
                 fontSize: 15,
               ),
@@ -1563,7 +1693,7 @@ class _WeChatTab extends StatelessWidget {
               height: 2,
               width: 24,
               decoration: BoxDecoration(
-                color: selected ? const Color(0xFF07C160) : Colors.transparent,
+                color: selected ? AppColors.success : Colors.transparent,
                 borderRadius: BorderRadius.circular(1),
               ),
             ),
@@ -1589,13 +1719,17 @@ class _ConfigCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      color: const Color(0xFF1A1C21),
+    return AppCard(
+      padding: EdgeInsets.zero,
       child: ListTile(
-        leading: Icon(icon, color: const Color(0xFFD4AF37)),
-        title: Text(title, style: const TextStyle(color: Color(0xFFE8D5A3))),
-        subtitle: Text(subtitle, style: const TextStyle(color: Color(0xFF6C6F77), fontSize: 12)),
-        trailing: const Icon(Icons.chevron_right, color: Color(0xFF6C6F77)),
+        leading: Icon(icon, color: AppColors.primary),
+        title:
+            Text(title, style: const TextStyle(color: AppColors.textPrimary)),
+        subtitle: Text(subtitle,
+            style:
+                const TextStyle(color: AppColors.textTertiary, fontSize: 12)),
+        trailing:
+            const Icon(Icons.chevron_right, color: AppColors.textTertiary),
         onTap: onTap,
       ),
     );
@@ -1612,232 +1746,9 @@ class _SectionTitle extends StatelessWidget {
     return Text(
       title,
       style: const TextStyle(
-        color: Color(0xFFD4AF37),
+        color: AppColors.primary,
         fontWeight: FontWeight.w600,
         fontSize: 16,
-      ),
-    );
-  }
-}
-
-class _QuickAction extends StatelessWidget {
-  const _QuickAction({
-    required this.title,
-    required this.icon,
-    required this.onTap,
-    this.badgeCount = 0,
-  });
-
-  final String title;
-  final IconData icon;
-  final VoidCallback onTap;
-  final int badgeCount;
-
-  @override
-  Widget build(BuildContext context) {
-    final showBadge = badgeCount > 0;
-    const iconColor = Color(0xFFD4AF37);
-    return Card(
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  Icon(icon, size: 28, color: iconColor),
-                  if (showBadge)
-                    Positioned(
-                      right: -6,
-                      top: -4,
-                      child: Container(
-                        padding: badgeCount > 9
-                            ? const EdgeInsets.symmetric(horizontal: 4, vertical: 1)
-                            : const EdgeInsets.all(3),
-                        constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
-                        decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.error,
-                          borderRadius: BorderRadius.circular(8),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.3),
-                              blurRadius: 2,
-                              offset: const Offset(0, 1),
-                            ),
-                          ],
-                        ),
-                        alignment: Alignment.center,
-                        child: Text(
-                          badgeCount > 99 ? '99+' : '$badgeCount',
-                          style: const TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                title,
-                style: const TextStyle(fontSize: 12),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SegmentTabs extends StatelessWidget {
-  const _SegmentTabs({
-    required this.leftLabel,
-    required this.rightLabel,
-    required this.index,
-    required this.onChanged,
-  });
-
-  final String leftLabel;
-  final String rightLabel;
-  final int index;
-  final ValueChanged<int> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: const Color(0xFF111215),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFF2A2D34)),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: _SegmentTab(
-              label: leftLabel,
-              selected: index == 0,
-              onTap: () => onChanged(0),
-            ),
-          ),
-          Expanded(
-            child: _SegmentTab(
-              label: rightLabel,
-              selected: index == 1,
-              onTap: () => onChanged(1),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SegmentTab extends StatelessWidget {
-  const _SegmentTab({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 180),
-      decoration: BoxDecoration(
-        color: selected ? const Color(0xFFD4AF37) : Colors.transparent,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          child: Center(
-            child: Text(
-              label,
-              style: TextStyle(
-                color: selected ? Colors.black : const Color(0xFFD4AF37),
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ShortcutCard extends StatelessWidget {
-  const _ShortcutCard({
-    required this.title,
-    required this.subtitle,
-    required this.icon,
-    required this.onTap,
-    this.dense = false,
-  });
-
-  final String title;
-  final String subtitle;
-  final IconData icon;
-  final VoidCallback onTap;
-  final bool dense;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: onTap,
-        child: Padding(
-          padding: EdgeInsets.all(dense ? 12 : 14),
-          child: Row(
-            children: [
-              Container(
-                width: dense ? 34 : 40,
-                height: dense ? 34 : 40,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF111215),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFF2A2D34)),
-                ),
-                child: Icon(icon, color: const Color(0xFFD4AF37)),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Color(0xFF6C6F77),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Icon(Icons.chevron_right),
-            ],
-          ),
-        ),
       ),
     );
   }
@@ -1847,8 +1758,6 @@ class _FriendCard extends StatelessWidget {
   const _FriendCard({
     required this.name,
     required this.subtitle,
-    required this.status,
-    required this.isOnline,
     required this.avatarText,
     this.avatarUrl,
     this.levelLabel,
@@ -1860,8 +1769,6 @@ class _FriendCard extends StatelessWidget {
 
   final String name;
   final String subtitle;
-  final String status;
-  final bool isOnline;
   final String avatarText;
   final String? avatarUrl;
   final String? levelLabel;
@@ -1875,12 +1782,12 @@ class _FriendCard extends StatelessWidget {
       margin: const EdgeInsets.only(left: 6),
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: const Color(0x1AD4AF37),
+        color: AppColors.primarySubtle(0.1),
         borderRadius: BorderRadius.circular(10),
       ),
       child: Text(
         text,
-        style: const TextStyle(color: Color(0xFFD4AF37), fontSize: 11),
+        style: const TextStyle(color: AppColors.primary, fontSize: 11),
       ),
     );
   }
@@ -1909,31 +1816,20 @@ class _FriendCard extends StatelessWidget {
                             fit: BoxFit.cover,
                             fadeInDuration: Duration.zero,
                             fadeOutDuration: Duration.zero,
-                            placeholder: (_, __) => _messagesAvatarPlaceholder(avatarText),
-                            errorWidget: (_, __, ___) => _messagesAvatarPlaceholder(avatarText),
+                            placeholder: (_, __) =>
+                                _messagesAvatarPlaceholder(avatarText),
+                            errorWidget: (_, __, ___) =>
+                                _messagesAvatarPlaceholder(avatarText),
                           ),
                         )
                       : CircleAvatar(
                           radius: 24,
-                          backgroundColor: const Color(0xFF2A2D34),
+                          backgroundColor: AppColors.surface2,
                           child: Text(
                             avatarText,
-                            style: const TextStyle(color: Color(0xFF07C160)),
+                            style: const TextStyle(color: AppColors.success),
                           ),
                         ),
-                  Positioned(
-                    right: 0,
-                    bottom: 0,
-                    child: Container(
-                      width: 10,
-                      height: 10,
-                      decoration: BoxDecoration(
-                        color: isOnline ? const Color(0xFF07C160) : const Color(0xFF6C6F77),
-                        shape: BoxShape.circle,
-                        border: Border.all(color: const Color(0xFF0D0D0F), width: 1.5),
-                      ),
-                    ),
-                  ),
                 ],
               ),
               const SizedBox(width: 14),
@@ -1945,7 +1841,7 @@ class _FriendCard extends StatelessWidget {
                     Text(
                       name,
                       style: const TextStyle(
-                        color: Color(0xFFE8D5A3),
+                        color: AppColors.textPrimary,
                         fontWeight: FontWeight.w600,
                         fontSize: 16,
                       ),
@@ -1955,24 +1851,20 @@ class _FriendCard extends StatelessWidget {
                     const SizedBox(height: 2),
                     Row(
                       children: [
-                        Expanded(
-                          child: Text(
-                            subtitle,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 12, color: Color(0xFF6C6F77)),
+                        if (subtitle.trim().isNotEmpty)
+                          Expanded(
+                            child: Text(
+                              subtitle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  fontSize: 12, color: AppColors.textTertiary),
+                            ),
                           ),
-                        ),
-                        if (roleLabel != null && roleLabel!.isNotEmpty) RoleBadge(roleLabel: roleLabel!),
-                        if (levelLabel != null && levelLabel!.isNotEmpty) _levelTag(levelLabel!),
-                        const SizedBox(width: 6),
-                        Text(
-                          status,
-                          style: TextStyle(
-                            color: isOnline ? const Color(0xFF07C160) : const Color(0xFF6C6F77),
-                            fontSize: 12,
-                          ),
-                        ),
+                        if (roleLabel != null && roleLabel!.isNotEmpty)
+                          RoleBadge(roleLabel: roleLabel!),
+                        if (levelLabel != null && levelLabel!.isNotEmpty)
+                          _levelTag(levelLabel!),
                       ],
                     ),
                   ],
@@ -1981,7 +1873,8 @@ class _FriendCard extends StatelessWidget {
               IconButton(
                 tooltip: AppLocalizations.of(context)!.msgMore,
                 onPressed: onMore,
-                icon: const Icon(Icons.more_vert, size: 20, color: Color(0xFF6C6F77)),
+                icon: const Icon(Icons.more_vert,
+                    size: 20, color: AppColors.textTertiary),
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
               ),
@@ -2006,7 +1899,7 @@ class _FriendRequestCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
+    return AppCard(
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
@@ -2014,10 +1907,12 @@ class _FriendRequestCard extends StatelessWidget {
             Row(
               children: [
                 CircleAvatar(
-                  backgroundColor: const Color(0xFF1A1C21),
+                  backgroundColor: AppColors.surfaceElevated,
                   child: Text(
-                    item.requesterName.isEmpty ? AppLocalizations.of(context)!.commonUserInitial : item.requesterName[0],
-                    style: const TextStyle(color: Color(0xFFD4AF37)),
+                    item.requesterName.isEmpty
+                        ? AppLocalizations.of(context)!.commonUserInitial
+                        : item.requesterName[0],
+                    style: const TextStyle(color: AppColors.primary),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -2034,7 +1929,7 @@ class _FriendRequestCard extends StatelessWidget {
                         item.requesterEmail,
                         style: const TextStyle(
                           fontSize: 12,
-                          color: Color(0xFF6C6F77),
+                          color: AppColors.textTertiary,
                         ),
                       ),
                     ],
@@ -2046,16 +1941,17 @@ class _FriendRequestCard extends StatelessWidget {
             Row(
               children: [
                 Expanded(
-                  child: OutlinedButton(
+                  child: AppButton(
+                    variant: AppButtonVariant.secondary,
+                    label: AppLocalizations.of(context)!.msgDecline,
                     onPressed: onReject,
-                    child: Text(AppLocalizations.of(context)!.msgDecline),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: FilledButton(
+                  child: AppButton(
+                    label: AppLocalizations.of(context)!.msgAccept,
                     onPressed: onAccept,
-                    child: Text(AppLocalizations.of(context)!.msgAccept),
                   ),
                 ),
               ],
@@ -2093,7 +1989,7 @@ class _ConversationCard extends StatelessWidget {
   final String currentUserId;
 
   static const _avatarSize = 52.0;
-  static const _green = Color(0xFF07C160);
+  static const _green = AppColors.success;
 
   @override
   Widget build(BuildContext context) {
@@ -2102,11 +1998,13 @@ class _ConversationCard extends StatelessWidget {
     final hasDraft = draft != null && draft!.trim().isNotEmpty;
     final String subtitleText;
     if (hasDraft) {
-      subtitleText = '${AppLocalizations.of(context)!.msgDraft}${draft!.trim()}';
+      subtitleText =
+          '${AppLocalizations.of(context)!.msgDraft}${draft!.trim()}';
     } else if (conversation.lastMessage.trim().isNotEmpty &&
         conversation.lastMessageSenderId != null &&
         conversation.lastMessageSenderId == currentUserId) {
-      subtitleText = '${AppLocalizations.of(context)!.msgMePrefix}${conversation.lastMessage}';
+      subtitleText =
+          '${AppLocalizations.of(context)!.msgMePrefix}${conversation.lastMessage}';
     } else {
       subtitleText = conversation.lastMessage;
     }
@@ -2132,22 +2030,27 @@ class _ConversationCard extends StatelessWidget {
                             fit: BoxFit.cover,
                             fadeInDuration: Duration.zero,
                             fadeOutDuration: Duration.zero,
-                            placeholder: (_, __) => _messagesAvatarPlaceholder(avatarText, conversation.isGroup),
-                            errorWidget: (_, __, ___) => _messagesAvatarPlaceholder(avatarText, conversation.isGroup),
+                            placeholder: (_, __) => _messagesAvatarPlaceholder(
+                                avatarText, conversation.isGroup),
+                            errorWidget: (_, __, ___) =>
+                                _messagesAvatarPlaceholder(
+                                    avatarText, conversation.isGroup),
                           ),
                         )
                       : conversation.isGroup
-                          ? CircleAvatar(
+                          ? const CircleAvatar(
                               radius: _avatarSize / 2,
-                              backgroundColor: const Color(0xFF1E3A5F),
-                              child: const Icon(Icons.people, color: Color(0xFF07C160), size: 26),
+                              backgroundColor: AppColors.borderFocus,
+                              child: Icon(Icons.people,
+                                  color: AppColors.success, size: 26),
                             )
                           : CircleAvatar(
                               radius: _avatarSize / 2,
-                              backgroundColor: const Color(0xFF2A2D34),
+                              backgroundColor: AppColors.surface2,
                               child: Text(
                                 avatarText,
-                                style: const TextStyle(color: Color(0xFF07C160), fontSize: 20),
+                                style: const TextStyle(
+                                    color: AppColors.success, fontSize: 20),
                               ),
                             ),
                   if (conversation.isGroup)
@@ -2157,11 +2060,13 @@ class _ConversationCard extends StatelessWidget {
                       child: Container(
                         padding: const EdgeInsets.all(3),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF0D0D0F),
+                          color: AppColors.scaffold,
                           shape: BoxShape.circle,
-                          border: Border.all(color: const Color(0xFF2A2D34), width: 1),
+                          border:
+                              Border.all(color: AppColors.surface2, width: 1),
                         ),
-                        child: const Icon(Icons.people, size: 12, color: Color(0xFF07C160)),
+                        child: const Icon(Icons.people,
+                            size: 12, color: AppColors.success),
                       ),
                     ),
                   if (pinned)
@@ -2171,10 +2076,11 @@ class _ConversationCard extends StatelessWidget {
                       child: Container(
                         padding: const EdgeInsets.all(2),
                         decoration: const BoxDecoration(
-                          color: Color(0xFF0D0D0F),
+                          color: AppColors.scaffold,
                           shape: BoxShape.circle,
                         ),
-                        child: const Icon(Icons.push_pin, size: 12, color: Color(0xFF07C160)),
+                        child: const Icon(Icons.push_pin,
+                            size: 12, color: AppColors.success),
                       ),
                     ),
                 ],
@@ -2191,18 +2097,23 @@ class _ConversationCard extends StatelessWidget {
                           Padding(
                             padding: const EdgeInsets.only(right: 6),
                             child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 5, vertical: 2),
                               decoration: BoxDecoration(
-                                color: const Color(0xFF07C160).withValues(alpha: 0.15),
+                                color:
+                                    AppColors.success.withValues(alpha: 0.15),
                                 borderRadius: BorderRadius.circular(4),
-                                border: Border.all(color: const Color(0xFF07C160).withValues(alpha: 0.4), width: 0.8),
+                                border: Border.all(
+                                    color: AppColors.success
+                                        .withValues(alpha: 0.4),
+                                    width: 0.8),
                               ),
                               child: Text(
                                 AppLocalizations.of(context)!.msgGroupChat,
-                                style: TextStyle(
+                                style: const TextStyle(
                                   fontSize: 10,
                                   fontWeight: FontWeight.w600,
-                                  color: Color(0xFF07C160),
+                                  color: AppColors.success,
                                 ),
                               ),
                             ),
@@ -2211,7 +2122,7 @@ class _ConversationCard extends StatelessWidget {
                           child: Text(
                             displayTitle,
                             style: const TextStyle(
-                              color: Color(0xFFE8D5A3),
+                              color: AppColors.textPrimary,
                               fontWeight: FontWeight.w600,
                               fontSize: 16,
                             ),
@@ -2226,7 +2137,8 @@ class _ConversationCard extends StatelessWidget {
                             padding: const EdgeInsets.only(left: 4),
                             child: Text(
                               levelLabel!,
-                              style: const TextStyle(fontSize: 10, color: Color(0xFF6C6F77)),
+                              style: const TextStyle(
+                                  fontSize: 10, color: AppColors.textTertiary),
                             ),
                           ),
                       ],
@@ -2238,7 +2150,9 @@ class _ConversationCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 13,
-                        color: hasDraft ? Colors.orange.shade300 : const Color(0xFF6C6F77),
+                        color: hasDraft
+                            ? AppColors.warning
+                            : AppColors.textTertiary,
                       ),
                     ),
                   ],
@@ -2251,19 +2165,26 @@ class _ConversationCard extends StatelessWidget {
                 children: [
                   Text(
                     conversation.lastTimeLabel,
-                    style: const TextStyle(fontSize: 12, color: Color(0xFF6C6F77)),
+                    style: const TextStyle(
+                        fontSize: 12, color: AppColors.textTertiary),
                   ),
                   if (conversation.unreadCount > 0) ...[
                     const SizedBox(height: 6),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
                         color: _green,
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Text(
-                        conversation.unreadCount > 99 ? '99+' : '${conversation.unreadCount}',
-                        style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w500),
+                        conversation.unreadCount > 99
+                            ? '99+'
+                            : '${conversation.unreadCount}',
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500),
                       ),
                     ),
                   ],

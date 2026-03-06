@@ -19,12 +19,45 @@ const {
 const quoteFetcher = require('./quoteFetcher');
 const supabaseQuoteCache = require('./supabaseQuoteCache');
 const supabaseClient = require('./supabaseClient');
+const forexScheduler = require('./forexScheduler');
+const supabaseForexCache = require('./supabaseForexCache');
 
 const toQuoteSnapshot = quoteFetcher.toQuoteSnapshot;
 
 /** 休市/接口无数据时：用 Supabase stock_quote_cache 表备份覆盖，最多取 24 小时内更新过的 */
 const SUPABASE_FALLBACK_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const fetchOneQuote = quoteFetcher.fetchOneQuote;
+const STOCK_24H_SYMBOLS = new Set(
+  String(process.env.STOCK_24H_SYMBOLS || '')
+    .split(/[,\s;|]+/)
+    .map((s) => s.trim().toUpperCase())
+    .filter(Boolean)
+);
+
+function createRequireAdminRole() {
+  return async (req, res, next) => {
+    if (req.isAdminByKey === true) return next();
+    const uid = req.firebaseUid;
+    if (!uid) return res.status(401).json({ error: '未鉴权' });
+    const sb = supabaseClient.getClient();
+    if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
+    try {
+      const { data, error } = await sb
+        .from('user_profiles')
+        .select('role')
+        .eq('user_id', uid)
+        .maybeSingle();
+      if (error) return res.status(502).json({ error: error.message });
+      const role = String(data?.role || '').toLowerCase();
+      if (role !== 'admin' && role !== 'customer_service_admin') {
+        return res.status(403).json({ error: 'forbidden' });
+      }
+      return next();
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message || e) });
+    }
+  };
+}
 
 /** GET /api/quotes?symbols=AAPL,MSFT,... — 按 symbol 缓存，批量查 + 只补缺失/过期
  *  若 symbols=单只&realtime=1：跳过缓存，直连 Polygon 取实时数据（供详情页使用）
@@ -58,6 +91,7 @@ async function handleQuotes(req, res, polygonKey, twelveKey) {
               price: quote.price || prevBar?.c || 0,
               change: quote.change ?? 0,
               changePercent: quote.changePercent ?? 0,
+              prevClose: prevBar?.c ?? (quote.price > 0 ? quote.price - (quote.change ?? 0) : null),
               open: prevBar?.o ?? null,
               high: prevBar?.h ?? null,
               low: prevBar?.l ?? null,
@@ -421,12 +455,16 @@ async function handleMarketSnapshotsGet(req, res) {
       .select('payload')
       .eq('type', type)
       .maybeSingle();
-    if (error) return res.status(502).json({ error: String(error.message) });
+    if (error) {
+      console.warn('[api/market/snapshots GET] fallback empty:', String(error.message));
+      return res.json([]);
+    }
     const payload = data?.payload;
     if (!payload) return res.json([]);
     return res.json(Array.isArray(payload) ? payload : [payload]);
   } catch (e) {
-    return res.status(502).json({ error: String(e.message || e) });
+    console.warn('[api/market/snapshots GET] exception:', String(e.message || e));
+    return res.json([]);
   }
 }
 
@@ -445,10 +483,14 @@ async function handleMarketSnapshotsPut(req, res) {
         { type: type.trim(), payload, updated_at: new Date().toISOString() },
         { onConflict: 'type' },
       );
-    if (error) return res.status(502).json({ error: String(error.message) });
+    if (error) {
+      console.warn('[api/market/snapshots PUT] noop on error:', String(error.message));
+      return res.json({ ok: false, reason: String(error.message) });
+    }
     return res.json({ ok: true });
   } catch (e) {
-    return res.status(502).json({ error: String(e.message || e) });
+    console.warn('[api/market/snapshots PUT] exception:', String(e.message || e));
+    return res.json({ ok: false, reason: String(e.message || e) });
   }
 }
 
@@ -460,17 +502,88 @@ async function handleTickersFromCache(req, res) {
   try {
     const maxAgeMs = req.query.maxAgeHours ? parseInt(req.query.maxAgeHours, 10) * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
     const list = await supabaseQuoteCache.getAllSymbolsAndNames(maxAgeMs);
-    return res.json(list);
+    const enriched = (list || []).map((item) => {
+      const symbol = String(item.symbol || '').toUpperCase();
+      return {
+        ...item,
+        is_24h_trading: STOCK_24H_SYMBOLS.has(symbol),
+      };
+    });
+    return res.json(enriched);
   } catch (e) {
     return res.status(502).json({ error: String(e.message || e) });
   }
 }
 
-function registerRoutes(app, polygonKey, twelveKey) {
+/** POST /api/tickers-upsert — 批量写入 symbol+name 到 stock_quote_cache（无报价也可，用于预填股票列表） */
+async function handleTickersUpsert(req, res) {
+  if (!supabaseQuoteCache.isConfigured()) {
+    return res.status(503).json({ error: 'Supabase 未配置' });
+  }
+  const body = req.body;
+  if (!Array.isArray(body) || body.length === 0) {
+    return res.status(400).json({ error: 'body 需为 [{ symbol, name }, ...] 非空数组' });
+  }
+  if (body.length > 10000) {
+    return res.status(400).json({ error: '单次最多 10000 条' });
+  }
+  try {
+    const entries = body.map((e) => ({ symbol: e.symbol, name: e.name }));
+    await supabaseQuoteCache.upsertSymbolsAndNames(entries);
+    return res.json({ ok: true, count: entries.length });
+  } catch (e) {
+    return res.status(502).json({ error: String(e.message || e) });
+  }
+}
+
+/** GET /api/forex/pairs?page=1&pageSize=30 — 服务端分页外汇交易对 */
+async function handleForexPairs(req, res) {
+  if (!supabaseForexCache.isConfigured()) {
+    return res.status(503).json({ error: 'forex supabase cache not configured' });
+  }
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const pageSize = Math.max(1, Math.min(parseInt(req.query.pageSize, 10) || 30, 200));
+  const result = await supabaseForexCache.getForexPairsPage(page, pageSize);
+  return res.json({
+    items: (result.rows || []).map((r) => ({
+      symbol: r.symbol,
+      name: r.name || r.symbol,
+      market: r.market || 'forex',
+    })),
+    total: result.total || 0,
+    page: result.page || page,
+    pageSize: result.pageSize || pageSize,
+    hasMore: !!result.hasMore,
+  });
+}
+
+/** GET /api/forex/quotes?symbols=EUR/USD,USD/JPY — 从 Supabase 外汇缓存读可视区域数据 */
+async function handleForexQuotes(req, res) {
+  if (!supabaseForexCache.isConfigured()) {
+    return res.status(503).json({ error: 'forex supabase cache not configured' });
+  }
+  const raw = req.query.symbols;
+  if (!raw || typeof raw !== 'string') {
+    return res.status(400).json({ error: 'missing symbols' });
+  }
+  const symbols = [...new Set(raw.split(',').map((s) => s.trim()).filter(Boolean))];
+  if (symbols.length === 0) return res.json({});
+  if (symbols.length > 100) {
+    return res.status(400).json({ error: 'symbols 最多 100 个' });
+  }
+  const out = await forexScheduler.getForexQuotesFromCache(symbols);
+  return res.json(out);
+}
+
+function registerRoutes(app, polygonKey, twelveKey, requireAuth) {
+  const requireAdminRole = createRequireAdminRole();
   rateLimiter.init(require('./config').POLYGON_RATE_LIMIT_PER_SEC);
   app.get('/api/market/snapshots', handleMarketSnapshotsGet);
-  app.put('/api/market/snapshots', handleMarketSnapshotsPut);
+  app.put('/api/market/snapshots', requireAuth, requireAdminRole, handleMarketSnapshotsPut);
   app.get('/api/tickers-from-cache', handleTickersFromCache);
+  app.post('/api/tickers-upsert', requireAuth, requireAdminRole, handleTickersUpsert);
+  app.get('/api/forex/pairs', handleForexPairs);
+  app.get('/api/forex/quotes', handleForexQuotes);
   app.get('/api/quotes', (req, res) => handleQuotes(req, res, polygonKey, twelveKey));
   app.get('/api/candles', (req, res) => handleCandles(req, res, polygonKey, twelveKey));
   app.get('/api/gainers', (req, res) => handleGainers(req, res, polygonKey));

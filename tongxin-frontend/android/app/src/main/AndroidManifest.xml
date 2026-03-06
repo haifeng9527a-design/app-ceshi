@@ -25,6 +25,7 @@
         android:label="teacher_hub"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true"
         tools:replace="android:label">
         <activity
             android:name=".MainActivity"

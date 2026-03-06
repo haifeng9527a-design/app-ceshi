@@ -1265,7 +1265,7 @@ abstract class AppLocalizations {
   /// No description provided for @tradingOrderSubmitted.
   ///
   /// In zh, this message translates to:
-  /// **'已提交（模拟，接口待接入）'**
+  /// **'下单已提交'**
   String get tradingOrderSubmitted;
 
   /// No description provided for @tradingVolume.
@@ -1409,7 +1409,7 @@ abstract class AppLocalizations {
   /// No description provided for @tradingBuySellSubmitted.
   ///
   /// In zh, this message translates to:
-  /// **'{action} {symbol} 已提交（模拟，接口待接入）'**
+  /// **'{action} {symbol} 下单已提交'**
   String tradingBuySellSubmitted(String action, String symbol);
 
   /// No description provided for @callCallerCancelled.
@@ -2186,6 +2186,24 @@ abstract class AppLocalizations {
   /// **'我的二维码'**
   String get addFriendMyQrCode;
 
+  /// No description provided for @addFriendTabEmail.
+  ///
+  /// In zh, this message translates to:
+  /// **'邮箱'**
+  String get addFriendTabEmail;
+
+  /// No description provided for @addFriendTabAccountId.
+  ///
+  /// In zh, this message translates to:
+  /// **'账号ID'**
+  String get addFriendTabAccountId;
+
+  /// No description provided for @addFriendTabQrCode.
+  ///
+  /// In zh, this message translates to:
+  /// **'二维码'**
+  String get addFriendTabQrCode;
+
   /// No description provided for @addFriendHintEmail.
   ///
   /// In zh, this message translates to:
@@ -2197,6 +2215,72 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'请输入对方账号 ID'**
   String get addFriendHintId;
+
+  /// No description provided for @addFriendLabelTargetEmail.
+  ///
+  /// In zh, this message translates to:
+  /// **'对方邮箱'**
+  String get addFriendLabelTargetEmail;
+
+  /// No description provided for @addFriendLabelAccountIdRule.
+  ///
+  /// In zh, this message translates to:
+  /// **'账号 ID（6-9位数字）'**
+  String get addFriendLabelAccountIdRule;
+
+  /// No description provided for @addFriendEnterEmail.
+  ///
+  /// In zh, this message translates to:
+  /// **'请输入邮箱'**
+  String get addFriendEnterEmail;
+
+  /// No description provided for @addFriendEnterAccountId.
+  ///
+  /// In zh, this message translates to:
+  /// **'请输入账号ID'**
+  String get addFriendEnterAccountId;
+
+  /// No description provided for @addFriendUserNotFound.
+  ///
+  /// In zh, this message translates to:
+  /// **'未找到该用户'**
+  String get addFriendUserNotFound;
+
+  /// No description provided for @addFriendRequestSent.
+  ///
+  /// In zh, this message translates to:
+  /// **'好友申请已发送'**
+  String get addFriendRequestSent;
+
+  /// No description provided for @addFriendAlreadyFriends.
+  ///
+  /// In zh, this message translates to:
+  /// **'你们已是好友'**
+  String get addFriendAlreadyFriends;
+
+  /// No description provided for @addFriendAlreadyPending.
+  ///
+  /// In zh, this message translates to:
+  /// **'已发送过申请，请等待对方处理'**
+  String get addFriendAlreadyPending;
+
+  /// No description provided for @commonGenerating.
+  ///
+  /// In zh, this message translates to:
+  /// **'生成中...'**
+  String get commonGenerating;
+
+  /// No description provided for @addFriendAccountIdGenerating.
+  ///
+  /// In zh, this message translates to:
+  /// **'账号ID：生成中...'**
+  String get addFriendAccountIdGenerating;
+
+  /// No description provided for @addFriendAccountIdValue.
+  ///
+  /// In zh, this message translates to:
+  /// **'账号ID：{id}'**
+  String addFriendAccountIdValue(String id);
 
   /// No description provided for @commonAdd.
   ///
@@ -3577,6 +3661,48 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'卖出 {symbol}（待接入）'**
   String tradesSellPending(String symbol);
+
+  /// No description provided for @tradesConfirmMarketSellTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'确认市价卖出'**
+  String get tradesConfirmMarketSellTitle;
+
+  /// No description provided for @tradesConfirmMarketSellContent.
+  ///
+  /// In zh, this message translates to:
+  /// **'确认按市价卖出 {symbol}，数量 {qty} ?'**
+  String tradesConfirmMarketSellContent(String symbol, String qty);
+
+  /// No description provided for @tradesSellSubmitted.
+  ///
+  /// In zh, this message translates to:
+  /// **'已提交卖出 {symbol}'**
+  String tradesSellSubmitted(String symbol);
+
+  /// No description provided for @tradesPositionBuyMarketValue.
+  ///
+  /// In zh, this message translates to:
+  /// **'买入市值'**
+  String get tradesPositionBuyMarketValue;
+
+  /// No description provided for @tradesPositionCurrentMarketValue.
+  ///
+  /// In zh, this message translates to:
+  /// **'当前市值'**
+  String get tradesPositionCurrentMarketValue;
+
+  /// No description provided for @tradesPositionTotalPnl.
+  ///
+  /// In zh, this message translates to:
+  /// **'总盈亏'**
+  String get tradesPositionTotalPnl;
+
+  /// No description provided for @tradesPositionTodayFloatingPnl.
+  ///
+  /// In zh, this message translates to:
+  /// **'当日浮动盈亏'**
+  String get tradesPositionTodayFloatingPnl;
 
   /// No description provided for @teachersProfileTitle.
   ///
@@ -6746,6 +6872,12 @@ abstract class AppLocalizations {
   /// **'会员'**
   String get roleVip;
 
+  /// No description provided for @roleCustomerService.
+  ///
+  /// In zh, this message translates to:
+  /// **'客服'**
+  String get roleCustomerService;
+
   /// No description provided for @pcHome.
   ///
   /// In zh, this message translates to:
@@ -7057,6 +7189,222 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'消息不能为空'**
   String get adminCsBroadcastEmpty;
+
+  /// No description provided for @tradingSummaryUnavailable.
+  ///
+  /// In zh, this message translates to:
+  /// **'账户数据不可用'**
+  String get tradingSummaryUnavailable;
+
+  /// No description provided for @tradingSummaryAvailable.
+  ///
+  /// In zh, this message translates to:
+  /// **'可用'**
+  String get tradingSummaryAvailable;
+
+  /// No description provided for @tradingSummaryEquity.
+  ///
+  /// In zh, this message translates to:
+  /// **'总资产'**
+  String get tradingSummaryEquity;
+
+  /// No description provided for @tradingSummaryMarketValue.
+  ///
+  /// In zh, this message translates to:
+  /// **'市值'**
+  String get tradingSummaryMarketValue;
+
+  /// No description provided for @tradingSummaryOpenOrders.
+  ///
+  /// In zh, this message translates to:
+  /// **'挂单'**
+  String get tradingSummaryOpenOrders;
+
+  /// No description provided for @tradingSummaryAvailableFunds.
+  ///
+  /// In zh, this message translates to:
+  /// **'可用资金'**
+  String get tradingSummaryAvailableFunds;
+
+  /// No description provided for @tradingSummaryFrozenFunds.
+  ///
+  /// In zh, this message translates to:
+  /// **'冻结资金'**
+  String get tradingSummaryFrozenFunds;
+
+  /// No description provided for @tradingSummaryCashBalance.
+  ///
+  /// In zh, this message translates to:
+  /// **'现金余额'**
+  String get tradingSummaryCashBalance;
+
+  /// No description provided for @tradingSummaryRealizedPnl.
+  ///
+  /// In zh, this message translates to:
+  /// **'已实现盈亏'**
+  String get tradingSummaryRealizedPnl;
+
+  /// No description provided for @tradingSummaryUnrealizedPnl.
+  ///
+  /// In zh, this message translates to:
+  /// **'未实现盈亏'**
+  String get tradingSummaryUnrealizedPnl;
+
+  /// No description provided for @tradingSummaryTodayPnl.
+  ///
+  /// In zh, this message translates to:
+  /// **'今日盈亏'**
+  String get tradingSummaryTodayPnl;
+
+  /// No description provided for @tradingSummaryFundDistribution.
+  ///
+  /// In zh, this message translates to:
+  /// **'资金分布'**
+  String get tradingSummaryFundDistribution;
+
+  /// No description provided for @tradingSummaryAssetStructure.
+  ///
+  /// In zh, this message translates to:
+  /// **'资产结构'**
+  String get tradingSummaryAssetStructure;
+
+  /// No description provided for @tradingSummaryProfitOverview.
+  ///
+  /// In zh, this message translates to:
+  /// **'收益情况'**
+  String get tradingSummaryProfitOverview;
+
+  /// No description provided for @tradingLedgerTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'账户流水'**
+  String get tradingLedgerTitle;
+
+  /// No description provided for @tradingLedgerTypeFilter.
+  ///
+  /// In zh, this message translates to:
+  /// **'类型筛选: '**
+  String get tradingLedgerTypeFilter;
+
+  /// No description provided for @tradingLedgerEmpty.
+  ///
+  /// In zh, this message translates to:
+  /// **'暂无流水'**
+  String get tradingLedgerEmpty;
+
+  /// No description provided for @tradingLedgerBalanceLabel.
+  ///
+  /// In zh, this message translates to:
+  /// **'余额'**
+  String get tradingLedgerBalanceLabel;
+
+  /// No description provided for @tradingLedgerCsvCopied.
+  ///
+  /// In zh, this message translates to:
+  /// **'CSV 已复制到剪贴板'**
+  String get tradingLedgerCsvCopied;
+
+  /// No description provided for @tradingLedgerTypeAccountReset.
+  ///
+  /// In zh, this message translates to:
+  /// **'账户重置'**
+  String get tradingLedgerTypeAccountReset;
+
+  /// No description provided for @tradingLedgerTypeOrderCashFrozen.
+  ///
+  /// In zh, this message translates to:
+  /// **'下单冻结资金'**
+  String get tradingLedgerTypeOrderCashFrozen;
+
+  /// No description provided for @tradingLedgerTypeOrderCancelUnfreeze.
+  ///
+  /// In zh, this message translates to:
+  /// **'撤单解冻资金'**
+  String get tradingLedgerTypeOrderCancelUnfreeze;
+
+  /// No description provided for @tradingLedgerTypeOrderFilledBuy.
+  ///
+  /// In zh, this message translates to:
+  /// **'买入成交'**
+  String get tradingLedgerTypeOrderFilledBuy;
+
+  /// No description provided for @tradingLedgerTypeOrderFilledSell.
+  ///
+  /// In zh, this message translates to:
+  /// **'卖出成交'**
+  String get tradingLedgerTypeOrderFilledSell;
+
+  /// No description provided for @teachersAccountAndLedgerTab.
+  ///
+  /// In zh, this message translates to:
+  /// **'账户与流水'**
+  String get teachersAccountAndLedgerTab;
+
+  /// No description provided for @teachersQualificationPhoto.
+  ///
+  /// In zh, this message translates to:
+  /// **'资质照片'**
+  String get teachersQualificationPhoto;
+
+  /// No description provided for @teachersSubmitting.
+  ///
+  /// In zh, this message translates to:
+  /// **'提交中…'**
+  String get teachersSubmitting;
+
+  /// No description provided for @teachersSubmittedPendingReview.
+  ///
+  /// In zh, this message translates to:
+  /// **'已提交等待审核'**
+  String get teachersSubmittedPendingReview;
+
+  /// No description provided for @teachersSubmitApplication.
+  ///
+  /// In zh, this message translates to:
+  /// **'提交申请'**
+  String get teachersSubmitApplication;
+
+  /// No description provided for @teachersStatusFrozenMessage.
+  ///
+  /// In zh, this message translates to:
+  /// **'您当前处于冻结状态，无法发布策略与交易记录。'**
+  String get teachersStatusFrozenMessage;
+
+  /// No description provided for @teachersStatusUnfreezeTime.
+  ///
+  /// In zh, this message translates to:
+  /// **'解冻时间：{date}'**
+  String teachersStatusUnfreezeTime(String date);
+
+  /// No description provided for @teachersStatusBlockedMessage.
+  ///
+  /// In zh, this message translates to:
+  /// **'您当前处于封禁状态，无法发布策略与交易记录。如有疑问请联系客服。'**
+  String get teachersStatusBlockedMessage;
+
+  /// No description provided for @teachersStatusRejectedMessage.
+  ///
+  /// In zh, this message translates to:
+  /// **'您的申请已被拒绝，无法发布策略与交易记录。如有疑问请联系客服。'**
+  String get teachersStatusRejectedMessage;
+
+  /// No description provided for @teachersStatusPendingMessage.
+  ///
+  /// In zh, this message translates to:
+  /// **'审核中，通过后可发布策略与交易记录'**
+  String get teachersStatusPendingMessage;
+
+  /// No description provided for @teachersStatusCannotPublishHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'您当前处于{status}状态，无法发布策略'**
+  String teachersStatusCannotPublishHint(String status);
+
+  /// No description provided for @teachersStatusOpenAfterApproval.
+  ///
+  /// In zh, this message translates to:
+  /// **'审核通过后开放策略发布'**
+  String get teachersStatusOpenAfterApproval;
 }
 
 class _AppLocalizationsDelegate

@@ -3,9 +3,12 @@ import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/design/design_tokens.dart';
 import '../../core/firebase_bootstrap.dart';
+import '../../core/layout_mode.dart';
 import '../../l10n/app_localizations.dart';
 import '../../core/notification_service.dart';
+import '../../core/startup_data_sync_service.dart';
 import '../../core/pc_dashboard_page.dart';
 import '../../core/pc_shell.dart';
 import '../../core/api_client.dart';
@@ -14,8 +17,11 @@ import '../messages/friends_repository.dart';
 import '../messages/message_models.dart';
 import '../messages/messages_page.dart';
 import '../messages/messages_repository.dart';
+import '../market/market_db.dart';
 import '../market/market_page.dart';
+import '../market/market_repository.dart';
 import '../market/watchlist_page.dart';
+import '../market/watchlist_repository.dart';
 import '../profile/profile_page.dart';
 import '../rankings/rankings_page.dart';
 
@@ -30,12 +36,15 @@ class _HomePageState extends State<HomePage> {
   int _currentIndex = 0;
   final _messagesRepo = MessagesRepository();
   final _friendsRepo = FriendsRepository();
+  final _marketRepo = MarketRepository();
   int _pendingFriendRequestCount = 0;
   StreamSubscription? _incomingRequestsSubscription;
   StreamSubscription? _authSubscription;
-  final GlobalKey<NavigatorState> _desktopContentNavKey = GlobalKey<NavigatorState>();
-
-  static const double _kDesktopBreakpoint = 1100;
+  Stream<List<Conversation>>? _conversationsStream;
+  String _conversationStreamUserId = '';
+  bool _conversationStreamEnabled = false;
+  final GlobalKey<NavigatorState> _desktopContentNavKey =
+      GlobalKey<NavigatorState>();
 
   final List<Widget> _pages = const [
     RankingsPage(),
@@ -59,11 +68,28 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     _subscribeIncomingRequests();
+    unawaited(_preloadForexPairsToSqlite());
+    unawaited(StartupDataSyncService.instance.syncTradingDataOnAppStart());
+    unawaited(WatchlistRepository.instance.syncFromServerIfLoggedIn());
     if (FirebaseBootstrap.isReady) {
       _authSubscription = FirebaseAuth.instance.authStateChanges().listen((_) {
         _subscribeIncomingRequests();
+        unawaited(
+          StartupDataSyncService.instance
+              .syncTradingDataOnAppStart(force: true),
+        );
+        unawaited(WatchlistRepository.instance.syncFromServerIfLoggedIn());
       });
     }
+  }
+
+  Future<void> _preloadForexPairsToSqlite() async {
+    try {
+      final pairs = (await _marketRepo.getForexPairsPage(page: 1, pageSize: 30))
+          .items;
+      if (pairs.isEmpty) return;
+      await MarketDb.instance.upsertForexPairs(pairs);
+    } catch (_) {}
   }
 
   @override
@@ -71,6 +97,26 @@ class _HomePageState extends State<HomePage> {
     _incomingRequestsSubscription?.cancel();
     _authSubscription?.cancel();
     super.dispose();
+  }
+
+  Stream<List<Conversation>> _ensureConversationsStream({
+    required String userId,
+    required bool canLoadMessages,
+  }) {
+    if (!canLoadMessages) {
+      _conversationStreamEnabled = false;
+      _conversationStreamUserId = '';
+      _conversationsStream = null;
+      return Stream.value(const <Conversation>[]);
+    }
+    if (_conversationsStream == null ||
+        !_conversationStreamEnabled ||
+        _conversationStreamUserId != userId) {
+      _conversationStreamEnabled = true;
+      _conversationStreamUserId = userId;
+      _conversationsStream = _messagesRepo.watchConversations(userId: userId);
+    }
+    return _conversationsStream!;
   }
 
   Widget _desktopChildForIndex(int index) {
@@ -95,9 +141,8 @@ class _HomePageState extends State<HomePage> {
       if (mounted) setState(() => _pendingFriendRequestCount = 0);
       return;
     }
-    _incomingRequestsSubscription = _friendsRepo
-        .watchIncomingRequests(userId: userId)
-        .listen((requests) {
+    _incomingRequestsSubscription =
+        _friendsRepo.watchIncomingRequests(userId: userId).listen((requests) {
       if (!mounted) return;
       setState(() {
         _pendingFriendRequestCount = requests.length;
@@ -110,15 +155,14 @@ class _HomePageState extends State<HomePage> {
     final userId = FirebaseBootstrap.isReady
         ? (FirebaseAuth.instance.currentUser?.uid ?? '')
         : '';
-    final canLoadMessages =
-        userId.isNotEmpty && ApiClient.instance.isAvailable;
-    final width = MediaQuery.sizeOf(context).width;
-    final useDesktopLayout = width >= _kDesktopBreakpoint;
+    final canLoadMessages = userId.isNotEmpty && ApiClient.instance.isAvailable;
+    final useDesktopLayout = LayoutMode.useDesktopLikeLayout(context);
 
     return StreamBuilder<List<Conversation>>(
-      stream: canLoadMessages
-          ? _messagesRepo.watchConversations(userId: userId)
-          : Stream.value(<Conversation>[]),
+      stream: _ensureConversationsStream(
+        userId: userId,
+        canLoadMessages: canLoadMessages,
+      ),
       builder: (context, snapshot) {
         final conversations = snapshot.data ?? const <Conversation>[];
         final chatUnread =
@@ -165,45 +209,53 @@ class _HomePageState extends State<HomePage> {
 
         final mobileIndex = _currentIndex == 5
             ? 4
-            : (_currentIndex == 4
-                ? 0
-                : _currentIndex.clamp(0, 3));
+            : (_currentIndex == 4 ? 0 : _currentIndex.clamp(0, 3));
         return Scaffold(
           body: _pages[mobileIndex],
-          bottomNavigationBar: NavigationBar(
-            selectedIndex: mobileIndex,
-            onDestinationSelected: (index) {
-              setState(() => _currentIndex = index == 4 ? 5 : index);
-            },
-            destinations: [
-              NavigationDestination(
-                icon: const Icon(Icons.home_outlined),
-                selectedIcon: const Icon(Icons.home),
-                label: AppLocalizations.of(context)!.navMainPage,
+          bottomNavigationBar: Container(
+            decoration: const BoxDecoration(
+              border: Border(
+                top: BorderSide(color: AppColors.borderSubtle),
               ),
-              NavigationDestination(
-                icon: const Icon(Icons.show_chart_outlined),
-                selectedIcon: const Icon(Icons.show_chart),
-                label: AppLocalizations.of(context)!.navMarket,
-              ),
-              NavigationDestination(
-                icon: const Icon(Icons.emoji_events_outlined),
-                selectedIcon: const Icon(Icons.emoji_events),
-                label: AppLocalizations.of(context)!.navFollow,
-              ),
-              NavigationDestination(
-                icon: _wrapMessageIcon(context,
-                    Icons.chat_bubble_outline, totalUnread),
-                selectedIcon: _wrapMessageIcon(context,
-                    Icons.chat_bubble, totalUnread),
-                label: AppLocalizations.of(context)!.navMessages,
-              ),
-              NavigationDestination(
-                icon: const Icon(Icons.person_outline),
-                selectedIcon: const Icon(Icons.person),
-                label: AppLocalizations.of(context)!.navProfile,
-              ),
-            ],
+            ),
+            child: NavigationBar(
+              selectedIndex: mobileIndex,
+              onDestinationSelected: (index) {
+                setState(() => _currentIndex = index == 4 ? 5 : index);
+              },
+              destinations: [
+                NavigationDestination(
+                  icon: const Icon(AppIcons.navHome),
+                  selectedIcon: const Icon(AppIcons.navHomeActive),
+                  label: AppLocalizations.of(context)!.navMainPage,
+                ),
+                NavigationDestination(
+                  icon: const Icon(AppIcons.navMarket),
+                  selectedIcon: const Icon(AppIcons.navMarketActive),
+                  label: AppLocalizations.of(context)!.navMarket,
+                ),
+                NavigationDestination(
+                  icon: const Icon(AppIcons.navFollow),
+                  selectedIcon: const Icon(AppIcons.navFollowActive),
+                  label: AppLocalizations.of(context)!.navFollow,
+                ),
+                NavigationDestination(
+                  icon: _wrapMessageIcon(
+                      context, AppIcons.navMessages, totalUnread),
+                  selectedIcon: _wrapMessageIcon(
+                    context,
+                    AppIcons.navMessagesActive,
+                    totalUnread,
+                  ),
+                  label: AppLocalizations.of(context)!.navMessages,
+                ),
+                NavigationDestination(
+                  icon: const Icon(AppIcons.navProfile),
+                  selectedIcon: const Icon(AppIcons.navProfileActive),
+                  label: AppLocalizations.of(context)!.navProfile,
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -222,7 +274,7 @@ class _HomePageState extends State<HomePage> {
         style: const TextStyle(
           fontSize: 10,
           fontWeight: FontWeight.w600,
-          color: Colors.white,
+          color: AppColors.textPrimary,
         ),
       ),
       backgroundColor: Theme.of(context).colorScheme.error,

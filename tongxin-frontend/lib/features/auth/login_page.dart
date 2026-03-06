@@ -3,20 +3,33 @@ import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/design/design_tokens.dart';
 import '../../core/firebase_bootstrap.dart';
 import '../../l10n/app_localizations.dart';
+import '../../ui/components/components.dart';
 import '../../core/user_restrictions.dart';
 import 'auth_service.dart';
 
 class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
+  const LoginPage({
+    super.key,
+    /// 登录成功后是否 pop 关闭页面；为 false 时（如作为「我的」Tab 主内容）不 pop，由父级根据 auth 状态刷新
+    this.popOnSuccess = true,
+    /// 是否显示返回按钮；为 false 时（如作为「我的」Tab 主内容）不显示
+    this.showBackButton = true,
+  });
+
+  final bool popOnSuccess;
+  final bool showBackButton;
 
   @override
   State<LoginPage> createState() => _LoginPageState();
 }
 
 class _LoginPageState extends State<LoginPage> {
+  static const String _rememberEmailKey = 'auth.remembered_email';
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
@@ -24,8 +37,43 @@ class _LoginPageState extends State<LoginPage> {
   final _authService = AuthService();
   bool _loading = false;
   bool _isRegister = false;
-  Timer? _cooldownTimer;
-  int _resendCooldown = 0;
+
+  String _registerEmailTip(BuildContext context) {
+    final lang = Localizations.localeOf(context).languageCode.toLowerCase();
+    if (lang.startsWith('zh')) {
+      return '点击注册后会自动发送验证邮件，请前往邮箱确认后再登录';
+    }
+    return 'After registration, a verification email will be sent automatically. Please confirm it before signing in.';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _restoreRememberedCredentials();
+  }
+
+  Future<void> _restoreRememberedCredentials() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedEmail = prefs.getString(_rememberEmailKey)?.trim() ?? '';
+      if (!mounted) return;
+      if (savedEmail.isEmpty) return;
+      setState(() {
+        _emailController.text = savedEmail;
+      });
+    } catch (_) {
+      // 忽略本地读取异常，不影响登录主流程
+    }
+  }
+
+  Future<void> _saveRememberedCredentials({required String email}) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_rememberEmailKey, email);
+    } catch (_) {
+      // 忽略本地写入异常，不影响登录主流程
+    }
+  }
 
   @override
   void dispose() {
@@ -33,7 +81,6 @@ class _LoginPageState extends State<LoginPage> {
     _passwordController.dispose();
     _confirmPasswordController.dispose();
     _nameController.dispose();
-    _cooldownTimer?.cancel();
     super.dispose();
   }
 
@@ -54,7 +101,7 @@ class _LoginPageState extends State<LoginPage> {
         _showMessage(UserRestrictions.getAccountStatusMessage(restrictions, context));
         return;
       }
-      if (mounted) Navigator.of(context).pop();
+      if (mounted && widget.popOnSuccess) Navigator.of(context).pop();
     } catch (error) {
       _showMessage(_friendlyErrorMessage(error));
     } finally {
@@ -90,7 +137,8 @@ class _LoginPageState extends State<LoginPage> {
         _showMessage(UserRestrictions.getAccountStatusMessage(restrictions, context));
         return;
       }
-      if (mounted) Navigator.of(context).pop();
+      await _saveRememberedCredentials(email: email);
+      if (mounted && widget.popOnSuccess) Navigator.of(context).pop();
     } catch (error) {
       _showMessage(_friendlyErrorMessage(error));
     } finally {
@@ -128,39 +176,8 @@ class _LoginPageState extends State<LoginPage> {
       );
       await _authService.signOut();
       _showMessage(AppLocalizations.of(context)!.authVerificationSent);
-      _startResendCooldown();
     } catch (error) {
       _showMessage(_friendlyErrorMessage(error));
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  Future<void> _resendVerification() async {
-    if (!_firebaseReady) {
-      _showMessage(AppLocalizations.of(context)!.authPleaseConfigureFirebase);
-      return;
-    }
-    final email = _emailController.text.trim();
-    final password = _passwordController.text.trim();
-    if (_resendCooldown > 0) {
-      _showMessage(AppLocalizations.of(context)!.authResendCooldown(_resendCooldown));
-      return;
-    }
-    if (email.isEmpty || password.isEmpty) {
-      _showMessage(AppLocalizations.of(context)!.authPleaseFillEmailAndPassword);
-      return;
-    }
-    setState(() => _loading = true);
-    try {
-      await _authService.resendVerificationForEmailPassword(
-        email: email,
-        password: password,
-      );
-      _showMessage(AppLocalizations.of(context)!.authVerificationEmailSent);
-      _startResendCooldown();
-    } catch (error) {
-      _showMessage('操作失败：$error');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -170,14 +187,8 @@ class _LoginPageState extends State<LoginPage> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(
-          message,
-          style: const TextStyle(color: Colors.white, fontSize: 14),
-        ),
+        content: Text(message),
         duration: const Duration(seconds: 4),
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: const Color(0xFF5C5F68),
-        margin: const EdgeInsets.all(16),
       ),
     );
   }
@@ -227,170 +238,180 @@ class _LoginPageState extends State<LoginPage> {
     return '操作失败：$message';
   }
 
-  void _startResendCooldown([int seconds = 60]) {
-    _cooldownTimer?.cancel();
-    setState(() => _resendCooldown = seconds);
-    _cooldownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted) {
-        timer.cancel();
-        return;
-      }
-      if (_resendCooldown <= 1) {
-        timer.cancel();
-        setState(() => _resendCooldown = 0);
-      } else {
-        setState(() => _resendCooldown -= 1);
-      }
-    });
-  }
-
-  // 与 App 统一：金色主色、深色背景（market_page / profile_page 风格）
-  static const _accent = Color(0xFFD4AF37);
-  static const _bg = Color(0xFF0B0C0E);
-  static const _text = Color(0xFFE8D5A3);
-  static const _textMuted = Color(0xFF9CA3AF);
-
   @override
   Widget build(BuildContext context) {
     final canUseApple = defaultTargetPlatform == TargetPlatform.iOS;
     final l10n = AppLocalizations.of(context)!;
 
     return Scaffold(
-      backgroundColor: _bg,
+      backgroundColor: AppColors.scaffold,
       body: SafeArea(
         child: CustomScrollView(
           slivers: [
             SliverFillRemaining(
               hasScrollBody: false,
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 28),
+                padding: AppSpacing.symmetric(horizontal: AppSpacing.xl),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const SizedBox(height: 12),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: _IconBtn(
-                        icon: Icons.arrow_back_ios_new,
-                        onTap: () => Navigator.of(context).pop(),
-                      ),
-                    ),
-                    const SizedBox(height: 40),
+                    const SizedBox(height: AppSpacing.md),
+                    if (widget.showBackButton)
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: _IconBtn(
+                          icon: Icons.arrow_back_ios_new,
+                          onTap: () => Navigator.of(context).pop(),
+                        ),
+                      )
+                    else
+                      const SizedBox(height: AppSpacing.xl),
+                    const SizedBox(height: AppSpacing.xl),
                     Row(
                       children: [
-                        Icon(Icons.public_rounded, color: _accent, size: 28),
-                        const SizedBox(width: 10),
+                        const Icon(Icons.public_rounded, color: AppColors.primary, size: 32),
+                        const SizedBox(width: AppSpacing.sm),
                         Text(
                           l10n.authLoginOrRegister,
-                          style: const TextStyle(
-                            color: _text,
+                          style: AppTypography.title.copyWith(
                             fontSize: 24,
                             fontWeight: FontWeight.w700,
-                            letterSpacing: -0.5,
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: AppSpacing.sm),
                     Text(
                       _isRegister ? l10n.authRegisterHint : l10n.authLoginHint,
-                      style: const TextStyle(color: _textMuted, fontSize: 15),
+                      style: AppTypography.bodySecondary.copyWith(
+                        fontSize: 15,
+                        color: AppColors.textPrimary.withValues(alpha: 0.88),
+                      ),
                     ),
-                    const SizedBox(height: 40),
+                    const SizedBox(height: AppSpacing.xl),
                     // Tab
                     Row(
                       children: [
                         Expanded(
-                          child: _TabChip(
+                          child: AppChip(
                             label: l10n.authLogin,
                             selected: !_isRegister,
                             onTap: () => setState(() => _isRegister = false),
-                            accent: _accent,
                           ),
                         ),
-                        const SizedBox(width: 12),
+                        const SizedBox(width: AppSpacing.md),
                         Expanded(
-                          child: _TabChip(
+                          child: AppChip(
                             label: l10n.authRegister,
                             selected: _isRegister,
                             onTap: () => setState(() => _isRegister = true),
-                            accent: _accent,
                           ),
                         ),
                       ],
                     ),
                     if (!_firebaseReady) ...[
-                      const SizedBox(height: 20),
-                      Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: _accent.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: _accent.withValues(alpha: 0.3)),
+                      const SizedBox(height: AppSpacing.lg),
+                      AppCard(
+                        padding: AppSpacing.allMd,
+                        child: Text(
+                          l10n.authFirebaseConfigHint,
+                          style: AppTypography.bodySecondary.copyWith(color: AppColors.primary),
                         ),
-                        child: Text(l10n.authFirebaseConfigHint, style: const TextStyle(color: _accent, fontSize: 13)),
                       ),
                     ],
-                    const SizedBox(height: 32),
+                    const SizedBox(height: AppSpacing.xl),
                     if (_isRegister) ...[
-                      _Input(controller: _nameController, label: l10n.authName, icon: Icons.person_outline, textInputAction: TextInputAction.next, accent: _accent),
-                      const SizedBox(height: 16),
+                      AppInput(
+                        controller: _nameController,
+                        label: l10n.authName,
+                        hintText: l10n.authName,
+                        prefixIcon: const Icon(Icons.person_outline),
+                        textInputAction: TextInputAction.next,
+                      ),
+                      const SizedBox(height: AppSpacing.md),
                     ],
-                    _Input(controller: _emailController, label: l10n.authEmail, icon: Icons.mail_outline, keyboardType: TextInputType.emailAddress, textInputAction: TextInputAction.next, accent: _accent),
-                    const SizedBox(height: 16),
-                    _Input(controller: _passwordController, label: l10n.authPassword, icon: Icons.lock_outline, obscureText: true, textInputAction: _isRegister ? TextInputAction.next : TextInputAction.done, accent: _accent),
+                    AppInput(
+                      controller: _emailController,
+                      label: l10n.authEmail,
+                      hintText: l10n.authEmail,
+                      prefixIcon: const Icon(Icons.mail_outline),
+                      keyboardType: TextInputType.emailAddress,
+                      textInputAction: TextInputAction.next,
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    AppInput(
+                      controller: _passwordController,
+                      label: l10n.authPassword,
+                      hintText: l10n.authPassword,
+                      prefixIcon: const Icon(Icons.lock_outline),
+                      obscureText: true,
+                      textInputAction: _isRegister ? TextInputAction.next : TextInputAction.done,
+                    ),
                     if (_isRegister) ...[
-                      const SizedBox(height: 16),
-                      _Input(controller: _confirmPasswordController, label: l10n.authConfirmPassword, icon: Icons.lock_outline, obscureText: true, accent: _accent),
+                      const SizedBox(height: AppSpacing.md),
+                      AppInput(
+                        controller: _confirmPasswordController,
+                        label: l10n.authConfirmPassword,
+                        hintText: l10n.authConfirmPassword,
+                        prefixIcon: const Icon(Icons.lock_outline),
+                        obscureText: true,
+                      ),
                     ],
-                    const SizedBox(height: 32),
+                    const SizedBox(height: AppSpacing.xl),
                     SizedBox(
-                      height: 52,
-                      child: FilledButton(
+                      height: AppSpacing.xxl + AppSpacing.sm,
+                      child: AppButton(
+                        label: _isRegister ? l10n.authRegisterAndSendEmail : l10n.authLogin,
                         onPressed: _loading ? null : (_isRegister ? _handleEmailRegister : _handleEmailLogin),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: _accent,
-                          foregroundColor: const Color(0xFF111215),
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                        child: _loading
-                            ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF111215)))
-                            : Text(_isRegister ? l10n.authRegisterAndSendEmail : l10n.authLogin, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                        loading: _loading,
+                        variant: AppButtonVariant.primary,
                       ),
                     ),
                     if (_isRegister) ...[
-                      const SizedBox(height: 12),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: TextButton(
-                          onPressed: _loading || _resendCooldown > 0 ? null : _resendVerification,
-                          child: Text(
-                            _resendCooldown > 0 ? l10n.authSendVerificationEmailCooldown(_resendCooldown) : l10n.authSendVerificationEmail,
-                            style: const TextStyle(color: _accent, fontSize: 13),
-                          ),
+                      const SizedBox(height: AppSpacing.md),
+                      Text(
+                        _registerEmailTip(context),
+                        textAlign: TextAlign.center,
+                        style: AppTypography.bodySecondary.copyWith(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ],
                     const Spacer(),
-                    Text(l10n.authThirdPartyLogin, textAlign: TextAlign.center, style: const TextStyle(color: _textMuted, fontSize: 13)),
-                    const SizedBox(height: 16),
+                    Text(
+                      l10n.authThirdPartyLogin,
+                      textAlign: TextAlign.center,
+                      style: AppTypography.bodySecondary.copyWith(
+                        color: AppColors.textPrimary.withValues(alpha: 0.9),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.md),
                     _SocialBtn(icon: Icons.g_mobiledata_rounded, label: l10n.authGoogleLogin, onPressed: _loading ? null : () => _runSignIn(_authService.signInWithGoogle)),
                     if (canUseApple) ...[
-                      const SizedBox(height: 10),
+                      const SizedBox(height: AppSpacing.sm),
                       _SocialBtn(icon: Icons.apple, label: l10n.authAppleLogin, onPressed: _loading ? null : () => _runSignIn(_authService.signInWithApple)),
                     ],
                     if (defaultTargetPlatform == TargetPlatform.macOS)
                       Padding(
-                        padding: const EdgeInsets.only(top: 16),
-                        child: Text(l10n.authMacosUseEmailOrGoogle, style: const TextStyle(color: _textMuted, fontSize: 12), textAlign: TextAlign.center),
+                        padding: const EdgeInsets.only(top: AppSpacing.md),
+                        child: Text(
+                          l10n.authMacosUseEmailOrGoogle,
+                          style: AppTypography.caption,
+                          textAlign: TextAlign.center,
+                        ),
                       ),
                     if (kIsWeb)
                       Padding(
-                        padding: const EdgeInsets.only(top: 12),
-                        child: Text(l10n.authWebAppleLimited, style: const TextStyle(color: _textMuted, fontSize: 12), textAlign: TextAlign.center),
+                        padding: const EdgeInsets.only(top: AppSpacing.md),
+                        child: Text(
+                          l10n.authWebAppleLimited,
+                          style: AppTypography.caption,
+                          textAlign: TextAlign.center,
+                        ),
                       ),
-                    const SizedBox(height: 24),
+                    const SizedBox(height: AppSpacing.lg),
                   ],
                 ),
               ),
@@ -411,101 +432,15 @@ class _IconBtn extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: const Color(0xFF111215),
-      borderRadius: BorderRadius.circular(12),
+      color: AppColors.surface,
+      borderRadius: AppRadius.mdAll,
       child: InkWell(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: AppRadius.mdAll,
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Icon(icon, size: 20, color: const Color(0xFF9CA3AF)),
+          padding: AppSpacing.allMd,
+          child: Icon(icon, size: 20, color: AppColors.textSecondary),
         ),
-      ),
-    );
-  }
-}
-
-class _TabChip extends StatelessWidget {
-  const _TabChip({required this.label, required this.selected, required this.onTap, required this.accent});
-
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-  final Color accent;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: selected ? accent : const Color(0xFF111215),
-      borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          child: Center(
-            child: Text(
-              label,
-              style: TextStyle(
-                color: selected ? const Color(0xFF111215) : const Color(0xFF9CA3AF),
-                fontWeight: FontWeight.w600,
-                fontSize: 15,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _Input extends StatelessWidget {
-  const _Input({
-    required this.controller,
-    required this.label,
-    required this.icon,
-    required this.accent,
-    this.obscureText = false,
-    this.keyboardType,
-    this.textInputAction,
-  });
-
-  final TextEditingController controller;
-  final String label;
-  final IconData icon;
-  final Color accent;
-  final bool obscureText;
-  final TextInputType? keyboardType;
-  final TextInputAction? textInputAction;
-
-  @override
-  Widget build(BuildContext context) {
-    return TextField(
-      controller: controller,
-      obscureText: obscureText,
-      keyboardType: keyboardType,
-      textInputAction: textInputAction,
-      style: const TextStyle(color: Color(0xFFE5E5E7), fontSize: 16),
-      decoration: InputDecoration(
-        labelText: label,
-        prefixIcon: Icon(icon, size: 20, color: const Color(0xFF9CA3AF)),
-        labelStyle: const TextStyle(color: Color(0xFF9CA3AF)),
-        floatingLabelStyle: TextStyle(color: accent),
-        filled: true,
-        fillColor: const Color(0xFF0B0C0E),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide.none,
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFF2A2D34), width: 1),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: accent, width: 1),
-        ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       ),
     );
   }
@@ -521,22 +456,12 @@ class _SocialBtn extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 50,
-      child: OutlinedButton(
+      height: AppSpacing.xxl + AppSpacing.xs,
+      child: AppButton(
+        variant: AppButtonVariant.secondary,
+        icon: Icon(icon, size: 22, color: AppColors.primary),
+        label: label,
         onPressed: onPressed,
-        style: OutlinedButton.styleFrom(
-          foregroundColor: const Color(0xFFE5E5E7),
-          side: const BorderSide(color: Color(0xFFD4AF37), width: 0.4),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 22, color: const Color(0xFFD4AF37)),
-            const SizedBox(width: 10),
-            Text(label, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
-          ],
-        ),
       ),
     );
   }

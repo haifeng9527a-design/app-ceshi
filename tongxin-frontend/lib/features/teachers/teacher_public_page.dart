@@ -1,14 +1,13 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/design/design_tokens.dart';
 import '../../l10n/app_localizations.dart';
 import '../auth/login_page.dart';
 import '../../core/network_error_helper.dart';
+import '../../ui/components/components.dart';
 import '../home/featured_teacher_page.dart';
-import '../messages/chat_detail_page.dart';
 import '../messages/friends_repository.dart';
-import '../messages/message_models.dart';
-import '../messages/messages_repository.dart';
 import 'teacher_models.dart';
 import 'teacher_repository.dart';
 
@@ -23,9 +22,9 @@ class TeacherPublicPage extends StatelessWidget {
   /// 从聊天「查看个人资料」进入时传 true，已是好友则显示「发消息」而非「加好友」
   final bool isAlreadyFriend;
 
-  static const Color _accent = Color(0xFFD4AF37);
-  static const Color _muted = Color(0xFF6C6F77);
-  static const Color _surface = Color(0xFF1A1C21);
+  static const Color _accent = AppColors.primary;
+  static const Color _muted = AppColors.textTertiary;
+  static const Color _surface = AppColors.surface2;
 
   @override
   Widget build(BuildContext context) {
@@ -36,7 +35,7 @@ class TeacherPublicPage extends StatelessWidget {
         final currentUserId = authSnapshot.data?.uid ?? '';
         final isOwner = currentUserId == teacherId;
         return Scaffold(
-      backgroundColor: const Color(0xFF111215),
+      backgroundColor: AppColors.surface,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -64,9 +63,9 @@ class TeacherPublicPage extends StatelessWidget {
                 teacherId: teacherId,
                 repository: repository,
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: AppSpacing.lg),
               _StatsBlock(profile: profile),
-              const SizedBox(height: 24),
+              const SizedBox(height: AppSpacing.xl),
               _SectionBlock(
                 title: AppLocalizations.of(context)!.teachersPersonalIntro,
                 child: _BioCard(
@@ -92,23 +91,16 @@ class TeacherPublicPage extends StatelessWidget {
                           padding: const EdgeInsets.symmetric(vertical: 12),
                           child: Text(
                             AppLocalizations.of(context)!.teachersNoPublicStrategy,
-                            style: TextStyle(color: _muted, fontSize: 14),
+                            style: const TextStyle(color: _muted, fontSize: 14),
                           ),
                         );
                       }
                       return Column(
                         children: items
                             .map(
-                              (item) => Container(
-                                margin: const EdgeInsets.only(bottom: 8),
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: _surface,
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(
-                                    color: Colors.white.withOpacity(0.06),
-                                  ),
-                                ),
+                              (item) => AppCard(
+                                margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+                                padding: const EdgeInsets.all(AppSpacing.md - 4),
                                 child: Row(
                                   children: [
                                     Expanded(
@@ -119,7 +111,7 @@ class TeacherPublicPage extends StatelessWidget {
                                           Text(
                                             item.title,
                                             style: const TextStyle(
-                                              color: Colors.white,
+                                              color: AppColors.textPrimary,
                                               fontWeight: FontWeight.w500,
                                             ),
                                           ),
@@ -171,23 +163,16 @@ class TeacherPublicPage extends StatelessWidget {
                           padding: const EdgeInsets.symmetric(vertical: 12),
                           child: Text(
                             AppLocalizations.of(context)!.teachersNoTradeRecords,
-                            style: TextStyle(color: _muted, fontSize: 14),
+                            style: const TextStyle(color: _muted, fontSize: 14),
                           ),
                         );
                       }
                       return Column(
                         children: items
                             .map(
-                              (item) => Container(
-                                margin: const EdgeInsets.only(bottom: 8),
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: _surface,
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(
-                                    color: Colors.white.withOpacity(0.06),
-                                  ),
-                                ),
+                              (item) => AppCard(
+                                margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+                                padding: const EdgeInsets.all(AppSpacing.md - 4),
                                 child: Row(
                                   children: [
                                     Expanded(
@@ -198,7 +183,7 @@ class TeacherPublicPage extends StatelessWidget {
                                           Text(
                                             item.symbol,
                                             style: const TextStyle(
-                                              color: Colors.white,
+                                              color: AppColors.textPrimary,
                                               fontWeight: FontWeight.w500,
                                             ),
                                           ),
@@ -255,7 +240,12 @@ class TeacherPublicPage extends StatelessWidget {
             children: [
               Expanded(
                 child: ListView(
-                  padding: EdgeInsets.fromLTRB(16, 0, 16, isOwner ? 24 : 88),
+                  padding: EdgeInsets.fromLTRB(
+                    AppSpacing.md,
+                    0,
+                    AppSpacing.md,
+                    isOwner ? AppSpacing.xl : AppSpacing.xxxl + AppSpacing.sm,
+                  ),
                   children: listChildren,
                 ),
               ),
@@ -309,42 +299,8 @@ class _BottomFollowBar extends StatefulWidget {
 }
 
 class _BottomFollowBarState extends State<_BottomFollowBar> {
-  static const Color _accent = Color(0xFFD4AF37);
-
   /// 点击加好友时若返回「已是好友」，则设为 true 以立即切换按钮
   bool? _overrideIsFriend;
-
-  Future<void> _openPrivateChat(BuildContext context) async {
-    if (widget.currentUserId.isEmpty) return;
-    final navigator = Navigator.of(context);
-    try {
-      final conv = await MessagesRepository().createOrGetDirectConversation(
-        currentUserId: widget.currentUserId,
-        friendId: widget.teacherId,
-        friendName: widget.teacherDisplayName,
-      );
-      if (!context.mounted) return;
-      // 关掉交易员页，清掉下层可能是的群聊，只保留根路由后压入私聊，避免点发消息后仍停在群聊
-      navigator.pop();
-      navigator.pushAndRemoveUntil(
-        MaterialPageRoute(
-          builder: (_) => ChatDetailPage(
-            conversation: conv,
-            initialMessages: const <ChatMessage>[],
-          ),
-        ),
-        (route) => route.isFirst,
-      );
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          SnackBar(
-            content: Text(NetworkErrorHelper.messageForUser(e, prefix: AppLocalizations.of(context)!.msgOpenChatFailedPrefix, l10n: AppLocalizations.of(context))),
-          ),
-        );
-      }
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -359,15 +315,15 @@ class _BottomFollowBarState extends State<_BottomFollowBar> {
           width: double.infinity,
           padding: EdgeInsets.fromLTRB(16, 12, 16, 12 + bottomPad),
           decoration: BoxDecoration(
-            color: const Color(0xFF111215),
-            border: Border(top: BorderSide(color: Colors.white.withOpacity(0.08))),
+            color: AppColors.surface,
+            border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.08))),
           ),
           child: SafeArea(
             top: false,
             child: widget.isOwner || isFriend
             ? SizedBox(
                 width: double.infinity,
-                child: FilledButton(
+                child: AppButton(
                   onPressed: () {
                     if (widget.currentUserId.isEmpty) {
                       Navigator.of(context).push(
@@ -381,26 +337,12 @@ class _BottomFollowBarState extends State<_BottomFollowBar> {
                       ),
                     );
                   },
-                  style: FilledButton.styleFrom(
-                    backgroundColor: _accent,
-                    foregroundColor: const Color(0xFF111215),
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: Text(
-                    AppLocalizations.of(context)!.teachersEnterStrategyCenter,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 16,
-                    ),
-                  ),
+                  label: AppLocalizations.of(context)!.teachersEnterStrategyCenter,
                 ),
               )
             : SizedBox(
                 width: double.infinity,
-                child: FilledButton(
+                child: AppButton(
                 onPressed: () async {
                   if (widget.currentUserId.isEmpty) {
                     Navigator.of(context).push(
@@ -436,21 +378,7 @@ class _BottomFollowBarState extends State<_BottomFollowBar> {
                     }
                   }
                 },
-                style: FilledButton.styleFrom(
-                  backgroundColor: _accent,
-                  foregroundColor: const Color(0xFF111215),
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: Text(
-                  AppLocalizations.of(context)!.msgAddFriend,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 16,
-                  ),
-                ),
+                label: AppLocalizations.of(context)!.msgAddFriend,
               ),
             ),
           ),
@@ -471,9 +399,9 @@ class _HeaderBlock extends StatelessWidget {
   final String teacherId;
   final TeacherRepository repository;
 
-  static const Color _accent = Color(0xFFD4AF37);
-  static const Color _muted = Color(0xFF6C6F77);
-  static const Color _surface = Color(0xFF1A1C21);
+  static const Color _accent = AppColors.primary;
+  static const Color _muted = AppColors.textTertiary;
+  static const Color _surface = AppColors.surface2;
 
   @override
   Widget build(BuildContext context) {
@@ -505,7 +433,7 @@ class _HeaderBlock extends StatelessWidget {
                       name.isEmpty ? '?' : name[0],
                       style: const TextStyle(
                         fontSize: 24,
-                        color: Color(0xFF111215),
+                        color: AppColors.surface,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
@@ -523,7 +451,7 @@ class _HeaderBlock extends StatelessWidget {
                         child: Text(
                           name,
                           style: const TextStyle(
-                            color: Colors.white,
+                            color: AppColors.textPrimary,
                             fontSize: 20,
                             fontWeight: FontWeight.bold,
                           ),
@@ -550,13 +478,13 @@ class _HeaderBlock extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text(
                       AppLocalizations.of(context)!.teachersSignatureLabel,
-                      style: TextStyle(color: _muted, fontSize: 11),
+                      style: const TextStyle(color: _muted, fontSize: 11),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       signature,
                       style: const TextStyle(
-                        color: Colors.white70,
+                        color: AppColors.textSecondary,
                         fontSize: 13,
                       ),
                       maxLines: 2,
@@ -575,7 +503,7 @@ class _HeaderBlock extends StatelessWidget {
           decoration: BoxDecoration(
             color: _surface,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: _accent.withOpacity(0.25)),
+            border: Border.all(color: _accent.withValues(alpha: 0.25)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -608,8 +536,7 @@ class _InfoRow extends StatelessWidget {
   final String label;
   final String? value;
 
-  static const Color _accent = Color(0xFFD4AF37);
-  static const Color _muted = Color(0xFF6C6F77);
+  static const Color _muted = AppColors.textTertiary;
 
   @override
   Widget build(BuildContext context) {
@@ -631,7 +558,7 @@ class _InfoRow extends StatelessWidget {
           child: Text(
             text,
             style: const TextStyle(
-              color: Colors.white,
+              color: AppColors.textPrimary,
               fontSize: 13,
             ),
           ),
@@ -646,9 +573,8 @@ class _StatsBlock extends StatelessWidget {
 
   final TeacherProfile profile;
 
-  static const Color _accent = Color(0xFFD4AF37);
-  static const Color _muted = Color(0xFF6C6F77);
-  static const Color _surface = Color(0xFF1A1C21);
+  static const Color _accent = AppColors.primary;
+  static const Color _surface = AppColors.surface2;
 
   @override
   Widget build(BuildContext context) {
@@ -668,7 +594,7 @@ class _StatsBlock extends StatelessWidget {
       decoration: BoxDecoration(
         color: _surface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: _accent.withOpacity(0.2)),
+        border: Border.all(color: _accent.withValues(alpha: 0.2)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -686,8 +612,8 @@ class _StatsBlock extends StatelessWidget {
               const SizedBox(width: 8),
               Text(
                 AppLocalizations.of(context)!.teachersRecordAndEarnings,
-                style: TextStyle(
-                  color: Colors.white,
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
                   fontWeight: FontWeight.w600,
                   fontSize: 15,
                 ),
@@ -764,8 +690,8 @@ class _StatItem extends StatelessWidget {
   final String value;
   final String label;
 
-  static const Color _accent = Color(0xFFD4AF37);
-  static const Color _muted = Color(0xFF6C6F77);
+  static const Color _accent = AppColors.primary;
+  static const Color _muted = AppColors.textTertiary;
 
   @override
   Widget build(BuildContext context) {
@@ -778,7 +704,7 @@ class _StatItem extends StatelessWidget {
           style: TextStyle(
             color: isPositive
                 ? _accent
-                : (isNegative ? const Color(0xFFE57373) : Colors.white),
+                : (isNegative ? AppColors.negative : AppColors.textPrimary),
             fontWeight: FontWeight.w600,
             fontSize: 15,
           ),
@@ -798,8 +724,8 @@ class _BioCard extends StatelessWidget {
 
   final String? bio;
 
-  static const Color _surface = Color(0xFF1A1C21);
-  static const Color _muted = Color(0xFF6C6F77);
+  static const Color _surface = AppColors.surface2;
+  static const Color _muted = AppColors.textTertiary;
 
   @override
   Widget build(BuildContext context) {
@@ -809,12 +735,12 @@ class _BioCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: _surface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(0.06)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
       ),
       child: Text(
         bio ?? AppLocalizations.of(context)!.teachersNoIntro,
         style: TextStyle(
-          color: bio != null ? Colors.white.withOpacity(0.88) : _muted,
+          color: bio != null ? Colors.white.withValues(alpha: 0.88) : _muted,
           fontSize: 14,
           height: 1.6,
           letterSpacing: 0.2,
@@ -829,9 +755,9 @@ class _SpecialtiesWrap extends StatelessWidget {
 
   final List<String>? specialties;
 
-  static const Color _accent = Color(0xFFD4AF37);
-  static const Color _surface = Color(0xFF1A1C21);
-  static const Color _muted = Color(0xFF6C6F77);
+  static const Color _accent = AppColors.primary;
+  static const Color _surface = AppColors.surface2;
+  static const Color _muted = AppColors.textTertiary;
 
   @override
   Widget build(BuildContext context) {
@@ -844,10 +770,10 @@ class _SpecialtiesWrap extends StatelessWidget {
         decoration: BoxDecoration(
           color: _surface,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.white.withOpacity(0.06)),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
         ),
         child: Center(
-          child: Text(AppLocalizations.of(context)!.commonNone, style: TextStyle(color: _muted, fontSize: 14)),
+          child: Text(AppLocalizations.of(context)!.commonNone, style: const TextStyle(color: _muted, fontSize: 14)),
         ),
       );
     }
@@ -857,7 +783,7 @@ class _SpecialtiesWrap extends StatelessWidget {
       decoration: BoxDecoration(
         color: _surface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(0.06)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
       ),
       child: Wrap(
         spacing: 10,
@@ -867,9 +793,9 @@ class _SpecialtiesWrap extends StatelessWidget {
               (item) => Container(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                 decoration: BoxDecoration(
-                  color: _accent.withOpacity(0.08),
+                  color: _accent.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: _accent.withOpacity(0.4)),
+                  border: Border.all(color: _accent.withValues(alpha: 0.4)),
                 ),
                 child: Text(
                   item,
@@ -893,7 +819,7 @@ class _SectionBlock extends StatelessWidget {
   final String title;
   final Widget child;
 
-  static const Color _accent = Color(0xFFD4AF37);
+  static const Color _accent = AppColors.primary;
 
   @override
   Widget build(BuildContext context) {
@@ -916,7 +842,7 @@ class _SectionBlock extends StatelessWidget {
               Text(
                 title,
                 style: const TextStyle(
-                  color: Colors.white,
+                  color: AppColors.textPrimary,
                   fontWeight: FontWeight.w600,
                   fontSize: 15,
                 ),

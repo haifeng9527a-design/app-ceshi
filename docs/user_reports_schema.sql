@@ -41,3 +41,39 @@ create policy user_reports_update on public.user_reports
 comment on table public.user_reports is '用户举报记录';
 
 -- 举报截图存储：需在 Supabase 控制台创建 bucket "report_screenshots"，设为 public 或配置 RLS
+
+-- 申诉表：被处罚用户可发起申诉，管理员审核后可恢复限制
+create table if not exists public.user_report_appeals (
+  id bigint generated always as identity primary key,
+  report_id bigint not null references public.user_reports(id) on delete cascade,
+  appellant_id text not null,
+  appeal_content text not null,
+  status text not null default 'pending' check (status in ('pending', 'approved', 'rejected')),
+  admin_notes text,
+  reviewed_at timestamptz,
+  reviewed_by text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_user_report_appeals_report on public.user_report_appeals(report_id);
+create index if not exists idx_user_report_appeals_user on public.user_report_appeals(appellant_id);
+create index if not exists idx_user_report_appeals_status on public.user_report_appeals(status);
+
+alter table public.user_report_appeals enable row level security;
+
+drop policy if exists user_report_appeals_insert on public.user_report_appeals;
+create policy user_report_appeals_insert on public.user_report_appeals
+  for insert to authenticated, anon
+  with check (true);
+
+drop policy if exists user_report_appeals_select on public.user_report_appeals;
+create policy user_report_appeals_select on public.user_report_appeals
+  for select to authenticated, anon
+  using (true);
+
+drop policy if exists user_report_appeals_update on public.user_report_appeals;
+create policy user_report_appeals_update on public.user_report_appeals
+  for update to authenticated, anon
+  using (true)
+  with check (true);

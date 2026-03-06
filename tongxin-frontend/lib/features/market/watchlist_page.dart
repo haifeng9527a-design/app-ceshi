@@ -39,7 +39,7 @@ class _WatchlistPageState extends State<WatchlistPage> {
 
   Future<void> _load() async {
     setState(() => _loading = true);
-    final list = await _watchlist.getWatchlist();
+    final list = await _watchlist.getWatchlist(forceSync: true);
     if (!mounted) return;
     setState(() {
       _symbols = list;
@@ -112,7 +112,9 @@ class _WatchlistPageState extends State<WatchlistPage> {
           cmp = a.compareTo(b);
           break;
         case 'pct':
-          cmp = ((q[a]?.changePercent ?? 0) - (q[b]?.changePercent ?? 0)).sign.toInt();
+          cmp = ((q[a]?.changePercent ?? 0) - (q[b]?.changePercent ?? 0))
+              .sign
+              .toInt();
           if (cmp == 0) cmp = a.compareTo(b);
           break;
         case 'price':
@@ -120,7 +122,9 @@ class _WatchlistPageState extends State<WatchlistPage> {
           if (cmp == 0) cmp = a.compareTo(b);
           break;
         default:
-          cmp = ((q[a]?.changePercent ?? 0) - (q[b]?.changePercent ?? 0)).sign.toInt();
+          cmp = ((q[a]?.changePercent ?? 0) - (q[b]?.changePercent ?? 0))
+              .sign
+              .toInt();
       }
       return cmp * asc;
     });
@@ -160,9 +164,48 @@ class _WatchlistPageState extends State<WatchlistPage> {
             itemBuilder: (context) {
               final l10n = AppLocalizations.of(context)!;
               return [
-                PopupMenuItem(value: 'code', child: Row(children: [Text(l10n.marketCode), if (_sortColumn == 'code') Padding(padding: const EdgeInsets.only(left: 8), child: Icon(_sortAscending ? Icons.arrow_drop_up : Icons.arrow_drop_down, size: 18, color: _accent))])),
-                PopupMenuItem(value: 'pct', child: Row(children: [Text(l10n.marketChangePct), if (_sortColumn == 'pct') Padding(padding: const EdgeInsets.only(left: 8), child: Icon(_sortAscending ? Icons.arrow_drop_up : Icons.arrow_drop_down, size: 18, color: _accent))])),
-                PopupMenuItem(value: 'price', child: Row(children: [Text(l10n.marketLatestPrice), if (_sortColumn == 'price') Padding(padding: const EdgeInsets.only(left: 8), child: Icon(_sortAscending ? Icons.arrow_drop_up : Icons.arrow_drop_down, size: 18, color: _accent))])),
+                PopupMenuItem(
+                    value: 'code',
+                    child: Row(children: [
+                      Text(l10n.marketCode),
+                      if (_sortColumn == 'code')
+                        Padding(
+                            padding: const EdgeInsets.only(left: 8),
+                            child: Icon(
+                                _sortAscending
+                                    ? Icons.arrow_drop_up
+                                    : Icons.arrow_drop_down,
+                                size: 18,
+                                color: _accent))
+                    ])),
+                PopupMenuItem(
+                    value: 'pct',
+                    child: Row(children: [
+                      Text(l10n.marketChangePct),
+                      if (_sortColumn == 'pct')
+                        Padding(
+                            padding: const EdgeInsets.only(left: 8),
+                            child: Icon(
+                                _sortAscending
+                                    ? Icons.arrow_drop_up
+                                    : Icons.arrow_drop_down,
+                                size: 18,
+                                color: _accent))
+                    ])),
+                PopupMenuItem(
+                    value: 'price',
+                    child: Row(children: [
+                      Text(l10n.marketLatestPrice),
+                      if (_sortColumn == 'price')
+                        Padding(
+                            padding: const EdgeInsets.only(left: 8),
+                            child: Icon(
+                                _sortAscending
+                                    ? Icons.arrow_drop_up
+                                    : Icons.arrow_drop_down,
+                                size: 18,
+                                color: _accent))
+                    ])),
               ];
             },
           ),
@@ -188,7 +231,8 @@ class _WatchlistPageState extends State<WatchlistPage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.star_border, size: 64, color: _muted.withValues(alpha: 0.5)),
+            Icon(Icons.star_border,
+                size: 64, color: _muted.withValues(alpha: 0.5)),
             const SizedBox(height: 16),
             Text(
               AppLocalizations.of(context)!.marketNoWatchlist,
@@ -273,7 +317,8 @@ class _WatchlistPageState extends State<WatchlistPage> {
                     Text(
                       hasData && quote!.price > 0
                           ? (quote.changePercent >= 0 ? '+' : '') +
-                              quote.changePercent.toStringAsFixed(2) + '%'
+                              quote.changePercent.toStringAsFixed(2) +
+                              '%'
                           : '—',
                       style: TextStyle(color: priceColor, fontSize: 12),
                     ),
@@ -281,7 +326,8 @@ class _WatchlistPageState extends State<WatchlistPage> {
                 ),
               ),
               IconButton(
-                icon: Icon(Icons.remove_circle_outline, color: _muted, size: 22),
+                icon:
+                    Icon(Icons.remove_circle_outline, color: _muted, size: 22),
                 tooltip: AppLocalizations.of(context)!.watchlistRemove,
                 onPressed: () => _remove(symbol),
               ),

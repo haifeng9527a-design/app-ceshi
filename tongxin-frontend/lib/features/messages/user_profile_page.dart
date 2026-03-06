@@ -17,9 +17,36 @@ Future<void> openUserProfile(
   required String userId,
   required String displayName,
   String? avatarUrl,
+  String? roleLabel,
+  bool forceUserProfile = false,
 }) async {
   final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
   if (userId.isEmpty || userId == currentUserId) return;
+  final normalizedRole = (roleLabel ?? '').trim().toLowerCase();
+  final roleSuggestsTeacher = normalizedRole == 'teacher' ||
+      normalizedRole == 'trader' ||
+      normalizedRole == '交易员';
+
+  void openNormalProfile() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => UserProfilePage(
+          userId: userId,
+          displayName:
+              displayName.isEmpty ? AppLocalizations.of(context)!.msgNoNicknameSet : displayName,
+          avatarUrl: avatarUrl,
+        ),
+      ),
+    );
+  }
+
+  // 客服/普通用户强制走用户资料页；只有明确交易员角色才尝试进入交易员资料页。
+  if (forceUserProfile || !roleSuggestsTeacher) {
+    if (!context.mounted) return;
+    openNormalProfile();
+    return;
+  }
+
   final teacherRepo = TeacherRepository();
   final profile = await teacherRepo.fetchProfile(userId);
   final friendsRepo = FriendsRepository();
@@ -35,15 +62,7 @@ Future<void> openUserProfile(
       ),
     );
   } else {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => UserProfilePage(
-          userId: userId,
-          displayName: displayName.isEmpty ? AppLocalizations.of(context)!.msgNoNicknameSet : displayName,
-          avatarUrl: avatarUrl,
-        ),
-      ),
-    );
+    openNormalProfile();
   }
 }
 

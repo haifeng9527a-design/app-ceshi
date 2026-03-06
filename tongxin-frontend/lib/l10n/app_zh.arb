@@ -221,7 +221,7 @@
   "tradingCrypto": "加密货币",
   "tradingQuoteRefreshFailed": "行情刷新失败",
   "tradingSearchAndSelectFirst": "请先搜索并选择标的",
-  "tradingOrderSubmitted": "已提交（模拟，接口待接入）",
+  "tradingOrderSubmitted": "下单已提交",
   "tradingVolume": "成交量",
   "tradingSelectGainersOrSearch": "选择上方涨幅榜或搜索标的",
   "tradingViewRealtimeQuote": "查看实时行情与图表",
@@ -250,7 +250,7 @@
   "tradingConfirmBuy": "确认买入",
   "tradingConfirmSell": "确认卖出",
   "tradingNoData": "暂无数据",
-  "tradingBuySellSubmitted": "{action} {symbol} 已提交（模拟，接口待接入）",
+  "tradingBuySellSubmitted": "{action} {symbol} 下单已提交",
   "@tradingBuySellSubmitted": {
     "placeholders": {
       "action": {"type": "String"},
@@ -398,8 +398,22 @@
   "messagesAddFriend": "添加好友",
   "addFriendScanQr": "扫码添加",
   "addFriendMyQrCode": "我的二维码",
+  "addFriendTabEmail": "邮箱",
+  "addFriendTabAccountId": "账号ID",
+  "addFriendTabQrCode": "二维码",
   "addFriendHintEmail": "请输入对方注册邮箱",
   "addFriendHintId": "请输入对方账号 ID",
+  "addFriendLabelTargetEmail": "对方邮箱",
+  "addFriendLabelAccountIdRule": "账号 ID（6-9位数字）",
+  "addFriendEnterEmail": "请输入邮箱",
+  "addFriendEnterAccountId": "请输入账号ID",
+  "addFriendUserNotFound": "未找到该用户",
+  "addFriendRequestSent": "好友申请已发送",
+  "addFriendAlreadyFriends": "你们已是好友",
+  "addFriendAlreadyPending": "已发送过申请，请等待对方处理",
+  "commonGenerating": "生成中...",
+  "addFriendAccountIdGenerating": "账号ID：生成中...",
+  "addFriendAccountIdValue": "账号ID：{id}",
   "commonAdd": "添加",
   "featuredFollowTrader": "关注交易员",
   "promoEnterSelectTrader": "进入选择交易员",
@@ -663,6 +677,24 @@
   "tradesPnl": "盈亏",
   "tradesQuickSellPending": "快捷卖出 {symbol}（待接入）",
   "tradesSellPending": "卖出 {symbol}（待接入）",
+  "tradesConfirmMarketSellTitle": "确认市价卖出",
+  "tradesConfirmMarketSellContent": "确认按市价卖出 {symbol}，数量 {qty} ?",
+  "@tradesConfirmMarketSellContent": {
+    "placeholders": {
+      "symbol": {"type": "String"},
+      "qty": {"type": "String"}
+    }
+  },
+  "tradesSellSubmitted": "已提交卖出 {symbol}",
+  "@tradesSellSubmitted": {
+    "placeholders": {
+      "symbol": {"type": "String"}
+    }
+  },
+  "tradesPositionBuyMarketValue": "买入市值",
+  "tradesPositionCurrentMarketValue": "当前市值",
+  "tradesPositionTotalPnl": "总盈亏",
+  "tradesPositionTodayFloatingPnl": "当日浮动盈亏",
   "@tradesQuickSellPending": {"placeholders": {"symbol": {"type": "String"}}},
   "@tradesSellPending": {"placeholders": {"symbol": {"type": "String"}}},
   "teachersProfileTitle": "交易员资料",
@@ -1229,6 +1261,7 @@
   "roleTrader": "交易员",
   "roleAdmin": "管理员",
   "roleVip": "会员",
+  "roleCustomerService": "客服",
   "pcHome": "首页",
   "pcNotify": "通知",
   "pcSearchHint": "搜索…",
@@ -1265,6 +1298,7 @@
   "@groupClickLinkToJoin": {"placeholders": {"link": {"type": "String"}}},
   "@groupInviteFriendHintWithName": {"placeholders": {"name": {"type": "String"}}},
   "@groupScanToJoin": {"placeholders": {"name": {"type": "String"}}},
+  "@addFriendAccountIdValue": {"placeholders": {"id": {"type": "String"}}},
   "@groupInvitedCount": {"placeholders": {"count": {"type": "int"}}},
   "@groupMemberListTitle": {"placeholders": {"count": {"type": "int"}}},
   "@groupConfirmCountShort": {"placeholders": {"count": {"type": "int"}}},
@@ -1308,5 +1342,55 @@
       "count": {}
     }
   },
-  "adminCsBroadcastEmpty": "消息不能为空"
+  "adminCsBroadcastEmpty": "消息不能为空",
+  "tradingSummaryUnavailable": "账户数据不可用",
+  "tradingSummaryAvailable": "可用",
+  "tradingSummaryEquity": "总资产",
+  "tradingSummaryMarketValue": "市值",
+  "tradingSummaryOpenOrders": "挂单",
+  "tradingSummaryAvailableFunds": "可用资金",
+  "tradingSummaryFrozenFunds": "冻结资金",
+  "tradingSummaryCashBalance": "现金余额",
+  "tradingSummaryRealizedPnl": "已实现盈亏",
+  "tradingSummaryUnrealizedPnl": "未实现盈亏",
+  "tradingSummaryTodayPnl": "今日盈亏",
+  "tradingSummaryFundDistribution": "资金分布",
+  "tradingSummaryAssetStructure": "资产结构",
+  "tradingSummaryProfitOverview": "收益情况",
+  "tradingLedgerTitle": "账户流水",
+  "tradingLedgerTypeFilter": "类型筛选: ",
+  "tradingLedgerEmpty": "暂无流水",
+  "tradingLedgerBalanceLabel": "余额",
+  "tradingLedgerCsvCopied": "CSV 已复制到剪贴板",
+  "tradingLedgerTypeAccountReset": "账户重置",
+  "tradingLedgerTypeOrderCashFrozen": "下单冻结资金",
+  "tradingLedgerTypeOrderCancelUnfreeze": "撤单解冻资金",
+  "tradingLedgerTypeOrderFilledBuy": "买入成交",
+  "tradingLedgerTypeOrderFilledSell": "卖出成交",
+  "teachersAccountAndLedgerTab": "账户与流水",
+  "teachersQualificationPhoto": "资质照片",
+  "teachersSubmitting": "提交中…",
+  "teachersSubmittedPendingReview": "已提交等待审核",
+  "teachersSubmitApplication": "提交申请",
+  "teachersStatusFrozenMessage": "您当前处于冻结状态，无法发布策略与交易记录。",
+  "teachersStatusUnfreezeTime": "解冻时间：{date}",
+  "@teachersStatusUnfreezeTime": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "teachersStatusBlockedMessage": "您当前处于封禁状态，无法发布策略与交易记录。如有疑问请联系客服。",
+  "teachersStatusRejectedMessage": "您的申请已被拒绝，无法发布策略与交易记录。如有疑问请联系客服。",
+  "teachersStatusPendingMessage": "审核中，通过后可发布策略与交易记录",
+  "teachersStatusCannotPublishHint": "您当前处于{status}状态，无法发布策略",
+  "@teachersStatusCannotPublishHint": {
+    "placeholders": {
+      "status": {
+        "type": "String"
+      }
+    }
+  },
+  "teachersStatusOpenAfterApproval": "审核通过后开放策略发布"
 }

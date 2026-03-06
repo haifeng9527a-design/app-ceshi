@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 
 /// PC 端统一主题：安静、克制的深色桌面风格（非交易终端风）
+///
+/// @deprecated 请优先使用 lib/core/design/design_tokens.dart 与 AppTheme。
+/// 保留本类用于桥接旧代码，新代码禁止引用。
+@Deprecated('Use design_tokens and AppTheme instead')
 class PcDashboardTheme {
   PcDashboardTheme._();
 
   // ---- 主色 ----
-  static const Color surface = Color(0xFF0B0F14);       // 主背景
+  static const Color surface = Color(0xFF0B0F14); // 主背景
   static const Color surfaceVariant = Color(0xFF11161D); // 侧栏、顶栏
   static const Color surfaceElevated = Color(0xFF161D26); // 卡片
   static const Color surfaceHover = Color(0xFF1A222C);
@@ -145,6 +149,7 @@ class PcDashboardTheme {
           borderRadius: BorderRadius.circular(radiusMd),
           borderSide: const BorderSide(color: accent, width: 1.5),
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       );
 }

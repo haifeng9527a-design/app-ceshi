@@ -111,7 +111,7 @@ class _BottomDetailTabsState extends State<BottomDetailTabs> {
   Widget build(BuildContext context) {
     final labels = _labels(context);
     return Column(
-      mainAxisSize: MainAxisSize.min,
+      mainAxisSize: MainAxisSize.max,
       children: [
         Container(
           padding: const EdgeInsets.symmetric(vertical: 6),
@@ -155,12 +155,14 @@ class _BottomDetailTabsState extends State<BottomDetailTabs> {
             }),
           ),
         ),
-        ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 180, maxHeight: 260),
+        Expanded(
           child: SingleChildScrollView(
             child: AnimatedSwitcher(
               duration: const Duration(milliseconds: 200),
-              child: _buildContent(),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 180),
+                child: _buildContent(),
+              ),
             ),
           ),
         ),

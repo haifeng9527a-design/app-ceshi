@@ -10,6 +10,11 @@ import '../../core/supabase_bootstrap.dart';
 import 'teacher_models.dart';
 
 class TeacherRepository {
+  Stream<T> _asBroadcast<T>(Stream<T> stream) {
+    if (stream.isBroadcast) return stream;
+    return stream.asBroadcastStream();
+  }
+
   /// 将 TeacherProfile 转为 Teacher（供策略中心等页面使用）
   static core_models.Teacher profileToTeacher(TeacherProfile p) {
     final name = p.displayName?.trim().isNotEmpty == true
@@ -54,6 +59,16 @@ class TeacherRepository {
   bool get _hasClient => _client != null && SupabaseBootstrap.isReady;
   bool get _useApi => ApiClient.instance.isAvailable;
 
+  Stream<T> _pollImmediately<T>(
+    Future<T> Function() fetch, {
+    required Duration interval,
+  }) async* {
+    while (true) {
+      yield await fetch();
+      await Future<void>.delayed(interval);
+    }
+  }
+
   Future<TeacherProfile?> fetchProfile(String userId) async {
     if (userId.isEmpty) return null;
     if (_useApi) return TeachersApi.instance.getProfile(userId);
@@ -89,12 +104,14 @@ class TeacherRepository {
   Stream<List<TeacherStrategy>> watchStrategies(String teacherId) {
     if (teacherId.isEmpty) return Stream.value(const []);
     if (_useApi) {
-      return Stream.periodic(const Duration(seconds: 10), (_) => null)
-          .asyncMap((_) => TeachersApi.instance.getStrategies(teacherId))
-          .map((list) => list..sort((a, b) => b.createdAt.compareTo(a.createdAt)));
+      return _asBroadcast(_pollImmediately(
+            () => TeachersApi.instance.getStrategies(teacherId),
+            interval: const Duration(seconds: 10),
+          )
+          .map((list) => list..sort((a, b) => b.createdAt.compareTo(a.createdAt))));
     }
     if (!_hasClient) return Stream.value(const []);
-    return _client!
+    return _asBroadcast(_client!
         .from('trade_strategies')
         .stream(primaryKey: ['id']).map(
       (rows) => rows
@@ -102,19 +119,21 @@ class TeacherRepository {
           .map((row) => TeacherStrategy.fromMap(row))
           .toList()
         ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
-    );
+    ));
   }
 
   Stream<List<TeacherStrategy>> watchPublishedStrategies(String teacherId) {
     if (teacherId.isEmpty) return Stream.value(const []);
     if (_useApi) {
-      return Stream.periodic(const Duration(seconds: 10), (_) => null)
-          .asyncMap((_) => TeachersApi.instance.getStrategies(teacherId))
+      return _asBroadcast(_pollImmediately(
+            () => TeachersApi.instance.getStrategies(teacherId),
+            interval: const Duration(seconds: 10),
+          )
           .map((list) => list.where((s) => s.status == 'published').toList()
-            ..sort((a, b) => b.createdAt.compareTo(a.createdAt)));
+            ..sort((a, b) => b.createdAt.compareTo(a.createdAt))));
     }
     if (!_hasClient) return Stream.value(const []);
-    return _client!
+    return _asBroadcast(_client!
         .from('trade_strategies')
         .stream(primaryKey: ['id']).map(
       (rows) => rows
@@ -124,7 +143,7 @@ class TeacherRepository {
           .map((row) => TeacherStrategy.fromMap(row))
           .toList()
         ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
-    );
+    ));
   }
 
   static List<core_models.Comment> _commentRowsToComments(List<Map<String, dynamic>> rows) {
@@ -163,12 +182,14 @@ class TeacherRepository {
   Stream<List<core_models.Comment>> watchTeacherComments(String teacherId) {
     if (teacherId.isEmpty) return Stream.value(const []);
     if (_useApi) {
-      return Stream.periodic(const Duration(seconds: 5), (_) => null)
-          .asyncMap((_) => TeachersApi.instance.getComments(teacherId))
-          .map(_commentRowsToComments);
+      return _asBroadcast(_pollImmediately(
+            () => TeachersApi.instance.getComments(teacherId),
+            interval: const Duration(seconds: 5),
+          )
+          .map(_commentRowsToComments));
     }
     if (!_hasClient) return Stream.value(const []);
-    return _client!
+    return _asBroadcast(_client!
         .from('teacher_comments')
         .stream(primaryKey: ['id']).map(
       (rows) {
@@ -210,7 +231,7 @@ class TeacherRepository {
         list.sort((a, b) => b.key.compareTo(a.key));
         return list.map((e) => e.value).toList();
       },
-    );
+    ));
   }
 
   /// 监听指定策略的评论
@@ -220,12 +241,14 @@ class TeacherRepository {
   ) {
     if (teacherId.isEmpty || strategyId.isEmpty) return Stream.value(const []);
     if (_useApi) {
-      return Stream.periodic(const Duration(seconds: 5), (_) => null)
-          .asyncMap((_) => TeachersApi.instance.getComments(teacherId, strategyId: strategyId))
-          .map(_commentRowsToComments);
+      return _asBroadcast(_pollImmediately(
+            () => TeachersApi.instance.getComments(teacherId, strategyId: strategyId),
+            interval: const Duration(seconds: 5),
+          )
+          .map(_commentRowsToComments));
     }
     if (!_hasClient) return Stream.value(const []);
-    return _client!
+    return _asBroadcast(_client!
         .from('teacher_comments')
         .stream(primaryKey: ['id']).map(
       (rows) {
@@ -267,7 +290,7 @@ class TeacherRepository {
         list.sort((a, b) => b.key.compareTo(a.key));
         return list.map((e) => e.value).toList();
       },
-    );
+    ));
   }
 
   /// 监听指定交易员策略的点赞数
@@ -425,8 +448,10 @@ class TeacherRepository {
   }) {
     if (teacherId.isEmpty || userId.isEmpty) return Stream.value(false);
     if (_useApi) {
-      return Stream.periodic(const Duration(seconds: 5), (_) => null)
-          .asyncMap((_) => TeachersApi.instance.getFollowStatus(teacherId, userId));
+      return _pollImmediately(
+        () => TeachersApi.instance.getFollowStatus(teacherId, userId),
+        interval: const Duration(seconds: 5),
+      );
     }
     if (!_hasClient) return Stream.value(false);
     // Realtime 只支持单列 eq，按 teacher_id 订阅后在本端再按 user_id 过滤
@@ -444,8 +469,10 @@ class TeacherRepository {
   Stream<int> watchFollowerCount(String teacherId) {
     if (teacherId.isEmpty) return Stream.value(0);
     if (_useApi) {
-      return Stream.periodic(const Duration(seconds: 10), (_) => null)
-          .asyncMap((_) => TeachersApi.instance.getFollowerCount(teacherId));
+      return _pollImmediately(
+        () => TeachersApi.instance.getFollowerCount(teacherId),
+        interval: const Duration(seconds: 10),
+      );
     }
     return _client!
         .from('teacher_follows')

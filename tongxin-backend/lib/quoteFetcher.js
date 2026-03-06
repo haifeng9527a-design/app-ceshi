@@ -5,11 +5,23 @@ const polygon = require('./polygon');
 const db = require('./db');
 
 function toQuoteSnapshot(q) {
+  const close = q.price != null ? Number(q.price) : 0;
+  const prevCloseRaw = q.prevClose != null
+    ? Number(q.prevClose)
+    : (q.price != null && q.change != null ? Number(q.price) - Number(q.change) : null);
+  const prevClose = Number.isFinite(prevCloseRaw) && prevCloseRaw > 0 ? prevCloseRaw : null;
+  const changeRaw = q.change != null ? Number(q.change) : 0;
+  const change = prevClose != null ? close - prevClose : changeRaw;
+  const changePercent =
+    prevClose != null && prevClose > 0
+      ? (change / prevClose) * 100
+      : (q.changePercent != null ? Number(q.changePercent) : 0);
   return {
     symbol: q.symbol,
-    close: q.price,
-    change: q.change,
-    percent_change: q.changePercent,
+    close,
+    change,
+    percent_change: Number.isFinite(changePercent) ? changePercent : 0,
+    prev_close: prevClose,
     open: q.open != null ? q.open : null,
     high: q.high != null ? q.high : null,
     low: q.low != null ? q.low : null,
