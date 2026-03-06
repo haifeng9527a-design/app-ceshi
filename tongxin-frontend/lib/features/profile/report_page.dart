@@ -1,11 +1,11 @@
 import 'dart:io';
+import 'dart:async';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
-import '../../core/supabase_bootstrap.dart';
 import '../../l10n/app_localizations.dart';
 import '../messages/friend_models.dart';
 import '../messages/friends_repository.dart';
@@ -29,6 +29,9 @@ class _ReportPageState extends State<ReportPage> {
   final _picker = ImagePicker();
 
   FriendProfile? _reportedUser;
+  StreamSubscription<List<FriendProfile>>? _friendsSub;
+  List<FriendProfile> _friends = const [];
+  bool _friendsLoading = false;
   bool _searching = false;
   ReportReason? _selectedReason;
   final List<File> _screenshots = [];
@@ -43,13 +46,50 @@ class _ReportPageState extends State<ReportPage> {
     if (_reportedUser != null) {
       _searchController.text = _reportedUser!.shortId ?? _reportedUser!.email;
     }
+    _subscribeFriends();
   }
 
   @override
   void dispose() {
+    _friendsSub?.cancel();
     _searchController.dispose();
     _contentController.dispose();
     super.dispose();
+  }
+
+  String _friendsPickerTitle() {
+    final lang = Localizations.localeOf(context).languageCode.toLowerCase();
+    return lang.startsWith('zh') ? '从好友中选择' : 'Select From Friends';
+  }
+
+  String _friendsPickerEmpty() {
+    final lang = Localizations.localeOf(context).languageCode.toLowerCase();
+    return lang.startsWith('zh') ? '暂无好友' : 'No Friends Yet';
+  }
+
+  String _friendsPickerHint() {
+    final lang = Localizations.localeOf(context).languageCode.toLowerCase();
+    return lang.startsWith('zh') ? '请选择好友' : 'Select a friend';
+  }
+
+  void _subscribeFriends() {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || uid.isEmpty) return;
+    setState(() => _friendsLoading = true);
+    _friendsSub?.cancel();
+    _friendsSub = _friendsRepo.watchFriends(userId: uid).listen((list) {
+      if (!mounted) return;
+      setState(() {
+        _friends = list.where((f) => f.userId != uid).toList(growable: false);
+        _friendsLoading = false;
+      });
+    }, onError: (_) {
+      if (!mounted) return;
+      setState(() {
+        _friends = const [];
+        _friendsLoading = false;
+      });
+    });
   }
 
   Future<void> _searchUser() async {
@@ -113,7 +153,7 @@ class _ReportPageState extends State<ReportPage> {
     }
     if (_reportedUser!.userId == uid) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('不能举报自己')),
+        SnackBar(content: Text('${l10n.reportFailed}: invalid target user')),
       );
       return;
     }
@@ -126,6 +166,12 @@ class _ReportPageState extends State<ReportPage> {
           reporterId: uid,
           files: _screenshots,
         );
+        if (urls.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('${l10n.reportFailed}: screenshot upload failed')),
+          );
+          return;
+        }
       }
       await _reportRepo.submitReport(
         reporterId: uid,
@@ -152,6 +198,8 @@ class _ReportPageState extends State<ReportPage> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final friendsOptions = List<FriendProfile>.from(_friends)
+      ..sort((a, b) => a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()));
     return Scaffold(
       appBar: AppBar(
         title: Text(l10n.reportPageTitle),
@@ -187,6 +235,72 @@ class _ReportPageState extends State<ReportPage> {
               ),
             ],
           ),
+          const SizedBox(height: 10),
+          Text(
+            _friendsPickerTitle(),
+            style: TextStyle(color: Colors.white.withOpacity(0.75), fontSize: 12),
+          ),
+          const SizedBox(height: 8),
+          if (_friendsLoading)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: LinearProgressIndicator(minHeight: 2, color: _accent),
+            )
+          else if (friendsOptions.isEmpty)
+            Text(
+              _friendsPickerEmpty(),
+              style: TextStyle(color: Colors.white.withOpacity(0.45), fontSize: 12),
+            )
+          else
+            DropdownButtonFormField<String>(
+              isExpanded: true,
+              menuMaxHeight: 360,
+              value: (() {
+                final selectedId = _reportedUser?.userId;
+                if (selectedId == null) return null;
+                final exists = friendsOptions.any((f) => f.userId == selectedId);
+                return exists ? selectedId : null;
+              })(),
+              decoration: InputDecoration(
+                hintText: _friendsPickerHint(),
+                filled: true,
+                fillColor: Colors.white.withOpacity(0.06),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              ),
+              dropdownColor: const Color(0xFF11141A),
+              iconEnabledColor: _accent,
+              style: const TextStyle(color: Colors.white),
+              items: friendsOptions.map((f) {
+                final label = f.shortId?.isNotEmpty == true
+                    ? '${f.displayName} (${f.shortId})'
+                    : (f.displayName.isNotEmpty ? f.displayName : f.email);
+                return DropdownMenuItem<String>(
+                  value: f.userId,
+                  child: Text(
+                    label,
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                  ),
+                );
+              }).toList(),
+              onChanged: (userId) {
+                if (userId == null) return;
+                FriendProfile? picked;
+                for (final f in friendsOptions) {
+                  if (f.userId == userId) {
+                    picked = f;
+                    break;
+                  }
+                }
+                if (picked == null) return;
+                final FriendProfile chosen = picked;
+                setState(() {
+                  _reportedUser = chosen;
+                  _searchController.text = chosen.shortId ?? chosen.email;
+                });
+              },
+            ),
           if (_reportedUser != null) ...[
             const SizedBox(height: 12),
             _UserChip(profile: _reportedUser!, onClear: () => setState(() => _reportedUser = null)),

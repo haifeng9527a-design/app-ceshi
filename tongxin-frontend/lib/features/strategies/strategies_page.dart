@@ -11,6 +11,7 @@ class StrategiesPage extends StatelessWidget {
   const StrategiesPage({super.key, required this.teacher});
 
   final Teacher teacher;
+  static const Color _pageBg = Color(0xFF0B0D12);
 
   @override
   Widget build(BuildContext context) {
@@ -18,6 +19,7 @@ class StrategiesPage extends StatelessWidget {
     final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
 
     return Scaffold(
+      backgroundColor: _pageBg,
       appBar: AppBar(
         title: Text(AppLocalizations.of(context)!.strategiesPageTitle),
       ),
@@ -29,6 +31,7 @@ class StrategiesPage extends StatelessWidget {
           final history = strategies.length > 1 ? strategies.sublist(1) : const <tmodels.TeacherStrategy>[];
 
           return ListView(
+            physics: const ClampingScrollPhysics(),
             padding: const EdgeInsets.all(16),
             children: [
               _SectionTitle(title: AppLocalizations.of(context)!.strategiesTodayStrategies),
@@ -240,7 +243,7 @@ class _StrategyCard extends StatelessWidget {
             const SizedBox(height: 8),
             Row(
               children: [
-                Icon(Icons.chat_bubble_outline, size: 14, color: Colors.white54),
+                const Icon(Icons.chat_bubble_outline, size: 14, color: Colors.white54),
                 const SizedBox(width: 4),
                 Text(
                   AppLocalizations.of(context)!.featuredCommentsCount(comments.length),

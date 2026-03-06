@@ -3,12 +3,33 @@
  * 由 backend 代理 Supabase chat_*
  */
 const supabaseClient = require('./supabaseClient');
+const restrictionGuard = require('./restrictionGuard');
 
 function registerMessageRoutes(app, requireAuth) {
   const supabase = () => supabaseClient.getClient();
   if (!supabase()) {
     console.warn('[apiMessages] Supabase 未配置，消息接口不可用');
     return;
+  }
+
+  async function getConversationMemberRole(sb, conversationId, uid) {
+    const { data, error } = await sb
+      .from('chat_members')
+      .select('role')
+      .eq('conversation_id', conversationId)
+      .eq('user_id', uid)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    return data?.role || null;
+  }
+
+  async function ensureConversationMember(res, sb, conversationId, uid) {
+    const role = await getConversationMemberRole(sb, conversationId, uid);
+    if (!role) {
+      res.status(403).json({ error: 'not member' });
+      return null;
+    }
+    return role;
   }
 
   /** GET /api/conversations — 会话列表 */
@@ -71,6 +92,8 @@ function registerMessageRoutes(app, requireAuth) {
     const sb = supabase();
     if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
     try {
+      const memberRole = await ensureConversationMember(res, sb, id, uid);
+      if (!memberRole) return;
       const { data: convo, error: e1 } = await sb.from('chat_conversations').select('*').eq('id', id).maybeSingle();
       if (e1) return res.status(502).json({ error: e1.message });
       if (!convo) return res.json(null);
@@ -98,6 +121,8 @@ function registerMessageRoutes(app, requireAuth) {
     const sb = supabase();
     if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
     try {
+      const memberRole = await ensureConversationMember(res, sb, id, uid);
+      if (!memberRole) return;
       let query = sb.from('chat_messages').select('*').eq('conversation_id', id).order('created_at', { ascending: false }).limit(limit);
       if (before) query = query.lt('created_at', before);
       const { data, error } = await query;
@@ -118,6 +143,10 @@ function registerMessageRoutes(app, requireAuth) {
     const sb = supabase();
     if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
     try {
+      const memberRole = await ensureConversationMember(res, sb, conversation_id, uid);
+      if (!memberRole) return;
+      const gate = await restrictionGuard.assertActionAllowed(sb, uid, 'send_message');
+      if (!gate.allowed) return res.status(403).json({ error: gate.reason });
       const { data: profile } = await sb.from('user_profiles').select('display_name').eq('user_id', uid).maybeSingle();
       const senderName = profile?.display_name || '用户';
       const row = {
@@ -168,6 +197,8 @@ function registerMessageRoutes(app, requireAuth) {
     const sb = supabase();
     if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
     try {
+      const memberRole = await ensureConversationMember(res, sb, id, uid);
+      if (!memberRole) return;
       await sb.from('chat_members').update({ unread_count: 0, last_read_at: new Date().toISOString() }).eq('conversation_id', id).eq('user_id', uid);
       res.json({ ok: true });
     } catch (e) {
@@ -184,6 +215,8 @@ function registerMessageRoutes(app, requireAuth) {
     const sb = supabase();
     if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
     try {
+      const memberRole = await ensureConversationMember(res, sb, conversationId, uid);
+      if (!memberRole) return;
       const { data, error } = await sb.from('chat_members').select('user_id').eq('conversation_id', conversationId);
       if (error) return res.status(502).json({ error: error.message });
       const peerId = (data || []).find(m => m.user_id !== uid)?.user_id || null;
@@ -226,6 +259,8 @@ function registerMessageRoutes(app, requireAuth) {
     const sb = supabase();
     if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
     try {
+      const gate = await restrictionGuard.assertActionAllowed(sb, uid, 'send_message');
+      if (!gate.allowed) return res.status(403).json({ error: gate.reason });
       const { data: myRows } = await sb.from('chat_members').select('conversation_id').eq('user_id', uid);
       const myConvIds = (myRows || []).map(r => r.conversation_id);
       if (myConvIds.length === 0) {
@@ -256,6 +291,8 @@ function registerMessageRoutes(app, requireAuth) {
     const sb = supabase();
     if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
     try {
+      const gate = await restrictionGuard.assertActionAllowed(sb, uid, 'create_group');
+      if (!gate.allowed) return res.status(403).json({ error: gate.reason });
       const { data: profile } = await sb.from('user_profiles').select('display_name').eq('user_id', uid).maybeSingle();
       const groupTitle = (title || '').trim() || `Group(${member_user_ids.length + 1})`;
       const allIds = [...new Set([uid, ...member_user_ids])];
@@ -328,6 +365,11 @@ function registerMessageRoutes(app, requireAuth) {
     const sb = supabase();
     if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
     try {
+      const myRole = await ensureConversationMember(res, sb, id, uid);
+      if (!myRole) return;
+      if (!['owner', 'admin'].includes(myRole)) return res.status(403).json({ error: 'forbidden' });
+      const gate = await restrictionGuard.assertActionAllowed(sb, uid, 'join_group');
+      if (!gate.allowed) return res.status(403).json({ error: gate.reason });
       const { data: existing } = await sb.from('chat_members').select('user_id').eq('conversation_id', id);
       const existingIds = new Set((existing || []).map(r => r.user_id));
       const toAdd = user_ids.filter(uid2 => !existingIds.has(uid2));
@@ -362,6 +404,9 @@ function registerMessageRoutes(app, requireAuth) {
     const sb = supabase();
     if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
     try {
+      const myRole = await ensureConversationMember(res, sb, id, uid);
+      if (!myRole) return;
+      if (!['owner', 'admin'].includes(myRole)) return res.status(403).json({ error: 'forbidden' });
       await sb.from('chat_members').delete().eq('conversation_id', id).eq('user_id', userId);
       const name = (leaveUserName || '某用户').toString().trim();
       const { data: profile } = await sb.from('user_profiles').select('display_name').eq('user_id', userId).maybeSingle();
@@ -380,12 +425,17 @@ function registerMessageRoutes(app, requireAuth) {
 
   /** PATCH /api/conversations/:id/members/:userId/role — 更新成员角色 */
   app.patch('/api/conversations/:id/members/:userId/role', requireAuth, async (req, res) => {
+    const uid = req.firebaseUid;
+    if (!uid) return res.status(401).json({ error: '未鉴权' });
     const { id, userId } = req.params;
     const { role } = req.body || {};
     if (!id || !userId || !['owner', 'admin', 'member'].includes(role)) return res.status(400).json({ error: 'invalid' });
     const sb = supabase();
     if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
     try {
+      const myRole = await ensureConversationMember(res, sb, id, uid);
+      if (!myRole) return;
+      if (myRole !== 'owner') return res.status(403).json({ error: 'only owner can change role' });
       await sb.from('chat_members').update({ role }).eq('conversation_id', id).eq('user_id', userId);
       res.json({ ok: true });
     } catch (e) {
@@ -395,13 +445,20 @@ function registerMessageRoutes(app, requireAuth) {
 
   /** POST /api/conversations/:id/transfer-ownership — 转让群主 */
   app.post('/api/conversations/:id/transfer-ownership', requireAuth, async (req, res) => {
+    const uid = req.firebaseUid;
+    if (!uid) return res.status(401).json({ error: '未鉴权' });
     const { id } = req.params;
     const { target_user_id } = req.body || {};
     if (!id || !target_user_id) return res.status(400).json({ error: 'missing target_user_id' });
     const sb = supabase();
     if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
     try {
-      await sb.from('chat_members').update({ role: 'admin' }).eq('conversation_id', id).eq('user_id', req.firebaseUid);
+      const myRole = await ensureConversationMember(res, sb, id, uid);
+      if (!myRole) return;
+      if (myRole !== 'owner') return res.status(403).json({ error: 'only owner can transfer ownership' });
+      const targetRole = await getConversationMemberRole(sb, id, target_user_id);
+      if (!targetRole) return res.status(400).json({ error: 'target is not a member' });
+      await sb.from('chat_members').update({ role: 'admin' }).eq('conversation_id', id).eq('user_id', uid);
       await sb.from('chat_members').update({ role: 'owner' }).eq('conversation_id', id).eq('user_id', target_user_id);
       res.json({ ok: true });
     } catch (e) {
@@ -411,11 +468,16 @@ function registerMessageRoutes(app, requireAuth) {
 
   /** DELETE /api/conversations/:id — 解散群聊 */
   app.delete('/api/conversations/:id', requireAuth, async (req, res) => {
+    const uid = req.firebaseUid;
+    if (!uid) return res.status(401).json({ error: '未鉴权' });
     const { id } = req.params;
     if (!id) return res.status(400).json({ error: 'missing id' });
     const sb = supabase();
     if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
     try {
+      const myRole = await ensureConversationMember(res, sb, id, uid);
+      if (!myRole) return;
+      if (myRole !== 'owner') return res.status(403).json({ error: 'only owner can delete conversation' });
       await sb.from('chat_conversations').delete().eq('id', id);
       res.json({ ok: true });
     } catch (e) {
@@ -425,12 +487,17 @@ function registerMessageRoutes(app, requireAuth) {
 
   /** PATCH /api/conversations/:id — 更新群资料 */
   app.patch('/api/conversations/:id', requireAuth, async (req, res) => {
+    const uid = req.firebaseUid;
+    if (!uid) return res.status(401).json({ error: '未鉴权' });
     const { id } = req.params;
     const { title, announcement, avatar_url } = req.body || {};
     if (!id) return res.status(400).json({ error: 'missing id' });
     const sb = supabase();
     if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
     try {
+      const myRole = await ensureConversationMember(res, sb, id, uid);
+      if (!myRole) return;
+      if (!['owner', 'admin'].includes(myRole)) return res.status(403).json({ error: 'forbidden' });
       const updates = {};
       if (title != null) updates.title = title;
       if (announcement != null) updates.announcement = announcement;
@@ -453,6 +520,8 @@ function registerMessageRoutes(app, requireAuth) {
     const sb = supabase();
     if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
     try {
+      const memberRole = await ensureConversationMember(res, sb, id, uid);
+      if (!memberRole) return;
       const { data: convo } = await sb.from('chat_conversations').select('*').eq('id', id).maybeSingle();
       if (!convo || convo.type !== 'group') return res.json(null);
       const { data: members } = await sb.from('chat_members').select('user_id, role').eq('conversation_id', id);

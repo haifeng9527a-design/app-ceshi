@@ -616,7 +616,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get tradingSearchAndSelectFirst => 'Search and select symbol first';
 
   @override
-  String get tradingOrderSubmitted => 'Submitted (simulated)';
+  String get tradingOrderSubmitted => 'Order submitted';
 
   @override
   String get tradingVolume => 'Volume';
@@ -692,7 +692,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String tradingBuySellSubmitted(String action, String symbol) {
-    return '$action $symbol submitted (simulated)';
+    return '$action $symbol order submitted';
   }
 
   @override
@@ -1884,6 +1884,31 @@ class AppLocalizationsEn extends AppLocalizations {
   String tradesSellPending(String symbol) {
     return 'Sell $symbol (pending)';
   }
+
+  @override
+  String get tradesConfirmMarketSellTitle => 'Confirm market sell';
+
+  @override
+  String tradesConfirmMarketSellContent(String symbol, String qty) {
+    return 'Confirm market sell $symbol, quantity $qty?';
+  }
+
+  @override
+  String tradesSellSubmitted(String symbol) {
+    return 'Sell submitted: $symbol';
+  }
+
+  @override
+  String get tradesPositionBuyMarketValue => 'Buy market value';
+
+  @override
+  String get tradesPositionCurrentMarketValue => 'Current market value';
+
+  @override
+  String get tradesPositionTotalPnl => 'Total P/L';
+
+  @override
+  String get tradesPositionTodayFloatingPnl => 'Today floating P/L';
 
   @override
   String get teachersProfileTitle => 'Trader profile';
@@ -3733,4 +3758,121 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get adminCsBroadcastEmpty => 'Message cannot be empty';
+
+  @override
+  String get tradingSummaryUnavailable => 'Account data unavailable';
+
+  @override
+  String get tradingSummaryAvailable => 'Available';
+
+  @override
+  String get tradingSummaryEquity => 'Equity';
+
+  @override
+  String get tradingSummaryMarketValue => 'Market value';
+
+  @override
+  String get tradingSummaryOpenOrders => 'Open orders';
+
+  @override
+  String get tradingSummaryAvailableFunds => 'Available funds';
+
+  @override
+  String get tradingSummaryFrozenFunds => 'Frozen funds';
+
+  @override
+  String get tradingSummaryCashBalance => 'Cash balance';
+
+  @override
+  String get tradingSummaryRealizedPnl => 'Realized P/L';
+
+  @override
+  String get tradingSummaryUnrealizedPnl => 'Unrealized P/L';
+
+  @override
+  String get tradingSummaryTodayPnl => 'Today P/L';
+
+  @override
+  String get tradingSummaryFundDistribution => 'Fund Distribution';
+
+  @override
+  String get tradingSummaryAssetStructure => 'Asset Structure';
+
+  @override
+  String get tradingSummaryProfitOverview => 'Profit Overview';
+
+  @override
+  String get tradingLedgerTitle => 'Account Ledger';
+
+  @override
+  String get tradingLedgerTypeFilter => 'Type filter: ';
+
+  @override
+  String get tradingLedgerEmpty => 'No ledger entries';
+
+  @override
+  String get tradingLedgerBalanceLabel => 'Balance';
+
+  @override
+  String get tradingLedgerCsvCopied => 'CSV copied to clipboard';
+
+  @override
+  String get tradingLedgerTypeAccountReset => 'Account reset';
+
+  @override
+  String get tradingLedgerTypeOrderCashFrozen => 'Order cash frozen';
+
+  @override
+  String get tradingLedgerTypeOrderCancelUnfreeze => 'Order cancel unfreeze';
+
+  @override
+  String get tradingLedgerTypeOrderFilledBuy => 'Buy fill';
+
+  @override
+  String get tradingLedgerTypeOrderFilledSell => 'Sell fill';
+
+  @override
+  String get teachersAccountAndLedgerTab => 'Account & Ledger';
+
+  @override
+  String get teachersQualificationPhoto => 'Qualification photo';
+
+  @override
+  String get teachersSubmitting => 'Submitting...';
+
+  @override
+  String get teachersSubmittedPendingReview => 'Submitted, waiting for review';
+
+  @override
+  String get teachersSubmitApplication => 'Submit Application';
+
+  @override
+  String get teachersStatusFrozenMessage =>
+      'Your account is frozen. You cannot publish strategies or trade records.';
+
+  @override
+  String teachersStatusUnfreezeTime(String date) {
+    return ' Unfreeze at: $date';
+  }
+
+  @override
+  String get teachersStatusBlockedMessage =>
+      'Your account is blocked. You cannot publish strategies or trade records. Please contact customer service if needed.';
+
+  @override
+  String get teachersStatusRejectedMessage =>
+      'Your application was rejected. You cannot publish strategies or trade records. Please contact customer service if needed.';
+
+  @override
+  String get teachersStatusPendingMessage =>
+      'Under review. Publishing strategies and trade records will be enabled after approval.';
+
+  @override
+  String teachersStatusCannotPublishHint(String status) {
+    return 'Your account is $status. Publishing strategies is not available.';
+  }
+
+  @override
+  String get teachersStatusOpenAfterApproval =>
+      'Strategy publishing will be available after approval';
 }

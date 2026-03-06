@@ -5,11 +5,242 @@
 const supabaseClient = require('./supabaseClient');
 
 function registerTeacherRoutes(app, requireAuth, optionalAuth) {
+  const requireAdminRole = async (req, res, next) => {
+    if (req.isAdminByKey === true) return next();
+    const uid = req.firebaseUid;
+    if (!uid) return res.status(401).json({ error: '未鉴权' });
+    const sb = supabase();
+    if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
+    try {
+      const { data, error } = await sb.from('user_profiles').select('role').eq('user_id', uid).maybeSingle();
+      if (error) return res.status(502).json({ error: error.message });
+      const role = String(data?.role || '').toLowerCase();
+      if (role !== 'admin' && role !== 'customer_service_admin') {
+        return res.status(403).json({ error: 'forbidden' });
+      }
+      return next();
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message || e) });
+    }
+  };
+
   const supabase = () => supabaseClient.getClient();
   if (!supabase()) {
     console.warn('[apiTeachers] Supabase 未配置，交易员接口不可用');
     return;
   }
+
+  /** GET /api/admin/teachers/profiles — 管理后台交易员资料列表 */
+  app.get('/api/admin/teachers/profiles', requireAuth, requireAdminRole, async (req, res) => {
+    const sb = supabase();
+    if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
+    try {
+      const { data, error } = await sb.from('teacher_profiles').select('*');
+      if (error) return res.status(502).json({ error: error.message });
+      return res.json(data || []);
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message || e) });
+    }
+  });
+
+  /** PUT /api/admin/teachers/:userId/profile — 管理后台保存交易员资料 */
+  app.put('/api/admin/teachers/:userId/profile', requireAuth, requireAdminRole, async (req, res) => {
+    const { userId } = req.params;
+    if (!userId) return res.status(400).json({ error: 'missing userId' });
+    const sb = supabase();
+    if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
+    try {
+      const body = req.body || {};
+      const allowed = [
+        'display_name', 'real_name', 'title', 'organization', 'bio', 'tags',
+        'wins', 'losses', 'rating', 'today_strategy', 'pnl_current', 'pnl_month',
+        'pnl_year', 'pnl_total', 'updated_at',
+      ];
+      const payload = { user_id: userId };
+      for (const k of allowed) {
+        if (body[k] !== undefined) payload[k] = body[k];
+      }
+      if (!payload.updated_at) payload.updated_at = new Date().toISOString();
+      const { error } = await sb.from('teacher_profiles').upsert(payload, { onConflict: 'user_id' });
+      if (error) return res.status(502).json({ error: error.message });
+      return res.json({ ok: true });
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message || e) });
+    }
+  });
+
+  /** PATCH /api/admin/teachers/:userId/status — 管理后台更新交易员状态 */
+  app.patch('/api/admin/teachers/:userId/status', requireAuth, requireAdminRole, async (req, res) => {
+    const { userId } = req.params;
+    if (!userId) return res.status(400).json({ error: 'missing userId' });
+    const { status, frozen_until } = req.body || {};
+    if (!status) return res.status(400).json({ error: 'missing status' });
+    const sb = supabase();
+    if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
+    try {
+      const updates = {
+        status: String(status).trim(),
+        updated_at: new Date().toISOString(),
+      };
+      if (frozen_until !== undefined) updates.frozen_until = frozen_until;
+      const { error } = await sb.from('teacher_profiles').update(updates).eq('user_id', userId);
+      if (error) return res.status(502).json({ error: error.message });
+      return res.json({ ok: true });
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message || e) });
+    }
+  });
+
+  /** POST /api/admin/teachers/:userId/strategies */
+  app.post('/api/admin/teachers/:userId/strategies', requireAuth, requireAdminRole, async (req, res) => {
+    const { userId } = req.params;
+    if (!userId) return res.status(400).json({ error: 'missing userId' });
+    const { title, summary, content, status } = req.body || {};
+    const sb = supabase();
+    if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
+    try {
+      const { error } = await sb.from('trade_strategies').insert({
+        teacher_id: userId,
+        title: title || '',
+        summary: summary || '',
+        content: content || '',
+        status: status || 'published',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+      if (error) return res.status(502).json({ error: error.message });
+      return res.json({ ok: true });
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message || e) });
+    }
+  });
+
+  /** POST /api/admin/teachers/:userId/trade-records */
+  app.post('/api/admin/teachers/:userId/trade-records', requireAuth, requireAdminRole, async (req, res) => {
+    const { userId } = req.params;
+    if (!userId) return res.status(400).json({ error: 'missing userId' });
+    const sb = supabase();
+    if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
+    try {
+      const body = req.body || {};
+      const payload = {
+        teacher_id: userId,
+        asset: body.asset || '',
+        buy_time: body.buy_time || null,
+        buy_shares: body.buy_shares ?? 0,
+        buy_price: body.buy_price ?? 0,
+        sell_time: body.sell_time || null,
+        sell_shares: body.sell_shares ?? 0,
+        sell_price: body.sell_price ?? 0,
+        pnl_ratio: body.pnl_ratio ?? 0,
+        pnl_amount: body.pnl_amount ?? 0,
+        created_at: new Date().toISOString(),
+      };
+      const { error } = await sb.from('trade_records').insert(payload);
+      if (error) return res.status(502).json({ error: error.message });
+      return res.json({ ok: true });
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message || e) });
+    }
+  });
+
+  /** POST /api/admin/teachers/:userId/positions */
+  app.post('/api/admin/teachers/:userId/positions', requireAuth, requireAdminRole, async (req, res) => {
+    const { userId } = req.params;
+    if (!userId) return res.status(400).json({ error: 'missing userId' });
+    const sb = supabase();
+    if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
+    try {
+      const body = req.body || {};
+      const payload = {
+        teacher_id: userId,
+        asset: body.asset || '',
+        buy_time: body.buy_time || null,
+        buy_shares: body.buy_shares ?? 0,
+        buy_price: body.buy_price ?? 0,
+        cost_price: body.cost_price ?? 0,
+        current_price: body.current_price ?? 0,
+        floating_pnl: body.floating_pnl ?? 0,
+        pnl_ratio: body.pnl_ratio ?? 0,
+        pnl_amount: body.pnl_amount ?? 0,
+        is_history: body.is_history === true,
+        sell_time: body.sell_time || null,
+        sell_price: body.sell_price ?? null,
+        created_at: new Date().toISOString(),
+      };
+      const { error } = await sb.from('teacher_positions').insert(payload);
+      if (error) return res.status(502).json({ error: error.message });
+      return res.json({ ok: true });
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message || e) });
+    }
+  });
+
+  /** POST /api/admin/teachers/:userId/comments */
+  app.post('/api/admin/teachers/:userId/comments', requireAuth, requireAdminRole, async (req, res) => {
+    const { userId } = req.params;
+    if (!userId) return res.status(400).json({ error: 'missing userId' });
+    const sb = supabase();
+    if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
+    try {
+      const body = req.body || {};
+      const { error } = await sb.from('teacher_comments').insert({
+        teacher_id: userId,
+        user_name: body.user_name || '用户',
+        content: body.content || '',
+        comment_time: body.comment_time || null,
+        created_at: new Date().toISOString(),
+      });
+      if (error) return res.status(502).json({ error: error.message });
+      return res.json({ ok: true });
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message || e) });
+    }
+  });
+
+  /** POST /api/admin/teachers/:userId/articles */
+  app.post('/api/admin/teachers/:userId/articles', requireAuth, requireAdminRole, async (req, res) => {
+    const { userId } = req.params;
+    if (!userId) return res.status(400).json({ error: 'missing userId' });
+    const sb = supabase();
+    if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
+    try {
+      const body = req.body || {};
+      const { error } = await sb.from('teacher_articles').insert({
+        teacher_id: userId,
+        title: body.title || '',
+        summary: body.summary || '',
+        article_time: body.article_time || null,
+        created_at: new Date().toISOString(),
+      });
+      if (error) return res.status(502).json({ error: error.message });
+      return res.json({ ok: true });
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message || e) });
+    }
+  });
+
+  /** POST /api/admin/teachers/:userId/schedules */
+  app.post('/api/admin/teachers/:userId/schedules', requireAuth, requireAdminRole, async (req, res) => {
+    const { userId } = req.params;
+    if (!userId) return res.status(400).json({ error: 'missing userId' });
+    const sb = supabase();
+    if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
+    try {
+      const body = req.body || {};
+      const { error } = await sb.from('teacher_schedules').insert({
+        teacher_id: userId,
+        title: body.title || '',
+        schedule_time: body.schedule_time || null,
+        location: body.location || '',
+        created_at: new Date().toISOString(),
+      });
+      if (error) return res.status(502).json({ error: error.message });
+      return res.json({ ok: true });
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message || e) });
+    }
+  });
 
   /** GET /api/teachers — 交易员列表（已通过） */
   app.get('/api/teachers', optionalAuth, async (req, res) => {

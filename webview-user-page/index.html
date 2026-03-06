@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TeacherHub WebView User</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: #0b0c0e;
+        color: #e8d5a3;
+      }
+      .wrap {
+        max-width: 920px;
+        margin: 0 auto;
+        padding: 16px;
+      }
+      .card {
+        background: #111215;
+        border: 1px solid #2a2c32;
+        border-radius: 12px;
+        padding: 14px;
+        margin-bottom: 12px;
+      }
+      h1 {
+        margin: 0 0 12px;
+        font-size: 18px;
+      }
+      .hint {
+        color: #9ca3af;
+        font-size: 13px;
+        line-height: 1.5;
+      }
+      pre {
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-size: 13px;
+        color: #d1d5db;
+      }
+      .ok {
+        color: #22c55e;
+      }
+      .warn {
+        color: #f59e0b;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <h1>WebView 用户信息展示页</h1>
+        <div id="status" class="hint warn">等待 App 注入用户信息...</div>
+      </div>
+      <div class="card">
+        <div class="hint">window.TeacherHub</div>
+        <pre id="raw"></pre>
+      </div>
+      <div class="card">
+        <div class="hint">当前用户（window.getTeacherHubCurrentUser()）</div>
+        <pre id="user"></pre>
+      </div>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

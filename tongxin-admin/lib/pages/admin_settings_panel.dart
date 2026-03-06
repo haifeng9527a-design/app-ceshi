@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:supabase_flutter/supabase_flutter.dart' show FileOptions;
+import 'dart:convert';
 
-import '../core/supabase_bootstrap.dart';
+import '../core/admin_api_client.dart';
 import '../l10n/admin_strings.dart';
 import '../repo/customer_service_repository.dart';
 
@@ -13,11 +13,14 @@ class AdminSettingsPanel extends StatefulWidget {
   State<AdminSettingsPanel> createState() => _AdminSettingsPanelState();
 }
 
+enum _CsSettingsTab { system, staff, assignment, broadcast }
+
 class _AdminSettingsPanelState extends State<AdminSettingsPanel> {
   final _csRepo = CustomerServiceRepository();
   final _avatarController = TextEditingController();
   final _welcomeController = TextEditingController();
   final _broadcastController = TextEditingController();
+  final _defaultTradingCashController = TextEditingController();
   final _picker = ImagePicker();
 
   String? _systemCsUserId;
@@ -27,7 +30,11 @@ class _AdminSettingsPanelState extends State<AdminSettingsPanel> {
   bool _loading = true;
   String? _loadError;
   bool _saving = false;
+  bool _savingTradingCash = false;
   bool _uploadingAvatar = false;
+  String _userSearch = '';
+  _CsSettingsTab _tab = _CsSettingsTab.system;
+  Map<String, int> _assignmentStats = const {};
 
   static const Color _accent = Color(0xFFD4AF37);
 
@@ -43,6 +50,7 @@ class _AdminSettingsPanelState extends State<AdminSettingsPanel> {
     _avatarController.dispose();
     _welcomeController.dispose();
     _broadcastController.dispose();
+    _defaultTradingCashController.dispose();
     super.dispose();
   }
 
@@ -56,27 +64,25 @@ class _AdminSettingsPanelState extends State<AdminSettingsPanel> {
       final csId = await _csRepo.getSystemCustomerServiceUserId();
       final avatarUrl = await _csRepo.getCustomerServiceAvatarUrl();
       final welcomeMsg = await _csRepo.getCustomerServiceWelcomeMessage();
-      final usersRes = await SupabaseBootstrap.client
-          .from('user_profiles')
-          .select('user_id, display_name, email, short_id, avatar_url')
-          .order('display_name');
-      final users = (usersRes as List<dynamic>)
-          .map((e) => Map<String, dynamic>.from(e as Map))
-          .toList();
-      final csStaffRes = await SupabaseBootstrap.client
-          .from('user_profiles')
-          .select('user_id, display_name, email, short_id')
-          .eq('role', 'customer_service');
-      final staff = (csStaffRes as List<dynamic>)
-          .map((e) => Map<String, dynamic>.from(e as Map))
-          .toList();
+      final users = await _csRepo.listUsersBasic();
+      final staff = await _csRepo.listCustomerServiceStaffBasic();
+      final assignmentStats = await _csRepo.getAssignmentStats();
+      double? tradingDefaultCash;
+      try {
+        tradingDefaultCash = await _loadTradingDefaultCash();
+      } catch (_) {}
       if (!mounted) return;
       setState(() {
         _systemCsUserId = csId;
         _avatarController.text = avatarUrl ?? '';
         _welcomeController.text = welcomeMsg ?? '';
+        if (tradingDefaultCash != null) {
+          _defaultTradingCashController.text =
+              tradingDefaultCash.toStringAsFixed(0);
+        }
         _users = users;
         _csStaff = staff;
+        _assignmentStats = assignmentStats;
         _loading = false;
       });
     } catch (e, st) {
@@ -86,6 +92,61 @@ class _AdminSettingsPanelState extends State<AdminSettingsPanel> {
         _loadError = e.toString();
         _loading = false;
       });
+    }
+  }
+
+  Future<double?> _loadTradingDefaultCash() async {
+    final client = AdminApiClient.instance;
+    if (!client.isAvailable) return null;
+    final resp = await client.get('/api/admin/trading/config');
+    if (resp.statusCode < 200 || resp.statusCode >= 300) return null;
+    final body = jsonDecode(resp.body);
+    if (body is! Map<String, dynamic>) return null;
+    final raw = body['default_initial_cash_usd'];
+    final n = raw is num ? raw.toDouble() : double.tryParse('$raw');
+    if (n == null || n <= 0) return null;
+    return n;
+  }
+
+  Future<void> _saveTradingDefaultCash() async {
+    if (_savingTradingCash) return;
+    final text = _defaultTradingCashController.text.trim();
+    final n = double.tryParse(text);
+    if (n == null || n <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('初始资金必须是大于 0 的数字')),
+      );
+      return;
+    }
+    setState(() => _savingTradingCash = true);
+    try {
+      final resp = await AdminApiClient.instance.patch(
+        '/api/admin/trading/config',
+        body: {'default_initial_cash_usd': n},
+      );
+      if (!mounted) return;
+      if (resp.statusCode >= 200 && resp.statusCode < 300) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('模拟盘默认初始资金已保存')),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('保存失败：${resp.statusCode} ${resp.body}'),
+            backgroundColor: Colors.red.shade700,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('保存失败：$e'),
+          backgroundColor: Colors.red.shade700,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _savingTradingCash = false);
     }
   }
 
@@ -108,6 +169,7 @@ class _AdminSettingsPanelState extends State<AdminSettingsPanel> {
         _systemCsUserId = userId;
         _saving = false;
       });
+      _load();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -148,7 +210,7 @@ class _AdminSettingsPanelState extends State<AdminSettingsPanel> {
   }
 
   Future<void> _uploadAvatar() async {
-    if (_uploadingAvatar || !SupabaseBootstrap.isReady) return;
+    if (_uploadingAvatar) return;
     final picked = await _picker.pickImage(source: ImageSource.gallery);
     if (picked == null) return;
     setState(() => _uploadingAvatar = true);
@@ -156,16 +218,16 @@ class _AdminSettingsPanelState extends State<AdminSettingsPanel> {
       final bytes = await picked.readAsBytes();
       final ext = picked.name.split('.').last.toLowerCase();
       final safeExt = ['jpg', 'jpeg', 'png', 'webp'].contains(ext) ? ext : 'jpg';
-      final path = 'customer_service/cs_avatar_${DateTime.now().millisecondsSinceEpoch}.$safeExt';
-      await SupabaseBootstrap.client.storage.from('avatars').uploadBinary(
-            path,
-            bytes,
-            fileOptions: FileOptions(
-              contentType: safeExt == 'png' ? 'image/png' : safeExt == 'webp' ? 'image/webp' : 'image/jpeg',
-              upsert: true,
-            ),
-          );
-      final url = SupabaseBootstrap.client.storage.from('avatars').getPublicUrl(path);
+      final contentType = safeExt == 'png'
+          ? 'image/png'
+          : safeExt == 'webp'
+              ? 'image/webp'
+              : 'image/jpeg';
+      final url = await _csRepo.uploadCustomerServiceAvatar(
+        contentBase64: base64Encode(bytes),
+        contentType: contentType,
+        fileName: picked.name,
+      );
       await _csRepo.setCustomerServiceAvatarUrl(url);
       if (!mounted) return;
       setState(() {
@@ -262,6 +324,251 @@ class _AdminSettingsPanelState extends State<AdminSettingsPanel> {
     return shortId ?? u['user_id']?.toString() ?? '—';
   }
 
+  List<Map<String, dynamic>> get _filteredUsers {
+    final q = _userSearch.trim().toLowerCase();
+    if (q.isEmpty) return _users;
+    return _users.where((u) {
+      final name = _userLabel(u).toLowerCase();
+      final email = (u['email']?.toString() ?? '').toLowerCase();
+      final sid = (u['short_id']?.toString() ?? '').toLowerCase();
+      return name.contains(q) || email.contains(q) || sid.contains(q);
+    }).toList(growable: false);
+  }
+
+  Widget _buildTabs() {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: _CsSettingsTab.values.map((tab) {
+        final selected = _tab == tab;
+        return ChoiceChip(
+          label: Text(_tabLabel(tab)),
+          selected: selected,
+          onSelected: (_) => setState(() => _tab = tab),
+          selectedColor: _accent.withOpacity(0.25),
+          labelStyle: TextStyle(
+            color: selected ? _accent : Colors.white.withOpacity(0.9),
+            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  String _tabLabel(_CsSettingsTab tab) {
+    switch (tab) {
+      case _CsSettingsTab.system:
+        return '系统客服账号';
+      case _CsSettingsTab.staff:
+        return '客服人员';
+      case _CsSettingsTab.assignment:
+        return '分配规则';
+      case _CsSettingsTab.broadcast:
+        return '群发中心';
+    }
+  }
+
+  Widget _buildSystemSection() {
+    final current = _users.firstWhere(
+      (u) => u['user_id'] == _systemCsUserId,
+      orElse: () => {'user_id': _systemCsUserId, 'display_name': _systemCsUserId},
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildRow(AdminStrings.adminCsSystemAccount, _systemCsUserId != null && _systemCsUserId!.isNotEmpty ? _userLabel(current) : AdminStrings.adminCsNotConfigured),
+        const SizedBox(height: 8),
+        Text(AdminStrings.adminCsSystemAccountHint, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xFF6C6F77))),
+        const SizedBox(height: 12),
+        TextField(
+          decoration: const InputDecoration(
+            hintText: '搜索用户（昵称/邮箱/短ID）',
+            border: OutlineInputBorder(),
+          ),
+          onChanged: (v) => setState(() => _userSearch = v),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: _filteredUsers.take(30).map((u) {
+            final uid = u['user_id']?.toString() ?? '';
+            final isCurrent = uid == _systemCsUserId;
+            return FilterChip(
+              label: Text(_userLabel(u)),
+              selected: isCurrent,
+              onSelected: isCurrent ? null : (_) => _setUserAsSystemCs(uid),
+              selectedColor: _accent.withOpacity(0.3),
+              checkmarkColor: _accent,
+            );
+          }).toList(),
+        ),
+        const SizedBox(height: 20),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _avatarController,
+                decoration: InputDecoration(
+                  labelText: AdminStrings.adminCsAvatarUrl,
+                  hintText: 'https://... 或点击上传',
+                  border: const OutlineInputBorder(),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            FilledButton.icon(
+              onPressed: _uploadingAvatar ? null : _uploadAvatar,
+              icon: _uploadingAvatar
+                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                  : const Icon(Icons.upload_file, size: 20),
+              label: Text(AdminStrings.adminCsUploadAvatar),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _welcomeController,
+          decoration: InputDecoration(
+            labelText: AdminStrings.adminCsWelcomeMessage,
+            hintText: AdminStrings.adminCsWelcomeMessageHint,
+            border: const OutlineInputBorder(),
+            alignLabelWithHint: true,
+          ),
+          maxLines: 3,
+        ),
+        const SizedBox(height: 12),
+        FilledButton(
+          onPressed: _saving ? null : () => _saveSystemCs(_systemCsUserId),
+          child: _saving ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black)) : Text(AdminStrings.commonSave),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStaffSection() {
+    final candidateUsers = _filteredUsers.where((u) => !_csStaff.any((s) => s['user_id'] == u['user_id'])).toList(growable: false);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(AdminStrings.adminCsStaffHint, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xFF6C6F77))),
+        const SizedBox(height: 10),
+        ..._csStaff.map((u) {
+          final uid = u['user_id']?.toString() ?? '';
+          return ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: CircleAvatar(
+              radius: 20,
+              backgroundColor: _accent.withOpacity(0.2),
+              child: Text(_userLabel(u).isNotEmpty ? _userLabel(u)[0].toUpperCase() : '?', style: const TextStyle(color: _accent)),
+            ),
+            title: Text(_userLabel(u)),
+            subtitle: Text(uid),
+            trailing: IconButton(
+              icon: const Icon(Icons.remove_circle_outline, color: Colors.red),
+              onPressed: _saving ? null : () => _removeCsStaff(uid),
+              tooltip: AdminStrings.adminRemoveCsStaff,
+            ),
+          );
+        }),
+        const SizedBox(height: 8),
+        const Text('添加客服人员'),
+        const SizedBox(height: 8),
+        TextField(
+          decoration: const InputDecoration(
+            hintText: '搜索用户（昵称/邮箱/短ID）',
+            border: OutlineInputBorder(),
+          ),
+          onChanged: (v) => setState(() => _userSearch = v),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: candidateUsers.take(30).map((u) {
+            final uid = u['user_id']?.toString() ?? '';
+            return ActionChip(
+              label: Text(_userLabel(u)),
+              onPressed: _saving ? null : () => _addCsStaff(uid),
+              avatar: const Icon(Icons.add, size: 18, color: Color(0xFFD4AF37)),
+            );
+          }).toList(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAssignmentSection() {
+    final staffMap = {
+      for (final s in _csStaff) s['user_id']?.toString() ?? '': _userLabel(s),
+    };
+    final entries = _assignmentStats.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('当前规则：优先已有绑定；否则按在线客服池哈希分配；无人在线时回退系统客服。', style: Theme.of(context).textTheme.bodyMedium),
+        const SizedBox(height: 12),
+        if (entries.isEmpty)
+          Text('暂无分配数据', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xFF6C6F77)))
+        else
+          ...entries.map((e) => ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.support_agent_outlined, color: _accent),
+                title: Text(staffMap[e.key] ?? e.key),
+                subtitle: Text(e.key),
+                trailing: Text('${e.value} 人', style: const TextStyle(fontWeight: FontWeight.w700)),
+              )),
+      ],
+    );
+  }
+
+  Widget _buildBroadcastSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(AdminStrings.adminCsBroadcastHint, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xFF6C6F77))),
+        const SizedBox(height: 10),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _broadcastController,
+                decoration: const InputDecoration(
+                  hintText: '输入群发内容...',
+                  border: OutlineInputBorder(),
+                ),
+                maxLines: 4,
+              ),
+            ),
+            const SizedBox(width: 12),
+            FilledButton.icon(
+              onPressed: _broadcasting ? null : _doBroadcast,
+              icon: _broadcasting
+                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                  : const Icon(Icons.send, size: 20),
+              label: Text(AdminStrings.adminCsBroadcastSend),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCurrentTabBody() {
+    switch (_tab) {
+      case _CsSettingsTab.system:
+        return _buildSystemSection();
+      case _CsSettingsTab.staff:
+        return _buildStaffSection();
+      case _CsSettingsTab.assignment:
+        return _buildAssignmentSection();
+      case _CsSettingsTab.broadcast:
+        return _buildBroadcastSection();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListView(
@@ -283,9 +590,48 @@ class _AdminSettingsPanelState extends State<AdminSettingsPanel> {
         ),
         const SizedBox(height: 24),
         Text(
+          '交易模拟盘配置',
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(color: _accent),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _defaultTradingCashController,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(
+                  labelText: '交易员默认初始资金 (USD)',
+                  hintText: '1000000',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            FilledButton(
+              onPressed: _savingTradingCash ? null : _saveTradingDefaultCash,
+              child: _savingTradingCash
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.black,
+                      ),
+                    )
+                  : const Text('保存'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 24),
+        Text(
           AdminStrings.adminCsConfig,
           style: Theme.of(context).textTheme.titleMedium?.copyWith(color: _accent),
         ),
+        const SizedBox(height: 8),
+        _buildTabs(),
         const SizedBox(height: 12),
         if (_loading)
           const Center(child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator(color: Color(0xFFD4AF37))))
@@ -305,167 +651,7 @@ class _AdminSettingsPanelState extends State<AdminSettingsPanel> {
               ),
             ),
           )
-        else ...[
-          _buildRow(AdminStrings.adminCsSystemAccount, _systemCsUserId != null && _systemCsUserId!.isNotEmpty
-              ? _userLabel(_users.firstWhere((u) => u['user_id'] == _systemCsUserId, orElse: () => {'user_id': _systemCsUserId, 'display_name': _systemCsUserId}))
-              : AdminStrings.adminCsNotConfigured),
-          const SizedBox(height: 8),
-          Text(AdminStrings.adminCsSystemAccountHint, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xFF6C6F77))),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: _users.take(20).map((u) {
-              final uid = u['user_id']?.toString() ?? '';
-              final isCurrent = uid == _systemCsUserId;
-              return FilterChip(
-                label: Text(_userLabel(u)),
-                selected: isCurrent,
-                onSelected: isCurrent ? null : (_) => _setUserAsSystemCs(uid),
-                selectedColor: _accent.withOpacity(0.3),
-                checkmarkColor: _accent,
-              );
-            }).toList(),
-          ),
-          if (_users.length > 20)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text('... 共 ${_users.length} 个用户，可在用户管理中操作', style: Theme.of(context).textTheme.bodySmall),
-            ),
-          const SizedBox(height: 24),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _avatarController,
-                  decoration: InputDecoration(
-                    labelText: AdminStrings.adminCsAvatarUrl,
-                    hintText: 'https://... 或点击上传',
-                    border: const OutlineInputBorder(),
-                  ),
-                  onSubmitted: (_) => _saveSystemCs(_systemCsUserId),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Column(
-                children: [
-                  FilledButton.icon(
-                    onPressed: _uploadingAvatar ? null : _uploadAvatar,
-                    icon: _uploadingAvatar
-                        ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
-                        : const Icon(Icons.upload_file, size: 20),
-                    label: Text(AdminStrings.adminCsUploadAvatar),
-                  ),
-                  if (_avatarController.text.trim().isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: Image.network(
-                        _avatarController.text.trim(),
-                        width: 64,
-                        height: 64,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => const SizedBox(width: 64, height: 64, child: Icon(Icons.broken_image)),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _welcomeController,
-            decoration: InputDecoration(
-              labelText: AdminStrings.adminCsWelcomeMessage,
-              hintText: AdminStrings.adminCsWelcomeMessageHint,
-              border: const OutlineInputBorder(),
-              alignLabelWithHint: true,
-            ),
-            maxLines: 3,
-            onSubmitted: (_) => _saveSystemCs(_systemCsUserId),
-          ),
-          const SizedBox(height: 16),
-          FilledButton(
-            onPressed: _saving ? null : () => _saveSystemCs(_systemCsUserId),
-            child: _saving ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black)) : Text(AdminStrings.commonSave),
-          ),
-          const SizedBox(height: 32),
-          Text(
-            AdminStrings.adminCsBroadcast,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(color: _accent),
-          ),
-          const SizedBox(height: 4),
-          Text(AdminStrings.adminCsBroadcastHint, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xFF6C6F77))),
-          const SizedBox(height: 12),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _broadcastController,
-                  decoration: const InputDecoration(
-                    hintText: '输入群发内容...',
-                    border: OutlineInputBorder(),
-                  ),
-                  maxLines: 3,
-                ),
-              ),
-              const SizedBox(width: 12),
-              FilledButton.icon(
-                onPressed: _broadcasting ? null : _doBroadcast,
-                icon: _broadcasting
-                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
-                    : const Icon(Icons.send, size: 20),
-                label: Text(AdminStrings.adminCsBroadcastSend),
-              ),
-            ],
-          ),
-          const SizedBox(height: 32),
-          Text(
-            AdminStrings.adminCsStaff,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(color: _accent),
-          ),
-          const SizedBox(height: 4),
-          Text(AdminStrings.adminCsStaffHint, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xFF6C6F77))),
-          const SizedBox(height: 12),
-          ..._csStaff.map((u) {
-            final uid = u['user_id']?.toString() ?? '';
-            return ListTile(
-              leading: CircleAvatar(
-                radius: 20,
-                backgroundColor: _accent.withOpacity(0.2),
-                child: Text(_userLabel(u).isNotEmpty ? _userLabel(u)[0].toUpperCase() : '?', style: const TextStyle(color: _accent)),
-              ),
-              title: Text(_userLabel(u)),
-              subtitle: Text(uid),
-              trailing: IconButton(
-                icon: const Icon(Icons.remove_circle_outline, color: Colors.red),
-                onPressed: _saving ? null : () => _removeCsStaff(uid),
-                tooltip: AdminStrings.adminRemoveCsStaff,
-              ),
-            );
-          }),
-          const SizedBox(height: 12),
-          Text('添加客服人员：从下方选择用户', style: Theme.of(context).textTheme.bodySmall),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: _users
-                .where((u) => !_csStaff.any((s) => s['user_id'] == u['user_id']))
-                .take(15)
-                .map((u) {
-              final uid = u['user_id']?.toString() ?? '';
-              return ActionChip(
-                label: Text(_userLabel(u)),
-                onPressed: _saving ? null : () => _addCsStaff(uid),
-                avatar: const Icon(Icons.add, size: 18, color: Color(0xFFD4AF37)),
-              );
-            }).toList(),
-          ),
-        ],
+        else ...[_buildCurrentTabBody()],
       ],
     );
   }

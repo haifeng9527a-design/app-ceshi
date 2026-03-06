@@ -20,6 +20,7 @@ class RankingsPage extends StatefulWidget {
 class _RankingsPageState extends State<RankingsPage> {
   /// 用于重试时重新订阅 stream
   int _streamKey = 0;
+  Stream<List<TeacherProfile>>? _cachedRankingsStream;
 
   Stream<List<TeacherProfile>> _rankingsStream() {
     if (ApiClient.instance.isAvailable) {
@@ -44,6 +45,16 @@ class _RankingsPageState extends State<RankingsPage> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    _cachedRankingsStream = _rankingsStream();
+  }
+
+  void _resetRankingsStream() {
+    _cachedRankingsStream = _rankingsStream();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
@@ -51,13 +62,16 @@ class _RankingsPageState extends State<RankingsPage> {
       ),
       body: StreamBuilder<List<TeacherProfile>>(
         key: ValueKey<int>(_streamKey),
-        stream: _rankingsStream(),
+        stream: _cachedRankingsStream,
         builder: (context, snapshot) {
           if (snapshot.hasError) {
             return _buildErrorAndRetry(
               context,
               snapshot.error,
-              onRetry: () => setState(() => _streamKey++),
+              onRetry: () => setState(() {
+                _resetRankingsStream();
+                _streamKey++;
+              }),
             );
           }
           if (snapshot.connectionState == ConnectionState.waiting &&

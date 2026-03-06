@@ -3,6 +3,7 @@
  * 由 backend 代理 Supabase friends、friend_requests、friend_remarks
  */
 const supabaseClient = require('./supabaseClient');
+const restrictionGuard = require('./restrictionGuard');
 
 function registerFriendRoutes(app, requireAuth) {
   const supabase = () => supabaseClient.getClient();
@@ -212,6 +213,8 @@ function registerFriendRoutes(app, requireAuth) {
     const sb = supabase();
     if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
     try {
+      const gate = await restrictionGuard.assertActionAllowed(sb, uid, 'add_friend');
+      if (!gate.allowed) return res.status(403).json({ error: gate.reason });
       const { data: existing } = await sb.from('friend_requests').select('*').eq('requester_id', uid).eq('receiver_id', receiver_id).maybeSingle();
       if (existing) {
         if (existing.status === 'accepted') return res.status(400).json({ error: 'already_friends' });
@@ -238,6 +241,8 @@ function registerFriendRoutes(app, requireAuth) {
     const sb = supabase();
     if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
     try {
+      const gate = await restrictionGuard.assertActionAllowed(sb, uid, 'add_friend');
+      if (!gate.allowed) return res.status(403).json({ error: gate.reason });
       const { data: reqRow } = await sb.from('friend_requests').select('requester_id, receiver_id').eq('id', requestId).maybeSingle();
       if (!reqRow) return res.status(404).json({ error: 'request not found' });
       const rid = reqRow.requester_id;

@@ -14,7 +14,12 @@ class ReportApi {
     List<String>? contentTypes,
     List<String>? fileNames,
   }) async {
-    if (!_api.isAvailable || contentBase64List.isEmpty || contentBase64List.length > 5) return [];
+    if (!_api.isAvailable) {
+      throw StateError('API 不可用，无法上传截图');
+    }
+    if (contentBase64List.isEmpty || contentBase64List.length > 5) {
+      throw StateError('截图数量需为 1-5 张');
+    }
     final items = contentBase64List.asMap().entries.map((e) {
       final i = e.key;
       return {
@@ -24,13 +29,19 @@ class ReportApi {
       };
     }).toList();
     final resp = await _api.post('api/upload/report-screenshots', body: {'items': items});
-    if (resp.statusCode != 200) return [];
+    if (resp.statusCode != 200) {
+      throw StateError('截图上传失败(${resp.statusCode})：${resp.body}');
+    }
     try {
       final json = jsonDecode(resp.body) as Map?;
       final list = json?['urls'] as List? ?? [];
-      return list.map((e) => e.toString()).where((s) => s.isNotEmpty).toList();
-    } catch (_) {
-      return [];
+      final urls = list.map((e) => e.toString()).where((s) => s.isNotEmpty).toList();
+      if (urls.isEmpty) {
+        throw StateError('截图上传失败：服务端未返回可用图片地址');
+      }
+      return urls;
+    } catch (e) {
+      throw StateError('截图上传响应解析失败：$e');
     }
   }
 
@@ -58,11 +69,16 @@ class ReportApi {
     String? adminNotes,
     required String reviewedBy,
   }) async {
-    if (!_api.isAvailable) return;
-    await _api.patch('api/reports/$reportId', body: {
+    if (!_api.isAvailable) {
+      throw StateError('API 不可用，无法更新举报状态');
+    }
+    final resp = await _api.patch('api/reports/$reportId', body: {
       'status': status,
       if (adminNotes != null) 'admin_notes': adminNotes,
     });
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw StateError('更新举报状态失败(${resp.statusCode})：${resp.body}');
+    }
   }
 
   /// 提交举报
@@ -73,12 +89,17 @@ class ReportApi {
     String? content,
     List<String> screenshotUrls = const [],
   }) async {
-    if (!_api.isAvailable) return;
-    await _api.post('api/reports', body: {
+    if (!_api.isAvailable) {
+      throw StateError('API 不可用，无法提交举报');
+    }
+    final resp = await _api.post('api/reports', body: {
       'reported_user_id': reportedUserId,
       'reason': reason,
       if (content != null && content.trim().isNotEmpty) 'content': content.trim(),
       'screenshot_urls': screenshotUrls,
     });
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw StateError('提交举报失败(${resp.statusCode})：${resp.body}');
+    }
   }
 }

@@ -6,9 +6,11 @@ import '../../core/design/design_tokens.dart';
 import '../../l10n/app_localizations.dart';
 import '../../ui/components/components.dart';
 import '../trading/fills_and_positions_tab.dart';
+import '../trading/account_ledger_tab.dart';
 import '../trading/market_trade_tab.dart';
 import '../trading/order_history_tab.dart';
 import '../trading/orders_tab.dart';
+import '../trading/trading_ui.dart';
 import 'teacher_models.dart';
 import 'teacher_public_page.dart';
 import 'teacher_repository.dart';
@@ -116,7 +118,7 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
     final approved = (_statusLabel.toString().trim().toLowerCase() == 'approved');
     _tabController?.dispose();
     if (approved) {
-      _tabController = TabController(length: 5, vsync: this);
+      _tabController = TabController(length: 6, vsync: this);
     } else {
       _tabController = null;
     }
@@ -515,32 +517,55 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
       );
     }
     return Scaffold(
+      backgroundColor: TradingUi.pageBg,
       appBar: AppBar(
         title: Text(l10n.teachersTeacherCenter),
+        backgroundColor: TradingUi.pageBg,
         bottom: (_isApproved && _tabController != null)
             ? TabBar(
                 controller: _tabController!,
                 isScrollable: true,
+                tabAlignment: TabAlignment.start,
+                dividerColor: Colors.transparent,
+                indicatorColor: TradingUi.accent,
+                indicatorWeight: 3,
+                labelColor: TradingUi.accent,
+                unselectedLabelColor: TradingUi.textMuted,
+                labelStyle: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
+                ),
+                unselectedLabelStyle: const TextStyle(
+                  fontWeight: FontWeight.w500,
+                  fontSize: 14,
+                ),
                 tabs: [
                   Tab(text: l10n.teachersStrategyTab),
                   Tab(text: l10n.teachersQuoteAndTradeTab),
                   Tab(text: l10n.teachersOrderTab),
                   Tab(text: l10n.teachersHistoryOrderTab),
                   Tab(text: l10n.teachersFillsAndPositionsTab),
+                  Tab(text: l10n.teachersAccountAndLedgerTab),
                 ],
               )
             : null,
       ),
       body: (_isApproved && _tabController != null)
-          ? TabBarView(
-              controller: _tabController!,
-              children: [
-                _buildStrategiesTab(user.uid),
-                MarketTradeTab(teacherId: user.uid),
-                OrdersTab(teacherId: user.uid),
-                OrderHistoryTab(teacherId: user.uid),
-                FillsAndPositionsTab(teacherId: user.uid),
-              ],
+          ? Container(
+              decoration: const BoxDecoration(
+                color: TradingUi.pageBg,
+              ),
+              child: TabBarView(
+                controller: _tabController!,
+                children: [
+                  _buildStrategiesTab(user.uid),
+                  MarketTradeTab(teacherId: user.uid),
+                  OrdersTab(teacherId: user.uid),
+                  OrderHistoryTab(teacherId: user.uid),
+                  FillsAndPositionsTab(teacherId: user.uid),
+                  AccountLedgerTab(teacherId: user.uid),
+                ],
+              ),
             )
           : _buildProfileTab(),
     );
@@ -663,7 +688,7 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
           const SizedBox(height: 12),
           Row(
             children: [
-              _buildVerifyThumb(_certificationPhotoUrl, '资质照片'),
+              _buildVerifyThumb(_certificationPhotoUrl, l10n.teachersQualificationPhoto),
               const SizedBox(width: 12),
               Expanded(
                 child: OutlinedButton.icon(
@@ -762,11 +787,11 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
                       ? null
                       : _saveProfile,
                   label: _saving
-                      ? '提交中…'
+                      ? l10n.teachersSubmitting
                       : (_statusLabel.toString().trim().toLowerCase() ==
                               'pending'
-                          ? '已提交等待审核'
-                          : '提交申请'),
+                          ? l10n.teachersSubmittedPendingReview
+                          : l10n.teachersSubmitApplication),
                 ),
                 const SizedBox(height: 8),
                 AppButton(
@@ -800,23 +825,26 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
     if (status == 'frozen') {
       color = AppColors.warning;
       icon = Icons.ac_unit;
-      message = '您当前处于冻结状态，无法发布策略与交易记录。';
+      message = AppLocalizations.of(context)!.teachersStatusFrozenMessage;
       if (_frozenUntil != null) {
         final until = _frozenUntil!.toLocal();
-        message += '解冻时间：${until.year}-${until.month.toString().padLeft(2, '0')}-${until.day.toString().padLeft(2, '0')} ${until.hour.toString().padLeft(2, '0')}:${until.minute.toString().padLeft(2, '0')}';
+        final dateLabel =
+            '${until.year}-${until.month.toString().padLeft(2, '0')}-${until.day.toString().padLeft(2, '0')} ${until.hour.toString().padLeft(2, '0')}:${until.minute.toString().padLeft(2, '0')}';
+        message += AppLocalizations.of(context)!
+            .teachersStatusUnfreezeTime(dateLabel);
       }
     } else if (status == 'blocked') {
       color = AppColors.negative;
       icon = Icons.block;
-      message = '您当前处于封禁状态，无法发布策略与交易记录。如有疑问请联系客服。';
+      message = AppLocalizations.of(context)!.teachersStatusBlockedMessage;
     } else if (status == 'rejected') {
       color = AppColors.textTertiary;
       icon = Icons.cancel_outlined;
-      message = '您的申请已被拒绝，无法发布策略与交易记录。如有疑问请联系客服。';
+      message = AppLocalizations.of(context)!.teachersStatusRejectedMessage;
     } else {
       color = _accent;
       icon = Icons.info_outline;
-      message = '审核中，通过后可发布策略与交易记录';
+      message = AppLocalizations.of(context)!.teachersStatusPendingMessage;
     }
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -846,8 +874,12 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
     if (_statusLabel != 'approved') {
       final status = _statusLabel.toString().trim().toLowerCase();
       final hint = (status == 'frozen' || status == 'blocked')
-          ? '您当前处于${status == 'frozen' ? '冻结' : '封禁'}状态，无法发布策略'
-          : '审核通过后开放策略发布';
+          ? AppLocalizations.of(context)!.teachersStatusCannotPublishHint(
+              status == 'frozen'
+                  ? AppLocalizations.of(context)!.teachersFrozen
+                  : AppLocalizations.of(context)!.teachersBlocked,
+            )
+          : AppLocalizations.of(context)!.teachersStatusOpenAfterApproval;
       return ListView(
         padding: const EdgeInsets.all(16),
         children: [

@@ -4,6 +4,28 @@
  */
 const supabaseClient = require('./supabaseClient');
 
+async function isAdminUser(sb, uid) {
+  const { data, error } = await sb.from('user_profiles').select('role').eq('user_id', uid).maybeSingle();
+  if (error) throw new Error(error.message);
+  const role = String(data?.role || '').toLowerCase();
+  return role === 'admin' || role === 'customer_service_admin';
+}
+
+async function ensureAdmin(req, res, sb) {
+  if (req.isAdminByKey === true) return true;
+  const uid = req.firebaseUid;
+  if (!uid) {
+    res.status(401).json({ error: '未鉴权' });
+    return false;
+  }
+  const admin = await isAdminUser(sb, uid);
+  if (!admin) {
+    res.status(403).json({ error: 'forbidden' });
+    return false;
+  }
+  return true;
+}
+
 function registerUserRoutes(app, requireAuth) {
   const supabase = () => supabaseClient.getClient();
   if (!supabase()) {
@@ -99,10 +121,120 @@ function registerUserRoutes(app, requireAuth) {
     const sb = supabase();
     if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
     try {
-      await sb.from('user_profiles').update({ role, updated_at: new Date().toISOString() }).eq('user_id', userId);
+      if (!(await ensureAdmin(req, res, sb))) return;
+      const { error } = await sb.from('user_profiles').update({ role, updated_at: new Date().toISOString() }).eq('user_id', userId);
+      if (error) return res.status(502).json({ error: error.message });
       res.json({ ok: true });
     } catch (e) {
       res.status(502).json({ error: String(e.message || e) });
+    }
+  });
+
+  /** GET /api/admin/users/basic — 管理后台基础用户列表 */
+  app.get('/api/admin/users/basic', requireAuth, async (req, res) => {
+    const sb = supabase();
+    if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
+    try {
+      if (!(await ensureAdmin(req, res, sb))) return;
+      const { data, error } = await sb
+        .from('user_profiles')
+        .select('user_id, display_name, email, short_id, avatar_url, role')
+        .order('display_name', { ascending: true });
+      if (error) return res.status(502).json({ error: error.message });
+      return res.json(data || []);
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message || e) });
+    }
+  });
+
+  /** GET /api/admin/users/detailed — 管理后台用户详情列表（含限制字段） */
+  app.get('/api/admin/users/detailed', requireAuth, async (req, res) => {
+    const sb = supabase();
+    if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
+    try {
+      if (!(await ensureAdmin(req, res, sb))) return;
+      const { data, error } = await sb
+        .from('user_profiles')
+        .select(
+          'user_id, display_name, avatar_url, role, email, signature, short_id, banned_until, frozen_until, restrict_login, restrict_send_message, restrict_add_friend, restrict_join_group, restrict_create_group'
+        )
+        .order('display_name', { ascending: true });
+      if (error) return res.status(502).json({ error: error.message });
+      return res.json(data || []);
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message || e) });
+    }
+  });
+
+  /** PATCH /api/admin/users/:userId/restrictions — 管理后台更新限制字段 */
+  app.patch('/api/admin/users/:userId/restrictions', requireAuth, async (req, res) => {
+    const { userId } = req.params;
+    if (!userId) return res.status(400).json({ error: 'missing userId' });
+    const sb = supabase();
+    if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
+    try {
+      if (!(await ensureAdmin(req, res, sb))) return;
+      const body = req.body || {};
+      const allowed = [
+        'banned_until',
+        'frozen_until',
+        'restrict_login',
+        'restrict_send_message',
+        'restrict_add_friend',
+        'restrict_join_group',
+        'restrict_create_group',
+      ];
+      const updates = {};
+      for (const k of allowed) {
+        if (body[k] !== undefined) updates[k] = body[k];
+      }
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ error: 'no valid fields' });
+      }
+      updates.updated_at = new Date().toISOString();
+      const { error } = await sb.from('user_profiles').update(updates).eq('user_id', userId);
+      if (error) return res.status(502).json({ error: error.message });
+      return res.json({ ok: true });
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message || e) });
+    }
+  });
+
+  /** GET /api/admin/teachers/stats — 交易员状态统计 */
+  app.get('/api/admin/teachers/stats', requireAuth, async (req, res) => {
+    const sb = supabase();
+    if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
+    try {
+      if (!(await ensureAdmin(req, res, sb))) return;
+      const { data, error } = await sb.from('teacher_profiles').select('status');
+      if (error) return res.status(502).json({ error: error.message });
+      const counts = { pending: 0, approved: 0, rejected: 0, frozen: 0, blocked: 0 };
+      for (const row of data || []) {
+        const s = String(row.status || 'pending');
+        if (counts[s] == null) counts[s] = 0;
+        counts[s] += 1;
+      }
+      return res.json(counts);
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message || e) });
+    }
+  });
+
+  /** GET /api/admin/customer-service/staff-basic — 客服人员基础信息 */
+  app.get('/api/admin/customer-service/staff-basic', requireAuth, async (req, res) => {
+    const sb = supabase();
+    if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
+    try {
+      if (!(await ensureAdmin(req, res, sb))) return;
+      const { data, error } = await sb
+        .from('user_profiles')
+        .select('user_id, display_name, email, short_id')
+        .eq('role', 'customer_service')
+        .order('display_name', { ascending: true });
+      if (error) return res.status(502).json({ error: error.message });
+      return res.json(data || []);
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message || e) });
     }
   });
 

@@ -25,6 +25,7 @@ import 'package:open_filex/open_filex.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/last_online_service.dart';
+import '../../core/app_webview_page.dart';
 import '../../l10n/app_localizations.dart';
 import '../../core/design/design_tokens.dart';
 import '../../core/network_error_helper.dart';
@@ -267,7 +268,8 @@ class _ChatDetailPageState extends State<ChatDetailPage>
         _customerServiceIds
           ..clear()
           ..addAll(ids);
-        _customerServiceAvatarUrl = avatarUrl?.trim().isNotEmpty == true ? avatarUrl!.trim() : null;
+        _customerServiceAvatarUrl =
+            avatarUrl?.trim().isNotEmpty == true ? avatarUrl!.trim() : null;
       });
     } catch (_) {
       // ignore
@@ -1161,7 +1163,8 @@ class _ChatDetailPageState extends State<ChatDetailPage>
     if (!mounted) return;
     if (!UserRestrictions.canSendMessage(restrictions)) {
       UserRestrictions.clearCache();
-      _showToast(UserRestrictions.getAccountStatusMessage(restrictions, context));
+      _showToast(
+          UserRestrictions.getAccountStatusMessage(restrictions, context));
       return;
     }
     if (bytes.isEmpty) {
@@ -1217,8 +1220,7 @@ class _ChatDetailPageState extends State<ChatDetailPage>
       debugPrint('send media failed: $error');
       if (!mounted) return;
       _showToast(NetworkErrorHelper.messageForUser(error,
-          prefix: l10n.chatSendFailedPrefix,
-          l10n: l10n));
+          prefix: l10n.chatSendFailedPrefix, l10n: l10n));
     }
   }
 
@@ -1316,7 +1318,9 @@ class _ChatDetailPageState extends State<ChatDetailPage>
       builder: (context) {
         return SafeArea(
           child: Padding(
-            padding: AppSpacing.symmetric(vertical: AppSpacing.md, horizontal: AppSpacing.md - AppSpacing.xs / 2),
+            padding: AppSpacing.symmetric(
+                vertical: AppSpacing.md,
+                horizontal: AppSpacing.md - AppSpacing.xs / 2),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
@@ -1812,8 +1816,8 @@ class _ChatDetailPageState extends State<ChatDetailPage>
       builder: (ctx) {
         return Dialog(
           backgroundColor: Colors.transparent,
-          insetPadding:
-              AppSpacing.symmetric(horizontal: AppSpacing.lg, vertical: AppSpacing.xxl),
+          insetPadding: AppSpacing.symmetric(
+              horizontal: AppSpacing.lg, vertical: AppSpacing.xxl),
           child: GestureDetector(
             onTap: () => Navigator.of(ctx).pop(),
             child: Column(
@@ -1843,7 +1847,8 @@ class _ChatDetailPageState extends State<ChatDetailPage>
                 const SizedBox(height: 12),
                 Text(
                   name,
-                  style: AppTypography.body.copyWith(color: AppColors.textPrimary, fontSize: 16),
+                  style: AppTypography.body
+                      .copyWith(color: AppColors.textPrimary, fontSize: 16),
                   overflow: TextOverflow.ellipsis,
                 ),
               ],
@@ -2280,7 +2285,9 @@ class _ChatDetailPageState extends State<ChatDetailPage>
     final quote = (msg.replyToContent ?? msg.content).trim();
     final preview = quote.length > 40 ? '${quote.substring(0, 40)}…' : quote;
     return Container(
-      padding: AppSpacing.symmetric(horizontal: AppSpacing.sm + AppSpacing.xs / 2, vertical: AppSpacing.sm),
+      padding: AppSpacing.symmetric(
+          horizontal: AppSpacing.sm + AppSpacing.xs / 2,
+          vertical: AppSpacing.sm),
       decoration: BoxDecoration(
         color: AppColors.surface2,
         borderRadius: BorderRadius.circular(AppRadius.sm),
@@ -2296,11 +2303,11 @@ class _ChatDetailPageState extends State<ChatDetailPage>
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(msg.senderName,
-                    style: AppTypography.caption.copyWith(
-                        color: AppColors.primary, fontSize: 12)),
+                    style: AppTypography.caption
+                        .copyWith(color: AppColors.primary, fontSize: 12)),
                 Text(preview,
-                    style: AppTypography.caption.copyWith(
-                        color: AppColors.textSecondary, fontSize: 12),
+                    style: AppTypography.caption
+                        .copyWith(color: AppColors.textSecondary, fontSize: 12),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis),
               ],
@@ -2324,13 +2331,18 @@ class _ChatDetailPageState extends State<ChatDetailPage>
       onTap: _hideGroupAnnouncement,
       child: Container(
         width: double.infinity,
-        padding: AppSpacing.symmetric(horizontal: AppSpacing.md - AppSpacing.xs, vertical: AppSpacing.sm + AppSpacing.xs / 2),
-        margin: AppSpacing.only(left: AppSpacing.sm, top: AppSpacing.sm, right: AppSpacing.sm, bottom: 0),
+        padding: AppSpacing.symmetric(
+            horizontal: AppSpacing.md - AppSpacing.xs,
+            vertical: AppSpacing.sm + AppSpacing.xs / 2),
+        margin: AppSpacing.only(
+            left: AppSpacing.sm,
+            top: AppSpacing.sm,
+            right: AppSpacing.sm,
+            bottom: 0),
         decoration: BoxDecoration(
           color: AppColors.primarySubtle(0.15),
           borderRadius: BorderRadius.circular(AppRadius.sm),
-          border: Border.all(
-              color: AppColors.primarySubtle(0.5), width: 1),
+          border: Border.all(color: AppColors.primarySubtle(0.5), width: 1),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -2395,7 +2407,9 @@ class _ChatDetailPageState extends State<ChatDetailPage>
 
   Widget _buildAppBarTitle() {
     final isCustomerService = _isCustomerServicePeer();
-    final name = isCustomerService ? _customerServiceDisplayName() : _resolveConversationTitle();
+    final name = isCustomerService
+        ? _customerServiceDisplayName()
+        : _resolveConversationTitle();
     final hasProfile = _peerProfile != null;
     final avatarUrl = widget.conversation.isGroup
         ? (_groupAvatarUrl ??
@@ -2407,8 +2421,10 @@ class _ChatDetailPageState extends State<ChatDetailPage>
                 _cachedPeerAvatarUrl)
             : (_peerProfile?.avatarUrl ?? _cachedPeerAvatarUrl));
     final showAvatar = avatarUrl?.trim().isNotEmpty == true;
-    final levelLabel = (hasProfile && !isCustomerService) ? 'Lv ${_peerProfile!.level}' : null;
-    final roleLabel = isCustomerService ? 'customer_service' : _peerProfile?.roleLabel;
+    final levelLabel =
+        (hasProfile && !isCustomerService) ? 'Lv ${_peerProfile!.level}' : null;
+    final roleLabel =
+        isCustomerService ? 'customer_service' : _peerProfile?.roleLabel;
 
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -2485,7 +2501,8 @@ class _ChatDetailPageState extends State<ChatDetailPage>
                       (roleLabel != null && roleLabel.isNotEmpty)) ...[
                     const Text(
                       ' · ',
-                      style: TextStyle(fontSize: 14, color: AppColors.textTertiary),
+                      style: TextStyle(
+                          fontSize: 14, color: AppColors.textTertiary),
                     ),
                     if (roleLabel != null && roleLabel.isNotEmpty)
                       RoleBadge(roleLabel: roleLabel, compact: true),
@@ -2677,7 +2694,8 @@ class _ChatDetailPageState extends State<ChatDetailPage>
                               ? AppLocalizations.of(context)!
                                   .chatNoNetworkNoCache
                               : AppLocalizations.of(context)!.chatNoMessagesYet,
-                          style: AppTypography.bodySecondary.copyWith(color: AppColors.textTertiary),
+                          style: AppTypography.bodySecondary
+                              .copyWith(color: AppColors.textTertiary),
                         ),
                       ],
                     ),
@@ -2689,8 +2707,11 @@ class _ChatDetailPageState extends State<ChatDetailPage>
                     reverse: true,
                     controller: _scrollController,
                     physics: const ClampingScrollPhysics(),
-                    padding:
-                        EdgeInsets.fromLTRB(AppSpacing.md, _emojiOpen ? 300 : 84, AppSpacing.md, AppSpacing.md - AppSpacing.xs),
+                    padding: EdgeInsets.fromLTRB(
+                        AppSpacing.md,
+                        _emojiOpen ? 300 : 84,
+                        AppSpacing.md,
+                        AppSpacing.md - AppSpacing.xs),
                     itemCount: displayEntries.length,
                     itemBuilder: (context, index) {
                       final entry =
@@ -2820,7 +2841,9 @@ class _ChatDetailPageState extends State<ChatDetailPage>
           left: AppSpacing.md - AppSpacing.xs,
           right: AppSpacing.md - AppSpacing.xs,
           top: AppSpacing.sm,
-          bottom: AppSpacing.sm + AppSpacing.xs / 2 + MediaQuery.of(context).viewInsets.bottom,
+          bottom: AppSpacing.sm +
+              AppSpacing.xs / 2 +
+              MediaQuery.of(context).viewInsets.bottom,
         ),
         child: SafeArea(
           top: false,
@@ -2847,15 +2870,18 @@ class _ChatDetailPageState extends State<ChatDetailPage>
                 ),
               if (_isRecording)
                 Padding(
-                  padding: const EdgeInsets.only(bottom: AppSpacing.sm - AppSpacing.xs / 4),
+                  padding: const EdgeInsets.only(
+                      bottom: AppSpacing.sm - AppSpacing.xs / 4),
                   child: Text(
                     AppLocalizations.of(context)!.chatRecordingReleaseToSend,
-                    style: AppTypography.caption.copyWith(color: AppColors.danger, fontSize: 12),
+                    style: AppTypography.caption
+                        .copyWith(color: AppColors.danger, fontSize: 12),
                   ),
                 ),
               if (_replyingToMessage != null)
                 Padding(
-                  padding: const EdgeInsets.only(bottom: AppSpacing.sm - AppSpacing.xs / 4),
+                  padding: const EdgeInsets.only(
+                      bottom: AppSpacing.sm - AppSpacing.xs / 4),
                   child: _buildReplyPreviewBar(),
                 ),
               if (_mentionQuery != null && widget.conversation.isGroup)
@@ -2884,9 +2910,9 @@ class _ChatDetailPageState extends State<ChatDetailPage>
                               alignment: Alignment.center,
                               decoration: BoxDecoration(
                                 color: AppColors.surfaceElevated,
-                                borderRadius: BorderRadius.circular(AppRadius.sm),
-                                border:
-                                    Border.all(color: AppColors.border),
+                                borderRadius:
+                                    BorderRadius.circular(AppRadius.sm),
+                                border: Border.all(color: AppColors.border),
                               ),
                               child: Text(
                                 _isRecording
@@ -2894,7 +2920,8 @@ class _ChatDetailPageState extends State<ChatDetailPage>
                                         .chatReleaseToSend
                                     : AppLocalizations.of(context)!
                                         .chatHoldToSpeak,
-                                style: AppTypography.bodySecondary.copyWith(color: AppColors.textSecondary),
+                                style: AppTypography.bodySecondary
+                                    .copyWith(color: AppColors.textSecondary),
                               ),
                             ),
                           )
@@ -2924,22 +2951,26 @@ class _ChatDetailPageState extends State<ChatDetailPage>
                               filled: true,
                               fillColor: AppColors.surfaceElevated,
                               border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(AppRadius.sm),
+                                borderRadius:
+                                    BorderRadius.circular(AppRadius.sm),
                                 borderSide:
                                     const BorderSide(color: AppColors.border),
                               ),
                               enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(AppRadius.sm),
+                                borderRadius:
+                                    BorderRadius.circular(AppRadius.sm),
                                 borderSide:
                                     const BorderSide(color: AppColors.border),
                               ),
                               focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(AppRadius.sm),
+                                borderRadius:
+                                    BorderRadius.circular(AppRadius.sm),
                                 borderSide: const BorderSide(
                                     color: AppColors.primary, width: 1),
                               ),
                               contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: AppSpacing.md - AppSpacing.xs, vertical: AppSpacing.sm + AppSpacing.xs / 2),
+                                  horizontal: AppSpacing.md - AppSpacing.xs,
+                                  vertical: AppSpacing.sm + AppSpacing.xs / 2),
                             ),
                             style: AppTypography.body.copyWith(
                                 color: AppColors.textPrimary, fontSize: 15),
@@ -2961,11 +2992,13 @@ class _ChatDetailPageState extends State<ChatDetailPage>
                               _isUploading || _isRecording || isSending;
                           if (hasContent) {
                             return Padding(
-                              padding: const EdgeInsets.only(left: AppSpacing.xs),
+                              padding:
+                                  const EdgeInsets.only(left: AppSpacing.xs),
                               child: AppButton(
                                 onPressed:
                                     sendingOrUploading ? null : _sendMessage,
-                                label: AppLocalizations.of(context)!.messagesSend,
+                                label:
+                                    AppLocalizations.of(context)!.messagesSend,
                               ),
                             );
                           }
@@ -3117,9 +3150,8 @@ class _ChatBubble extends StatelessWidget {
                     borderRadius: BorderRadius.circular(6),
                     border: Border(
                       left: BorderSide(
-                        color: isMine
-                            ? AppColors.primary
-                            : AppColors.textTertiary,
+                        color:
+                            isMine ? AppColors.primary : AppColors.textTertiary,
                         width: 2,
                       ),
                     ),
@@ -3416,7 +3448,8 @@ class _ActionTile extends StatelessWidget {
             const SizedBox(height: 6),
             Text(
               label,
-              style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+              style:
+                  const TextStyle(color: AppColors.textSecondary, fontSize: 12),
             ),
           ],
         ),
@@ -3680,8 +3713,7 @@ class _LinkifiedMessageText extends StatelessWidget {
         if (!context.mounted) return;
         if (result.type != ResultType.done) {
           messenger.showSnackBar(
-            SnackBar(
-                content: Text(result.message)),
+            SnackBar(content: Text(result.message)),
           );
         }
       } catch (_) {
@@ -3692,6 +3724,10 @@ class _LinkifiedMessageText extends StatelessWidget {
                   AppLocalizations.of(context)!.messagesFileExpiredOrMissing)),
         );
       }
+      return;
+    }
+    if (uri.scheme == 'http' || uri.scheme == 'https') {
+      await openInAppWebView(context, url: value);
       return;
     }
     if (await canLaunchUrl(uri)) {
@@ -3774,8 +3810,8 @@ class _VideoMessageCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(10),
             ),
             child: const Center(
-              child:
-                  Icon(Icons.play_circle_fill, size: 42, color: AppColors.textSecondary),
+              child: Icon(Icons.play_circle_fill,
+                  size: 42, color: AppColors.textSecondary),
             ),
           ),
         ),
@@ -3908,7 +3944,8 @@ class _VideoPreviewDialogState extends State<_VideoPreviewDialog> {
                               if (_errorText != null)
                                 Text(
                                   _errorText!,
-                                  style: const TextStyle(color: AppColors.textSecondary),
+                                  style: const TextStyle(
+                                      color: AppColors.textSecondary),
                                   textAlign: TextAlign.center,
                                 ),
                               TextButton(
@@ -4043,7 +4080,8 @@ class _TeacherShareCard extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(width: 4),
-                        const Icon(Icons.arrow_forward_ios, size: 10, color: _accent),
+                        const Icon(Icons.arrow_forward_ios,
+                            size: 10, color: _accent),
                       ],
                     ),
                   ],
@@ -4169,7 +4207,8 @@ class _ImagePreviewDialogState extends State<_ImagePreviewDialog> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.broken_image, color: AppColors.textSecondary),
+                      const Icon(Icons.broken_image,
+                          color: AppColors.textSecondary),
                       const SizedBox(height: 8),
                       TextButton(
                         onPressed: () {
@@ -4224,8 +4263,7 @@ class _FileMessageCard extends StatelessWidget {
           if (!context.mounted) return;
           if (result.type != ResultType.done) {
             messenger.showSnackBar(
-              SnackBar(
-                  content: Text(result.message)),
+              SnackBar(content: Text(result.message)),
             );
           }
         } catch (_) {
@@ -4252,12 +4290,14 @@ class _FileMessageCard extends StatelessWidget {
                 content.isNotEmpty
                     ? content
                     : AppLocalizations.of(context)!.commonFile,
-                style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
+                style:
+                    const TextStyle(color: AppColors.textPrimary, fontSize: 14),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
             const SizedBox(width: 6),
-            const Icon(Icons.open_in_new, size: 16, color: AppColors.textSecondary),
+            const Icon(Icons.open_in_new,
+                size: 16, color: AppColors.textSecondary),
           ],
         ),
       ),

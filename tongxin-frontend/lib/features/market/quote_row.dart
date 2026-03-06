@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/app_localizations.dart';
 import 'market_colors.dart';
 
 /// 统一行情行：美股热门/自选、外汇、加密、首页自选预览
@@ -15,6 +16,7 @@ class QuoteRow extends StatelessWidget {
     this.name,
     this.showSparkline = false,
     this.hasError = false,
+    this.isLoading = false,
   });
 
   final String symbol;
@@ -26,6 +28,9 @@ class QuoteRow extends StatelessWidget {
   final bool showSparkline;
   final bool hasError;
 
+  /// true = 报价尚未拉取（显示骨架占位），false = 已有结果（有值或失败）
+  final bool isLoading;
+
   static const double _rowPaddingVertical = 12;
   static const double _rowPaddingHorizontal = 12;
   static const Color _bgColor = Color(0xFF111215);
@@ -36,15 +41,19 @@ class QuoteRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = MarketColors.forChangePercent(changePercent);
     final changeStr = (change >= 0 ? '+' : '') + change.toStringAsFixed(2);
-    final pctStr = (changePercent >= 0 ? '+' : '') + changePercent.toStringAsFixed(2) + '%';
+    final pctStr = (changePercent >= 0 ? '+' : '') +
+        changePercent.toStringAsFixed(2) +
+        '%';
     return Material(
       color: _bgColor,
       child: InkWell(
         onTap: onTap,
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: _rowPaddingVertical, horizontal: _rowPaddingHorizontal),
+          padding: const EdgeInsets.symmetric(
+              vertical: _rowPaddingVertical, horizontal: _rowPaddingHorizontal),
           decoration: const BoxDecoration(
-            border: Border(bottom: BorderSide(color: _dividerColor, width: _dividerWidth)),
+            border: Border(
+                bottom: BorderSide(color: _dividerColor, width: _dividerWidth)),
           ),
           child: Row(
             children: [
@@ -68,7 +77,8 @@ class QuoteRow extends StatelessWidget {
                       const SizedBox(height: 2),
                       Text(
                         name!,
-                        style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 11),
+                        style: const TextStyle(
+                            color: Color(0xFF9CA3AF), fontSize: 11),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -77,18 +87,29 @@ class QuoteRow extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              if (hasError)
+              if (isLoading)
                 const Expanded(
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: _PriceSkeleton(),
+                  ),
+                )
+              else if (hasError)
+                Expanded(
                   child: Text(
-                    '加载失败',
-                    style: TextStyle(color: MarketColors.down, fontSize: 12),
+                    AppLocalizations.of(context)?.chartQuoteLoadFailed ?? '—',
+                    style:
+                        const TextStyle(color: MarketColors.down, fontSize: 12),
                     textAlign: TextAlign.end,
                   ),
                 )
               else ...[
                 Text(
                   price > 0 ? _formatPrice(price) : '—',
-                  style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(width: 12),
                 SizedBox(
@@ -105,7 +126,10 @@ class QuoteRow extends StatelessWidget {
                   width: 52,
                   child: Text(
                     pctStr,
-                    style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600),
+                    style: TextStyle(
+                        color: color,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -130,6 +154,38 @@ class QuoteRow extends StatelessWidget {
     if (v >= 10000) return v.toStringAsFixed(0);
     if (v >= 100) return v.toStringAsFixed(2);
     return v.toStringAsFixed(4);
+  }
+}
+
+/// 报价尚未加载时的骨架占位（灰色矩形）
+class _PriceSkeleton extends StatelessWidget {
+  const _PriceSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Container(
+          width: 60,
+          height: 13,
+          decoration: BoxDecoration(
+            color: const Color(0xFF2A2C32),
+            borderRadius: BorderRadius.circular(4),
+          ),
+        ),
+        const SizedBox(height: 5),
+        Container(
+          width: 44,
+          height: 11,
+          decoration: BoxDecoration(
+            color: const Color(0xFF2A2C32),
+            borderRadius: BorderRadius.circular(4),
+          ),
+        ),
+      ],
+    );
   }
 }
 
@@ -169,8 +225,10 @@ class _SparklinePainter extends CustomPainter {
     for (var i = 0; i < points.length; i++) {
       final x = size.width * i / (points.length - 1);
       final y = size.height * (1 - (points[i] - min) / range);
-      if (i == 0) path.moveTo(x, y);
-      else path.lineTo(x, y);
+      if (i == 0)
+        path.moveTo(x, y);
+      else
+        path.lineTo(x, y);
     }
     canvas.drawPath(
       path,

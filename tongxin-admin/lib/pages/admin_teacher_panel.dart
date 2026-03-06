@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import 'dart:convert';
 
-import '../core/supabase_bootstrap.dart';
+import '../core/admin_api_client.dart';
 import '../l10n/admin_strings.dart';
 import '../models/teacher_profile.dart';
 
@@ -12,6 +13,7 @@ class AdminTeacherPanel extends StatefulWidget {
 }
 
 class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
+  final _api = AdminApiClient.instance;
   String? _selectedTeacherId;
   TeacherProfile? _selectedProfile;
   /// 筛选：all | pending | approved | rejected | frozen | blocked
@@ -21,6 +23,8 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
   bool _loading = true;
   /// 仅存错误文案，避免在 Web 上把 FirebaseException 等对象放入 State 导致 TypeError
   String? _loadError;
+  bool _batchSelectMode = false;
+  final Set<String> _selectedBatchTeacherIds = <String>{};
 
   final _displayNameController = TextEditingController();
   final _realNameController = TextEditingController();
@@ -51,13 +55,20 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
       _loadError = null;
     });
     try {
-      final res = await SupabaseBootstrap.client.from('teacher_profiles').select();
-      final list = (res as List<dynamic>)
+      final resp = await _api.get('api/admin/teachers/profiles');
+      if (resp.statusCode != 200) {
+        throw StateError('加载交易员失败(${resp.statusCode})：${resp.body}');
+      }
+      final rows = jsonDecode(resp.body) as List<dynamic>;
+      final list = rows
           .map((e) => TeacherProfile.fromMap(Map<String, dynamic>.from(e as Map)))
           .toList();
       if (!mounted) return;
       setState(() {
         _rawItems = list;
+        _selectedBatchTeacherIds.removeWhere(
+          (id) => !list.any((e) => e.userId == id),
+        );
         _loading = false;
       });
       if (list.isNotEmpty && _selectedTeacherId == null) {
@@ -143,12 +154,25 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
       'pnl_total': _toNum(_pnlTotalController.text),
       'updated_at': DateTime.now().toIso8601String(),
     };
-    await SupabaseBootstrap.client.from('teacher_profiles').upsert(payload);
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(AdminStrings.adminProfileSaved)),
-    );
-    _loadTeachers();
+    try {
+      final resp = await _api.put('api/admin/teachers/$teacherId/profile', body: payload);
+      if (resp.statusCode != 200) {
+        throw StateError('保存失败(${resp.statusCode})：${resp.body}');
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AdminStrings.adminProfileSaved)),
+      );
+      _loadTeachers();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${AdminStrings.adminSaveFailed}: $e'),
+          backgroundColor: Colors.red.shade700,
+        ),
+      );
+    }
   }
 
   static const List<String> _statusOrder = ['pending', 'rejected', 'approved', 'frozen', 'blocked'];
@@ -178,6 +202,20 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
     return copy;
   }
 
+  List<TeacherProfile> _approvedTeachers(List<TeacherProfile> items) {
+    return items
+        .where((e) => (e.status ?? '').toLowerCase() == 'approved')
+        .toList(growable: false);
+  }
+
+  List<TeacherProfile> _selectedApprovedTeachers(List<TeacherProfile> items) {
+    return items
+        .where((e) =>
+            _selectedBatchTeacherIds.contains(e.userId) &&
+            (e.status ?? '').toLowerCase() == 'approved')
+        .toList(growable: false);
+  }
+
   Future<void> _updateStatus(String status, {DateTime? frozenUntil}) async {
     final teacherId = _selectedTeacherId;
     if (teacherId == null || teacherId.isEmpty) {
@@ -192,10 +230,10 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
       if (status == 'frozen' && frozenUntil != null) {
         payload['frozen_until'] = frozenUntil.toIso8601String();
       }
-      await SupabaseBootstrap.client
-          .from('teacher_profiles')
-          .update(payload)
-          .eq('user_id', teacherId);
+      final resp = await _api.patch('api/admin/teachers/$teacherId/status', body: payload);
+      if (resp.statusCode != 200) {
+        throw StateError('状态更新失败(${resp.statusCode})：${resp.body}');
+      }
       if (!mounted) return;
       final label = _getStatusLabel(context, status);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -216,6 +254,133 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
         ),
       );
       debugPrint('_updateStatus error: $e\n$st');
+    }
+  }
+
+  Future<({double amount, bool clearHistory})?> _showResetAccountDialog({
+    required String title,
+    required String subtitle,
+  }) async {
+    final controller = TextEditingController(text: '1000000');
+    bool clearHistory = true;
+    final result = await showDialog<({double amount, bool clearHistory})>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Text(title),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(subtitle),
+              const SizedBox(height: 10),
+              TextField(
+                controller: controller,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  hintText: '1000000',
+                ),
+              ),
+              const SizedBox(height: 8),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                value: clearHistory,
+                onChanged: (v) => setDialogState(() => clearHistory = v ?? true),
+                title: const Text('清空历史数据（订单/成交/流水）'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: Text(AdminStrings.commonCancel),
+            ),
+            FilledButton(
+              onPressed: () {
+                final v = double.tryParse(controller.text.trim());
+                if (v == null || v <= 0) return;
+                Navigator.of(ctx).pop((amount: v, clearHistory: clearHistory));
+              },
+              child: const Text('确认重置'),
+            ),
+          ],
+        ),
+      ),
+    );
+    return result;
+  }
+
+  Future<void> _resetTradingAccountCash() async {
+    final teacherId = _selectedTeacherId;
+    if (teacherId == null || teacherId.isEmpty) return;
+    final options = await _showResetAccountDialog(
+      title: '重置模拟盘资金',
+      subtitle: '请输入新的初始资金 (USD)',
+    );
+    if (options == null) return;
+    try {
+      final resp = await _api.post(
+        'api/admin/trading/accounts/$teacherId/reset',
+        body: {
+          'initial_cash_usd': options.amount,
+          'clear_history': options.clearHistory,
+        },
+      );
+      if (resp.statusCode != 200) {
+        throw StateError('重置失败(${resp.statusCode})：${resp.body}');
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '已重置模拟盘资金为 ${options.amount.toStringAsFixed(2)} USD'
+            '${options.clearHistory ? '（已清空历史）' : '（保留历史）'}',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('重置失败: $e'),
+          backgroundColor: Colors.red.shade700,
+        ),
+      );
+    }
+  }
+
+  Future<void> _batchResetTradingAccountCash(List<TeacherProfile> targets) async {
+    if (targets.isEmpty) return;
+    final options = await _showResetAccountDialog(
+      title: '批量重置模拟盘资金',
+      subtitle: '将对当前筛选中的 ${targets.length} 名交易员执行重置',
+    );
+    if (options == null) return;
+    try {
+      int ok = 0;
+      for (final t in targets) {
+        final resp = await _api.post(
+          'api/admin/trading/accounts/${t.userId}/reset',
+          body: {
+            'initial_cash_usd': options.amount,
+            'clear_history': options.clearHistory,
+          },
+        );
+        if (resp.statusCode == 200) ok += 1;
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('批量重置完成：成功 $ok / ${targets.length}')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('批量重置失败: $e'),
+          backgroundColor: Colors.red.shade700,
+        ),
+      );
     }
   }
 
@@ -241,7 +406,7 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
         return;
     }
     try {
-      await SupabaseBootstrap.client.functions.invoke('send_push', body: {
+      await _api.post('api/admin/notifications/send-push', body: {
         'receiverId': userId,
         'title': title,
         'body': body,
@@ -358,15 +523,29 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
     if (confirmed != true) {
       return;
     }
-    await SupabaseBootstrap.client.from('trade_strategies').insert({
-      'teacher_id': teacherId,
-      'title': titleController.text.trim(),
-      'summary': summaryController.text.trim(),
-      'content': contentController.text.trim(),
-      'status': 'published',
-      'created_at': DateTime.now().toIso8601String(),
-      'updated_at': DateTime.now().toIso8601String(),
-    });
+    try {
+      final resp = await _api.post('api/admin/teachers/$teacherId/strategies', body: {
+        'title': titleController.text.trim(),
+        'summary': summaryController.text.trim(),
+        'content': contentController.text.trim(),
+        'status': 'published',
+      });
+      if (resp.statusCode != 200) {
+        throw StateError('新增策略失败(${resp.statusCode})：${resp.body}');
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AdminStrings.adminSaved)),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${AdminStrings.adminSaveFailed}: $e'),
+          backgroundColor: Colors.red.shade700,
+        ),
+      );
+    }
   }
 
   Future<void> _addTradeRecord() async {
@@ -428,19 +607,34 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
     if (confirmed != true) {
       return;
     }
-    await SupabaseBootstrap.client.from('trade_records').insert({
-      'teacher_id': teacherId,
-      'asset': assetController.text.trim(),
-      'buy_time': _toTime(buyTimeController.text),
-      'buy_shares': _toNum(buySharesController.text),
-      'buy_price': _toNum(buyPriceController.text),
-      'sell_time': _toTime(sellTimeController.text),
-      'sell_shares': _toNum(sellSharesController.text),
-      'sell_price': _toNum(sellPriceController.text),
-      'pnl_ratio': _toNum(pnlRatioController.text),
-      'pnl_amount': _toNum(pnlAmountController.text),
-      'created_at': DateTime.now().toIso8601String(),
-    });
+    try {
+      final resp = await _api.post('api/admin/teachers/$teacherId/trade-records', body: {
+        'asset': assetController.text.trim(),
+        'buy_time': _toTime(buyTimeController.text),
+        'buy_shares': _toNum(buySharesController.text),
+        'buy_price': _toNum(buyPriceController.text),
+        'sell_time': _toTime(sellTimeController.text),
+        'sell_shares': _toNum(sellSharesController.text),
+        'sell_price': _toNum(sellPriceController.text),
+        'pnl_ratio': _toNum(pnlRatioController.text),
+        'pnl_amount': _toNum(pnlAmountController.text),
+      });
+      if (resp.statusCode != 200) {
+        throw StateError('新增交易记录失败(${resp.statusCode})：${resp.body}');
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AdminStrings.adminSaved)),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${AdminStrings.adminSaveFailed}: $e'),
+          backgroundColor: Colors.red.shade700,
+        ),
+      );
+    }
   }
 
   Future<void> _addPosition({required bool isHistory}) async {
@@ -535,7 +729,24 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
       payload['sell_time'] = _toTime(sellTimeController.text);
       payload['sell_price'] = _toNum(sellPriceController.text);
     }
-    await SupabaseBootstrap.client.from('teacher_positions').insert(payload);
+    try {
+      final resp = await _api.post('api/admin/teachers/$teacherId/positions', body: payload);
+      if (resp.statusCode != 200) {
+        throw StateError('新增持仓失败(${resp.statusCode})：${resp.body}');
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AdminStrings.adminSaved)),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${AdminStrings.adminSaveFailed}: $e'),
+          backgroundColor: Colors.red.shade700,
+        ),
+      );
+    }
   }
 
   Future<void> _addComment() async {
@@ -567,13 +778,28 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
     if (confirmed != true) {
       return;
     }
-    await SupabaseBootstrap.client.from('teacher_comments').insert({
-      'teacher_id': teacherId,
-      'user_name': userController.text.trim(),
-      'content': contentController.text.trim(),
-      'comment_time': _toTime(timeController.text),
-      'created_at': DateTime.now().toIso8601String(),
-    });
+    try {
+      final resp = await _api.post('api/admin/teachers/$teacherId/comments', body: {
+        'user_name': userController.text.trim(),
+        'content': contentController.text.trim(),
+        'comment_time': _toTime(timeController.text),
+      });
+      if (resp.statusCode != 200) {
+        throw StateError('新增评论失败(${resp.statusCode})：${resp.body}');
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AdminStrings.adminSaved)),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${AdminStrings.adminSaveFailed}: $e'),
+          backgroundColor: Colors.red.shade700,
+        ),
+      );
+    }
   }
 
   Future<void> _addArticle() async {
@@ -605,13 +831,28 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
     if (confirmed != true) {
       return;
     }
-    await SupabaseBootstrap.client.from('teacher_articles').insert({
-      'teacher_id': teacherId,
-      'title': titleController.text.trim(),
-      'summary': summaryController.text.trim(),
-      'article_time': _toTime(timeController.text),
-      'created_at': DateTime.now().toIso8601String(),
-    });
+    try {
+      final resp = await _api.post('api/admin/teachers/$teacherId/articles', body: {
+        'title': titleController.text.trim(),
+        'summary': summaryController.text.trim(),
+        'article_time': _toTime(timeController.text),
+      });
+      if (resp.statusCode != 200) {
+        throw StateError('新增文章失败(${resp.statusCode})：${resp.body}');
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AdminStrings.adminSaved)),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${AdminStrings.adminSaveFailed}: $e'),
+          backgroundColor: Colors.red.shade700,
+        ),
+      );
+    }
   }
 
   Future<void> _addSchedule() async {
@@ -643,13 +884,28 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
     if (confirmed != true) {
       return;
     }
-    await SupabaseBootstrap.client.from('teacher_schedules').insert({
-      'teacher_id': teacherId,
-      'title': titleController.text.trim(),
-      'schedule_time': _toTime(timeController.text),
-      'location': locationController.text.trim(),
-      'created_at': DateTime.now().toIso8601String(),
-    });
+    try {
+      final resp = await _api.post('api/admin/teachers/$teacherId/schedules', body: {
+        'title': titleController.text.trim(),
+        'schedule_time': _toTime(timeController.text),
+        'location': locationController.text.trim(),
+      });
+      if (resp.statusCode != 200) {
+        throw StateError('新增日程失败(${resp.statusCode})：${resp.body}');
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AdminStrings.adminSaved)),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${AdminStrings.adminSaveFailed}: $e'),
+          backgroundColor: Colors.red.shade700,
+        ),
+      );
+    }
   }
 
   @override
@@ -685,7 +941,88 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
                                 color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
                               ),
                         ),
+                        if (_batchSelectMode) ...[
+                          const SizedBox(width: 8),
+                          Text(
+                            '已勾选 ${_selectedBatchTeacherIds.length}',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                  color: const Color(0xFFD4AF37),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                          ),
+                        ],
                         const Spacer(),
+                        IconButton(
+                          icon: Icon(
+                            _batchSelectMode
+                                ? Icons.check_box
+                                : Icons.check_box_outline_blank,
+                          ),
+                          onPressed: _loading
+                              ? null
+                              : () {
+                                  setState(() {
+                                    _batchSelectMode = !_batchSelectMode;
+                                    if (!_batchSelectMode) {
+                                      _selectedBatchTeacherIds.clear();
+                                    }
+                                  });
+                                },
+                          tooltip: _batchSelectMode ? '退出勾选模式' : '进入勾选模式',
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.currency_exchange),
+                          onPressed: _loading
+                              ? null
+                              : () async {
+                                  final allApproved = _approvedTeachers(items);
+                                  final selectedApproved =
+                                      _selectedApprovedTeachers(items);
+                                  if (allApproved.isEmpty) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('当前筛选下没有已通过的交易员可批量重置'),
+                                      ),
+                                    );
+                                    return;
+                                  }
+                                  List<TeacherProfile> targets = allApproved;
+                                  if (selectedApproved.isNotEmpty) {
+                                    final scope =
+                                        await showDialog<String>(
+                                          context: context,
+                                          builder: (ctx) => AlertDialog(
+                                            title: const Text('选择批量重置范围'),
+                                            content: const Text(
+                                              '请选择对哪些交易员执行批量重置',
+                                            ),
+                                            actions: [
+                                              TextButton(
+                                                onPressed: () =>
+                                                    Navigator.of(ctx).pop('selected'),
+                                                child: Text(
+                                                  '仅勾选项（${selectedApproved.length}）',
+                                                ),
+                                              ),
+                                              FilledButton(
+                                                onPressed: () =>
+                                                    Navigator.of(ctx).pop('all'),
+                                                child: Text(
+                                                  '当前筛选全部（${allApproved.length}）',
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ) ??
+                                        'all';
+                                    targets = scope == 'selected'
+                                        ? selectedApproved
+                                        : allApproved;
+                                  }
+                                  _batchResetTradingAccountCash(targets);
+                                },
+                          tooltip: '批量重置资金',
+                        ),
                         IconButton(
                           icon: const Icon(Icons.refresh),
                           onPressed: _loading ? null : _loadTeachers,
@@ -802,16 +1139,48 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
                                               ? item.realName!
                                               : AdminStrings.adminTeacherDefault);
                                       final status = item.status ?? 'pending';
+                                      final checked = _selectedBatchTeacherIds
+                                          .contains(item.userId);
                                       return ListTile(
                                         tileColor: _selectedTeacherId == item.userId
                                             ? const Color(0xFF1A1C20)
+                                            : null,
+                                        leading: _batchSelectMode
+                                            ? Checkbox(
+                                                value: checked,
+                                                onChanged: (v) {
+                                                  setState(() {
+                                                    if (v == true) {
+                                                      _selectedBatchTeacherIds
+                                                          .add(item.userId);
+                                                    } else {
+                                                      _selectedBatchTeacherIds
+                                                          .remove(item.userId);
+                                                    }
+                                                  });
+                                                },
+                                              )
                                             : null,
                                         title: Text(name),
                                         subtitle: Padding(
                                           padding: const EdgeInsets.only(top: 4),
                                           child: _StatusChip(status: status),
                                         ),
-                                        onTap: () => _loadProfile(item),
+                                        onTap: () {
+                                          if (_batchSelectMode) {
+                                            setState(() {
+                                              if (checked) {
+                                                _selectedBatchTeacherIds
+                                                    .remove(item.userId);
+                                              } else {
+                                                _selectedBatchTeacherIds
+                                                    .add(item.userId);
+                                              }
+                                            });
+                                          } else {
+                                            _loadProfile(item);
+                                          }
+                                        },
                                       );
                                     },
                                   ),
@@ -1163,6 +1532,15 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
                 icon: const Icon(Icons.block, size: 18),
                 label: Text(AdminStrings.adminBan),
               ),
+              const SizedBox(width: 10),
+              FilledButton.icon(
+                onPressed: _resetTradingAccountCash,
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF0F5A4A),
+                ),
+                icon: const Icon(Icons.account_balance_wallet, size: 18),
+                label: const Text('重置模拟盘资金'),
+              ),
             ],
           ),
         ],
@@ -1218,6 +1596,15 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
               label: Text(AdminStrings.adminUnfreeze),
             ),
           ),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 44,
+            child: FilledButton.icon(
+              onPressed: _resetTradingAccountCash,
+              icon: const Icon(Icons.account_balance_wallet, size: 18),
+              label: const Text('重置模拟盘资金'),
+            ),
+          ),
         ],
       );
     }
@@ -1242,6 +1629,15 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
               ),
               icon: const Icon(Icons.block, size: 20),
               label: Text(AdminStrings.adminUnblock),
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 44,
+            child: FilledButton.icon(
+              onPressed: _resetTradingAccountCash,
+              icon: const Icon(Icons.account_balance_wallet, size: 18),
+              label: const Text('重置模拟盘资金'),
             ),
           ),
         ],

@@ -194,7 +194,7 @@
   "tradingCrypto": "Crypto",
   "tradingQuoteRefreshFailed": "Quote refresh failed",
   "tradingSearchAndSelectFirst": "Search and select symbol first",
-  "tradingOrderSubmitted": "Submitted (simulated)",
+  "tradingOrderSubmitted": "Order submitted",
   "tradingVolume": "Volume",
   "tradingSelectGainersOrSearch": "Select from gainers or search",
   "tradingViewRealtimeQuote": "View real-time quote and chart",
@@ -218,7 +218,7 @@
   "tradingConfirmBuy": "Confirm Buy",
   "tradingConfirmSell": "Confirm Sell",
   "tradingNoData": "No data",
-  "tradingBuySellSubmitted": "{action} {symbol} submitted (simulated)",
+  "tradingBuySellSubmitted": "{action} {symbol} order submitted",
   "callCallerCancelled": "Caller cancelled",
   "callVideoCall": "Video Call",
   "callVoiceCall": "Voice Call",
@@ -628,6 +628,24 @@
   "tradesPnl": "PnL",
   "tradesQuickSellPending": "Quick sell {symbol} (pending)",
   "tradesSellPending": "Sell {symbol} (pending)",
+  "tradesConfirmMarketSellTitle": "Confirm market sell",
+  "tradesConfirmMarketSellContent": "Confirm market sell {symbol}, quantity {qty}?",
+  "@tradesConfirmMarketSellContent": {
+    "placeholders": {
+      "symbol": {"type": "String"},
+      "qty": {"type": "String"}
+    }
+  },
+  "tradesSellSubmitted": "Sell submitted: {symbol}",
+  "@tradesSellSubmitted": {
+    "placeholders": {
+      "symbol": {"type": "String"}
+    }
+  },
+  "tradesPositionBuyMarketValue": "Buy market value",
+  "tradesPositionCurrentMarketValue": "Current market value",
+  "tradesPositionTotalPnl": "Total P/L",
+  "tradesPositionTodayFloatingPnl": "Today floating P/L",
   "@tradesQuickSellPending": {"placeholders": {"symbol": {"type": "String"}}},
   "@tradesSellPending": {"placeholders": {"symbol": {"type": "String"}}},
   "teachersProfileTitle": "Trader profile",
@@ -1272,5 +1290,55 @@
       "count": {}
     }
   },
-  "adminCsBroadcastEmpty": "Message cannot be empty"
+  "adminCsBroadcastEmpty": "Message cannot be empty",
+  "tradingSummaryUnavailable": "Account data unavailable",
+  "tradingSummaryAvailable": "Available",
+  "tradingSummaryEquity": "Equity",
+  "tradingSummaryMarketValue": "Market value",
+  "tradingSummaryOpenOrders": "Open orders",
+  "tradingSummaryAvailableFunds": "Available funds",
+  "tradingSummaryFrozenFunds": "Frozen funds",
+  "tradingSummaryCashBalance": "Cash balance",
+  "tradingSummaryRealizedPnl": "Realized P/L",
+  "tradingSummaryUnrealizedPnl": "Unrealized P/L",
+  "tradingSummaryTodayPnl": "Today P/L",
+  "tradingSummaryFundDistribution": "Fund Distribution",
+  "tradingSummaryAssetStructure": "Asset Structure",
+  "tradingSummaryProfitOverview": "Profit Overview",
+  "tradingLedgerTitle": "Account Ledger",
+  "tradingLedgerTypeFilter": "Type filter: ",
+  "tradingLedgerEmpty": "No ledger entries",
+  "tradingLedgerBalanceLabel": "Balance",
+  "tradingLedgerCsvCopied": "CSV copied to clipboard",
+  "tradingLedgerTypeAccountReset": "Account reset",
+  "tradingLedgerTypeOrderCashFrozen": "Order cash frozen",
+  "tradingLedgerTypeOrderCancelUnfreeze": "Order cancel unfreeze",
+  "tradingLedgerTypeOrderFilledBuy": "Buy fill",
+  "tradingLedgerTypeOrderFilledSell": "Sell fill",
+  "teachersAccountAndLedgerTab": "Account & Ledger",
+  "teachersQualificationPhoto": "Qualification photo",
+  "teachersSubmitting": "Submitting...",
+  "teachersSubmittedPendingReview": "Submitted, waiting for review",
+  "teachersSubmitApplication": "Submit Application",
+  "teachersStatusFrozenMessage": "Your account is frozen. You cannot publish strategies or trade records.",
+  "teachersStatusUnfreezeTime": " Unfreeze at: {date}",
+  "@teachersStatusUnfreezeTime": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "teachersStatusBlockedMessage": "Your account is blocked. You cannot publish strategies or trade records. Please contact customer service if needed.",
+  "teachersStatusRejectedMessage": "Your application was rejected. You cannot publish strategies or trade records. Please contact customer service if needed.",
+  "teachersStatusPendingMessage": "Under review. Publishing strategies and trade records will be enabled after approval.",
+  "teachersStatusCannotPublishHint": "Your account is {status}. Publishing strategies is not available.",
+  "@teachersStatusCannotPublishHint": {
+    "placeholders": {
+      "status": {
+        "type": "String"
+      }
+    }
+  },
+  "teachersStatusOpenAfterApproval": "Strategy publishing will be available after approval"
 }

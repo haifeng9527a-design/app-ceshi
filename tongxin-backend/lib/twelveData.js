@@ -19,6 +19,26 @@ async function getQuotes(apiKey, symbols) {
   if (res.status !== 200) return {};
   const data = await res.json();
   const out = {};
+  // 批量 quote 常见结构：{ "EUR/USD": {...}, "USD/JPY": {...} }
+  if (data && !Array.isArray(data) && typeof data === 'object' && data.data == null && data.symbol == null) {
+    let parsedAny = false;
+    for (const [sym, item] of Object.entries(data)) {
+      if (!sym || !item || typeof item !== 'object') continue;
+      if (item.code != null && item.code !== 200 && item.code !== 0) continue;
+      out[sym] = {
+        symbol: sym,
+        close: toNum(item.close) ?? 0,
+        change: toNum(item.change) ?? 0,
+        percent_change: toNum(item.percent_change) ?? 0,
+        open: toNum(item.open),
+        high: toNum(item.high),
+        low: toNum(item.low),
+        volume: item.volume != null ? parseInt(item.volume, 10) : undefined,
+      };
+      parsedAny = true;
+    }
+    if (parsedAny) return out;
+  }
   if (Array.isArray(data)) {
     for (const item of data) {
       const sym = item?.symbol;
@@ -56,6 +76,32 @@ async function getQuotes(apiKey, symbols) {
   return out;
 }
 
+/** 获取外汇交易对列表，返回 [{ symbol, name, market: 'forex' }] */
+async function getForexPairs(apiKey) {
+  const url = `${TWELVE_BASE}/forex_pairs?apikey=${apiKey}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
+  if (res.status !== 200) return [];
+  const data = await res.json();
+  if (data?.code != null && data.code !== 200 && data.code !== 0) return [];
+  const rows = Array.isArray(data?.data) ? data.data : [];
+  const out = [];
+  const seen = new Set();
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue;
+    const symbol = String(row.symbol || '').trim();
+    if (!symbol || !symbol.includes('/')) continue;
+    if (seen.has(symbol)) continue;
+    const rowName = String(row.name || '').trim();
+    const base = String(row.currency_base || '').trim();
+    const quote = String(row.currency_quote || '').trim();
+    const name = rowName || ((base && quote) ? `${base}/${quote}` : symbol);
+    out.push({ symbol, name, market: 'forex' });
+    seen.add(symbol);
+  }
+  out.sort((a, b) => a.symbol.localeCompare(b.symbol));
+  return out;
+}
+
 /** K 线 time_series，返回 [{ t(ms), o, h, l, c, v }] */
 async function getTimeSeries(apiKey, symbol, interval, outputsize = 120) {
   const url = `${TWELVE_BASE}/time_series?symbol=${encodeURIComponent(symbol)}&interval=${interval}&outputsize=${outputsize}&apikey=${apiKey}`;
@@ -78,4 +124,4 @@ async function getTimeSeries(apiKey, symbol, interval, outputsize = 120) {
   });
 }
 
-module.exports = { getQuotes, getTimeSeries };
+module.exports = { getQuotes, getTimeSeries, getForexPairs };

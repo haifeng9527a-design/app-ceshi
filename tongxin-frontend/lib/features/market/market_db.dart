@@ -13,7 +13,7 @@ class MarketDb {
   static final MarketDb instance = MarketDb._();
 
   Database? _db;
-  static const int _version = 3;
+  static const int _version = 4;
   static const String _dbName = 'market_local.db';
 
   final Map<String, StreamController<Object?>> _tickersControllers = {};
@@ -65,6 +65,7 @@ class MarketDb {
     await db.execute('CREATE INDEX idx_quotes_price ON quotes(price)');
     await db.execute('CREATE INDEX idx_quotes_volume ON quotes(volume)');
     await db.execute('CREATE INDEX idx_quotes_updated ON quotes(updated_at_ms)');
+    await _createForexPairsTable(db);
     await _createForexQuotesTable(db);
     await _createCryptoQuotesTable(db);
   }
@@ -76,6 +77,21 @@ class MarketDb {
     if (oldVersion < 3) {
       await _createCryptoQuotesTable(db);
     }
+    if (oldVersion < 4) {
+      await _createForexPairsTable(db);
+    }
+  }
+
+  Future<void> _createForexPairsTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS forex_pairs (
+        symbol TEXT PRIMARY KEY,
+        name TEXT,
+        updated_at_ms INTEGER NOT NULL
+      )
+    ''');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_forex_pairs_updated ON forex_pairs(updated_at_ms)');
   }
 
   Future<void> _createForexQuotesTable(Database db) async {
@@ -209,6 +225,56 @@ class MarketDb {
     }
   }
 
+  /// 外汇交易对独立表：symbol+name（用于外汇页首屏/离线恢复）
+  Future<void> upsertForexPairs(List<MarketSearchResult> pairs) async {
+    if (pairs.isEmpty) return;
+    try {
+      final db = await _getDb();
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final batch = db.batch();
+      for (final p in pairs) {
+        final symbol = p.symbol.trim();
+        if (symbol.isEmpty) continue;
+        batch.insert(
+          'forex_pairs',
+          {
+            'symbol': symbol,
+            'name': p.name,
+            'updated_at_ms': now,
+          },
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+      await batch.commit(noResult: true);
+    } catch (e) {
+      if (kDebugMode) debugPrint('MarketDb upsertForexPairs: $e');
+    }
+  }
+
+  /// 外汇交易对独立表：读取全部 symbol+name
+  Future<List<MarketSearchResult>> getForexPairs() async {
+    try {
+      final db = await _getDb();
+      final rows = await db.query('forex_pairs', orderBy: 'symbol ASC');
+      return rows
+          .map((r) {
+            final symbol = (r['symbol'] as String?)?.trim() ?? '';
+            if (symbol.isEmpty) return null;
+            final name = (r['name'] as String?)?.trim();
+            return MarketSearchResult(
+              symbol: symbol,
+              name: (name == null || name.isEmpty) ? symbol : name,
+              market: 'forex',
+            );
+          })
+          .whereType<MarketSearchResult>()
+          .toList();
+    } catch (e) {
+      if (kDebugMode) debugPrint('MarketDb getForexPairs: $e');
+      return [];
+    }
+  }
+
   /// 外汇独立表：按 symbols 读取；symbols 为空时读取全部
   Future<Map<String, MarketQuote>> getForexQuotes([List<String>? symbols]) async {
     try {
@@ -333,6 +399,7 @@ class MarketDb {
       final db = await _getDb();
       await db.delete('quotes');
       await db.delete('tickers');
+      await db.delete('forex_pairs');
       await db.delete('forex_quotes');
       await db.delete('crypto_quotes');
       _notifyTickers();

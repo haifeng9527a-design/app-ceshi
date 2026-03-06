@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../core/layout_mode.dart';
 import '../../l10n/app_localizations.dart';
 import '../trading/mock_market_data.dart';
 import '../trading/realtime_quote_service.dart';
@@ -33,6 +34,7 @@ class _GainersLosersPageState extends State<GainersLosersPage>
   bool _loadingLosers = true;
   String? _errorGainers;
   String? _errorLosers;
+
   /// 排序列：code/name/pct/price/change/open/prev/high/low/vol；默认涨跌幅
   String _sortColumn = 'pct';
   bool _sortAscending = false;
@@ -71,7 +73,8 @@ class _GainersLosersPageState extends State<GainersLosersPage>
   Future<void> _loadIndices() async {
     // 1) 先读缓存，避免首屏出现 “—”
     try {
-      final raw = await _cache.getList(_indexCacheKey, maxAge: _indexCacheMaxAge);
+      final raw =
+          await _cache.getList(_indexCacheKey, maxAge: _indexCacheMaxAge);
       if (raw != null && raw.isNotEmpty && mounted) {
         final fromCache = <String, MarketQuote>{};
         for (final e in raw) {
@@ -220,8 +223,12 @@ class _GainersLosersPageState extends State<GainersLosersPage>
           cmp = (a.todaysChangePerc - b.todaysChangePerc).sign.toInt();
           break;
         case 'price':
-          final pa = (a.price != null && a.price! > 0) ? a.price! : (a.prevClose != null ? a.prevClose! + a.todaysChange : 0.0);
-          final pb = (b.price != null && b.price! > 0) ? b.price! : (b.prevClose != null ? b.prevClose! + b.todaysChange : 0.0);
+          final pa = (a.price != null && a.price! > 0)
+              ? a.price!
+              : (a.prevClose != null ? a.prevClose! + a.todaysChange : 0.0);
+          final pb = (b.price != null && b.price! > 0)
+              ? b.price!
+              : (b.prevClose != null ? b.prevClose! + b.todaysChange : 0.0);
           cmp = (pa - pb).sign.toInt();
           break;
         case 'change':
@@ -350,13 +357,15 @@ class _GainersLosersPageState extends State<GainersLosersPage>
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
         color: _surface,
-        border: Border(top: BorderSide(color: const Color(0xFF1F1F23), width: 0.6)),
+        border:
+            Border(top: BorderSide(color: const Color(0xFF1F1F23), width: 0.6)),
       ),
       child: SafeArea(
         top: false,
         child: Row(
           children: [
-            Text(AppLocalizations.of(context)!.marketThreeIndicesLabel, style: const TextStyle(color: Color(0xFF6B6B70), fontSize: 12)),
+            Text(AppLocalizations.of(context)!.marketThreeIndicesLabel,
+                style: const TextStyle(color: Color(0xFF6B6B70), fontSize: 12)),
             ...List.generate(3, (i) {
               final sym = _indexSymbols[i];
               final l10n = AppLocalizations.of(context)!;
@@ -374,10 +383,19 @@ class _GainersLosersPageState extends State<GainersLosersPage>
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text('$name ', style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 12)),
+                    Text('$name ',
+                        style: const TextStyle(
+                            color: Color(0xFF9CA3AF), fontSize: 12)),
                     Text(
-                      hasError ? '—' : (q != null && q.price > 0 ? _formatPrice(q.price) : '—'),
-                      style: TextStyle(color: hasError ? _muted : Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                      hasError
+                          ? '—'
+                          : (q != null && q.price > 0
+                              ? _formatPrice(q.price)
+                              : '—'),
+                      style: TextStyle(
+                          color: hasError ? _muted : Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600),
                     ),
                     if (!hasError && q != null && q.price > 0) ...[
                       const SizedBox(width: 6),
@@ -404,7 +422,8 @@ class _GainersLosersPageState extends State<GainersLosersPage>
     required Future<void> Function() onRefresh,
   }) {
     if (loading && list.isEmpty) {
-      return const Center(child: CircularProgressIndicator(color: Color(0xFFD4AF37)));
+      return const Center(
+          child: CircularProgressIndicator(color: Color(0xFFD4AF37)));
     }
     if (error != null && list.isEmpty) {
       return Center(
@@ -415,7 +434,10 @@ class _GainersLosersPageState extends State<GainersLosersPage>
             children: [
               const Icon(Icons.cloud_off, size: 48, color: Color(0xFF6B6B70)),
               const SizedBox(height: 16),
-              Text(error, textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 14)),
+              Text(error,
+                  textAlign: TextAlign.center,
+                  style:
+                      const TextStyle(color: Color(0xFF9CA3AF), fontSize: 14)),
               const SizedBox(height: 16),
               TextButton.icon(
                 onPressed: onRefresh,
@@ -429,7 +451,9 @@ class _GainersLosersPageState extends State<GainersLosersPage>
       );
     }
     if (list.isEmpty) {
-      return Center(child: Text(AppLocalizations.of(context)!.marketNoData, style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 14)));
+      return Center(
+          child: Text(AppLocalizations.of(context)!.marketNoData,
+              style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 14)));
     }
 
     const colCode = 64.0;
@@ -442,7 +466,8 @@ class _GainersLosersPageState extends State<GainersLosersPage>
     const colHigh = 60.0;
     const colLow = 60.0;
     const colVol = 72.0;
-    const styleLabel = TextStyle(color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600);
+    const styleLabel = TextStyle(
+        color: Color(0xFF6B6B70), fontSize: 11, fontWeight: FontWeight.w600);
 
     Widget sortHeader(String label, String col, double w) {
       final isActive = _sortColumn == col;
@@ -453,25 +478,40 @@ class _GainersLosersPageState extends State<GainersLosersPage>
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(label, style: styleLabel, maxLines: 1, overflow: TextOverflow.ellipsis),
-              if (isActive) Padding(
-                padding: const EdgeInsets.only(left: 2),
-                child: Icon(_sortAscending ? Icons.arrow_drop_up : Icons.arrow_drop_down, size: 16, color: _accent),
-              ),
+              Text(label,
+                  style: styleLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis),
+              if (isActive)
+                Padding(
+                  padding: const EdgeInsets.only(left: 2),
+                  child: Icon(
+                      _sortAscending
+                          ? Icons.arrow_drop_up
+                          : Icons.arrow_drop_down,
+                      size: 16,
+                      color: _accent),
+                ),
             ],
           ),
         ),
       );
     }
+
     final headerRow = Row(
       children: [
         sortHeader(AppLocalizations.of(context)!.marketCode, 'code', colCode),
-        sortHeader(AppLocalizations.of(context)!.marketNameLabel, 'name', colName),
-        sortHeader(AppLocalizations.of(context)!.tradingChangePct, 'pct', colPct),
-        sortHeader(AppLocalizations.of(context)!.marketLatestPrice, 'price', colPrice),
-        sortHeader(AppLocalizations.of(context)!.marketChange, 'change', colChange),
+        sortHeader(
+            AppLocalizations.of(context)!.marketNameLabel, 'name', colName),
+        sortHeader(
+            AppLocalizations.of(context)!.tradingChangePct, 'pct', colPct),
+        sortHeader(
+            AppLocalizations.of(context)!.marketLatestPrice, 'price', colPrice),
+        sortHeader(
+            AppLocalizations.of(context)!.marketChange, 'change', colChange),
         sortHeader(AppLocalizations.of(context)!.marketOpen, 'open', colOpen),
-        sortHeader(AppLocalizations.of(context)!.marketPrevClose, 'prev', colPrev),
+        sortHeader(
+            AppLocalizations.of(context)!.marketPrevClose, 'prev', colPrev),
         sortHeader(AppLocalizations.of(context)!.marketHigh, 'high', colHigh),
         sortHeader(AppLocalizations.of(context)!.marketLow, 'low', colLow),
         sortHeader(AppLocalizations.of(context)!.marketVolume, 'vol', colVol),
@@ -479,12 +519,14 @@ class _GainersLosersPageState extends State<GainersLosersPage>
     );
 
     final sortedList = _sortedList(list);
-    final isPc = MediaQuery.sizeOf(context).width >= 1100;
+    final isPc = LayoutMode.useDesktopLikeLayout(context);
     return RefreshIndicator(
       onRefresh: onRefresh,
       color: _accent,
       child: ListView(
-        padding: isPc ? const EdgeInsets.symmetric(vertical: 12) : const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        padding: isPc
+            ? const EdgeInsets.symmetric(vertical: 12)
+            : const EdgeInsets.fromLTRB(16, 12, 16, 12),
         children: [
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
@@ -492,39 +534,127 @@ class _GainersLosersPageState extends State<GainersLosersPage>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   decoration: BoxDecoration(
                     color: const Color(0xFF1A1C21),
-                    border: Border(bottom: BorderSide(color: const Color(0xFF1F1F23), width: 0.6)),
+                    border: Border(
+                        bottom: BorderSide(
+                            color: const Color(0xFF1F1F23), width: 0.6)),
                   ),
                   child: headerRow,
                 ),
                 ...sortedList.map((g) {
-                  final color = MarketColors.forChangePercent(g.todaysChangePerc);
+                  final color =
+                      MarketColors.forChangePercent(g.todaysChangePerc);
                   final effectivePrice = (g.price != null && g.price! > 0)
                       ? g.price!
-                      : (g.prevClose != null ? g.prevClose! + g.todaysChange : null);
+                      : (g.prevClose != null
+                          ? g.prevClose! + g.todaysChange
+                          : null);
                   return Material(
                     color: _surface,
                     child: InkWell(
                       onTap: () => _openChart(g, list: sortedList),
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 10),
                         decoration: const BoxDecoration(
-                          border: Border(bottom: BorderSide(color: Color(0xFF1F1F23), width: 0.6)),
+                          border: Border(
+                              bottom: BorderSide(
+                                  color: Color(0xFF1F1F23), width: 0.6)),
                         ),
                         child: Row(
                           children: [
-                            SizedBox(width: colCode, child: Text(g.ticker, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                            SizedBox(width: colName, child: Text(g.ticker, style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                            SizedBox(width: colPct, child: Text('${g.todaysChangePerc >= 0 ? '+' : ''}${g.todaysChangePerc.toStringAsFixed(2)}%', style: TextStyle(color: color, fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                            SizedBox(width: colPrice, child: Text(effectivePrice != null && effectivePrice > 0 ? _formatPrice(effectivePrice) : '—', style: const TextStyle(color: Colors.white, fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                            SizedBox(width: colChange, child: Text('${g.todaysChange >= 0 ? '+' : ''}${g.todaysChange.toStringAsFixed(2)}', style: TextStyle(color: color, fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                            SizedBox(width: colOpen, child: Text(g.dayOpen != null && g.dayOpen! > 0 ? _formatPrice(g.dayOpen!) : '—', style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                            SizedBox(width: colPrev, child: Text(g.prevClose != null && g.prevClose! > 0 ? _formatPrice(g.prevClose!) : '—', style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                            SizedBox(width: colHigh, child: Text(g.dayHigh != null && g.dayHigh! > 0 ? _formatPrice(g.dayHigh!) : '—', style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                            SizedBox(width: colLow, child: Text(g.dayLow != null && g.dayLow! > 0 ? _formatPrice(g.dayLow!) : '—', style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                            SizedBox(width: colVol, child: Text(_formatVolume(g.dayVolume), style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                            SizedBox(
+                                width: colCode,
+                                child: Text(g.ticker,
+                                    style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis)),
+                            SizedBox(
+                                width: colName,
+                                child: Text(g.ticker,
+                                    style: const TextStyle(
+                                        color: Color(0xFF9CA3AF), fontSize: 12),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis)),
+                            SizedBox(
+                                width: colPct,
+                                child: Text(
+                                    '${g.todaysChangePerc >= 0 ? '+' : ''}${g.todaysChangePerc.toStringAsFixed(2)}%',
+                                    style:
+                                        TextStyle(color: color, fontSize: 12),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis)),
+                            SizedBox(
+                                width: colPrice,
+                                child: Text(
+                                    effectivePrice != null && effectivePrice > 0
+                                        ? _formatPrice(effectivePrice)
+                                        : '—',
+                                    style: const TextStyle(
+                                        color: Colors.white, fontSize: 12),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis)),
+                            SizedBox(
+                                width: colChange,
+                                child: Text(
+                                    '${g.todaysChange >= 0 ? '+' : ''}${g.todaysChange.toStringAsFixed(2)}',
+                                    style:
+                                        TextStyle(color: color, fontSize: 12),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis)),
+                            SizedBox(
+                                width: colOpen,
+                                child: Text(
+                                    g.dayOpen != null && g.dayOpen! > 0
+                                        ? _formatPrice(g.dayOpen!)
+                                        : '—',
+                                    style: const TextStyle(
+                                        color: Color(0xFF9CA3AF), fontSize: 12),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis)),
+                            SizedBox(
+                                width: colPrev,
+                                child: Text(
+                                    g.prevClose != null && g.prevClose! > 0
+                                        ? _formatPrice(g.prevClose!)
+                                        : '—',
+                                    style: const TextStyle(
+                                        color: Color(0xFF9CA3AF), fontSize: 12),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis)),
+                            SizedBox(
+                                width: colHigh,
+                                child: Text(
+                                    g.dayHigh != null && g.dayHigh! > 0
+                                        ? _formatPrice(g.dayHigh!)
+                                        : '—',
+                                    style: const TextStyle(
+                                        color: Color(0xFF9CA3AF), fontSize: 12),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis)),
+                            SizedBox(
+                                width: colLow,
+                                child: Text(
+                                    g.dayLow != null && g.dayLow! > 0
+                                        ? _formatPrice(g.dayLow!)
+                                        : '—',
+                                    style: const TextStyle(
+                                        color: Color(0xFF9CA3AF), fontSize: 12),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis)),
+                            SizedBox(
+                                width: colVol,
+                                child: Text(_formatVolume(g.dayVolume),
+                                    style: const TextStyle(
+                                        color: Color(0xFF9CA3AF), fontSize: 12),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis)),
                           ],
                         ),
                       ),

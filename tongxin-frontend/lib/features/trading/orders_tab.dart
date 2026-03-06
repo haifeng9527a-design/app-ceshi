@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../../l10n/app_localizations.dart';
+import 'trading_api_client.dart';
 import 'trading_models.dart';
+import 'trading_ui.dart';
 
 /// 当日委托 Tab：委托列表（标的、方向、委托价/量、已成交、状态、时间、撤单）
 /// 数据先 mock，接口就绪后替换为 API
@@ -16,65 +18,68 @@ class OrdersTab extends StatefulWidget {
 }
 
 class _OrdersTabState extends State<OrdersTab> {
-  static const Color _accent = Color(0xFFD4AF37);
-  static const Color _muted = Color(0xFF6C6F77);
-  static const Color _surface = Color(0xFF1A1C21);
-
-  late List<Order> _orders;
+  final _api = TradingApiClient.instance;
+  List<Order> _orders = const [];
+  bool _loading = true;
+  String? _error;
+  bool _actioning = false;
+  TradingAccountSummary? _summary;
+  late final DateFormat _timeFmt;
+  late final Duration _refreshInterval;
 
   @override
   void initState() {
     super.initState();
-    _orders = _mockTodayOrders();
+    _timeFmt = DateFormat('HH:mm');
+    _refreshInterval = const Duration(seconds: 3);
+    _loadOrders(showLoading: true);
+    _loadSummary();
+    _scheduleRefresh();
   }
 
-  List<Order> _mockTodayOrders() {
-    final now = DateTime.now();
-    return [
-      Order(
-        id: 'ord-1',
-        symbol: 'AAPL',
-        symbolName: '苹果',
-        side: OrderSide.buy,
-        type: OrderType.limit,
-        price: 178.50,
-        quantity: 100,
-        filledQuantity: 0,
-        status: OrderStatus.pending,
-        createdAt: now.subtract(const Duration(minutes: 5)),
-        updatedAt: null,
-      ),
-      Order(
-        id: 'ord-2',
-        symbol: 'TSLA',
-        symbolName: '特斯拉',
-        side: OrderSide.sell,
-        type: OrderType.limit,
-        price: 245.00,
-        quantity: 50,
-        filledQuantity: 20,
-        status: OrderStatus.partial,
-        createdAt: now.subtract(const Duration(minutes: 30)),
-        updatedAt: now.subtract(const Duration(minutes: 10)),
-      ),
-      Order(
-        id: 'ord-3',
-        symbol: 'NVDA',
-        symbolName: '英伟达',
-        side: OrderSide.buy,
-        type: OrderType.market,
-        price: 0,
-        quantity: 30,
-        filledQuantity: 30,
-        status: OrderStatus.filled,
-        createdAt: now.subtract(const Duration(hours: 1)),
-        updatedAt: now.subtract(const Duration(hours: 1)),
-      ),
-    ];
+  void _scheduleRefresh() async {
+    while (mounted) {
+      await Future.delayed(_refreshInterval);
+      if (!mounted) break;
+      await _loadOrders();
+      await _loadSummary();
+    }
+  }
+
+  Future<void> _loadSummary() async {
+    try {
+      final s = await _api.getSummary();
+      if (!mounted) return;
+      setState(() => _summary = s);
+    } catch (_) {}
+  }
+
+  Future<void> _loadOrders({bool showLoading = false}) async {
+    if (showLoading && mounted) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
+    try {
+      final list = await _api.getOpenOrders();
+      if (!mounted) return;
+      setState(() {
+        _orders = list;
+        _loading = false;
+        _error = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = '$e';
+      });
+    }
   }
 
   Future<void> _cancelOrder(Order order) async {
-    if (!order.canCancel) return;
+    if (!order.canCancel || _actioning) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -93,28 +98,26 @@ class _OrdersTabState extends State<OrdersTab> {
       ),
     );
     if (confirmed != true || !mounted) return;
-    setState(() {
-      _orders = _orders
-          .map((o) => o.id == order.id
-              ? Order(
-                  id: o.id,
-                  symbol: o.symbol,
-                  symbolName: o.symbolName,
-                  side: o.side,
-                  type: o.type,
-                  price: o.price,
-                  quantity: o.quantity,
-                  filledQuantity: o.filledQuantity,
-                  status: OrderStatus.cancelled,
-                  createdAt: o.createdAt,
-                  updatedAt: DateTime.now(),
-                )
-              : o)
-          .toList();
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(AppLocalizations.of(context)!.orderCancelSuccess)),
-    );
+    setState(() => _actioning = true);
+    try {
+      await _api.cancelOrder(order.id);
+      await _loadOrders();
+      await _loadSummary();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppLocalizations.of(context)!.orderCancelSuccess)),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$e'),
+          backgroundColor: Colors.red.shade700,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _actioning = false);
+    }
   }
 
   String _statusText(BuildContext context, OrderStatus s) {
@@ -135,47 +138,92 @@ class _OrdersTabState extends State<OrdersTab> {
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: Row(
-            children: [
-              Icon(Icons.pending_actions, color: _accent, size: 20),
-              const SizedBox(width: 8),
-              Text(
-                AppLocalizations.of(context)!.ordersTodayOrders,
-                style: TextStyle(
-                  color: _accent,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 16,
-                ),
+    final pending = _orders.where((o) => o.status == OrderStatus.pending).toList(growable: false);
+    final partial = _orders.where((o) => o.status == OrderStatus.partial).toList(growable: false);
+    final rest = _orders.where((o) => o.status != OrderStatus.pending && o.status != OrderStatus.partial).toList(growable: false);
+
+    return TradingPageScaffold(
+      child: RefreshIndicator(
+        onRefresh: () async {
+          await _loadOrders();
+          await _loadSummary();
+        },
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            TradingSectionHeader(
+              title: AppLocalizations.of(context)!.ordersTodayOrders,
+              icon: Icons.pending_actions,
+              trailing: IconButton(
+                tooltip: AppLocalizations.of(context)!.adminRefresh,
+                onPressed: _loading ? null : () => _loadOrders(showLoading: true),
+                icon: const Icon(Icons.refresh, size: 18),
               ),
-              const Spacer(),
-              Text(
-                '（模拟数据）',
-                style: TextStyle(fontSize: 12, color: _muted),
-              ),
-            ],
-          ),
-        ),
-        if (_orders.isEmpty)
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 48),
-            alignment: Alignment.center,
-            child: Text(
-              AppLocalizations.of(context)!.ordersNoTodayOrders,
-              style: TextStyle(color: _muted, fontSize: 14),
             ),
-          )
-        else
-          ..._orders.map((o) => _OrderCard(
-                order: o,
-                statusText: _statusText(context, o.status),
-                onCancel: o.canCancel ? () => _cancelOrder(o) : null,
-              )),
-      ],
+            const SizedBox(height: 10),
+            TradingSummaryStrip(summary: _summary),
+            const SizedBox(height: 12),
+            if (_loading)
+              const TradingStateBlock.loading()
+            else if (_error != null)
+              TradingStateBlock.error(message: _error!)
+            else if (_orders.isEmpty)
+              TradingStateBlock.empty(
+                message: AppLocalizations.of(context)!.ordersNoTodayOrders,
+              )
+            else ...[
+              if (pending.isNotEmpty) ...[
+                _GroupTitle(title: AppLocalizations.of(context)!.ordersStatusPending),
+                ...pending.map((o) => _OrderCard(
+                      order: o,
+                      statusText: _statusText(context, o.status),
+                      timeFmt: _timeFmt,
+                      onCancel: o.canCancel && !_actioning ? () => _cancelOrder(o) : null,
+                    )),
+              ],
+              if (partial.isNotEmpty) ...[
+                _GroupTitle(title: AppLocalizations.of(context)!.ordersStatusPartial),
+                ...partial.map((o) => _OrderCard(
+                      order: o,
+                      statusText: _statusText(context, o.status),
+                      timeFmt: _timeFmt,
+                      onCancel: o.canCancel && !_actioning ? () => _cancelOrder(o) : null,
+                    )),
+              ],
+              if (rest.isNotEmpty) ...[
+                _GroupTitle(title: AppLocalizations.of(context)!.commonOther),
+                ...rest.map((o) => _OrderCard(
+                      order: o,
+                      statusText: _statusText(context, o.status),
+                      timeFmt: _timeFmt,
+                      onCancel: o.canCancel && !_actioning ? () => _cancelOrder(o) : null,
+                    )),
+              ],
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _GroupTitle extends StatelessWidget {
+  const _GroupTitle({required this.title});
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 6, bottom: 8),
+      child: Text(
+        title,
+        style: const TextStyle(
+          color: TradingUi.textMuted,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
     );
   }
 }
@@ -184,11 +232,13 @@ class _OrderCard extends StatelessWidget {
   const _OrderCard({
     required this.order,
     required this.statusText,
+    required this.timeFmt,
     this.onCancel,
   });
 
   final Order order;
   final String statusText;
+  final DateFormat timeFmt;
   final VoidCallback? onCancel;
 
   static const Color _muted = Color(0xFF6C6F77);
@@ -196,7 +246,6 @@ class _OrderCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final timeFmt = DateFormat('HH:mm');
     final isBuy = order.isBuy;
     final isEndState = order.status == OrderStatus.filled || order.status == OrderStatus.cancelled;
     return Opacity(

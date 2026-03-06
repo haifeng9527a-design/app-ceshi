@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/design/design_tokens.dart';
 import '../../core/firebase_bootstrap.dart';
+import '../../core/layout_mode.dart';
 import '../../l10n/app_localizations.dart';
 import '../../core/notification_service.dart';
 import '../../core/pc_dashboard_page.dart';
@@ -15,7 +16,9 @@ import '../messages/friends_repository.dart';
 import '../messages/message_models.dart';
 import '../messages/messages_page.dart';
 import '../messages/messages_repository.dart';
+import '../market/market_db.dart';
 import '../market/market_page.dart';
+import '../market/market_repository.dart';
 import '../market/watchlist_page.dart';
 import '../market/watchlist_repository.dart';
 import '../profile/profile_page.dart';
@@ -32,13 +35,15 @@ class _HomePageState extends State<HomePage> {
   int _currentIndex = 0;
   final _messagesRepo = MessagesRepository();
   final _friendsRepo = FriendsRepository();
+  final _marketRepo = MarketRepository();
   int _pendingFriendRequestCount = 0;
   StreamSubscription? _incomingRequestsSubscription;
   StreamSubscription? _authSubscription;
+  Stream<List<Conversation>>? _conversationsStream;
+  String _conversationStreamUserId = '';
+  bool _conversationStreamEnabled = false;
   final GlobalKey<NavigatorState> _desktopContentNavKey =
       GlobalKey<NavigatorState>();
-
-  static const double _kDesktopBreakpoint = 1100;
 
   final List<Widget> _pages = const [
     RankingsPage(),
@@ -62,6 +67,7 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     _subscribeIncomingRequests();
+    unawaited(_preloadForexPairsToSqlite());
     unawaited(WatchlistRepository.instance.syncFromServerIfLoggedIn());
     if (FirebaseBootstrap.isReady) {
       _authSubscription = FirebaseAuth.instance.authStateChanges().listen((_) {
@@ -71,11 +77,40 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Future<void> _preloadForexPairsToSqlite() async {
+    try {
+      final pairs = (await _marketRepo.getForexPairsPage(page: 1, pageSize: 30))
+          .items;
+      if (pairs.isEmpty) return;
+      await MarketDb.instance.upsertForexPairs(pairs);
+    } catch (_) {}
+  }
+
   @override
   void dispose() {
     _incomingRequestsSubscription?.cancel();
     _authSubscription?.cancel();
     super.dispose();
+  }
+
+  Stream<List<Conversation>> _ensureConversationsStream({
+    required String userId,
+    required bool canLoadMessages,
+  }) {
+    if (!canLoadMessages) {
+      _conversationStreamEnabled = false;
+      _conversationStreamUserId = '';
+      _conversationsStream = null;
+      return Stream.value(const <Conversation>[]);
+    }
+    if (_conversationsStream == null ||
+        !_conversationStreamEnabled ||
+        _conversationStreamUserId != userId) {
+      _conversationStreamEnabled = true;
+      _conversationStreamUserId = userId;
+      _conversationsStream = _messagesRepo.watchConversations(userId: userId);
+    }
+    return _conversationsStream!;
   }
 
   Widget _desktopChildForIndex(int index) {
@@ -115,13 +150,13 @@ class _HomePageState extends State<HomePage> {
         ? (FirebaseAuth.instance.currentUser?.uid ?? '')
         : '';
     final canLoadMessages = userId.isNotEmpty && ApiClient.instance.isAvailable;
-    final width = MediaQuery.sizeOf(context).width;
-    final useDesktopLayout = width >= _kDesktopBreakpoint;
+    final useDesktopLayout = LayoutMode.useDesktopLikeLayout(context);
 
     return StreamBuilder<List<Conversation>>(
-      stream: canLoadMessages
-          ? _messagesRepo.watchConversations(userId: userId)
-          : Stream.value(<Conversation>[]),
+      stream: _ensureConversationsStream(
+        userId: userId,
+        canLoadMessages: canLoadMessages,
+      ),
       builder: (context, snapshot) {
         final conversations = snapshot.data ?? const <Conversation>[];
         final chatUnread =

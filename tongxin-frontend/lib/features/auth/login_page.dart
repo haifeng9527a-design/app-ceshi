@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/design/design_tokens.dart';
 import '../../core/firebase_bootstrap.dart';
@@ -28,6 +29,7 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
+  static const String _rememberEmailKey = 'auth.remembered_email';
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
@@ -35,8 +37,43 @@ class _LoginPageState extends State<LoginPage> {
   final _authService = AuthService();
   bool _loading = false;
   bool _isRegister = false;
-  Timer? _cooldownTimer;
-  int _resendCooldown = 0;
+
+  String _registerEmailTip(BuildContext context) {
+    final lang = Localizations.localeOf(context).languageCode.toLowerCase();
+    if (lang.startsWith('zh')) {
+      return '点击注册后会自动发送验证邮件，请前往邮箱确认后再登录';
+    }
+    return 'After registration, a verification email will be sent automatically. Please confirm it before signing in.';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _restoreRememberedCredentials();
+  }
+
+  Future<void> _restoreRememberedCredentials() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedEmail = prefs.getString(_rememberEmailKey)?.trim() ?? '';
+      if (!mounted) return;
+      if (savedEmail.isEmpty) return;
+      setState(() {
+        _emailController.text = savedEmail;
+      });
+    } catch (_) {
+      // 忽略本地读取异常，不影响登录主流程
+    }
+  }
+
+  Future<void> _saveRememberedCredentials({required String email}) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_rememberEmailKey, email);
+    } catch (_) {
+      // 忽略本地写入异常，不影响登录主流程
+    }
+  }
 
   @override
   void dispose() {
@@ -44,7 +81,6 @@ class _LoginPageState extends State<LoginPage> {
     _passwordController.dispose();
     _confirmPasswordController.dispose();
     _nameController.dispose();
-    _cooldownTimer?.cancel();
     super.dispose();
   }
 
@@ -101,6 +137,7 @@ class _LoginPageState extends State<LoginPage> {
         _showMessage(UserRestrictions.getAccountStatusMessage(restrictions, context));
         return;
       }
+      await _saveRememberedCredentials(email: email);
       if (mounted && widget.popOnSuccess) Navigator.of(context).pop();
     } catch (error) {
       _showMessage(_friendlyErrorMessage(error));
@@ -139,39 +176,8 @@ class _LoginPageState extends State<LoginPage> {
       );
       await _authService.signOut();
       _showMessage(AppLocalizations.of(context)!.authVerificationSent);
-      _startResendCooldown();
     } catch (error) {
       _showMessage(_friendlyErrorMessage(error));
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  Future<void> _resendVerification() async {
-    if (!_firebaseReady) {
-      _showMessage(AppLocalizations.of(context)!.authPleaseConfigureFirebase);
-      return;
-    }
-    final email = _emailController.text.trim();
-    final password = _passwordController.text.trim();
-    if (_resendCooldown > 0) {
-      _showMessage(AppLocalizations.of(context)!.authResendCooldown(_resendCooldown));
-      return;
-    }
-    if (email.isEmpty || password.isEmpty) {
-      _showMessage(AppLocalizations.of(context)!.authPleaseFillEmailAndPassword);
-      return;
-    }
-    setState(() => _loading = true);
-    try {
-      await _authService.resendVerificationForEmailPassword(
-        email: email,
-        password: password,
-      );
-      _showMessage(AppLocalizations.of(context)!.authVerificationEmailSent);
-      _startResendCooldown();
-    } catch (error) {
-      _showMessage('操作失败：$error');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -232,23 +238,6 @@ class _LoginPageState extends State<LoginPage> {
     return '操作失败：$message';
   }
 
-  void _startResendCooldown([int seconds = 60]) {
-    _cooldownTimer?.cancel();
-    setState(() => _resendCooldown = seconds);
-    _cooldownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted) {
-        timer.cancel();
-        return;
-      }
-      if (_resendCooldown <= 1) {
-        timer.cancel();
-        setState(() => _resendCooldown = 0);
-      } else {
-        setState(() => _resendCooldown -= 1);
-      }
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     final canUseApple = defaultTargetPlatform == TargetPlatform.iOS;
@@ -294,7 +283,10 @@ class _LoginPageState extends State<LoginPage> {
                     const SizedBox(height: AppSpacing.sm),
                     Text(
                       _isRegister ? l10n.authRegisterHint : l10n.authLoginHint,
-                      style: AppTypography.bodySecondary.copyWith(fontSize: 15),
+                      style: AppTypography.bodySecondary.copyWith(
+                        fontSize: 15,
+                        color: AppColors.textPrimary.withValues(alpha: 0.88),
+                      ),
                     ),
                     const SizedBox(height: AppSpacing.xl),
                     // Tab
@@ -377,14 +369,12 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                     if (_isRegister) ...[
                       const SizedBox(height: AppSpacing.md),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: AppButton(
-                          variant: AppButtonVariant.text,
-                          label: _resendCooldown > 0
-                              ? l10n.authSendVerificationEmailCooldown(_resendCooldown)
-                              : l10n.authSendVerificationEmail,
-                          onPressed: _loading || _resendCooldown > 0 ? null : _resendVerification,
+                      Text(
+                        _registerEmailTip(context),
+                        textAlign: TextAlign.center,
+                        style: AppTypography.bodySecondary.copyWith(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ],
@@ -392,7 +382,10 @@ class _LoginPageState extends State<LoginPage> {
                     Text(
                       l10n.authThirdPartyLogin,
                       textAlign: TextAlign.center,
-                      style: AppTypography.bodySecondary,
+                      style: AppTypography.bodySecondary.copyWith(
+                        color: AppColors.textPrimary.withValues(alpha: 0.9),
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                     const SizedBox(height: AppSpacing.md),
                     _SocialBtn(icon: Icons.g_mobiledata_rounded, label: l10n.authGoogleLogin, onPressed: _loading ? null : () => _runSignIn(_authService.signInWithGoogle)),

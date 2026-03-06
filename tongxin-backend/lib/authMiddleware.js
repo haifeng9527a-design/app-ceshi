@@ -5,6 +5,10 @@
  */
 let admin = null;
 let auth = null;
+const supabaseClient = require('./supabaseClient');
+const restrictionGuard = require('./restrictionGuard');
+const restrictionCache = new Map();
+const RESTRICTION_CACHE_MS = 30 * 1000;
 
 function initFirebase() {
   if (admin) return auth != null;
@@ -57,6 +61,13 @@ async function optionalAuth(req, res, next) {
  * 必须鉴权：无有效 token 则 401
  */
 async function requireAuth(req, res, next) {
+  const adminKey = process.env.ADMIN_API_KEY?.trim();
+  const requestAdminKey = (req.headers['x-admin-key'] || '').toString().trim();
+  if (adminKey && requestAdminKey && requestAdminKey === adminKey) {
+    req.firebaseUid = 'admin_api_key';
+    req.isAdminByKey = true;
+    return next();
+  }
   if (!isAuthConfigured()) {
     return res.status(503).json({ error: '鉴权服务未配置' });
   }
@@ -71,6 +82,22 @@ async function requireAuth(req, res, next) {
   try {
     const decoded = await auth.verifyIdToken(token);
     req.firebaseUid = decoded.uid;
+    const sb = supabaseClient.getClient();
+    if (sb && req.firebaseUid) {
+      const now = Date.now();
+      const cached = restrictionCache.get(req.firebaseUid);
+      let row = null;
+      if (cached && now - cached.at < RESTRICTION_CACHE_MS) {
+        row = cached.row;
+      } else {
+        row = await restrictionGuard.getUserRestrictionRow(sb, req.firebaseUid);
+        restrictionCache.set(req.firebaseUid, { at: now, row });
+      }
+      const loginGate = restrictionGuard.checkAction(row, 'login');
+      if (!loginGate.allowed) {
+        return res.status(403).json({ error: loginGate.reason || '账号已限制登录' });
+      }
+    }
     next();
   } catch (e) {
     return res.status(401).json({ error: 'Token 无效或已过期' });

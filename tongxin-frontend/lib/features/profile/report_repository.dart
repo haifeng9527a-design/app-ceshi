@@ -63,7 +63,9 @@ class ReportRepository {
     String? content,
     List<String> screenshotUrls = const [],
   }) async {
-    if (!_useApi) return;
+    if (!_useApi) {
+      throw StateError('API 不可用，无法提交举报');
+    }
     await ReportApi.instance.submitReport(
       reporterId: reporterId,
       reportedUserId: reportedUserId,
@@ -84,7 +86,9 @@ class ReportRepository {
     String? adminNotes,
     required String reviewedBy,
   }) async {
-    if (!_useApi) return;
+    if (!_useApi) {
+      throw StateError('API 不可用，无法更新举报状态');
+    }
     await ReportApi.instance.updateReportStatus(
       reportId: reportId,
       status: status,
