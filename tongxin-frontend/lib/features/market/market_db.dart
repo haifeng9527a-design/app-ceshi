@@ -13,7 +13,7 @@ class MarketDb {
   static final MarketDb instance = MarketDb._();
 
   Database? _db;
-  static const int _version = 4;
+  static const int _version = 5;
   static const String _dbName = 'market_local.db';
 
   final Map<String, StreamController<Object?>> _tickersControllers = {};
@@ -43,6 +43,8 @@ class MarketDb {
         symbol TEXT PRIMARY KEY,
         name TEXT,
         market TEXT,
+        stock_type TEXT,
+        is_24h_trading INTEGER NOT NULL DEFAULT 0,
         updated_at INTEGER NOT NULL
       )
     ''');
@@ -56,6 +58,7 @@ class MarketDb {
         high_val REAL,
         low_val REAL,
         volume INTEGER,
+        prev_close REAL,
         name TEXT,
         updated_at_ms INTEGER NOT NULL
       )
@@ -80,6 +83,23 @@ class MarketDb {
     if (oldVersion < 4) {
       await _createForexPairsTable(db);
     }
+    if (oldVersion < 5) {
+      await _ensureV5Columns(db);
+    }
+  }
+
+  Future<void> _ensureV5Columns(Database db) async {
+    Future<void> safeAlter(String sql) async {
+      try {
+        await db.execute(sql);
+      } catch (_) {}
+    }
+
+    await safeAlter(
+        'ALTER TABLE tickers ADD COLUMN stock_type TEXT');
+    await safeAlter(
+        'ALTER TABLE tickers ADD COLUMN is_24h_trading INTEGER NOT NULL DEFAULT 0');
+    await safeAlter('ALTER TABLE quotes ADD COLUMN prev_close REAL');
   }
 
   Future<void> _createForexPairsTable(Database db) async {
@@ -146,6 +166,8 @@ class MarketDb {
             'symbol': t.symbol,
             'name': t.name,
             'market': t.market,
+            'stock_type': t.stockType,
+            'is_24h_trading': t.is24HourTrading == true ? 1 : 0,
             'updated_at': now,
           },
           conflictAlgorithm: ConflictAlgorithm.replace,
@@ -179,6 +201,7 @@ class MarketDb {
             'high_val': q.high,
             'low_val': q.low,
             'volume': q.volume,
+            'prev_close': q.prevClose,
             'name': q.name,
             'updated_at_ms': now,
           },
@@ -470,7 +493,8 @@ class MarketDb {
       final offsetClause = offset > 0 ? 'OFFSET $offset' : '';
       final rows = await db.rawQuery('''
         SELECT t.symbol, t.name, t.market,
-               q.price, q.change_val, q.change_percent, q.open_val, q.high_val, q.low_val, q.volume
+               t.stock_type, t.is_24h_trading,
+               q.price, q.change_val, q.change_percent, q.open_val, q.high_val, q.low_val, q.volume, q.prev_close
         FROM tickers t
         LEFT JOIN quotes q ON t.symbol = q.symbol
         $orderBy
@@ -514,7 +538,7 @@ class MarketDb {
       case 'open':
         return 'ORDER BY COALESCE(q.open_val, $nullLast) $dir, t.symbol ASC';
       case 'prev':
-        return 'ORDER BY COALESCE(q.price - q.change_val, $nullLast) $dir, t.symbol ASC';
+        return 'ORDER BY COALESCE(q.prev_close, q.price - q.change_val, $nullLast) $dir, t.symbol ASC';
       case 'high':
         return 'ORDER BY COALESCE(q.high_val, $nullLast) $dir, t.symbol ASC';
       case 'low':
@@ -532,6 +556,8 @@ class MarketDb {
       symbol: sym,
       name: r['name'] as String? ?? sym,
       market: r['market'] as String?,
+      stockType: r['stock_type'] as String?,
+      is24HourTrading: ((r['is_24h_trading'] as num?)?.toInt() ?? 0) == 1,
     );
   }
 
@@ -548,6 +574,7 @@ class MarketDb {
       high: (r['high_val'] as num?)?.toDouble(),
       low: (r['low_val'] as num?)?.toDouble(),
       volume: (r['volume'] as int?),
+      prevClose: (r['prev_close'] as num?)?.toDouble(),
     );
   }
 
@@ -558,6 +585,8 @@ class MarketDb {
       symbol: sym,
       name: r['name'] as String? ?? sym,
       market: r['market'] as String?,
+      stockType: r['stock_type'] as String?,
+      is24HourTrading: ((r['is_24h_trading'] as num?)?.toInt() ?? 0) == 1,
     );
   }
 

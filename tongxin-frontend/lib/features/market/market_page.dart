@@ -4245,8 +4245,16 @@ class _UsStocksTabState extends State<_UsStocksTab> {
                 final high = q?.high;
                 final low = q?.low;
                 final vol = q?.volume;
-                final prevClose = price > 0 ? (price - change) : null;
-                final color = MarketColors.forChangePercent(pct);
+                final prevClose =
+                    q?.prevClose ?? (price > 0 ? (price - change) : null);
+                final effectiveChange =
+                    (prevClose != null && prevClose > 0)
+                        ? (price - prevClose)
+                        : change;
+                final effectivePct = (prevClose != null && prevClose > 0)
+                    ? ((effectiveChange / prevClose) * 100)
+                    : pct;
+                final color = MarketColors.forChangePercent(effectivePct);
                 return Material(
                   color: const Color(0xFF111215),
                   child: InkWell(
@@ -4418,6 +4426,19 @@ class _UsStocksTabState extends State<_UsStocksTab> {
     _loadingMore = false;
   }
 
+  String _stockSymbolWithMeta(MarketSearchResult t) {
+    if (t.is24HourTrading == true) {
+      return '${t.symbol} ·24H';
+    }
+    return t.symbol;
+  }
+
+  String _stockNameWithMeta(MarketSearchResult t) {
+    final type = (t.stockType ?? '').trim().toUpperCase();
+    if (type.isEmpty) return t.name;
+    return '${t.name} ($type)';
+  }
+
   Widget _sortableHeader(String label, String columnId,
       {required double width, TextAlign align = TextAlign.right}) {
     final isActive = _sortColumn == columnId;
@@ -4575,8 +4596,16 @@ class _UsStocksTabState extends State<_UsStocksTab> {
                 final high = q?.high;
                 final low = q?.low;
                 final vol = q?.volume;
-                final prevClose = price > 0 ? (price - change) : null;
-                final color = MarketColors.forChangePercent(pct);
+                final prevClose =
+                    q?.prevClose ?? (price > 0 ? (price - change) : null);
+                final effectiveChange =
+                    (prevClose != null && prevClose > 0)
+                        ? (price - prevClose)
+                        : change;
+                final effectivePct = (prevClose != null && prevClose > 0)
+                    ? ((effectiveChange / prevClose) * 100)
+                    : pct;
+                final color = MarketColors.forChangePercent(effectivePct);
                 final isSelected = _selectedSymbol == t.symbol;
                 return Material(
                   color:
@@ -4603,14 +4632,14 @@ class _UsStocksTabState extends State<_UsStocksTab> {
                         children: [
                           Expanded(
                               flex: 1,
-                              child: Text(t.symbol,
+                              child: Text(_stockSymbolWithMeta(t),
                                   style: TvTheme.body
                                       .copyWith(fontWeight: FontWeight.w600),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis)),
                           Expanded(
                               flex: 2,
-                              child: Text(t.name,
+                              child: Text(_stockNameWithMeta(t),
                                   style: TvTheme.meta,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis)),
@@ -4619,7 +4648,7 @@ class _UsStocksTabState extends State<_UsStocksTab> {
                               child: Text(
                                   hasError
                                       ? '—'
-                                      : '${pct >= 0 ? '+' : ''}${pct.toStringAsFixed(2)}%',
+                                      : '${effectivePct >= 0 ? '+' : ''}${effectivePct.toStringAsFixed(2)}%',
                                   style: TvTheme.meta.copyWith(color: color),
                                   textAlign: TextAlign.right,
                                   maxLines: 1,
@@ -4637,7 +4666,7 @@ class _UsStocksTabState extends State<_UsStocksTab> {
                               child: Text(
                                   hasError
                                       ? '—'
-                                      : '${change >= 0 ? '+' : ''}${change.toStringAsFixed(2)}',
+                                      : '${effectiveChange >= 0 ? '+' : ''}${effectiveChange.toStringAsFixed(2)}',
                                   style: TvTheme.meta.copyWith(color: color),
                                   textAlign: TextAlign.right)),
                           SizedBox(
@@ -4837,14 +4866,14 @@ class _UsStocksTabState extends State<_UsStocksTab> {
                               children: [
                                 SizedBox(
                                     width: colCode,
-                                    child: Text(t.symbol,
+                                    child: Text(_stockSymbolWithMeta(t),
                                         style: styleCell.copyWith(
                                             fontWeight: FontWeight.w600),
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis)),
                                 SizedBox(
                                     width: colName,
-                                    child: Text(t.name,
+                                    child: Text(_stockNameWithMeta(t),
                                         style: styleMuted,
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis)),
@@ -4895,8 +4924,16 @@ class _UsStocksTabState extends State<_UsStocksTab> {
                           final high = q?.high;
                           final low = q?.low;
                           final vol = q?.volume;
-                          final prevClose = price > 0 ? (price - change) : null;
-                          final color = MarketColors.forChangePercent(pct);
+                          final prevClose =
+                              q?.prevClose ?? (price > 0 ? (price - change) : null);
+                          final effectiveChange =
+                              (prevClose != null && prevClose > 0)
+                                  ? (price - prevClose)
+                                  : change;
+                          final effectivePct = (prevClose != null && prevClose > 0)
+                              ? ((effectiveChange / prevClose) * 100)
+                              : pct;
+                          final color = MarketColors.forChangePercent(effectivePct);
                           return Material(
                             color: const Color(0xFF111215),
                             child: InkWell(
@@ -4925,7 +4962,7 @@ class _UsStocksTabState extends State<_UsStocksTab> {
                                         child: Text(
                                             hasError
                                                 ? '—'
-                                                : '${pct >= 0 ? '+' : ''}${pct.toStringAsFixed(2)}%',
+                                                : '${effectivePct >= 0 ? '+' : ''}${effectivePct.toStringAsFixed(2)}%',
                                             style: styleMuted.copyWith(
                                                 color: color),
                                             textAlign: TextAlign.right,
@@ -4944,7 +4981,7 @@ class _UsStocksTabState extends State<_UsStocksTab> {
                                         child: Text(
                                             hasError
                                                 ? '—'
-                                                : '${change >= 0 ? '+' : ''}${change.toStringAsFixed(2)}',
+                                                : '${effectiveChange >= 0 ? '+' : ''}${effectiveChange.toStringAsFixed(2)}',
                                             style: styleMuted.copyWith(
                                                 color: color),
                                             textAlign: TextAlign.right)),

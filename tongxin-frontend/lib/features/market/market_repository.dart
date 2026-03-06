@@ -163,6 +163,44 @@ class MarketRepository {
   /// 是否美股代码（SymbolResolver 判定：非指数、纯字母 1～5 位）
   static bool _isUsStock(String symbol) => SymbolResolver.isUsStock(symbol);
 
+  static Set<String>? _stock24hSymbolsCache;
+
+  static Set<String> _stock24hSymbols() {
+    if (_stock24hSymbolsCache != null) return _stock24hSymbolsCache!;
+    final raw = dotenv.env['STOCK_24H_SYMBOLS']?.trim() ?? '';
+    if (raw.isEmpty) {
+      _stock24hSymbolsCache = <String>{};
+      return _stock24hSymbolsCache!;
+    }
+    final set = raw
+        .split(RegExp(r'[,\s;|]+'))
+        .map((e) => e.trim().toUpperCase())
+        .where((e) => e.isNotEmpty)
+        .toSet();
+    _stock24hSymbolsCache = set;
+    return set;
+  }
+
+  static bool _is24hStock({
+    required String symbol,
+    String? name,
+    String? type,
+    String? primaryExchange,
+  }) {
+    final s = symbol.trim().toUpperCase();
+    if (s.isEmpty) return false;
+    if (_stock24hSymbols().contains(s)) return true;
+    final n = (name ?? '').toLowerCase();
+    if (n.contains('24h') || n.contains('24 hour') || n.contains('overnight')) {
+      return true;
+    }
+    final t = (type ?? '').trim().toUpperCase();
+    if (t == '24H') return true;
+    final ex = (primaryExchange ?? '').trim().toUpperCase();
+    if (ex == 'BOATS' || ex == 'BLUEOCEAN') return true;
+    return false;
+  }
+
   // ---------- 搜索 ----------
 
   /// 搜索标的（股票 + 外汇 + 加密货币）
@@ -188,7 +226,17 @@ class MarketRepository {
       final list = await _polygon.searchTickers(q, limit: 20);
       for (final r in list) {
         add(MarketSearchResult(
-            symbol: r.ticker, name: r.name, market: r.market));
+          symbol: r.ticker,
+          name: r.name,
+          market: r.market,
+          stockType: r.type,
+          is24HourTrading: _is24hStock(
+            symbol: r.ticker,
+            name: r.name,
+            type: r.type,
+            primaryExchange: r.primaryExchange,
+          ),
+        ));
       }
     }
 
@@ -251,14 +299,20 @@ class MarketRepository {
         if (snap != null) {
           _quoteDebugLog(sym, 'Polygon', 'snapshot ok');
           final price = snap.price ?? (snap.prevClose ?? 0);
-          final change = snap.todaysChange;
-          final changePercent = snap.todaysChangePerc;
+          final prevClose = snap.prevClose;
+          final change = (prevClose != null && prevClose > 0)
+              ? (price - prevClose)
+              : snap.todaysChange;
+          final changePercent = (prevClose != null && prevClose > 0)
+              ? ((change / prevClose) * 100)
+              : snap.todaysChangePerc;
           final q = MarketQuote(
             symbol: sym,
             name: null,
             price: price,
             change: change,
             changePercent: changePercent,
+            prevClose: prevClose,
             open: snap.dayOpen,
             high: snap.dayHigh,
             low: snap.dayLow,
@@ -283,6 +337,7 @@ class MarketRepository {
             price: price,
             change: change,
             changePercent: changePercent,
+            prevClose: prev,
             open: null,
             high: null,
             low: null,
@@ -771,7 +826,13 @@ class MarketRepository {
       final list = await _backend!.getTickersFromCache();
       if (list != null && list.isNotEmpty) {
         final payload = list
-            .map((r) => {'s': r.symbol, 'n': r.name, 'm': r.market})
+            .map((r) => {
+                  's': r.symbol,
+                  'n': r.name,
+                  'm': r.market,
+                  't': r.stockType,
+                  'h24': r.is24HourTrading == true ? 1 : 0,
+                })
             .toList();
         unawaited(TradingCache.instance.setList(_usTickersCacheKey, payload));
         return list;
@@ -781,7 +842,15 @@ class MarketRepository {
     final list = await _quoteCacheRepo.getAllTickers();
     if (list.isNotEmpty) {
       final payload =
-          list.map((r) => {'s': r.symbol, 'n': r.name, 'm': r.market}).toList();
+          list
+              .map((r) => {
+                    's': r.symbol,
+                    'n': r.name,
+                    'm': r.market,
+                    't': r.stockType,
+                    'h24': r.is24HourTrading == true ? 1 : 0,
+                  })
+              .toList();
       unawaited(TradingCache.instance.setList(_usTickersCacheKey, payload));
     }
     return list;
@@ -824,7 +893,12 @@ class MarketRepository {
       final n = e['n'] as String?;
       if (s == null || s.isEmpty) continue;
       list.add(MarketSearchResult(
-          symbol: s, name: n ?? s, market: e['m'] as String?));
+        symbol: s,
+        name: n ?? s,
+        market: e['m'] as String?,
+        stockType: e['t'] as String?,
+        is24HourTrading: ((e['h24'] as num?)?.toInt() ?? 0) == 1,
+      ));
     }
     if (list.isEmpty) return null;
     list.sort((a, b) => a.symbol.compareTo(b.symbol));
@@ -837,12 +911,28 @@ class MarketRepository {
     final list = await _polygon.getAllUsTickers();
     final result = list
         .map((r) => MarketSearchResult(
-            symbol: r.ticker, name: r.name, market: r.market))
+              symbol: r.ticker,
+              name: r.name,
+              market: r.market,
+              stockType: r.type,
+              is24HourTrading: _is24hStock(
+                symbol: r.ticker,
+                name: r.name,
+                type: r.type,
+                primaryExchange: r.primaryExchange,
+              ),
+            ))
         .toList();
     result.sort((a, b) => a.symbol.compareTo(b.symbol));
     if (result.isNotEmpty) {
       final payload = result
-          .map((r) => {'s': r.symbol, 'n': r.name, 'm': r.market})
+          .map((r) => {
+                's': r.symbol,
+                'n': r.name,
+                'm': r.market,
+                't': r.stockType,
+                'h24': r.is24HourTrading == true ? 1 : 0,
+              })
           .toList();
       unawaited(TradingCache.instance.setList(_usTickersCacheKey, payload));
     }
@@ -1047,12 +1137,18 @@ class MarketSearchResult {
     required this.symbol,
     required this.name,
     this.market,
+    this.stockType,
+    this.is24HourTrading,
   });
   final String symbol;
   final String name;
 
   /// 市场类型：stocks, crypto, fx, indices 等
   final String? market;
+  /// 证券类型（如 CS, ETF, ETN, ADRC ...）
+  final String? stockType;
+  /// 是否 24 小时可交易（来源：配置或启发式识别）
+  final bool? is24HourTrading;
 }
 
 /// 统一报价（美股来自 Polygon last+prev，其余来自 Twelve Data）
@@ -1071,6 +1167,7 @@ class MarketQuote {
     this.ask,
     this.bidSize,
     this.askSize,
+    this.prevClose,
     this.errorReason,
   });
   final String symbol;
@@ -1094,6 +1191,7 @@ class MarketQuote {
 
   /// 卖一量
   final int? askSize;
+  final double? prevClose;
 
   /// 非空表示加载失败，UI 可显示「加载失败·点重试」
   final String? errorReason;
@@ -1115,12 +1213,18 @@ class MarketQuote {
     final symbol = m['symbol'] as String?;
     final close = _toDouble(m['close']);
     if (symbol == null || close == null) return null;
+    final prevClose = _toDouble(m['prev_close']);
+    final rawChange = _toDouble(m['change']) ?? 0;
+    final change = (prevClose != null && prevClose > 0) ? (close - prevClose) : rawChange;
+    final changePercent = (prevClose != null && prevClose > 0)
+        ? (change / prevClose * 100)
+        : (_toDouble(m['percent_change']) ?? 0);
     return MarketQuote(
       symbol: symbol,
       name: m['name'] as String?,
       price: close,
-      change: _toDouble(m['change']) ?? 0,
-      changePercent: _toDouble(m['percent_change']) ?? 0,
+      change: change,
+      changePercent: changePercent,
       open: _toDouble(m['open']),
       high: _toDouble(m['high']),
       low: _toDouble(m['low']),
@@ -1129,6 +1233,7 @@ class MarketQuote {
       ask: _toDouble(m['ask']),
       bidSize: _toInt(m['bidSize']),
       askSize: _toInt(m['askSize']),
+      prevClose: prevClose,
       errorReason: m['error_reason'] as String?,
     );
   }
@@ -1148,6 +1253,7 @@ class MarketQuote {
         if (ask != null) 'ask': ask,
         if (bidSize != null) 'bidSize': bidSize,
         if (askSize != null) 'askSize': askSize,
+        if (prevClose != null) 'prev_close': prevClose,
         if (errorReason != null) 'error_reason': errorReason,
       };
 

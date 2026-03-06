@@ -37,7 +37,13 @@ class StockQuoteCacheRepository {
         if (symbol == null || symbol.isEmpty || seen.contains(symbol)) continue;
         seen.add(symbol);
         final name = row['name'] as String? ?? symbol;
-        result.add(MarketSearchResult(symbol: symbol, name: name, market: null));
+        result.add(MarketSearchResult(
+          symbol: symbol,
+          name: name,
+          market: row['market'] as String?,
+          stockType: row['stock_type'] as String?,
+          is24HourTrading: row['is_24h_trading'] == true,
+        ));
       }
       result.sort((a, b) => a.symbol.compareTo(b.symbol));
       return result;

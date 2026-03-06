@@ -8,6 +8,7 @@ import '../../core/firebase_bootstrap.dart';
 import '../../core/layout_mode.dart';
 import '../../l10n/app_localizations.dart';
 import '../../core/notification_service.dart';
+import '../../core/startup_data_sync_service.dart';
 import '../../core/pc_dashboard_page.dart';
 import '../../core/pc_shell.dart';
 import '../../core/api_client.dart';
@@ -68,10 +69,15 @@ class _HomePageState extends State<HomePage> {
     super.initState();
     _subscribeIncomingRequests();
     unawaited(_preloadForexPairsToSqlite());
+    unawaited(StartupDataSyncService.instance.syncTradingDataOnAppStart());
     unawaited(WatchlistRepository.instance.syncFromServerIfLoggedIn());
     if (FirebaseBootstrap.isReady) {
       _authSubscription = FirebaseAuth.instance.authStateChanges().listen((_) {
         _subscribeIncomingRequests();
+        unawaited(
+          StartupDataSyncService.instance
+              .syncTradingDataOnAppStart(force: true),
+        );
         unawaited(WatchlistRepository.instance.syncFromServerIfLoggedIn());
       });
     }

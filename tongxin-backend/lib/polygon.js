@@ -138,6 +138,7 @@ async function getTickerSnapshot(apiKey, symbol) {
     price: close,
     change,
     changePercent,
+    prevClose: prevClose > 0 ? Number(prevClose) : null,
     open: open ?? null,
     high: high ?? null,
     low: low ?? null,
@@ -185,7 +186,7 @@ async function getAggregates(apiKey, symbol, multiplier, timespan, fromMs, toMs)
   }));
 }
 
-/** 全量美股列表（v3/reference/tickers market=stocks type=CS，分页至 next_url 为空），返回 ticker 字符串数组 */
+/** 全量美股列表（v3/reference/tickers market=stocks，不限制 type），分页至 next_url 为空，返回 ticker 字符串数组 */
 async function getAllUsTickers(apiKey) {
   const list = [];
   let nextUrl = null;
@@ -194,7 +195,7 @@ async function getAllUsTickers(apiKey) {
     for (;;) {
       const url = nextUrl
         ? `${nextUrl}${nextUrl.includes('?') ? '&' : '?'}apiKey=${apiKey}`
-        : `${POLYGON_BASE}/v3/reference/tickers?market=stocks&type=CS&limit=${limit}&apiKey=${apiKey}`;
+        : `${POLYGON_BASE}/v3/reference/tickers?market=stocks&limit=${limit}&apiKey=${apiKey}`;
       const res = await fetch(url, { signal: AbortSignal.timeout(30000) });
       if (res.status !== 200) break;
       const data = await res.json();
@@ -318,6 +319,7 @@ function tickerToQuotePayload(ticker, symbol) {
     price: close,
     change,
     changePercent,
+    prevClose: prevClose > 0 ? Number(prevClose) : null,
     open: open ?? null,
     high: high ?? null,
     low: low ?? null,
@@ -429,6 +431,7 @@ async function getBatchSnapshotsV3(apiKey, symbols) {
       price: close,
       change,
       changePercent,
+      prevClose: prevClose > 0 ? Number(prevClose) : null,
       open: open ?? null,
       high: high ?? null,
       low: low ?? null,

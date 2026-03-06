@@ -32,7 +32,13 @@ class BackendMarketClient {
         final s = e['s'] as String?;
         final n = e['n'] as String?;
         if (s == null || s.isEmpty) continue;
-        list.add(MarketSearchResult(symbol: s, name: n ?? s, market: null));
+        list.add(MarketSearchResult(
+          symbol: s,
+          name: n ?? s,
+          market: e['m'] as String?,
+          stockType: e['t'] as String?,
+          is24HourTrading: ((e['h24'] as num?)?.toInt() ?? 0) == 1,
+        ));
       }
       if (list.isNotEmpty) return list;
     }
@@ -52,8 +58,23 @@ class BackendMarketClient {
         final s = (e['symbol'] as String?)?.trim();
         final n = e['name'] as String?;
         if (s == null || s.isEmpty) continue;
-        result.add(MarketSearchResult(symbol: s, name: n ?? s, market: null));
-        toCache.add({'s': s, 'n': n ?? s});
+        final market = e['market'] as String?;
+        final type = e['stock_type'] as String?;
+        final is24h = e['is_24h_trading'] == true;
+        result.add(MarketSearchResult(
+          symbol: s,
+          name: n ?? s,
+          market: market,
+          stockType: type,
+          is24HourTrading: is24h,
+        ));
+        toCache.add({
+          's': s,
+          'n': n ?? s,
+          'm': market,
+          't': type,
+          'h24': is24h ? 1 : 0,
+        });
       }
       if (result.isNotEmpty) {
         try {

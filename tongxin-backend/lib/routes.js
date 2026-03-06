@@ -27,6 +27,12 @@ const toQuoteSnapshot = quoteFetcher.toQuoteSnapshot;
 /** 休市/接口无数据时：用 Supabase stock_quote_cache 表备份覆盖，最多取 24 小时内更新过的 */
 const SUPABASE_FALLBACK_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const fetchOneQuote = quoteFetcher.fetchOneQuote;
+const STOCK_24H_SYMBOLS = new Set(
+  String(process.env.STOCK_24H_SYMBOLS || '')
+    .split(/[,\s;|]+/)
+    .map((s) => s.trim().toUpperCase())
+    .filter(Boolean)
+);
 
 function createRequireAdminRole() {
   return async (req, res, next) => {
@@ -85,6 +91,7 @@ async function handleQuotes(req, res, polygonKey, twelveKey) {
               price: quote.price || prevBar?.c || 0,
               change: quote.change ?? 0,
               changePercent: quote.changePercent ?? 0,
+              prevClose: prevBar?.c ?? (quote.price > 0 ? quote.price - (quote.change ?? 0) : null),
               open: prevBar?.o ?? null,
               high: prevBar?.h ?? null,
               low: prevBar?.l ?? null,
@@ -495,7 +502,14 @@ async function handleTickersFromCache(req, res) {
   try {
     const maxAgeMs = req.query.maxAgeHours ? parseInt(req.query.maxAgeHours, 10) * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
     const list = await supabaseQuoteCache.getAllSymbolsAndNames(maxAgeMs);
-    return res.json(list);
+    const enriched = (list || []).map((item) => {
+      const symbol = String(item.symbol || '').toUpperCase();
+      return {
+        ...item,
+        is_24h_trading: STOCK_24H_SYMBOLS.has(symbol),
+      };
+    });
+    return res.json(enriched);
   } catch (e) {
     return res.status(502).json({ error: String(e.message || e) });
   }

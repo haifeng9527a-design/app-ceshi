@@ -22,11 +22,20 @@ function isConfigured() {
 
 /** 把表的一行转成前端用的 payload（与 toQuoteSnapshot 结构一致） */
 function rowToPayload(row) {
+  const close = row.close != null ? Number(row.close) : null;
+  const prevClose = row.prev_close != null ? Number(row.prev_close) : null;
+  const changeByPrev =
+    close != null && prevClose != null && prevClose > 0 ? close - prevClose : null;
+  const pctByPrev =
+    changeByPrev != null && prevClose != null && prevClose > 0
+      ? (changeByPrev / prevClose) * 100
+      : null;
   return {
     symbol: row.symbol,
-    close: row.close != null ? Number(row.close) : null,
-    change: row.change != null ? Number(row.change) : null,
-    percent_change: row.percent_change != null ? Number(row.percent_change) : null,
+    close,
+    change: changeByPrev ?? (row.change != null ? Number(row.change) : null),
+    percent_change: pctByPrev ?? (row.percent_change != null ? Number(row.percent_change) : null),
+    prev_close: prevClose,
     open: row.open != null ? Number(row.open) : null,
     high: row.high != null ? Number(row.high) : null,
     low: row.low != null ? Number(row.low) : null,
@@ -84,7 +93,10 @@ async function setBatch(entries) {
         high: p.high != null ? p.high : null,
         low: p.low != null ? p.low : null,
         volume: p.volume != null ? p.volume : null,
-        prev_close: close != null && change != null ? close - change : null,
+        prev_close:
+          p.prev_close != null
+            ? p.prev_close
+            : (close != null && change != null ? close - change : null),
         error_reason: p.error_reason || null,
         updated_at: now,
       };
