@@ -194,8 +194,11 @@ function registerAdminAuthRoutes(app) {
       updates.failed_attempts = 0;
       updates.locked_until = null;
     }
-    if (typeof req.body?.locked === 'boolean') {
-      updates.permanently_locked = req.body.locked;
+    const lockedVal = req.body?.locked;
+    if (lockedVal === true || lockedVal === 'true') {
+      updates.permanently_locked = true;
+    } else if (lockedVal === false || lockedVal === 'false') {
+      updates.permanently_locked = false;
     }
 
     if (Object.keys(updates).length <= 1) {
