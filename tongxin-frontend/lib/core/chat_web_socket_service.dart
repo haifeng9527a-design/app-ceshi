@@ -11,11 +11,33 @@ import 'firebase_bootstrap.dart';
 import '../features/messages/chat_db.dart';
 import '../features/messages/message_models.dart';
 
+/// 行情推送（通过 chat WebSocket 复用连接）
+class MarketQuoteUpdate {
+  const MarketQuoteUpdate({
+    required this.symbol,
+    required this.price,
+    this.size = 0,
+    this.timestampMs,
+    this.market,
+    this.change,
+    this.percentChange,
+  });
+  final String symbol;
+  final double price;
+  final int size;
+  final int? timestampMs;
+  final String? market;
+  final double? change;
+  final double? percentChange;
+}
+
 /// 聊天 WebSocket 服务：App 启动时连接，断线重连
 /// 连接 ws://host/ws/chat?token=Firebase_Token
 /// 发送：{ type: 'subscribe', conversation_ids: [...] }
+/// 发送：{ type: 'subscribe_market', symbols: ['AAPL','EUR/USD'] }
 /// 发送：{ type: 'send', conversation_id, content, ... }
 /// 接收：{ type: 'new_message', message: {...} }
+/// 接收：{ type: 'market_quote', symbol, price, market?, ... }
 class ChatWebSocketService {
   ChatWebSocketService._();
   static final ChatWebSocketService instance = ChatWebSocketService._();
@@ -27,10 +49,17 @@ class ChatWebSocketService {
   int _reconnectAttempts = 0;
   static const int _maxReconnectDelayMs = 30000;
   Timer? _reconnectTimer;
+  Timer? _heartbeatTimer;
+  static const int _heartbeatIntervalMs = 20000; // 20 秒，防止 Render 等代理因空闲关闭连接
   bool _disposed = false;
   bool _isConnecting = false;
+  final Set<String> _marketSymbols = {};
+  final _marketQuoteController = StreamController<MarketQuoteUpdate>.broadcast();
 
   bool get isConnected => _channel != null;
+
+  /// 行情推送流（通过 chat WebSocket 复用，后端 ingestors 写入时推送）
+  Stream<MarketQuoteUpdate> get marketQuoteStream => _marketQuoteController.stream;
 
   String? get _wsBaseUrl {
     final url = dotenv.env['TONGXIN_API_URL']?.trim();
@@ -70,30 +99,51 @@ class ChatWebSocketService {
       _channel = WebSocketChannel.connect(uri);
       _currentUserId = user.uid;
       _reconnectAttempts = 0;
+      _reconnectTimer?.cancel();
+      _reconnectTimer = null;
 
       _subscription = _channel!.stream.listen(
         _onMessage,
         onError: (e) {
           if (kDebugMode) debugPrint('[ChatWs] error: $e');
+          _stopHeartbeat();
           _scheduleReconnect();
         },
         onDone: () {
           if (kDebugMode) debugPrint('[ChatWs] 连接断开');
+          _stopHeartbeat();
           _channel = null;
           _subscription = null;
           if (!_disposed) _scheduleReconnect();
         },
         cancelOnError: false,
       );
+      _startHeartbeat();
       if (kDebugMode) debugPrint('[ChatWs] 连接成功 uid=${user.uid.length > 12 ? user.uid.substring(0, 12) : user.uid}');
       // 重连后重新订阅
       if (_subscribedIds.isNotEmpty) _sendSubscribe();
+      if (_marketSymbols.isNotEmpty) _sendMarketSubscribe();
     } catch (e) {
       if (kDebugMode) debugPrint('[ChatWs] 连接失败: $e');
       _scheduleReconnect();
     } finally {
       _isConnecting = false;
     }
+  }
+
+  void _startHeartbeat() {
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = Timer.periodic(Duration(milliseconds: _heartbeatIntervalMs), (_) {
+      if (_channel == null || _disposed) return;
+      try {
+        _channel!.sink.add(_encode({'type': 'ping'}));
+      } catch (_) {}
+    });
+  }
+
+  void _stopHeartbeat() {
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
   }
 
   void _scheduleReconnect() {
@@ -124,6 +174,23 @@ class ChatWebSocketService {
           final preview = content.length > 20 ? '${content.substring(0, 20)}...' : content;
           if (kDebugMode) debugPrint('[ChatWs] 收到新消息 conv=${convId.length > 8 ? convId.substring(0, 8) : convId} sender=${sender.length > 12 ? sender.substring(0, 12) : sender} content=$preview');
           _handleNewMessage(m); // 不 await，避免阻塞
+        }
+      } else if (type == 'market_quote') {
+        final sym = decoded['symbol']?.toString().trim().toUpperCase();
+        final price = (decoded['price'] as num?)?.toDouble();
+        if (sym != null && sym.isNotEmpty && price != null && price > 0 && !_marketQuoteController.isClosed) {
+          if (kDebugMode && _marketSymbols.contains(sym)) {
+            debugPrint('[ChatWs] 收到行情 $sym=$price');
+          }
+          _marketQuoteController.add(MarketQuoteUpdate(
+            symbol: sym,
+            price: price,
+            size: (decoded['size'] as num?)?.toInt() ?? 0,
+            timestampMs: (decoded['timestamp'] as num?)?.toInt(),
+            market: decoded['market']?.toString(),
+            change: (decoded['change'] as num?)?.toDouble(),
+            percentChange: (decoded['percent_change'] as num?)?.toDouble(),
+          ));
         }
       } else if (type == 'error') {
         if (kDebugMode) debugPrint('[ChatWs] 服务端错误: ${decoded['error']}');
@@ -190,6 +257,29 @@ class ChatWebSocketService {
       if (kDebugMode) debugPrint('[ChatWs] 已订阅 ${_subscribedIds.length} 个会话');
     } catch (e) {
       if (kDebugMode) debugPrint('[ChatWs] sendSubscribe error: $e');
+    }
+  }
+
+  /// 订阅行情（通过 chat WebSocket，复用连接）
+  void subscribeMarket(List<String> symbols) {
+    if (symbols.isEmpty) return;
+    for (final s in symbols) {
+      final sym = s.trim().toUpperCase();
+      if (sym.isNotEmpty) _marketSymbols.add(sym);
+    }
+    _sendMarketSubscribe();
+  }
+
+  void _sendMarketSubscribe() {
+    if (_channel == null || _marketSymbols.isEmpty) return;
+    try {
+      _channel!.sink.add(_encode({
+        'type': 'subscribe_market',
+        'symbols': _marketSymbols.toList(),
+      }));
+      if (kDebugMode) debugPrint('[ChatWs] 已订阅行情 ${_marketSymbols.length} 个');
+    } catch (e) {
+      if (kDebugMode) debugPrint('[ChatWs] sendMarketSubscribe error: $e');
     }
   }
 
@@ -263,6 +353,7 @@ class ChatWebSocketService {
 
   void disconnect() {
     _isConnecting = false;
+    _stopHeartbeat();
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
     _subscription?.cancel();
@@ -270,6 +361,7 @@ class ChatWebSocketService {
     _channel?.sink.close();
     _channel = null;
     _subscribedIds.clear();
+    _marketSymbols.clear();
     _currentUserId = null;
   }
 

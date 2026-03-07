@@ -4,6 +4,7 @@
  */
 const WebSocket = require('ws');
 const supabaseQuoteCache = require('./supabaseQuoteCache');
+const { emitQuote } = require('./marketBroadcast');
 
 const POLYGON_WS = 'wss://socket.polygon.io/stocks';
 const FLUSH_INTERVAL_MS = 1500;
@@ -20,6 +21,7 @@ function flushPending() {
   const trades = [];
   for (const [symbol, price] of pending) {
     trades.push({ symbol, price });
+    emitQuote({ symbol, price, market: 'stock' });
   }
   pending.clear();
   supabaseQuoteCache.setRealtimeTradesBatch(trades).catch((e) => {

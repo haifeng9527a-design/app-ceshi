@@ -2,18 +2,23 @@
  * 聊天 WebSocket 服务：/ws/chat
  * - 连接时需带 token: ws://host/ws/chat?token=Firebase_ID_Token
  * - 客户端发送：{ type: 'subscribe', conversation_ids: ['id1','id2'] }
+ * - 客户端发送：{ type: 'subscribe_market', symbols: ['AAPL','EUR/USD','BTC/USD'] }
  * - 客户端发送：{ type: 'send', conversation_id, content, message_type?, reply_to_*? }
  * - 服务端推送：{ type: 'new_message', message: {...} }
+ * - 服务端推送：{ type: 'market_quote', symbol, price, market?, change?, percent_change?, ... }
  * - 依赖 Supabase Realtime 订阅 chat_messages INSERT，需在 Supabase 启用 chat_messages 的 Realtime
  */
 const WebSocket = require('ws');
 const supabaseClient = require('./supabaseClient');
 const restrictionGuard = require('./restrictionGuard');
 const authMiddleware = require('./authMiddleware');
+const { marketBroadcast } = require('./marketBroadcast');
 
 // conversation_id -> Set<WebSocket>
 const conversationSubs = new Map();
-// WebSocket -> { userId, conversationIds }
+// symbol -> Set<WebSocket>（行情订阅）
+const marketSubs = new Map();
+// WebSocket -> { userId, conversationIds, marketSymbols }
 const clientMeta = new WeakMap();
 
 async function verifyToken(token) {
@@ -48,11 +53,25 @@ function unsubscribeClient(ws) {
       if (set.size === 0) conversationSubs.delete(cid);
     }
   }
+  if (meta.marketSubscribeAll) {
+    const set = marketSubs.get(MARKET_ALL_KEY);
+    if (set) {
+      set.delete(ws);
+      if (set.size === 0) marketSubs.delete(MARKET_ALL_KEY);
+    }
+  }
+  for (const sym of meta.marketSymbols || []) {
+    const set = marketSubs.get(sym);
+    if (set) {
+      set.delete(ws);
+      if (set.size === 0) marketSubs.delete(sym);
+    }
+  }
   clientMeta.delete(ws);
 }
 
 function subscribeClient(ws, conversationIds) {
-  const meta = clientMeta.get(ws) || { userId: null, conversationIds: new Set() };
+  const meta = clientMeta.get(ws) || { userId: null, conversationIds: new Set(), marketSymbols: new Set() };
   clientMeta.set(ws, meta);
   const ids = Array.isArray(conversationIds) ? conversationIds : [];
   for (const cid of ids) {
@@ -64,6 +83,53 @@ function subscribeClient(ws, conversationIds) {
       conversationSubs.set(cid, set);
     }
     set.add(ws);
+  }
+}
+
+const MARKET_ALL_KEY = '__ALL__'; // 订阅全部行情时使用
+
+function subscribeMarketClient(ws, symbols) {
+  const meta = clientMeta.get(ws) || { userId: null, conversationIds: new Set(), marketSymbols: new Set(), marketSubscribeAll: false };
+  clientMeta.set(ws, meta);
+  const syms = Array.isArray(symbols) ? symbols : [];
+  const hasAll = syms.some((s) => String(s).trim().toUpperCase() === '*');
+  if (hasAll) {
+    meta.marketSubscribeAll = true;
+    let set = marketSubs.get(MARKET_ALL_KEY);
+    if (!set) {
+      set = new Set();
+      marketSubs.set(MARKET_ALL_KEY, set);
+    }
+    set.add(ws);
+    return;
+  }
+  meta.marketSubscribeAll = false;
+  for (const s of syms) {
+    const sym = String(s).trim().toUpperCase();
+    if (!sym) continue;
+    meta.marketSymbols.add(sym);
+    let set = marketSubs.get(sym);
+    if (!set) {
+      set = new Set();
+      marketSubs.set(sym, set);
+    }
+    set.add(ws);
+  }
+}
+
+function broadcastToMarket(symbol, payload) {
+  const data = JSON.stringify(payload);
+  const allSet = marketSubs.get(MARKET_ALL_KEY);
+  if (allSet) {
+    for (const ws of allSet) {
+      if (ws.readyState === WebSocket.OPEN) ws.send(data);
+    }
+  }
+  const symSet = marketSubs.get(symbol);
+  if (symSet) {
+    for (const ws of symSet) {
+      if (ws.readyState === WebSocket.OPEN) ws.send(data);
+    }
   }
 }
 
@@ -110,7 +176,7 @@ function createChatWsServer(httpServer) {
       }
       wss.handleUpgrade(request, socket, head, (ws) => {
         ws.userId = uid;
-        clientMeta.set(ws, { userId: uid, conversationIds: new Set() });
+        clientMeta.set(ws, { userId: uid, conversationIds: new Set(), marketSymbols: new Set() });
         wss.emit('connection', ws, request);
       });
     }).catch(() => {
@@ -140,10 +206,21 @@ function createChatWsServer(httpServer) {
       try {
         const msg = JSON.parse(data.toString());
         const type = msg?.type;
+        if (type === 'ping') {
+          try { ws.send(JSON.stringify({ type: 'pong' })); } catch (_) {}
+          return;
+        }
         if (type === 'subscribe') {
           const ids = msg.conversation_ids || [];
           console.log(`[chatWs] 收到订阅 uid=${uid?.slice(0, 12)} conversation_ids=[${ids.slice(0, 3).join(',')}${ids.length > 3 ? '...' : ''}]`);
           subscribeClient(ws, ids);
+        } else if (type === 'subscribe_market') {
+          const symbols = msg.symbols || [];
+          const symList = symbols.map((s) => String(s).trim().toUpperCase()).filter(Boolean);
+          if (symList.length > 0) {
+            console.log(`[chatWs] 收到行情订阅 uid=${uid?.slice(0, 12)} symbols=[${symList.slice(0, 5).join(',')}${symList.length > 5 ? '...' : ''}]`);
+            subscribeMarketClient(ws, symList);
+          }
         } else if (type === 'send') {
           const { conversation_id, content, message_type, media_url, duration_ms, reply_to_message_id, reply_to_sender_name, reply_to_content } = msg;
           const contentPreview = typeof content === 'string' ? (content.length > 30 ? content.slice(0, 30) + '...' : content) : String(content).slice(0, 30);
@@ -196,6 +273,13 @@ function createChatWsServer(httpServer) {
       }
     });
 
+  });
+
+  // 行情广播：ingestors 写入时推送，发给订阅了该 symbol 的客户端
+  marketBroadcast.on('quote', (update) => {
+    const sym = String(update.symbol || '').trim().toUpperCase();
+    if (!sym) return;
+    broadcastToMarket(sym, { type: 'market_quote', ...update });
   });
 
   // Supabase Realtime：监听 chat_messages 新插入，推送给订阅了该会话的客户端

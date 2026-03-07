@@ -20,9 +20,9 @@ import 'widgets/market_section_label.dart';
 import 'widgets/market_search_bar.dart';
 import '../trading/market_snapshot_repository.dart';
 import '../trading/mock_market_data.dart';
+import '../../core/chat_web_socket_service.dart';
 import '../trading/realtime_quote_service.dart';
 import '../trading/trading_cache.dart';
-import '../trading/twelve_data_realtime_client.dart';
 import 'gainers_losers_page.dart';
 import 'generic_chart_page.dart';
 import 'market_colors.dart';
@@ -5341,8 +5341,7 @@ class _ForexTab extends StatefulWidget {
 
 class _ForexTabState extends State<_ForexTab> {
   final _market = MarketRepository();
-  final _realtime = TwelveDataRealtimeClient();
-  StreamSubscription<TwelveDataRealtimeQuote>? _realtimeSub;
+  StreamSubscription<MarketQuoteUpdate>? _realtimeSub;
 
   /// 热门外汇排前面，全量列表以热门为首
   static const _popularSymbols = [
@@ -5402,7 +5401,6 @@ class _ForexTabState extends State<_ForexTab> {
   @override
   void dispose() {
     _realtimeSub?.cancel();
-    _realtime.dispose();
     super.dispose();
   }
 
@@ -5563,13 +5561,13 @@ class _ForexTabState extends State<_ForexTab> {
   }
 
   void _startRealtimeAndSubscribeCurrentPairs() {
-    if (!_realtime.isAvailable || _pairs.isEmpty) return;
-    _realtimeSub ??= _realtime.stream.listen(_onRealtimeQuote);
-    _realtime.connect();
+    if (!ChatWebSocketService.instance.isConnected || _pairs.isEmpty) return;
     final symbols = _pairs.map((e) => e.$2).toSet();
     if (_sameSet(symbols, _realtimeSubscribedSymbols)) return;
+    _realtimeSub?.cancel();
     _realtimeSubscribedSymbols = symbols;
-    _realtime.subscribeSymbols(symbols);
+    ChatWebSocketService.instance.subscribeMarket(symbols.toList());
+    _realtimeSub ??= ChatWebSocketService.instance.marketQuoteStream.listen(_onRealtimeQuote);
   }
 
   bool _sameSet(Set<String> a, Set<String> b) {
@@ -5580,7 +5578,7 @@ class _ForexTabState extends State<_ForexTab> {
     return true;
   }
 
-  void _onRealtimeQuote(TwelveDataRealtimeQuote u) {
+  void _onRealtimeQuote(MarketQuoteUpdate u) {
     if (!mounted) return;
     final symbol = u.symbol;
     if (!_pairSymbolSet.contains(symbol)) return;
@@ -5599,10 +5597,10 @@ class _ForexTabState extends State<_ForexTab> {
       price: u.price,
       change: effectiveChange,
       changePercent: effectivePct,
-      open: u.open ?? prev?.open,
-      high: u.high ?? prev?.high,
-      low: u.low ?? prev?.low,
-      volume: u.volume ?? prev?.volume,
+      open: prev?.open,
+      high: prev != null && prev.high != null ? (u.price > prev.high! ? u.price : prev.high) : u.price,
+      low: prev != null && prev.low != null ? (u.price < prev.low! ? u.price : prev.low) : u.price,
+      volume: prev?.volume,
       prevClose: prevClose,
     );
     _attemptedSymbols.add(symbol);
@@ -5725,8 +5723,7 @@ class _CryptoTab extends StatefulWidget {
 
 class _CryptoTabState extends State<_CryptoTab> {
   final _market = MarketRepository();
-  final _realtime = TwelveDataRealtimeClient();
-  StreamSubscription<TwelveDataRealtimeQuote>? _realtimeSub;
+  StreamSubscription<MarketQuoteUpdate>? _realtimeSub;
   final ScrollController _scrollController = ScrollController();
   final GlobalKey _cryptoRowsAnchorKey = GlobalKey();
   Set<String> _attemptedSymbols = <String>{};
@@ -5780,7 +5777,7 @@ class _CryptoTabState extends State<_CryptoTab> {
   static const _realtimeFlushInterval = Duration(milliseconds: 250);
   static const _realtimeResubscribeDebounce = Duration(milliseconds: 120);
   static const _realtimeMinResubscribeInterval = Duration(seconds: 1);
-  final Map<String, TwelveDataRealtimeQuote> _pendingRealtimeUpdates = <String, TwelveDataRealtimeQuote>{};
+  final Map<String, MarketQuoteUpdate> _pendingRealtimeUpdates = <String, MarketQuoteUpdate>{};
   Timer? _realtimeFlushTimer;
   Timer? _realtimeResubscribeTimer;
   int _lastRealtimeResubscribeAtMs = 0;
@@ -5805,7 +5802,6 @@ class _CryptoTabState extends State<_CryptoTab> {
     _realtimeFlushTimer?.cancel();
     _realtimeResubscribeTimer?.cancel();
     _realtimeSub?.cancel();
-    _realtime.dispose();
     super.dispose();
   }
 
@@ -5986,13 +5982,14 @@ class _CryptoTabState extends State<_CryptoTab> {
   }
 
   void _startCryptoRealtimeAndSubscribeCurrentPairs() {
-    if (!_realtime.isAvailable) return;
-    _realtimeSub ??= _realtime.stream.listen(_onCryptoRealtimeQuote);
-    _realtime.connect();
+    if (!ChatWebSocketService.instance.isConnected) return;
     final symbols = _visibleCryptoSymbolsForRealtime();
+    if (symbols.isEmpty) return;
     if (_sameSet(symbols, _realtimeSubscribedSymbols)) return;
+    _realtimeSub?.cancel();
     _realtimeSubscribedSymbols = symbols;
-    _realtime.subscribeSymbols(symbols);
+    ChatWebSocketService.instance.subscribeMarket(symbols.toList());
+    _realtimeSub ??= ChatWebSocketService.instance.marketQuoteStream.listen(_onCryptoRealtimeQuote);
   }
 
   void _scheduleCryptoRealtimeResubscribe({bool force = false}) {
@@ -6062,7 +6059,7 @@ class _CryptoTabState extends State<_CryptoTab> {
     return true;
   }
 
-  void _onCryptoRealtimeQuote(TwelveDataRealtimeQuote u) {
+  void _onCryptoRealtimeQuote(MarketQuoteUpdate u) {
     if (!mounted) return;
     final upper = u.symbol.trim().toUpperCase();
     if (!_coinSymbolSet.contains(upper)) return;
@@ -6074,7 +6071,7 @@ class _CryptoTabState extends State<_CryptoTab> {
   void _flushPendingRealtimeUpdates() {
     _realtimeFlushTimer = null;
     if (!mounted || _pendingRealtimeUpdates.isEmpty) return;
-    final updates = Map<String, TwelveDataRealtimeQuote>.from(_pendingRealtimeUpdates);
+    final updates = Map<String, MarketQuoteUpdate>.from(_pendingRealtimeUpdates);
     _pendingRealtimeUpdates.clear();
     var changed = false;
     for (final entry in updates.entries) {
@@ -6094,16 +6091,18 @@ class _CryptoTabState extends State<_CryptoTab> {
       final effectivePct = (prevClose != null && prevClose > 0)
           ? ((effectiveChange / prevClose) * 100)
           : (u.percentChange ?? 0);
+      final high = prev != null && prev.high != null ? (u.price > prev.high! ? u.price : prev.high) : u.price;
+      final low = prev != null && prev.low != null ? (u.price < prev.low! ? u.price : prev.low) : u.price;
       _quotes[symbol] = MarketQuote(
         symbol: symbol,
         name: prev?.name ?? symbol,
         price: u.price,
         change: effectiveChange,
         changePercent: effectivePct,
-        open: u.open ?? prev?.open,
-        high: u.high ?? prev?.high,
-        low: u.low ?? prev?.low,
-        volume: u.volume ?? prev?.volume,
+        open: prev?.open,
+        high: high,
+        low: low,
+        volume: prev?.volume,
         prevClose: prevClose,
       );
       _attemptedSymbols.add(symbol);

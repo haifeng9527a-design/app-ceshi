@@ -3,10 +3,9 @@ import 'dart:async';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 
+import '../../core/chat_web_socket_service.dart';
 import '../../l10n/app_localizations.dart';
-import '../trading/backend_realtime_client.dart';
 import '../trading/trading_cache.dart';
 import 'chart/bottom_detail_tabs.dart';
 import 'chart/chart_theme.dart';
@@ -107,9 +106,7 @@ class _StockChartPageState extends State<StockChartPage>
   int? _dayVolume;
   /// 当日累计成交量（WebSocket 成交累加），与 _dayVolume 二选一或叠加展示
   int _realtimeVolume = 0;
-  PolygonRealtime? _realtime;
-  BackendRealtimeClient? _backendRealtime;
-  StreamSubscription<PolygonTradeUpdate>? _realtimeSub;
+  StreamSubscription<dynamic>? _realtimeSub;
   /// 分时周期：仅 Tab 0（1分）用折线图，固定 1min
   static const String _intradayInterval = '1min';
   /// K线周期（Tab 1-5）：5min/15min/30min/1day/1week|1month|1year
@@ -306,10 +303,6 @@ class _StockChartPageState extends State<StockChartPage>
     }
 
     _realtimeSub?.cancel();
-    _realtime?.dispose();
-    _backendRealtime?.dispose();
-    _realtime = null;
-    _backendRealtime = null;
     _realtimeSub = null;
     _connectRealtime();
     _loadQuote().then((_) {
@@ -397,34 +390,16 @@ class _StockChartPageState extends State<StockChartPage>
   }
 
   void _connectRealtime() {
-    if (!_market.polygonAvailable) return;
-    final apiKey = dotenv.env['POLYGON_API_KEY']?.trim();
-    final backendUrl = dotenv.env['TONGXIN_API_URL']?.trim() ?? dotenv.env['BACKEND_URL']?.trim();
-    if (apiKey != null && apiKey.isNotEmpty) {
-      _backendRealtime?.dispose();
-      _realtimeSub?.cancel();
-      _realtime = _market.openRealtime(_effectiveSymbol);
-      _realtime?.connect();
-      _realtimeSub = _realtime?.stream.listen((u) {
-        if (!mounted) return;
-        setState(() {
-          _currentPrice = u.price;
-          _realtimeVolume += u.size;
-        });
+    if (!ChatWebSocketService.instance.isConnected) return;
+    _realtimeSub?.cancel();
+    ChatWebSocketService.instance.subscribeMarket([_effectiveSymbol]);
+    _realtimeSub = ChatWebSocketService.instance.marketQuoteStream.listen((u) {
+      if (!mounted || u.symbol != _effectiveSymbol) return;
+      setState(() {
+        _currentPrice = u.price;
+        _realtimeVolume += u.size;
       });
-    } else if (backendUrl != null && backendUrl.isNotEmpty) {
-      _realtime?.dispose();
-      _realtimeSub?.cancel();
-      _backendRealtime = BackendRealtimeClient(baseUrl: backendUrl);
-      _backendRealtime!.connect(symbols: [_effectiveSymbol]);
-      _realtimeSub = _backendRealtime!.stream.listen((u) {
-        if (!mounted) return;
-        setState(() {
-          _currentPrice = u.price;
-          _realtimeVolume += u.size;
-        });
-      });
-    }
+    });
   }
 
   @override
@@ -433,8 +408,6 @@ class _StockChartPageState extends State<StockChartPage>
     _chartTimer?.cancel();
     _autoRetryTimer?.cancel();
     _realtimeSub?.cancel();
-    _realtime?.dispose();
-    _backendRealtime?.dispose();
     _tabController.dispose();
     super.dispose();
   }

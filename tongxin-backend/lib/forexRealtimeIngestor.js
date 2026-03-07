@@ -4,6 +4,7 @@
  */
 const WebSocket = require('ws');
 const supabaseForexCache = require('./supabaseForexCache');
+const { emitQuote } = require('./marketBroadcast');
 
 const WS_URL_BASE = 'wss://ws.twelvedata.com/v1/quotes/price';
 const FLUSH_INTERVAL_MS = Math.max(300, parseInt(process.env.FOREX_WS_FLUSH_INTERVAL_MS || '1500', 10));
@@ -27,6 +28,9 @@ function flushPending() {
     updates.push(item);
   }
   pending.clear();
+  for (const u of updates) {
+    emitQuote({ ...u, market: 'forex' });
+  }
   const sample = updates.slice(0, 5).map((u) => `${u.symbol}:${u.price}`).join(', ');
   const startedAt = Date.now();
   supabaseForexCache.setForexRealtimePricesBatch(updates)
