@@ -5,11 +5,13 @@ import 'app.dart';
 import 'core/app_config_service.dart';
 import 'core/locale_provider.dart';
 import 'features/messages/group_join_link_handler.dart';
+import 'core/chat_web_socket_service.dart';
 import 'core/firebase_bootstrap.dart';
 import 'core/notification_service.dart';
 import 'core/supabase_bootstrap.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:flutter/foundation.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 
 Future<void> main() async {
@@ -32,6 +34,16 @@ Future<void> main() async {
   }
   await FirebaseBootstrap.init();
   await SupabaseBootstrap.init();
+  FirebaseAuth.instance.authStateChanges().listen((user) {
+    if (user != null) {
+      ChatWebSocketService.instance.connect();
+    } else {
+      ChatWebSocketService.instance.disconnect();
+    }
+  });
+  if (FirebaseAuth.instance.currentUser != null) {
+    ChatWebSocketService.instance.connect();
+  }
   if (!kIsWeb) {
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
     try {

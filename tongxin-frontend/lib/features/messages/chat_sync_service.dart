@@ -2,6 +2,7 @@ import 'dart:async';
 
 import '../../api/messages_api.dart';
 import '../../core/api_client.dart';
+import '../../core/chat_web_socket_service.dart';
 import 'chat_db.dart';
 import 'message_models.dart';
 
@@ -13,6 +14,7 @@ class ChatSyncService {
   bool get _useApi => ApiClient.instance.isAvailable;
 
   /// 同步会话列表：拉取服务端数据，与本地合并（不存在则插入，已存在则更新）
+  /// 同时订阅 WebSocket，收到新消息时实时推送
   Future<void> syncConversations(String userId) async {
     if (userId.isEmpty || !_useApi) return;
     try {
@@ -24,6 +26,7 @@ class ChatSyncService {
         peerId: c['peer_id'] as String?,
       )).toList();
       await ChatDb.instance.upsertConversations(userId, conversations);
+      ChatWebSocketService.instance.subscribe(conversations.map((c) => c.id).toList());
     } catch (_) {
       // 静默失败，本地数据仍可用
     }

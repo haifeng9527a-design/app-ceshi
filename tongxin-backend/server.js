@@ -22,6 +22,7 @@ const { requireAuth, optionalAuth } = require('./lib/authMiddleware');
 const { startRefreshScheduler } = require('./lib/refreshScheduler');
 const { startRotationScheduler } = require('./lib/rotationScheduler');
 const { createQuotesWsServer } = require('./lib/wsQuotes');
+const { createChatWsServer } = require('./lib/chatWebSocket');
 const { startForexScheduler } = require('./lib/forexScheduler');
 const { startStockRealtimeIngestor } = require('./lib/stockRealtimeIngestor');
 const { startForexRealtimeIngestor } = require('./lib/forexRealtimeIngestor');
@@ -113,6 +114,7 @@ if (twelveKey) {
 const httpServer = app.listen(PORT, '0.0.0.0', () => {
   console.log(`tongxin-backend listening on http://localhost:${PORT} (0.0.0.0:${PORT})`);
   createQuotesWsServer(httpServer, polygonKey);
+  createChatWsServer(httpServer);
   const { isAuthConfigured } = require('./lib/authMiddleware');
   const credPath = process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim();
   const fs = require('fs');

@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import '../../api/messages_api.dart';
 import '../../core/api_client.dart';
+import '../../core/chat_web_socket_service.dart';
 import 'chat_db.dart';
 import 'chat_sync_service.dart';
 import 'message_models.dart';
@@ -84,8 +85,12 @@ class MessagesRepository {
       conversationId: conversationId,
       currentUserId: currentUserId,
     );
-    // 每 2 秒同步一次（减少收消息延迟，部署到远端服务器时体验更好）
-    final syncTimer = Stream.periodic(const Duration(seconds: 2), (_) {});
+    ChatWebSocketService.instance.subscribe([conversationId]);
+    // WebSocket 连接时：30 秒兜底同步；未连接时：2 秒轮询
+    final interval = ChatWebSocketService.instance.isConnected
+        ? const Duration(seconds: 30)
+        : const Duration(seconds: 2);
+    final syncTimer = Stream.periodic(interval, (_) {});
     final syncSub = syncTimer.listen((_) {
       ChatSyncService.instance.syncMessages(
         conversationId: conversationId,
@@ -130,21 +135,34 @@ class MessagesRepository {
     String? replyToContent,
   }) async {
     if (!_useApi) return;
-    await MessagesApi.instance.sendMessage(
-      conversationId: conversationId,
-      senderId: senderId,
-      senderName: senderName,
-      content: content,
-      messageType: messageType,
-      mediaUrl: mediaUrl,
-      durationMs: durationMs,
-      receiverId: receiverId,
-      replyToMessageId: replyToMessageId,
-      replyToSenderName: replyToSenderName,
-      replyToContent: replyToContent,
-    );
-    // 发送成功后立即同步，减少对方收到消息的延迟
-    ChatSyncService.instance.syncMessages(conversationId: conversationId, currentUserId: senderId);
+    if (ChatWebSocketService.instance.isConnected) {
+      await ChatWebSocketService.instance.sendMessage(
+        conversationId: conversationId,
+        content: content,
+        messageType: messageType,
+        mediaUrl: mediaUrl,
+        durationMs: durationMs,
+        replyToMessageId: replyToMessageId,
+        replyToSenderName: replyToSenderName,
+        replyToContent: replyToContent,
+      );
+      // WebSocket 会推送 new_message，无需 sync
+    } else {
+      await MessagesApi.instance.sendMessage(
+        conversationId: conversationId,
+        senderId: senderId,
+        senderName: senderName,
+        content: content,
+        messageType: messageType,
+        mediaUrl: mediaUrl,
+        durationMs: durationMs,
+        receiverId: receiverId,
+        replyToMessageId: replyToMessageId,
+        replyToSenderName: replyToSenderName,
+        replyToContent: replyToContent,
+      );
+      ChatSyncService.instance.syncMessages(conversationId: conversationId, currentUserId: senderId);
+    }
   }
 
   Future<String> uploadChatMedia({

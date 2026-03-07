@@ -789,6 +789,8 @@ class _ChatDetailPageState extends State<ChatDetailPage>
     String? replyToSenderName,
     String? replyToContent,
   }) async {
+    // 立即恢复发送按钮，允许连续发送；上传在后台进行
+    if (mounted) _isSendingNotifier.value = false;
     try {
       // 后台校验：禁止发消息/封禁时移除本条并恢复输入框
       final restrictions = await UserRestrictions.getMyRestrictionRow();
@@ -872,10 +874,6 @@ class _ChatDetailPageState extends State<ChatDetailPage>
       // 网络/服务器失败：不弹 toast，只标记该条为发送失败（气泡旁显示感叹号）
       if (mounted) {
         setState(() => _failedLocalIds.add(localId));
-      }
-    } finally {
-      if (mounted) {
-        _isSendingNotifier.value = false;
       }
     }
   }
