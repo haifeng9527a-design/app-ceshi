@@ -28,6 +28,7 @@ class ChatWebSocketService {
   static const int _maxReconnectDelayMs = 30000;
   Timer? _reconnectTimer;
   bool _disposed = false;
+  bool _isConnecting = false;
 
   bool get isConnected => _channel != null;
 
@@ -49,6 +50,7 @@ class ChatWebSocketService {
   /// App 启动时调用，需在 Firebase 登录后
   Future<void> connect() async {
     if (_disposed) return;
+    if (_isConnecting) return;
     if (!ApiClient.instance.isAvailable || !FirebaseBootstrap.isReady) return;
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -59,6 +61,7 @@ class ChatWebSocketService {
     final token = await user.getIdToken();
     if (token == null || token.isEmpty) return;
 
+    _isConnecting = true;
     final uri = Uri.parse('$base/ws/chat?token=$token');
     if (kDebugMode) debugPrint('[ChatWs] 正在连接 $base/ws/chat');
     try {
@@ -88,6 +91,8 @@ class ChatWebSocketService {
     } catch (e) {
       if (kDebugMode) debugPrint('[ChatWs] 连接失败: $e');
       _scheduleReconnect();
+    } finally {
+      _isConnecting = false;
     }
   }
 
@@ -257,6 +262,7 @@ class ChatWebSocketService {
   }
 
   void disconnect() {
+    _isConnecting = false;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
     _subscription?.cancel();

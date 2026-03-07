@@ -76,6 +76,21 @@ function createChatWsServer(httpServer) {
 
   const wss = new WebSocket.Server({ path: '/ws/chat', noServer: true });
 
+  // 心跳保活：防止 Render 等代理因空闲超时关闭连接
+  const HEARTBEAT_INTERVAL_MS = 25000; // 25 秒 ping 一次
+  const CLIENT_TIMEOUT_MS = 35000;
+  const heartbeatInterval = setInterval(() => {
+    wss.clients.forEach((ws) => {
+      if (ws.isAlive === false) {
+        ws.terminate();
+        return;
+      }
+      ws.isAlive = false;
+      ws.ping();
+    });
+  }, HEARTBEAT_INTERVAL_MS);
+  wss.on('close', () => clearInterval(heartbeatInterval));
+
   httpServer.on('upgrade', (request, socket, head) => {
     const url = new URL(request.url || '', `http://${request.headers.host}`);
     if (url.pathname !== '/ws/chat') return;
@@ -106,6 +121,10 @@ function createChatWsServer(httpServer) {
 
   wss.on('connection', (ws, req) => {
     const uid = ws.userId;
+    ws.isAlive = true;
+    ws.on('pong', () => { ws.isAlive = true; });
+    ws.on('message', () => { ws.isAlive = true; });
+
     console.log(`[chatWs] 连接成功 uid=${uid?.slice(0, 12)}`);
 
     ws.on('close', () => {
