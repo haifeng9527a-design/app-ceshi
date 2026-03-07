@@ -307,6 +307,91 @@ function getForexQuotesBySymbols(symbols) {
   }
 }
 
+function getQuoteSnapshotsPage({
+  page = 1,
+  pageSize = 30,
+  sortColumn = 'pct',
+  sortAscending = false,
+} = {}) {
+  try {
+    const p = Math.max(1, Number(page || 1));
+    const ps = Math.max(1, Math.min(200, Number(pageSize || 30)));
+    const offset = (p - 1) * ps;
+    const rows = getDb().prepare('SELECT symbol, payload_json, updated_at_ms FROM quote_snapshot').all();
+    if (!rows || rows.length === 0) {
+      return { rows: [], total: 0, page: p, pageSize: ps, hasMore: false };
+    }
+    const mapped = [];
+    for (const r of rows) {
+      let payload;
+      try {
+        payload = JSON.parse(r.payload_json || '{}');
+      } catch (_) {
+        payload = {};
+      }
+      const symbol = String(r.symbol || payload.symbol || '').toUpperCase();
+      if (!symbol) continue;
+      const close = payload.close != null ? Number(payload.close) : null;
+      const change = payload.change != null ? Number(payload.change) : null;
+      const pct = payload.percent_change != null ? Number(payload.percent_change) : null;
+      const prevClose = payload.prev_close != null ? Number(payload.prev_close) : null;
+      mapped.push({
+        symbol,
+        name: payload.name || symbol,
+        close,
+        change,
+        percent_change: pct,
+        open: payload.open != null ? Number(payload.open) : null,
+        high: payload.high != null ? Number(payload.high) : null,
+        low: payload.low != null ? Number(payload.low) : null,
+        volume: payload.volume != null ? Number(payload.volume) : null,
+        prev_close: prevClose,
+        updated_at: r.updated_at_ms ? new Date(r.updated_at_ms).toISOString() : null,
+      });
+    }
+    const key = String(sortColumn || 'pct').toLowerCase();
+    const getter = (x) => {
+      switch (key) {
+        case 'code': return x.symbol;
+        case 'name': return x.name || '';
+        case 'pct': return x.percent_change ?? Number.NEGATIVE_INFINITY;
+        case 'price': return x.close ?? Number.NEGATIVE_INFINITY;
+        case 'change': return x.change ?? Number.NEGATIVE_INFINITY;
+        case 'open': return x.open ?? Number.NEGATIVE_INFINITY;
+        case 'prev': return x.prev_close ?? Number.NEGATIVE_INFINITY;
+        case 'high': return x.high ?? Number.NEGATIVE_INFINITY;
+        case 'low': return x.low ?? Number.NEGATIVE_INFINITY;
+        case 'vol': return x.volume ?? Number.NEGATIVE_INFINITY;
+        default: return x.percent_change ?? Number.NEGATIVE_INFINITY;
+      }
+    };
+    mapped.sort((a, b) => {
+      const va = getter(a);
+      const vb = getter(b);
+      let cmp;
+      if (typeof va === 'string' || typeof vb === 'string') {
+        cmp = String(va).localeCompare(String(vb));
+      } else {
+        cmp = Number(va) - Number(vb);
+        if (cmp > 0) cmp = 1;
+        else if (cmp < 0) cmp = -1;
+      }
+      if (cmp === 0) cmp = a.symbol.localeCompare(b.symbol);
+      return sortAscending ? cmp : -cmp;
+    });
+    const pageRows = mapped.slice(offset, offset + ps);
+    return {
+      rows: pageRows,
+      total: mapped.length,
+      page: p,
+      pageSize: ps,
+      hasMore: offset + pageRows.length < mapped.length,
+    };
+  } catch (_) {
+    return { rows: [], total: 0, page: 1, pageSize: 30, hasMore: false };
+  }
+}
+
 module.exports = {
   getDb,
   getStale,
@@ -323,4 +408,5 @@ module.exports = {
   getForexPairsCount,
   setForexQuotesBatch,
   getForexQuotesBySymbols,
+  getQuoteSnapshotsPage,
 };

@@ -1,13 +1,19 @@
 const twelveData = require('./twelveData');
 const supabaseForexCache = require('./supabaseForexCache');
 
-const FOREX_PAIRS_REFRESH_MS = 6 * 60 * 60 * 1000; // 6h
-const FOREX_ROTATION_TICK_MS = 3000; // 3s
-const FOREX_ROTATION_BATCH_SIZE = 80;
+const FOREX_METADATA_REFRESH_MS = Math.max(
+  5 * 60 * 1000,
+  parseInt(process.env.FOREX_METADATA_REFRESH_MS || `${60 * 60 * 1000}`, 10),
+);
+const FOREX_QUOTES_REFRESH_MS = Math.max(
+  5 * 60 * 1000,
+  parseInt(process.env.FOREX_QUOTES_REFRESH_MS || `${60 * 60 * 1000}`, 10),
+);
+const FOREX_QUOTES_BATCH_SIZE = Math.max(1, parseInt(process.env.FOREX_QUOTES_BATCH_SIZE || '80', 10));
+const FOREX_CHUNK_DELAY_MS = Math.max(0, parseInt(process.env.FOREX_CHUNK_DELAY_MS || '120', 10));
 
 let pairsTimer = null;
 let quotesTimer = null;
-let cursor = 0;
 let refreshingPairs = false;
 let refreshingQuotes = false;
 
@@ -31,9 +37,7 @@ async function refreshForexPairs(apiKey) {
     const pairs = await twelveData.getForexPairs(apiKey);
     if (pairs.length > 0) {
       await supabaseForexCache.upsertForexPairs(pairs);
-      // 列表更新后避免游标越界
-      const total = await supabaseForexCache.getForexPairsCount();
-      if (cursor >= total) cursor = 0;
+      console.log(`[forexScheduler] refreshed forex pairs: ${pairs.length}`);
     }
   } catch (e) {
     console.warn('[forexScheduler] refreshForexPairs failed:', String(e?.message || e));
@@ -42,32 +46,36 @@ async function refreshForexPairs(apiKey) {
   }
 }
 
-async function refreshForexQuotesTick(apiKey) {
+async function refreshAllForexQuotes(apiKey) {
   if (!apiKey || refreshingQuotes || !supabaseForexCache.isConfigured()) return;
   refreshingQuotes = true;
   try {
     const total = await supabaseForexCache.getForexPairsCount();
     if (total <= 0) return;
-    if (cursor >= total) cursor = 0;
-    const symbols = await supabaseForexCache.getForexSymbolsBatch(
-      cursor,
-      FOREX_ROTATION_BATCH_SIZE,
-    );
-    cursor += symbols.length;
-    if (cursor >= total) cursor = 0;
-    if (symbols.length === 0) return;
-    const map = await twelveData.getQuotes(apiKey, symbols);
-    const entries = [];
-    for (const sym of symbols) {
-      const q = map[sym];
-      if (!q || !(q.close > 0)) continue;
-      entries.push({ symbol: sym, payload: toQuoteSnapshot(sym, q) });
+    let offset = 0;
+    let written = 0;
+    while (offset < total) {
+      const symbols = await supabaseForexCache.getForexSymbolsBatch(offset, FOREX_QUOTES_BATCH_SIZE);
+      if (symbols.length === 0) break;
+      offset += symbols.length;
+      const map = await twelveData.getQuotes(apiKey, symbols);
+      const entries = [];
+      for (const sym of symbols) {
+        const q = map[sym];
+        if (!q || !(q.close > 0)) continue;
+        entries.push({ symbol: sym, payload: toQuoteSnapshot(sym, q) });
+      }
+      if (entries.length > 0) {
+        await supabaseForexCache.setForexQuotesBatch(entries);
+        written += entries.length;
+      }
+      if (offset < total && FOREX_CHUNK_DELAY_MS > 0) {
+        await new Promise((resolve) => setTimeout(resolve, FOREX_CHUNK_DELAY_MS));
+      }
     }
-    if (entries.length > 0) {
-      await supabaseForexCache.setForexQuotesBatch(entries);
-    }
+    console.log(`[forexScheduler] refreshed forex quotes: ${written}/${total}`);
   } catch (e) {
-    console.warn('[forexScheduler] refreshForexQuotesTick failed:', String(e?.message || e));
+    console.warn('[forexScheduler] refreshAllForexQuotes failed:', String(e?.message || e));
   } finally {
     refreshingQuotes = false;
   }
@@ -97,14 +105,14 @@ function startForexScheduler(apiKey) {
     refreshForexPairs(apiKey).catch(() => {});
     pairsTimer = setInterval(() => {
       refreshForexPairs(apiKey).catch(() => {});
-    }, FOREX_PAIRS_REFRESH_MS);
+    }, FOREX_METADATA_REFRESH_MS);
   }
   if (!quotesTimer) {
-    // 先预热一批，避免服务刚启动全空
-    refreshForexQuotesTick(apiKey).catch(() => {});
+    // 启动后立即做一次全量快照，避免缓存全空
+    refreshAllForexQuotes(apiKey).catch(() => {});
     quotesTimer = setInterval(() => {
-      refreshForexQuotesTick(apiKey).catch(() => {});
-    }, FOREX_ROTATION_TICK_MS);
+      refreshAllForexQuotes(apiKey).catch(() => {});
+    }, FOREX_QUOTES_REFRESH_MS);
   }
 }
 
@@ -123,4 +131,6 @@ module.exports = {
   startForexScheduler,
   stopForexScheduler,
   getForexQuotesFromCache,
+  refreshForexPairs,
+  refreshAllForexQuotes,
 };

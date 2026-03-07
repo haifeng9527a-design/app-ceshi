@@ -20,6 +20,7 @@ class BackendMarketClient {
   static const _searchMaxAge = Duration(minutes: 5);
   static const _tickersFromCacheMaxAge = Duration(hours: 1);
   static const _forexPairsMaxAge = Duration(minutes: 10);
+  static const _cryptoPairsMaxAge = Duration(minutes: 10);
 
   /// 从后端 stock_quote_cache 表获取 symbol+name 列表，秒开美股列表
   Future<List<MarketSearchResult>?> getTickersFromCache() async {
@@ -111,6 +112,43 @@ class BackendMarketClient {
     } catch (e) {
       if (kDebugMode) debugPrint('[Backend upsertTickersToServer] $e');
       return false;
+    }
+  }
+
+  Future<BackendStockTickersPage> getStockTickersPage({
+    required int page,
+    required int pageSize,
+    required String sortColumn,
+    required bool sortAscending,
+    int maxAgeHours = 0,
+  }) async {
+    final query = <String, String>{
+      'page': page.toString(),
+      'pageSize': pageSize.toString(),
+      'sortColumn': sortColumn,
+      'sortAscending': sortAscending ? 'true' : 'false',
+    };
+    if (maxAgeHours > 0) {
+      query['maxAgeHours'] = maxAgeHours.toString();
+    }
+    final uri = Uri.parse('${_base}api/tickers-page').replace(
+      queryParameters: query,
+    );
+    try {
+      final resp = await http.get(uri).timeout(
+        const Duration(seconds: 20),
+        onTimeout: () => throw Exception('请求超时'),
+      );
+      if (resp.statusCode != 200) {
+        return BackendStockTickersPage.empty(page: page, pageSize: pageSize);
+      }
+      final map = jsonDecode(resp.body) as Map<String, dynamic>?;
+      if (map == null) return BackendStockTickersPage.empty(page: page, pageSize: pageSize);
+      final parsed = BackendStockTickersPage.fromJson(map) ??
+          BackendStockTickersPage.empty(page: page, pageSize: pageSize);
+      return parsed;
+    } catch (_) {
+      return BackendStockTickersPage.empty(page: page, pageSize: pageSize);
     }
   }
 
@@ -242,6 +280,76 @@ class BackendMarketClient {
   Future<Map<String, MarketQuote>> getForexQuotes(List<String> symbols) async {
     if (symbols.isEmpty) return {};
     final uri = Uri.parse('${_base}api/forex/quotes').replace(
+      queryParameters: {'symbols': symbols.join(',')},
+    );
+    try {
+      final resp = await http.get(uri).timeout(
+        const Duration(seconds: 20),
+        onTimeout: () => throw Exception('请求超时'),
+      );
+      if (resp.statusCode != 200) return _failedMap(symbols, 'HTTP ${resp.statusCode}');
+      final map = jsonDecode(resp.body) as Map<String, dynamic>?;
+      if (map == null) return _failedMap(symbols, '无效响应');
+      final out = <String, MarketQuote>{};
+      for (final s in symbols) {
+        final raw = map[s] as Map<String, dynamic>?;
+        if (raw == null) {
+          out[s] = MarketQuote.failed(s, '无数据');
+          continue;
+        }
+        final q = MarketQuote.fromSnapshotMap(raw);
+        out[s] = q ?? MarketQuote.failed(s, raw['error_reason'] as String? ?? '解析失败');
+      }
+      return out;
+    } catch (e) {
+      return _failedMap(symbols, e.toString());
+    }
+  }
+
+  Future<BackendCryptoPairsPage> getCryptoPairsPage({
+    required int page,
+    int pageSize = 30,
+  }) async {
+    final cacheKey = 'backend_crypto_pairs_${page}_$pageSize';
+    final cached = await _cache.get(cacheKey, maxAge: _cryptoPairsMaxAge);
+    if (cached is Map<String, dynamic>) {
+      final parsed = BackendCryptoPairsPage.fromJson(cached);
+      if (parsed != null) return parsed;
+    }
+    final uri = Uri.parse('${_base}api/crypto/pairs').replace(
+      queryParameters: {
+        'page': page.toString(),
+        'pageSize': pageSize.toString(),
+      },
+    );
+    try {
+      final resp = await http.get(uri).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () => throw Exception('请求超时'),
+      );
+      if (resp.statusCode != 200) {
+        return const BackendCryptoPairsPage(items: [], total: 0, page: 1, pageSize: 30, hasMore: false);
+      }
+      final map = jsonDecode(resp.body) as Map<String, dynamic>?;
+      if (map == null) {
+        return const BackendCryptoPairsPage(items: [], total: 0, page: 1, pageSize: 30, hasMore: false);
+      }
+      final parsed = BackendCryptoPairsPage.fromJson(map) ??
+          const BackendCryptoPairsPage(items: [], total: 0, page: 1, pageSize: 30, hasMore: false);
+      if (parsed.items.isNotEmpty) {
+        try {
+          await _cache.set(cacheKey, map);
+        } catch (_) {}
+      }
+      return parsed;
+    } catch (_) {
+      return const BackendCryptoPairsPage(items: [], total: 0, page: 1, pageSize: 30, hasMore: false);
+    }
+  }
+
+  Future<Map<String, MarketQuote>> getCryptoQuotes(List<String> symbols) async {
+    if (symbols.isEmpty) return {};
+    final uri = Uri.parse('${_base}api/crypto/quotes').replace(
       queryParameters: {'symbols': symbols.join(',')},
     );
     try {
@@ -683,4 +791,116 @@ class BackendForexPairsPage {
       hasMore: m['hasMore'] == true,
     );
     }
+}
+
+class BackendCryptoPairsPage {
+  const BackendCryptoPairsPage({
+    required this.items,
+    required this.total,
+    required this.page,
+    required this.pageSize,
+    required this.hasMore,
+  });
+
+  final List<MarketSearchResult> items;
+  final int total;
+  final int page;
+  final int pageSize;
+  final bool hasMore;
+
+  static BackendCryptoPairsPage? fromJson(Map<String, dynamic> m) {
+    final rows = m['items'];
+    if (rows is! List) return null;
+    final items = <MarketSearchResult>[];
+    for (final r in rows) {
+      if (r is! Map<String, dynamic>) continue;
+      final symbol = (r['symbol'] as String?)?.trim();
+      if (symbol == null || symbol.isEmpty) continue;
+      final name = (r['name'] as String?)?.trim();
+      items.add(MarketSearchResult(
+        symbol: symbol,
+        name: (name == null || name.isEmpty) ? symbol : name,
+        market: (r['market'] as String?) ?? 'crypto',
+      ));
+    }
+    return BackendCryptoPairsPage(
+      items: items,
+      total: (m['total'] as num?)?.toInt() ?? items.length,
+      page: (m['page'] as num?)?.toInt() ?? 1,
+      pageSize: (m['pageSize'] as num?)?.toInt() ?? items.length,
+      hasMore: m['hasMore'] == true,
+    );
+  }
+}
+
+class BackendStockTickersPage {
+  const BackendStockTickersPage({
+    required this.items,
+    required this.quotes,
+    required this.total,
+    required this.page,
+    required this.pageSize,
+    required this.hasMore,
+  });
+
+  final List<MarketSearchResult> items;
+  final Map<String, MarketQuote> quotes;
+  final int total;
+  final int page;
+  final int pageSize;
+  final bool hasMore;
+
+  static BackendStockTickersPage empty({required int page, required int pageSize}) {
+    return BackendStockTickersPage(
+      items: const [],
+      quotes: const {},
+      total: 0,
+      page: page,
+      pageSize: pageSize,
+      hasMore: false,
+    );
+  }
+
+  static BackendStockTickersPage? fromJson(Map<String, dynamic> m) {
+    final rows = m['items'];
+    if (rows is! List) return null;
+    final items = <MarketSearchResult>[];
+    final quotes = <String, MarketQuote>{};
+    for (final r in rows) {
+      if (r is! Map<String, dynamic>) continue;
+      final symbol = (r['symbol'] as String?)?.trim().toUpperCase();
+      if (symbol == null || symbol.isEmpty) continue;
+      final name = (r['name'] as String?)?.trim();
+      items.add(MarketSearchResult(
+        symbol: symbol,
+        name: (name == null || name.isEmpty) ? symbol : name,
+        market: (r['market'] as String?) ?? 'stocks',
+        stockType: r['stock_type'] as String?,
+        is24HourTrading: r['is_24h_trading'] == true,
+      ));
+      final quote = MarketQuote.fromSnapshotMap({
+        'symbol': symbol,
+        'name': (name == null || name.isEmpty) ? symbol : name,
+        'close': r['close'],
+        'change': r['change'],
+        'percent_change': r['percent_change'],
+        'open': r['open'],
+        'high': r['high'],
+        'low': r['low'],
+        'volume': r['volume'],
+        'prev_close': r['prev_close'],
+      });
+      if (quote != null && !quote.hasError && quote.price > 0) {
+        quotes[symbol] = quote;
+      }
+    }
+    return BackendStockTickersPage(
+      items: items,
+      quotes: quotes,
+      total: (m['total'] as num?)?.toInt() ?? items.length,
+      page: (m['page'] as num?)?.toInt() ?? 1,
+      pageSize: (m['pageSize'] as num?)?.toInt() ?? items.length,
+      hasMore: m['hasMore'] == true,
+    );
+  }
 }

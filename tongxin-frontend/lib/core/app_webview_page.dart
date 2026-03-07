@@ -11,11 +11,17 @@ class AppWebViewPage extends StatefulWidget {
     required this.url,
     this.title,
     this.allowedHosts = const <String>[],
+    this.apiBaseUrl,
+    this.authToken,
   });
 
   final String url;
   final String? title;
   final List<String> allowedHosts;
+  /// 后端 API 地址，供 HTML 调用接口时使用
+  final String? apiBaseUrl;
+  /// Firebase ID Token，供 HTML 调用需鉴权接口时使用
+  final String? authToken;
 
   @override
   State<AppWebViewPage> createState() => _AppWebViewPageState();
@@ -89,9 +95,13 @@ class _AppWebViewPageState extends State<AppWebViewPage> {
       'uid': u?.uid,
       'isAnonymous': u?.isAnonymous ?? true,
     };
+    final apiBaseUrl = widget.apiBaseUrl;
+    final authToken = widget.authToken;
     final payload = jsonEncode({
       'user': user,
       'app': {'name': 'teacher_hub', 'version': '0.1.1'},
+      if (apiBaseUrl != null && apiBaseUrl.isNotEmpty) 'apiBaseUrl': apiBaseUrl,
+      if (authToken != null && authToken.isNotEmpty) 'authToken': authToken,
     });
     await _controller.runJavaScript('''
       window.TeacherHub = $payload;
@@ -152,6 +162,8 @@ Future<void> openInAppWebView(
   required String url,
   String? title,
   List<String> allowedHosts = const <String>[],
+  String? apiBaseUrl,
+  String? authToken,
 }) async {
   if (!context.mounted) return;
   await Navigator.of(context).push(
@@ -160,6 +172,8 @@ Future<void> openInAppWebView(
         url: url,
         title: title,
         allowedHosts: allowedHosts,
+        apiBaseUrl: apiBaseUrl,
+        authToken: authToken,
       ),
     ),
   );

@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
-import '../features/market/market_sync_service.dart';
 import '../features/trading/trading_api_client.dart';
 import 'api_client.dart';
 import 'firebase_bootstrap.dart';
@@ -33,19 +32,15 @@ class StartupDataSyncService {
 
     _running = true;
     try {
-      // 行情基础数据：股票列表 + 主要报价，确保交易页进入时不是旧快照。
-      await MarketSyncService.instance.syncTickers();
-      await MarketSyncService.instance.syncQuotes(const ['DJI', 'IXIC', 'SPX']);
-
       final api = TradingApiClient.instance;
       await Future.wait<void>([
         _ignoreError(() => api.getSummary()),
         _ignoreError(() => api.getAccount()),
-        _ignoreError(() => api.getOpenOrders()),
-        _ignoreError(() => api.getHistoryOrders(limit: 200)),
-        _ignoreError(() => api.getPositions()),
-        _ignoreError(() => api.getFills(limit: 120)),
-        _ignoreError(() => api.getLedger(limit: 200)),
+        _ignoreError(() => api.getOpenOrders(page: 1, pageSize: 5)),
+        _ignoreError(() => api.getHistoryOrders(page: 1, pageSize: 5)),
+        _ignoreError(() => api.getPositions(page: 1, pageSize: 5)),
+        _ignoreError(() => api.getFills(page: 1, pageSize: 5)),
+        _ignoreError(() => api.getLedger(page: 1, pageSize: 5)),
       ]);
       _lastSuccessAt = DateTime.now();
     } finally {

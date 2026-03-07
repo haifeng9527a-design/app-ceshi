@@ -270,11 +270,25 @@ class TeacherPosition {
     required this.id,
     required this.teacherId,
     required this.asset,
+    this.assetClass,
+    this.productType,
+    this.positionSide,
+    this.positionAction,
+    this.marginMode,
+    this.leverage,
+    this.contractSize,
+    this.multiplier,
+    this.settlementAsset,
     this.buyTime,
     this.buyShares,
     this.buyPrice,
     this.costPrice,
     this.currentPrice,
+    this.markPrice,
+    this.indexPrice,
+    this.liquidationPrice,
+    this.usedMargin,
+    this.maintenanceMargin,
     this.floatingPnl,
     this.pnlRatio,
     this.pnlAmount,
@@ -286,11 +300,25 @@ class TeacherPosition {
   final String id;
   final String teacherId;
   final String asset;
+  final String? assetClass;
+  final String? productType;
+  final String? positionSide;
+  final String? positionAction;
+  final String? marginMode;
+  final double? leverage;
+  final double? contractSize;
+  final double? multiplier;
+  final String? settlementAsset;
   final DateTime? buyTime;
   final double? buyShares;
   final double? buyPrice;
   final double? costPrice;
   final double? currentPrice;
+  final double? markPrice;
+  final double? indexPrice;
+  final double? liquidationPrice;
+  final double? usedMargin;
+  final double? maintenanceMargin;
   final double? floatingPnl;
   final double? pnlRatio;
   final double? pnlAmount;
@@ -323,11 +351,25 @@ class TeacherPosition {
       id: row['id'] as String,
       teacherId: row['teacher_id'] as String,
       asset: row['asset'] as String? ?? '',
+      assetClass: row['asset_class']?.toString(),
+      productType: row['product_type']?.toString(),
+      positionSide: row['position_side']?.toString(),
+      positionAction: row['position_action']?.toString(),
+      marginMode: row['margin_mode']?.toString(),
+      leverage: (row['leverage'] as num?)?.toDouble(),
+      contractSize: (row['contract_size'] as num?)?.toDouble(),
+      multiplier: (row['multiplier'] as num?)?.toDouble(),
+      settlementAsset: row['settlement_asset']?.toString(),
       buyTime: _parseDateTime(row['buy_time']),
       buyShares: (row['buy_shares'] as num?)?.toDouble(),
       buyPrice: (row['buy_price'] as num?)?.toDouble(),
       costPrice: (row['cost_price'] as num?)?.toDouble(),
       currentPrice: (row['current_price'] as num?)?.toDouble(),
+      markPrice: (row['mark_price'] as num?)?.toDouble(),
+      indexPrice: (row['index_price'] as num?)?.toDouble(),
+      liquidationPrice: (row['liquidation_price'] as num?)?.toDouble(),
+      usedMargin: (row['used_margin'] as num?)?.toDouble(),
+      maintenanceMargin: (row['maintenance_margin'] as num?)?.toDouble(),
       floatingPnl: (row['floating_pnl'] as num?)?.toDouble(),
       pnlRatio: (row['pnl_ratio'] as num?)?.toDouble(),
       pnlAmount: (row['pnl_amount'] as num?)?.toDouble(),

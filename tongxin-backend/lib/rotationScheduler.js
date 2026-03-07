@@ -1,74 +1,53 @@
 /**
- * 全量轮询：每 N 秒拉取一批（如 500 只）美股报价写入 DB，轮完约 8000 只
- * 前端启动时从后端缓存即可拿到全部数据；可见区再实时拉取
+ * 全量轮询：服务启动后立即做一次全量批量 Snapshot；
+ * 之后每小时全量刷新一次并写入缓存（SQLite + Supabase stock_quote_cache）。
  */
 const polygon = require('./polygon');
-const db = require('./db');
 const quoteStore = require('./quoteStore');
-const quoteFetcher = require('./quoteFetcher');
-const singleFlight = require('./singleFlight');
-const { resolve } = require('./symbolResolver');
 const {
   ROTATION_BATCH_SIZE,
   ROTATION_INTERVAL_MS,
-  ROTATION_RATE_PER_SEC,
+  ROTATION_CHUNK_DELAY_MS,
 } = require('./config');
 
 let allSymbols = [];
-let rotationIndex = 0;
 let rotationTimer = null;
-let rotationRateCount = 0;
-let rotationRateLastSec = 0;
+let running = false;
 
-async function rotationRateAcquire() {
-  const now = Date.now();
-  const sec = Math.floor(now / 1000);
-  if (sec > rotationRateLastSec) {
-    rotationRateLastSec = sec;
-    rotationRateCount = 0;
+async function refreshAllSnapshotsOnce(polygonKey) {
+  if (!polygonKey || running) return;
+  if (!Array.isArray(allSymbols) || allSymbols.length === 0) return;
+  running = true;
+  const startedAt = Date.now();
+  let totalWritten = 0;
+  try {
+    for (let i = 0; i < allSymbols.length; i += ROTATION_BATCH_SIZE) {
+      const chunk = allSymbols.slice(i, i + ROTATION_BATCH_SIZE);
+      let batchMap = await polygon.getBatchSnapshotsV2(polygonKey, chunk);
+      if (batchMap.size === 0) {
+        batchMap = await polygon.getBatchSnapshotsV3(polygonKey, chunk);
+      }
+      const entries = [];
+      for (const sym of chunk) {
+        const payload = batchMap.get(sym);
+        if (!payload) continue;
+        entries.push({ symbol: sym, payload, priority: 3 });
+      }
+      if (entries.length > 0) {
+        quoteStore.setQuotesBatch(entries);
+        totalWritten += entries.length;
+      }
+      if (i + ROTATION_BATCH_SIZE < allSymbols.length) {
+        await new Promise((r) => setTimeout(r, ROTATION_CHUNK_DELAY_MS));
+      }
+    }
+    const ms = Date.now() - startedAt;
+    console.log(`[rotationScheduler] full refresh done: symbols=${allSymbols.length}, written=${totalWritten}, elapsedMs=${ms}`);
+  } catch (e) {
+    console.warn('[rotationScheduler] full refresh failed:', String(e.message || e));
+  } finally {
+    running = false;
   }
-  if (rotationRateCount >= ROTATION_RATE_PER_SEC) {
-    const wait = (sec + 1) * 1000 - now;
-    await new Promise((r) => setTimeout(r, wait));
-    rotationRateLastSec = Math.floor(Date.now() / 1000);
-    rotationRateCount = 0;
-  }
-  rotationRateCount++;
-}
-
-function runBatch(polygonKey) {
-  if (allSymbols.length === 0) return;
-  const start = rotationIndex;
-  const batch = allSymbols.slice(start, start + ROTATION_BATCH_SIZE);
-  rotationIndex = (start + ROTATION_BATCH_SIZE) % allSymbols.length;
-
-  const concurrency = Math.min(ROTATION_RATE_PER_SEC, 50);
-  const list = batch.filter((s) => resolve(s).usePolygon);
-  if (list.length === 0) return;
-
-  (async () => {
-    const entries = [];
-    const queue = [...list];
-    await Promise.all(
-      Array(concurrency)
-        .fill(0)
-        .map(async () => {
-          while (queue.length > 0) {
-            const sym = queue.shift();
-            if (!sym) break;
-            await rotationRateAcquire();
-            try {
-              const r = resolve(sym);
-              const snap = await singleFlight.getOrInflight(`quote:${sym}`, () =>
-                quoteFetcher.fetchOneQuote(polygonKey, sym, r.polygon)
-              );
-              entries.push({ symbol: sym, payload: snap, priority: 3 });
-            } catch (_) {}
-          }
-        })
-    );
-    if (entries.length > 0) quoteStore.setQuotesBatch(entries);
-  })().catch(() => {});
 }
 
 function startRotationScheduler(polygonKey) {
@@ -76,12 +55,19 @@ function startRotationScheduler(polygonKey) {
   (async () => {
     try {
       allSymbols = await polygon.getAllUsTickers(polygonKey);
-      if (allSymbols.length === 0) return;
+      allSymbols = [...new Set((allSymbols || []).map((s) => String(s).trim().toUpperCase()).filter(Boolean))];
+      if (allSymbols.length === 0) {
+        console.warn('[rotationScheduler] empty ticker list, skip');
+        return;
+      }
+      console.log(`[rotationScheduler] loaded symbols: ${allSymbols.length}`);
+      await refreshAllSnapshotsOnce(polygonKey); // 启动即全量刷新一次
+      rotationTimer = setInterval(() => {
+        refreshAllSnapshotsOnce(polygonKey).catch(() => {});
+      }, ROTATION_INTERVAL_MS); // 每小时刷新一次
     } catch (e) {
-      return;
+      console.warn('[rotationScheduler] init failed:', String(e.message || e));
     }
-    rotationTimer = setInterval(() => runBatch(polygonKey), ROTATION_INTERVAL_MS);
-    runBatch(polygonKey);
   })();
 }
 
@@ -91,7 +77,7 @@ function stopRotationScheduler() {
     rotationTimer = null;
   }
   allSymbols = [];
-  rotationIndex = 0;
+  running = false;
 }
 
 module.exports = { startRotationScheduler, stopRotationScheduler };

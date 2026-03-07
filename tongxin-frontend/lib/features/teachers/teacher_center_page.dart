@@ -26,6 +26,8 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
     with SingleTickerProviderStateMixin {
   final _repository = TeacherRepository();
   TabController? _tabController;
+  int _activeTradingTabIndex = 0;
+  final Set<int> _loadedTradingTabs = <int>{0};
   final _realNameController = TextEditingController();
   final _titleController = TextEditingController();
   final _orgController = TextEditingController();
@@ -62,6 +64,7 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
 
   @override
   void dispose() {
+    _tabController?.removeListener(_handleTradingTabChanged);
     _tabController?.dispose();
     _realNameController.dispose();
     _titleController.dispose();
@@ -116,14 +119,71 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
     _frozenUntil = profile.frozenUntil;
     _applicationAck = profile.applicationAck ?? false;
     final approved = (_statusLabel.toString().trim().toLowerCase() == 'approved');
+    _tabController?.removeListener(_handleTradingTabChanged);
     _tabController?.dispose();
     if (approved) {
       _tabController = TabController(length: 6, vsync: this);
+      _activeTradingTabIndex = 0;
+      _loadedTradingTabs
+        ..clear()
+        ..add(0);
+      _tabController!.addListener(_handleTradingTabChanged);
     } else {
       _tabController = null;
     }
     if (mounted) {
       setState(() {});
+    }
+  }
+
+  void _handleTradingTabChanged() {
+    final controller = _tabController;
+    if (controller == null) return;
+    final nextIndex = controller.index;
+    if (_activeTradingTabIndex == nextIndex &&
+        _loadedTradingTabs.contains(nextIndex)) {
+      return;
+    }
+    setState(() {
+      _activeTradingTabIndex = nextIndex;
+      _loadedTradingTabs.add(nextIndex);
+    });
+  }
+
+  Widget _buildTradingTabChild(int index, String userId) {
+    if (!_loadedTradingTabs.contains(index)) {
+      return const SizedBox.shrink();
+    }
+    switch (index) {
+      case 0:
+        return _buildStrategiesTab(userId, isActive: _activeTradingTabIndex == 0);
+      case 1:
+        return MarketTradeTab(
+          teacherId: userId,
+          isActive: _activeTradingTabIndex == 1,
+        );
+      case 2:
+        return OrdersTab(
+          teacherId: userId,
+          isActive: _activeTradingTabIndex == 2,
+        );
+      case 3:
+        return OrderHistoryTab(
+          teacherId: userId,
+          isActive: _activeTradingTabIndex == 3,
+        );
+      case 4:
+        return FillsAndPositionsTab(
+          teacherId: userId,
+          isActive: _activeTradingTabIndex == 4,
+        );
+      case 5:
+        return AccountLedgerTab(
+          teacherId: userId,
+          isActive: _activeTradingTabIndex == 5,
+        );
+      default:
+        return const SizedBox.shrink();
     }
   }
 
@@ -558,12 +618,7 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
               child: TabBarView(
                 controller: _tabController!,
                 children: [
-                  _buildStrategiesTab(user.uid),
-                  MarketTradeTab(teacherId: user.uid),
-                  OrdersTab(teacherId: user.uid),
-                  OrderHistoryTab(teacherId: user.uid),
-                  FillsAndPositionsTab(teacherId: user.uid),
-                  AccountLedgerTab(teacherId: user.uid),
+                  for (var i = 0; i < 6; i++) _buildTradingTabChild(i, user.uid),
                 ],
               ),
             )
@@ -870,7 +925,7 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
     );
   }
 
-  Widget _buildStrategiesTab(String userId) {
+  Widget _buildStrategiesTab(String userId, {required bool isActive}) {
     if (_statusLabel != 'approved') {
       final status = _statusLabel.toString().trim().toLowerCase();
       final hint = (status == 'frozen' || status == 'blocked')
@@ -891,7 +946,9 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
       );
     }
     return StreamBuilder<List<TeacherStrategy>>(
-      stream: _repository.watchStrategies(userId),
+      stream: isActive
+          ? _repository.watchStrategies(userId)
+          : Stream.value(const <TeacherStrategy>[]),
       builder: (context, snapshot) {
         final items = snapshot.data ?? const <TeacherStrategy>[];
         return ListView(

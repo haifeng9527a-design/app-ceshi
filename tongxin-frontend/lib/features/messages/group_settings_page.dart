@@ -6,10 +6,10 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import 'package:cached_network_image/cached_network_image.dart';
 
+import '../../core/api_client.dart';
 import '../../l10n/app_localizations.dart';
 import '../../core/app_download.dart';
 import '../../core/network_error_helper.dart';
-import '../../core/supabase_bootstrap.dart';
 import 'chat_media_cache.dart';
 import 'friend_models.dart';
 import 'friends_repository.dart';
@@ -340,8 +340,8 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> {
 
   Future<void> _editGroupAvatar() async {
     if (_info == null || !_info!.canManage || _uploadingAvatar) return;
-    if (!SupabaseBootstrap.isReady) {
-      _showToast(AppLocalizations.of(context)!.groupNoSupabaseUpload);
+    if (!ApiClient.instance.isAvailable) {
+      _showToast(AppLocalizations.of(context)!.messagesApiNotConfigured);
       return;
     }
     final picked = await _picker.pickImage(source: ImageSource.gallery);
@@ -781,7 +781,7 @@ class GroupMemberListPage extends StatelessWidget {
                       border: Border.all(color: const Color(0xFFD4AF37), width: 1),
                     ),
                     child: Text(
-                      roleLabel!,
+                      roleLabel,
                       style: const TextStyle(
                         color: Color(0xFFD4AF37),
                         fontSize: 12,

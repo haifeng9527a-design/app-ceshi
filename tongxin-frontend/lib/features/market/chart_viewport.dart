@@ -57,6 +57,7 @@ class ChartViewport extends StatefulWidget {
 
 class _ChartViewportState extends State<ChartViewport> {
   double _scaleStartCount = 0;
+  double _scaleStartIndex = 0;
   int? _tooltipIndex;
   Offset? _tooltipPosition;
   /// 十字线详情显示时间，用于防误触：显示不足此时间时点击不关闭
@@ -93,6 +94,7 @@ class _ChartViewportState extends State<ChartViewport> {
 
   void _onScaleStart(ScaleStartDetails d) {
     _scaleStartCount = widget.controller.visibleCount;
+    _scaleStartIndex = widget.controller.visibleStartIndex;
   }
 
   void _maybeLoadMore() {
@@ -103,8 +105,21 @@ class _ChartViewportState extends State<ChartViewport> {
   }
 
   void _onScaleUpdate(ScaleUpdateDetails d, double contentWidth) {
+    if (d.pointerCount < 2) return;
     if (_tooltipIndex != null) setState(() { _tooltipIndex = null; _tooltipPosition = null; });
-    widget.controller.onZoom(d.scale, widget.candles.length, scaleStartCount: _scaleStartCount);
+    final focalRatio = contentWidth > 0
+        ? (d.localFocalPoint.dx / contentWidth).clamp(0.0, 1.0)
+        : 0.5;
+    if (d.focalPointDelta.dx.abs() > 0.01) {
+      _onPanByDelta(d.focalPointDelta.dx, contentWidth);
+    }
+    widget.controller.onZoom(
+      d.scale,
+      widget.candles.length,
+      scaleStartCount: _scaleStartCount,
+      scaleStartIndex: _scaleStartIndex,
+      focalRatio: focalRatio,
+    );
     _maybeLoadMore();
   }
 
@@ -461,19 +476,20 @@ class _ChartViewportState extends State<ChartViewport> {
       if (pc > maxY) maxY = pc;
     }
     var range = (maxY - minY).clamp(0.01, double.infinity);
-    minY = minY - range * 0.02;
-    maxY = maxY + range * 0.02;
+    final verticalPad = range * 0.08;
+    minY = minY - verticalPad;
+    maxY = maxY + verticalPad;
     range = maxY - minY;
-    // 防止单根极端K线（如暴涨暴跌）压缩其他K线：若某根K线占幅>45%，则扩大Y轴使该K线占幅≤70%
+    // 防止单根极端K线（如暴涨暴跌）压缩其他K线：若单根占比过大，则额外扩展Y轴。
     final maxCandleRange = candles.fold<double>(0, (m, c) {
       final r = (c.high - c.low).clamp(0.0, double.infinity);
       return r > m ? r : m;
     });
-    if (maxCandleRange > 0 && range > 0 && maxCandleRange / range > 0.45) {
-      final targetRange = maxCandleRange / 0.7;
-      final expand = (targetRange - range) / 2;
-      minY = minY - expand;
-      maxY = maxY + expand;
+    if (maxCandleRange > 0 && range > 0 && maxCandleRange / range > 0.38) {
+      final targetRange = maxCandleRange / 0.32;
+      final mid = (maxY + minY) / 2;
+      minY = mid - targetRange / 2;
+      maxY = mid + targetRange / 2;
     }
 
     MacdResult? macdResult;
@@ -533,8 +549,9 @@ class _ChartViewportState extends State<ChartViewport> {
                     final remaining = chartConstraints.maxHeight.clamp(120.0, double.infinity);
                     final timeH = (remaining * timeRatio).clamp(minTimeAxisHeight, 36.0);
                     final rest = remaining - timeH;
-                    final chartH = rest * 0.92;
-                    final subH = rest * 0.08;
+                    // 放大副图（VOL / MACD / RSI）区域，避免在小屏上过于拥挤难看清。
+                    final chartH = rest * 0.84;
+                    final subH = rest * 0.16;
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisSize: MainAxisSize.min,
@@ -617,7 +634,10 @@ class _ChartViewportState extends State<ChartViewport> {
                               widget.prevClose! <= maxY &&
                               (refPrice == null || (refPrice - widget.prevClose!).abs() > 0.001))
                             _buildPrevCloseLabel(widget.prevClose!, minY, maxY, chartH),
-                          if (refPrice != null && refPrice >= minY && refPrice <= maxY) ...[
+                          if (widget.showPrevCloseLine &&
+                              refPrice != null &&
+                              refPrice >= minY &&
+                              refPrice <= maxY) ...[
                             Positioned(
                               left: 0,
                               right: 0,
@@ -656,8 +676,12 @@ class _ChartViewportState extends State<ChartViewport> {
                             children: List.generate(5, (i) {
                               final v = maxY - (maxY - minY) * i / 4;
                               final style = axisStyle.copyWith(fontSize: 9);
-                              if (refPrice != null && refPrice > 0) {
-                                final pct = (v - refPrice) / refPrice * 100;
+                              final percentBase =
+                                  (widget.prevClose != null && widget.prevClose! > 0)
+                                      ? widget.prevClose!
+                                      : refPrice;
+                              if (percentBase != null && percentBase > 0) {
+                                final pct = (v - percentBase) / percentBase * 100;
                                 return Text(
                                   '${pct >= 0 ? '+' : ''}${pct.toStringAsFixed(1)}%',
                                   style: style,
@@ -673,7 +697,10 @@ class _ChartViewportState extends State<ChartViewport> {
                               );
                             }),
                           ),
-                          if (refPrice != null && refPrice >= minY && refPrice <= maxY) ...[
+                          if (widget.showPrevCloseLine &&
+                              refPrice != null &&
+                              refPrice >= minY &&
+                              refPrice <= maxY) ...[
                             _buildRightAxisRefLabel(refPrice, minY, maxY, chartH),
                           ],
                         ],

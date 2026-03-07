@@ -47,6 +47,32 @@ MessagesPage
 - 用户确实没有会话（chat_members 中无该 user_id）
 - 新用户需先加好友、发起会话才会有数据
 
+### 5. 无法收发消息（收发都失败）
+
+**排查顺序：**
+
+| 步骤 | 检查项 | 如何验证 |
+|------|--------|----------|
+| 1 | 前端 `TONGXIN_API_URL` | 确认 `tongxin-frontend/.env` 有 `TONGXIN_API_URL` 且非空 |
+| 2 | 后端可访问 | 浏览器访问 `{TONGXIN_API_URL}/health` 应返回 `{"ok":true}` |
+| 3 | 用户已登录 | App 消息页需 Firebase 登录，否则 401 |
+| 4 | 后端鉴权 | 后端 `.env` 需 `GOOGLE_APPLICATION_CREDENTIALS=./serviceAccountKey.json` 且文件存在 |
+| 5 | Supabase | 后端 `.env` 需 `SUPABASE_SERVICE_ROLE_KEY`（非 anon key） |
+
+**收发流程：**
+- **收**：WebSocket 实时推送（`/ws/chat`）+ Supabase Realtime；未连接时回退 2 秒轮询
+- **发**：优先 WebSocket 发送；未连接时回退 `POST /api/messages`；失败时消息旁显示红感叹号
+
+### 6. 部署后收发消息很慢
+
+| 原因 | 说明 | 建议 |
+|------|------|------|
+| **Render 冷启动** | 免费版闲置约 15 分钟后休眠，首请求需 30–60 秒唤醒 | 用 cron 每 5 分钟请求 `/health` 保活；或升级付费计划 |
+| **跨地域延迟** | 服务器在海外、用户在境内，单次请求 200–500ms | 考虑将后端部署到国内（如阿里云、腾讯云） |
+| **轮询间隔** | 未连接 WS 时回退 2 秒轮询 | 已改为 WebSocket + Supabase Realtime 实时推送 |
+
+**调试**：Flutter Debug 模式下控制台会输出 `[MessagesApi] GET/POST ... => 401/403/502 {...}`
+
 ---
 
 ## 调试

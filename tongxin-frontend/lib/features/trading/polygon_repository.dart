@@ -191,7 +191,7 @@ class PolygonRepository {
     if (sym.isEmpty) return null;
     final cacheKey = 'polygon_snapshot_$sym';
     final cached = await _cache.get(cacheKey, maxAge: const Duration(minutes: 1));
-    if (cached != null && cached is Map<String, dynamic>) {
+    if (cached != null) {
       final g = PolygonGainer.fromJson(cached);
       if (g != null) return g;
     }
@@ -494,6 +494,57 @@ class PolygonRepository {
       debugPrint('PolygonRepository searchTickers: $e');
       return [];
     }
+  }
+
+  /// 批量快照报价（v2 snapshot），适合启动/列表分批拉取，性能远高于逐只请求。
+  /// 返回 key 为原始 symbol（大写）的映射。
+  Future<Map<String, PolygonGainer>> getBatchSnapshots(List<String> symbols) async {
+    if (!isAvailable || symbols.isEmpty) return const {};
+    final normalized = symbols
+        .map((e) => e.trim().toUpperCase())
+        .where((e) => e.isNotEmpty)
+        .toSet()
+        .toList();
+    if (normalized.isEmpty) return const {};
+
+    const int chunkSize = 250;
+    final out = <String, PolygonGainer>{};
+
+    for (var i = 0; i < normalized.length; i += chunkSize) {
+      final chunk = normalized.sublist(
+        i,
+        (i + chunkSize > normalized.length) ? normalized.length : i + chunkSize,
+      );
+      final uri = Uri.parse('$_base/v2/snapshot/locale/us/markets/stocks/tickers')
+          .replace(
+        queryParameters: {
+          'tickers': chunk.join(','),
+          'apiKey': _apiKey!,
+        },
+      );
+      try {
+        final resp = await http.get(uri).timeout(
+          const Duration(seconds: 20),
+          onTimeout: () => throw Exception('请求超时'),
+        );
+        if (resp.statusCode != 200) continue;
+        final map = jsonDecode(resp.body) as Map<String, dynamic>?;
+        final tickers = map?['tickers'] as List<dynamic>?;
+        if (tickers == null) continue;
+        for (final item in tickers) {
+          if (item is! Map<String, dynamic>) continue;
+          final g = PolygonGainer.fromJson(item);
+          if (g == null) continue;
+          out[g.ticker.toUpperCase()] = g;
+        }
+      } catch (e) {
+        if (kDebugMode) debugPrint('PolygonRepository getBatchSnapshots: $e');
+      }
+      if (i + chunkSize < normalized.length) {
+        await Future<void>.delayed(const Duration(milliseconds: 120));
+      }
+    }
+    return out;
   }
 
   /// 创建实时成交流（WebSocket），有成交即推送价格与成交量

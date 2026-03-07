@@ -4,7 +4,6 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import '../market/market_repository.dart';
 import 'backend_realtime_client.dart';
-import 'polygon_realtime.dart';
 
 /// 将 WebSocket 成交推送合并进涨跌榜/报价，实现实时价更新
 /// 首次加载仍用 REST，后续由 WebSocket 推送更新
@@ -223,7 +222,7 @@ class RealtimeQuoteService {
 
     MarketQuote updated;
     if (q != null && !q.hasError) {
-      final prevClose = q.change != 0 ? q.price - q.change : q.price;
+      final prevClose = q.prevClose ?? (q.change != 0 ? q.price - q.change : q.price);
       if (prevClose > 0) {
         final newChange = u.price - prevClose;
         final newChangePct = (newChange / prevClose) * 100;
@@ -237,6 +236,7 @@ class RealtimeQuoteService {
           high: q.high,
           low: q.low,
           volume: q.volume,
+          prevClose: prevClose,
         );
       } else {
         updated = MarketQuote(
@@ -249,6 +249,7 @@ class RealtimeQuoteService {
           high: q.high,
           low: q.low,
           volume: q.volume,
+          prevClose: q.prevClose,
         );
       }
     } else {
@@ -263,10 +264,13 @@ class RealtimeQuoteService {
         high: null,
         low: null,
         volume: null,
+        prevClose: null,
       );
     }
     _quotes[sym] = updated;
-    if (!_quotesController.isClosed) _quotesController.add(_quotes);
+    if (!_quotesController.isClosed) {
+      _quotesController.add(<String, MarketQuote>{sym: updated});
+    }
   }
 
   void dispose() {

@@ -8,7 +8,6 @@ import '../../l10n/app_localizations.dart';
 import '../../core/pc_dashboard_theme.dart';
 import '../../api/users_api.dart';
 import '../../core/api_client.dart';
-import '../../core/supabase_bootstrap.dart';
 import '../../core/user_restrictions.dart';
 import 'friend_models.dart';
 import 'friends_repository.dart';
@@ -402,24 +401,7 @@ class _MyQrCard extends StatelessWidget {
       final refreshed = await UsersApi.instance.getProfile(userId);
       return refreshed?['short_id'] as String?;
     }
-    final client = SupabaseBootstrap.clientOrNull;
-    if (!SupabaseBootstrap.isReady || client == null) return null;
-    final row = await client
-        .from('user_profiles')
-        .select('short_id')
-        .eq('user_id', userId)
-        .maybeSingle();
-    final current = row?['short_id'] as String?;
-    if (current != null && current.trim().isNotEmpty) {
-      return current;
-    }
-    await SupabaseUserSync().ensureShortId(userId);
-    final refreshed = await client
-        .from('user_profiles')
-        .select('short_id')
-        .eq('user_id', userId)
-        .maybeSingle();
-    return refreshed?['short_id'] as String?;
+    return null;
   }
 
   @override

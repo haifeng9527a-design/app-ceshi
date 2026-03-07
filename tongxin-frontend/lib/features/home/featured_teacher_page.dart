@@ -13,7 +13,6 @@ import '../../api/users_api.dart';
 import '../../core/api_client.dart';
 import '../../core/firebase_bootstrap.dart';
 import '../../core/models.dart';
-import '../../core/supabase_bootstrap.dart';
 import '../messages/message_models.dart';
 import '../messages/messages_repository.dart';
 import '../strategies/strategy_dialog.dart';
@@ -1258,28 +1257,13 @@ class _ForwardConversationSheet extends StatelessWidget {
 
   Future<String> _getUserName(BuildContext context) async {
     try {
-      if (ApiClient.instance.isAvailable) {
-        final name = await UsersApi.instance.getDisplayName(currentUserId);
-        if (!context.mounted) return '';
-        return name.isNotEmpty
-            ? name
-            : AppLocalizations.of(context)!.commonUser;
-      }
-      final client = SupabaseBootstrap.clientOrNull;
-      if (client == null) {
+      if (!ApiClient.instance.isAvailable) {
         if (!context.mounted) return '';
         return AppLocalizations.of(context)!.commonUser;
       }
-      final r = await client
-          .from('user_profiles')
-          .select('display_name')
-          .eq('user_id', currentUserId)
-          .maybeSingle();
+      final name = await UsersApi.instance.getDisplayName(currentUserId);
       if (!context.mounted) return '';
-      final n = r?['display_name'] as String?;
-      return (n?.trim().isNotEmpty == true)
-          ? n!.trim()
-          : AppLocalizations.of(context)!.commonUser;
+      return name.isNotEmpty ? name : AppLocalizations.of(context)!.commonUser;
     } catch (_) {
       if (!context.mounted) return '';
       return AppLocalizations.of(context)!.commonUser;

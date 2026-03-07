@@ -175,6 +175,121 @@ function registerUploadRoutes(app, requireAuth) {
     }
   });
 
+  /** POST /api/upload/teacher-strategy-image */
+  app.post('/api/upload/teacher-strategy-image', requireAuth, async (req, res) => {
+    const uid = req.firebaseUid;
+    const { content_base64, content_type, file_name } = req.body || {};
+    if (!uid) return res.status(401).json({ error: '未鉴权' });
+    if (!content_base64) return res.status(400).json({ error: 'missing content_base64' });
+    const sb = supabase();
+    if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
+    try {
+      const buf = Buffer.from(content_base64, 'base64');
+      if (buf.length > MAX_SINGLE_UPLOAD_BYTES) {
+        return res.status(400).json({ error: '文件过大，最大 8MB' });
+      }
+      const safeName = String(file_name || 'strategy.jpg').replace(/\s/g, '_');
+      const path = `strategies/${uid}/${Date.now()}_${safeName}`;
+      const { error } = await sb.storage.from('teacher-records').upload(path, buf, {
+        contentType: content_type || 'image/jpeg',
+        upsert: true,
+      });
+      if (error) return res.status(502).json({ error: error.message });
+      const { data: urlData } = sb.storage.from('teacher-records').getPublicUrl(path);
+      return res.json({ url: urlData?.publicUrl || '' });
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message || e) });
+    }
+  });
+
+  /** POST /api/upload/teacher-trade-record-file */
+  app.post('/api/upload/teacher-trade-record-file', requireAuth, async (req, res) => {
+    const uid = req.firebaseUid;
+    const { content_base64, content_type, file_name } = req.body || {};
+    if (!uid) return res.status(401).json({ error: '未鉴权' });
+    if (!content_base64) return res.status(400).json({ error: 'missing content_base64' });
+    const sb = supabase();
+    if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
+    try {
+      const buf = Buffer.from(content_base64, 'base64');
+      if (buf.length > MAX_SINGLE_UPLOAD_BYTES) {
+        return res.status(400).json({ error: '文件过大，最大 8MB' });
+      }
+      const safeName = String(file_name || 'record.jpg').replace(/\s/g, '_');
+      const path = `records/${uid}/${Date.now()}_${safeName}`;
+      const { error } = await sb.storage.from('teacher-records').upload(path, buf, {
+        contentType: content_type || 'application/octet-stream',
+        upsert: true,
+      });
+      if (error) return res.status(502).json({ error: error.message });
+      const { data: urlData } = sb.storage.from('teacher-records').getPublicUrl(path);
+      return res.json({ url: urlData?.publicUrl || '' });
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message || e) });
+    }
+  });
+
+  /** POST /api/upload/teacher-avatar */
+  app.post('/api/upload/teacher-avatar', requireAuth, async (req, res) => {
+    const uid = req.firebaseUid;
+    const { content_base64, content_type, file_name } = req.body || {};
+    if (!uid) return res.status(401).json({ error: '未鉴权' });
+    if (!content_base64) return res.status(400).json({ error: 'missing content_base64' });
+    const sb = supabase();
+    if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
+    try {
+      const buf = Buffer.from(content_base64, 'base64');
+      if (buf.length > MAX_SINGLE_UPLOAD_BYTES) {
+        return res.status(400).json({ error: '文件过大，最大 8MB' });
+      }
+      const safeName = String(file_name || 'teacher_avatar.jpg').replace(/\s/g, '_');
+      const path = `teachers/${uid}/${Date.now()}_${safeName}`;
+      const { error } = await sb.storage.from('avatars').upload(path, buf, {
+        contentType: content_type || 'image/jpeg',
+        upsert: true,
+      });
+      if (error) return res.status(502).json({ error: error.message });
+      const { data: urlData } = sb.storage.from('avatars').getPublicUrl(path);
+      const url = urlData?.publicUrl || '';
+      await sb.from('teacher_profiles').upsert({
+        user_id: uid,
+        avatar_url: url,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'user_id' });
+      return res.json({ url });
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message || e) });
+    }
+  });
+
+  /** POST /api/upload/teacher-verification */
+  app.post('/api/upload/teacher-verification', requireAuth, async (req, res) => {
+    const uid = req.firebaseUid;
+    const { content_base64, content_type, file_name, category } = req.body || {};
+    if (!uid) return res.status(401).json({ error: '未鉴权' });
+    if (!content_base64) return res.status(400).json({ error: 'missing content_base64' });
+    const sb = supabase();
+    if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
+    try {
+      const buf = Buffer.from(content_base64, 'base64');
+      if (buf.length > MAX_SINGLE_UPLOAD_BYTES) {
+        return res.status(400).json({ error: '文件过大，最大 8MB' });
+      }
+      const safeName = String(file_name || 'verify.jpg').replace(/\s/g, '_');
+      const safeCategory = String(category || 'other').replace(/[^\w-]/g, '') || 'other';
+      const path = `teachers/${uid}/${safeCategory}/${Date.now()}_${safeName}`;
+      const { error } = await sb.storage.from('teacher-verify').upload(path, buf, {
+        contentType: content_type || 'image/jpeg',
+        upsert: true,
+      });
+      if (error) return res.status(502).json({ error: error.message });
+      const { data: urlData } = sb.storage.from('teacher-verify').getPublicUrl(path);
+      return res.json({ url: urlData?.publicUrl || '' });
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message || e) });
+    }
+  });
+
   /** POST /api/admin/upload/customer-service-avatar — 管理后台上传客服头像 */
   app.post('/api/admin/upload/customer-service-avatar', requireAuth, requireAdmin, async (req, res) => {
     const { content_base64, content_type, file_name } = req.body || {};

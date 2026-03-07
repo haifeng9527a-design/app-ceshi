@@ -18,13 +18,10 @@ function createQuotesWsServer(httpServer, polygonKey) {
 
   httpServer.on('upgrade', (request, socket, head) => {
     const url = new URL(request.url || '', `http://${request.headers.host}`);
-    if (url.pathname === '/ws/quotes') {
-      wss.handleUpgrade(request, socket, head, (ws) => {
-        wss.emit('connection', ws, request);
-      });
-    } else {
-      socket.destroy();
-    }
+    if (url.pathname !== '/ws/quotes') return;
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      wss.emit('connection', ws, request);
+    });
   });
 
   wss.on('connection', (clientWs) => {

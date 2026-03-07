@@ -1,6 +1,8 @@
-import 'package:flutter/material.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'dart:convert';
 
+import 'package:flutter/material.dart';
+
+import '../core/admin_api_client.dart';
 import '../l10n/admin_strings.dart';
 import 'admin_home_page.dart';
 
@@ -23,49 +25,90 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
   static const Color _surface = Color(0xFF1A1C21);
 
   @override
+  void initState() {
+    super.initState();
+    _bootstrapIfNeeded();
+  }
+
+  @override
   void dispose() {
     _usernameController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
 
-  String _getExpectedUsername() {
-    final v = dotenv.env['ADMIN_USERNAME'];
-    return (v != null && v.trim().isNotEmpty) ? v.trim() : 'admin';
-  }
-
-  String _getExpectedPassword() {
-    final v = dotenv.env['ADMIN_PASSWORD'];
-    return (v != null && v.trim().isNotEmpty) ? v.trim() : 'admin123';
+  /// 首次部署：若数据库无管理员，则从 env 创建默认账号
+  Future<void> _bootstrapIfNeeded() async {
+    if (!AdminApiClient.instance.isAvailable) return;
+    try {
+      await AdminApiClient.instance.post('api/admin/auth/bootstrap');
+    } catch (_) {}
   }
 
   Future<void> _submit() async {
+    final username = _usernameController.text.trim();
+    final password = _passwordController.text;
+    if (username.isEmpty || password.isEmpty) return;
+
     setState(() {
       _errorText = null;
       _loading = true;
     });
-    await Future.delayed(const Duration(milliseconds: 300));
+    await Future.delayed(const Duration(milliseconds: 200));
 
-    final username = _usernameController.text.trim();
-    final password = _passwordController.text;
-
-    final expectedUser = _getExpectedUsername();
-    final expectedPwd = _getExpectedPassword();
-
-    if (!mounted) return;
-    if (username != expectedUser || password != expectedPwd) {
+    if (!AdminApiClient.instance.isAvailable) {
+      if (!mounted) return;
       setState(() {
-        _errorText = '账号或密码错误';
+        _errorText = '未配置 API 地址或密钥，请检查 .env';
         _loading = false;
       });
       return;
     }
 
-    setState(() => _loading = false);
-    if (!mounted) return;
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const AdminHomePage()),
-    );
+    try {
+      final resp = await AdminApiClient.instance.post(
+        'api/admin/auth/login',
+        body: {'username': username, 'password': password},
+      );
+      if (!mounted) return;
+
+      if (resp.statusCode == 200) {
+        setState(() => _loading = false);
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const AdminHomePage()),
+        );
+        return;
+      }
+
+      String? err;
+      if (resp.body.isNotEmpty) {
+        try {
+          final body = jsonDecode(resp.body);
+          err = body is Map ? body['error']?.toString() : null;
+        } catch (_) {
+          err = resp.statusCode == 404
+              ? '后端接口不存在(404)，请确认 API 地址正确且已部署最新代码'
+              : '后端返回异常，请检查服务是否正常运行';
+        }
+      }
+      if (resp.statusCode == 403) {
+        setState(() {
+          _errorText = err ?? '账户已锁定，请稍后再试';
+          _loading = false;
+        });
+        return;
+      }
+      setState(() {
+        _errorText = err ?? '账号或密码错误';
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _errorText = '登录失败：$e';
+        _loading = false;
+      });
+    }
   }
 
   @override

@@ -34,7 +34,6 @@ import '../../core/role_badge.dart';
 import '../../ui/components/components.dart';
 import '../../api/messages_api.dart';
 import '../../core/api_client.dart';
-import '../../core/supabase_bootstrap.dart';
 import '../../core/user_restrictions.dart';
 import 'friend_models.dart';
 import 'message_models.dart';
@@ -512,25 +511,6 @@ class _ChatDetailPageState extends State<ChatDetailPage>
         }
         return _peerId;
       }
-      final client = SupabaseBootstrap.clientOrNull;
-      if (client == null) return _peerId;
-      final members = await client
-          .from('chat_members')
-          .select('user_id')
-          .eq('conversation_id', widget.conversation.id);
-      final resolved = members
-          .map((row) => row['user_id'] as String?)
-          .whereType<String>()
-          .firstWhere((id) => id != _userId, orElse: () => '');
-      if (resolved.isNotEmpty) {
-        if (!mounted) {
-          _peerId = resolved;
-        } else {
-          setState(() {
-            _peerId = resolved;
-          });
-        }
-      }
     } catch (_) {
       // Ignore peer resolve errors, push will be skipped.
     }
@@ -809,6 +789,8 @@ class _ChatDetailPageState extends State<ChatDetailPage>
     String? replyToSenderName,
     String? replyToContent,
   }) async {
+    // 立即恢复发送按钮，允许连续发送；上传在后台进行
+    if (mounted) _isSendingNotifier.value = false;
     try {
       // 后台校验：禁止发消息/封禁时移除本条并恢复输入框
       final restrictions = await UserRestrictions.getMyRestrictionRow();
@@ -892,10 +874,6 @@ class _ChatDetailPageState extends State<ChatDetailPage>
       // 网络/服务器失败：不弹 toast，只标记该条为发送失败（气泡旁显示感叹号）
       if (mounted) {
         setState(() => _failedLocalIds.add(localId));
-      }
-    } finally {
-      if (mounted) {
-        _isSendingNotifier.value = false;
       }
     }
   }
@@ -1154,8 +1132,8 @@ class _ChatDetailPageState extends State<ChatDetailPage>
     int? durationMs,
   }) async {
     final l10n = AppLocalizations.of(context)!;
-    if (!SupabaseBootstrap.isReady) {
-      _showToast(l10n.chatNoSupabaseCannotSendMedia);
+    if (!ApiClient.instance.isAvailable) {
+      _showToast(l10n.messagesApiNotConfigured);
       return;
     }
     // 与文本发送一致：后台限制发消息时禁止发送图片/语音/视频

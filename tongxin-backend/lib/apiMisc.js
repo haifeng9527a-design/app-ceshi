@@ -35,6 +35,41 @@ function registerMiscRoutes(app, requireAuth) {
     return;
   }
 
+  /** GET /api/config/app — 获取 App 客户端配置（无需鉴权，供启动时拉取） */
+  app.get('/api/config/app', async (req, res) => {
+    const sb = supabase();
+    if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
+    try {
+      const keys = [
+        'user_trading_center_hidden_versions',
+        'webview_user_page_url',
+        'user_trading_center_menu_title',
+        'user_trading_center_menu_subtitle',
+        'user_trading_center_hidden_menu_title',
+        'user_trading_center_hidden_menu_subtitle',
+      ];
+      const { data: rows, error } = await sb
+        .from('app_config')
+        .select('key, value')
+        .in('key', keys);
+      if (error) return res.status(502).json({ error: error.message });
+      const map = {};
+      for (const r of rows || []) {
+        map[r.key] = r.value != null ? String(r.value).trim() : null;
+      }
+      res.json({
+        user_trading_center_hidden_versions: map.user_trading_center_hidden_versions || null,
+        webview_user_page_url: map.webview_user_page_url || null,
+        user_trading_center_menu_title: map.user_trading_center_menu_title || null,
+        user_trading_center_menu_subtitle: map.user_trading_center_menu_subtitle || null,
+        user_trading_center_hidden_menu_title: map.user_trading_center_hidden_menu_title || null,
+        user_trading_center_hidden_menu_subtitle: map.user_trading_center_hidden_menu_subtitle || null,
+      });
+    } catch (e) {
+      res.status(502).json({ error: String(e.message || e) });
+    }
+  });
+
   /** GET /api/config/:key — 获取 app_config 值 */
   app.get('/api/config/:key', requireAuth, async (req, res) => {
     const { key } = req.params;

@@ -24,12 +24,12 @@ const REFRESH_BUDGET_PER_TICK = 5;
 /** 后台刷新：tick 间隔（ms） */
 const REFRESH_TICK_MS = 1000;
 
-/** 全量轮询：每批拉取的股票数（每 5 秒一批，约 8000/500≈16 批，约 80 秒一轮） */
-const ROTATION_BATCH_SIZE = 500;
-/** 全量轮询：批间隔（ms） */
-const ROTATION_INTERVAL_MS = 5000;
-/** 全量轮询：每批内每秒最多请求数（500 只约 5 秒内完成 = 100/sec，可按套餐调低） */
-const ROTATION_RATE_PER_SEC = 100;
+/** 全量轮询：每批拉取的股票数（Polygon v2/v3 snapshot 限制通常 <= 250） */
+const ROTATION_BATCH_SIZE = 250;
+/** 全量轮询：每次全量刷新间隔（ms）- 默认每小时一次 */
+const ROTATION_INTERVAL_MS = 60 * 60 * 1000;
+/** 全量轮询：批间小停顿（ms），避免瞬时打满 API */
+const ROTATION_CHUNK_DELAY_MS = 120;
 
 module.exports = {
   TTL_MS_BY_PRIORITY,
@@ -42,5 +42,5 @@ module.exports = {
   REFRESH_TICK_MS,
   ROTATION_BATCH_SIZE,
   ROTATION_INTERVAL_MS,
-  ROTATION_RATE_PER_SEC,
+  ROTATION_CHUNK_DELAY_MS,
 };

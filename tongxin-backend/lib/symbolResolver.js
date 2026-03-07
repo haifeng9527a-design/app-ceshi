@@ -2,6 +2,11 @@
  * 与前端 SymbolResolver 一致：决定用 Polygon 还是 Twelve Data、symbol 格式
  */
 const POLYGON_INDICES = new Set(['SPX', 'NDX', 'DJI', 'IXIC', 'VIX', 'RUT', 'HSI', 'N225']);
+const CRYPTO_BASES = new Set([
+  'BTC', 'ETH', 'SOL', 'XRP', 'DOGE', 'AVAX', 'BNB', 'ADA', 'DOT',
+  'MATIC', 'LINK', 'LTC', 'TRX', 'ATOM', 'UNI', 'USDT', 'USDC',
+  'DAI', 'BCH', 'ETC', 'XLM', 'FIL', 'APT', 'ARB', 'OP',
+]);
 
 function isIndex(symbol) {
   return POLYGON_INDICES.has(String(symbol).trim().toUpperCase());
@@ -9,15 +14,18 @@ function isIndex(symbol) {
 
 function isFx(symbol) {
   const s = String(symbol).trim().toUpperCase();
-  if (s.includes('/')) return s.length >= 7;
+  if (s.includes('/')) return s.length >= 7 && !isCrypto(s);
   return s.length === 6 && /^[A-Z]+$/.test(s);
 }
 
 function isCrypto(symbol) {
   const s = String(symbol).trim();
-  if (s.includes('/')) return true;
+  if (s.includes('/')) {
+    const [base, quote] = s.toUpperCase().split('/');
+    return CRYPTO_BASES.has(base) || CRYPTO_BASES.has(quote);
+  }
   const u = s.toUpperCase();
-  return ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE', 'AVAX'].includes(u) ||
+  return CRYPTO_BASES.has(u) ||
     (u.endsWith('USD') && u.length >= 6);
 }
 

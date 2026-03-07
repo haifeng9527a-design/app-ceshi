@@ -560,6 +560,7 @@ class _StockChartPageState extends State<StockChartPage>
             timeAxisHeight: timeAxisHeight,
             volumeHeight: volumeHeight,
             periodLabel: '1m',
+            useSessionMarketHours: true,
           ),
         ),
       ],
@@ -1043,8 +1044,8 @@ class _StockChartPageState extends State<StockChartPage>
           timeAxisHeight: timeAxisHeight,
           overlayIndicator: _overlayIndicator,
           subChartIndicator: _subChartIndicator,
-          prevClose: _prevClose,
-          currentPrice: _currentPrice,
+          prevClose: _showPrevCloseLine ? _prevClose : null,
+          currentPrice: _showPrevCloseLine ? _currentPrice : null,
         ),
         ListenableBuilder(
           listenable: _klineController,
