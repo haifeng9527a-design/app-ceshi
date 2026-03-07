@@ -148,10 +148,15 @@ function createChatWsServer(httpServer) {
   const heartbeatInterval = setInterval(() => {
     wss.clients.forEach((ws) => {
       if (ws.isAlive === false) {
+        const lastActivityAt = ws.lastActivityAt || ws.connectedAt || Date.now();
+        const inactiveMs = Date.now() - lastActivityAt;
+        ws.closedByHeartbeat = true;
+        console.warn(`[chatWs] 心跳超时 uid=${ws.userId?.slice(0, 12)} inactive_ms=${inactiveMs} threshold_ms=${CLIENT_TIMEOUT_MS}`);
         ws.terminate();
         return;
       }
       ws.isAlive = false;
+      ws.lastPingAt = Date.now();
       ws.ping();
     });
   }, HEARTBEAT_INTERVAL_MS);
@@ -188,17 +193,29 @@ function createChatWsServer(httpServer) {
   wss.on('connection', (ws, req) => {
     const uid = ws.userId;
     ws.isAlive = true;
-    ws.on('pong', () => { ws.isAlive = true; });
-    ws.on('message', () => { ws.isAlive = true; });
+    ws.connectedAt = Date.now();
+    ws.lastActivityAt = ws.connectedAt;
+    ws.on('pong', () => {
+      ws.isAlive = true;
+      ws.lastActivityAt = Date.now();
+    });
+    ws.on('message', () => {
+      ws.isAlive = true;
+      ws.lastActivityAt = Date.now();
+    });
 
     console.log(`[chatWs] 连接成功 uid=${uid?.slice(0, 12)}`);
 
-    ws.on('close', () => {
-      console.log(`[chatWs] 连接断开 uid=${uid?.slice(0, 12)}`);
+    ws.on('close', (code, reasonBuffer) => {
+      const reason = Buffer.isBuffer(reasonBuffer) ? reasonBuffer.toString() : String(reasonBuffer || '');
+      const inactiveMs = Date.now() - (ws.lastActivityAt || ws.connectedAt || Date.now());
+      const source = ws.closedByHeartbeat ? 'heartbeat_timeout' : 'peer_or_network';
+      console.log(`[chatWs] 连接断开 uid=${uid?.slice(0, 12)} code=${code || 0} reason=${reason || '-'} source=${source} inactive_ms=${inactiveMs}`);
       unsubscribeClient(ws);
     });
 
-    ws.on('error', () => {
+    ws.on('error', (error) => {
+      console.warn(`[chatWs] 连接异常 uid=${uid?.slice(0, 12)} error=${error?.message || error}`);
       unsubscribeClient(ws);
     });
 

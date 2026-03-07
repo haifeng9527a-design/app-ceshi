@@ -46,6 +46,7 @@ class ChatWebSocketService {
   StreamSubscription? _subscription;
   String? _currentUserId;
   final Set<String> _subscribedIds = {};
+  Set<String> _lastSentSubscribedIds = {};
   int _reconnectAttempts = 0;
   static const int _maxReconnectDelayMs = 30000;
   Timer? _reconnectTimer;
@@ -57,6 +58,7 @@ class ChatWebSocketService {
   final _marketQuoteController = StreamController<MarketQuoteUpdate>.broadcast();
 
   bool get isConnected => _channel != null;
+  Set<String> get subscribedConversationIds => Set<String>.from(_subscribedIds);
 
   /// 行情推送流（通过 chat WebSocket 复用，后端 ingestors 写入时推送）
   Stream<MarketQuoteUpdate> get marketQuoteStream => _marketQuoteController.stream;
@@ -120,8 +122,8 @@ class ChatWebSocketService {
       );
       _startHeartbeat();
       if (kDebugMode) debugPrint('[ChatWs] 连接成功 uid=${user.uid.length > 12 ? user.uid.substring(0, 12) : user.uid}');
-      // 重连后重新订阅
-      if (_subscribedIds.isNotEmpty) _sendSubscribe();
+      // 重连后服务端订阅状态已丢失，这里强制重发一次。
+      if (_subscribedIds.isNotEmpty) _sendSubscribe(force: true);
       if (_marketSymbols.isNotEmpty) _sendMarketSubscribe();
     } catch (e) {
       if (kDebugMode) debugPrint('[ChatWs] 连接失败: $e');
@@ -133,7 +135,7 @@ class ChatWebSocketService {
 
   void _startHeartbeat() {
     _heartbeatTimer?.cancel();
-    _heartbeatTimer = Timer.periodic(Duration(milliseconds: _heartbeatIntervalMs), (_) {
+    _heartbeatTimer = Timer.periodic(const Duration(milliseconds: _heartbeatIntervalMs), (_) {
       if (_channel == null || _disposed) return;
       try {
         _channel!.sink.add(_encode({'type': 'ping'}));
@@ -241,19 +243,25 @@ class ChatWebSocketService {
   /// 订阅会话，收到新消息时自动写入本地并刷新 UI
   void subscribe(List<String> conversationIds) {
     if (conversationIds.isEmpty) return;
+    var changed = false;
     for (final id in conversationIds) {
-      if (id.isNotEmpty) _subscribedIds.add(id);
+      if (id.isNotEmpty && _subscribedIds.add(id)) {
+        changed = true;
+      }
     }
-    _sendSubscribe();
+    if (changed) _sendSubscribe();
   }
 
-  void _sendSubscribe() {
+  void _sendSubscribe({bool force = false}) {
     if (_channel == null || _subscribedIds.isEmpty) return;
+    if (!force && setEquals(_lastSentSubscribedIds, _subscribedIds)) return;
     try {
+      final ids = _subscribedIds.toList()..sort();
       _channel!.sink.add(_encode({
         'type': 'subscribe',
-        'conversation_ids': _subscribedIds.toList(),
+        'conversation_ids': ids,
       }));
+      _lastSentSubscribedIds = Set<String>.from(_subscribedIds);
       if (kDebugMode) debugPrint('[ChatWs] 已订阅 ${_subscribedIds.length} 个会话');
     } catch (e) {
       if (kDebugMode) debugPrint('[ChatWs] sendSubscribe error: $e');
@@ -361,6 +369,7 @@ class ChatWebSocketService {
     _channel?.sink.close();
     _channel = null;
     _subscribedIds.clear();
+    _lastSentSubscribedIds = {};
     _marketSymbols.clear();
     _currentUserId = null;
   }

@@ -81,6 +81,8 @@ class _MessagesPageState extends State<MessagesPage> {
   final Set<String> _customerServiceIds = <String>{};
   Timer? _cleanupTimer;
   bool _localStateLoaded = false;
+  Stream<List<Conversation>>? _conversationStream;
+  String? _conversationStreamUserId;
   Key _conversationStreamKey = UniqueKey();
   Key _friendsStreamKey = UniqueKey();
 
@@ -157,6 +159,17 @@ class _MessagesPageState extends State<MessagesPage> {
     } catch (_) {
       // 静默失败，不影响主流程
     }
+  }
+
+  void _ensureConversationStream(String userId, {bool forceRefresh = false}) {
+    if (!forceRefresh &&
+        _conversationStream != null &&
+        _conversationStreamUserId == userId) {
+      return;
+    }
+    _conversationStreamUserId = userId;
+    _conversationStream = _repository.watchConversations(userId: userId);
+    _conversationStreamKey = UniqueKey();
   }
 
   bool _isCustomerServiceFriend(FriendProfile friend) {
@@ -958,9 +971,10 @@ class _MessagesPageState extends State<MessagesPage> {
     bool apiReady,
   ) {
     if (_tabIndex == 0) {
+      _ensureConversationStream(userId);
       return StreamBuilder<List<Conversation>>(
         key: _conversationStreamKey,
-        stream: _repository.watchConversations(userId: userId),
+        stream: _conversationStream,
         initialData: _cachedConversations,
         builder: (context, snapshot) {
           final hasValidStream =
@@ -1004,8 +1018,12 @@ class _MessagesPageState extends State<MessagesPage> {
                     ),
                     const SizedBox(height: 16),
                     TextButton.icon(
-                      onPressed: () =>
-                          setState(() => _conversationStreamKey = UniqueKey()),
+                      onPressed: () => setState(
+                        () => _ensureConversationStream(
+                          userId,
+                          forceRefresh: true,
+                        ),
+                      ),
                       icon: const Icon(AppIcons.retry, size: 18),
                       label: Text(AppLocalizations.of(context)!.commonRetry),
                     ),
