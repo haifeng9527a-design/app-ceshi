@@ -194,9 +194,12 @@ function registerAdminAuthRoutes(app) {
       updates.failed_attempts = 0;
       updates.locked_until = null;
     }
+    if (typeof req.body?.locked === 'boolean') {
+      updates.permanently_locked = req.body.locked;
+    }
 
     if (Object.keys(updates).length <= 1) {
-      return res.status(400).json({ error: '请提供 password 或 unlock: true' });
+      return res.status(400).json({ error: '请提供 password、unlock: true 或 locked: true/false' });
     }
 
     const { data, error } = await sb

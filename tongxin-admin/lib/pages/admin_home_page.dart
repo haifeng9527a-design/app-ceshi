@@ -918,7 +918,7 @@ class _AdminAccountsPanelState extends State<_AdminAccountsPanel> {
       final resp = await _api.patch('api/admin/accounts/$id', body: {'locked': locked});
       if (!mounted) return;
       if (resp.statusCode == 200) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(locked ? '已永久锁定' : '已解除永久锁定')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(locked ? '已锁定' : '已解锁')));
         _load();
       } else {
         final body = resp.body.isNotEmpty ? jsonDecode(resp.body) : null;
@@ -1065,7 +1065,7 @@ class _AdminAccountsPanelState extends State<_AdminAccountsPanel> {
             final isTempLocked = lockedUntil != null && lockedUntil.isAfter(DateTime.now());
             final createdAt = a['created_at']?.toString();
             final statusParts = <String>[];
-            if (permanentlyLocked) statusParts.add('永久锁定');
+            if (permanentlyLocked) statusParts.add('已锁定');
             if (isTempLocked) statusParts.add('密码错误锁定');
             if (failed > 0 && !isTempLocked) statusParts.add('错误 $failed 次');
             if (createdAt != null) statusParts.add('创建于 ${createdAt.split('T').first}');
@@ -1097,7 +1097,7 @@ class _AdminAccountsPanelState extends State<_AdminAccountsPanel> {
                       ),
                     TextButton.icon(
                       icon: Icon(permanentlyLocked ? Icons.lock_open : Icons.lock, size: 18),
-                      label: Text(permanentlyLocked ? '解除锁定' : '永久锁定'),
+                      label: Text(permanentlyLocked ? '解锁' : '锁定'),
                       onPressed: () => _setPermanentLock(id, !permanentlyLocked),
                     ),
                     TextButton.icon(
