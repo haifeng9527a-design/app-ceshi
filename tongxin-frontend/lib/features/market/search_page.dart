@@ -69,16 +69,8 @@ class _SearchPageState extends State<SearchPage> {
     });
   }
 
-  /// 是否美股代码（与 MarketRepository 一致：无斜杠、1～5 位字母）
-  bool _isUsStock(String symbol) {
-    final s = symbol.trim().toUpperCase();
-    if (s.isEmpty || s.length > 5) return false;
-    if (s.contains('/')) return false;
-    return s.runes.every((r) => r >= 0x41 && r <= 0x5A);
-  }
-
   void _openDetail(MarketSearchResult item) {
-    if (_isUsStock(item.symbol)) {
+    if (MarketRepository.isStockMarket(item.market)) {
       Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => StockChartPage(symbol: item.symbol, name: item.name),

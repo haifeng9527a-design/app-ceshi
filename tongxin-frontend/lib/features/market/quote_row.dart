@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../../l10n/app_localizations.dart';
 import 'market_colors.dart';
 
 /// 统一行情行：美股热门/自选、外汇、加密、首页自选预览
@@ -95,11 +94,10 @@ class QuoteRow extends StatelessWidget {
                   ),
                 )
               else if (hasError)
-                Expanded(
+                const Expanded(
                   child: Text(
-                    AppLocalizations.of(context)?.chartQuoteLoadFailed ?? '—',
-                    style:
-                        const TextStyle(color: MarketColors.down, fontSize: 12),
+                    '—',
+                    style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 12),
                     textAlign: TextAlign.end,
                   ),
                 )

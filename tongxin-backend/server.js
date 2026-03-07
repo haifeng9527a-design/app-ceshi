@@ -15,12 +15,18 @@ const { registerTeacherRoutes } = require('./lib/apiTeachers');
 const { registerUploadRoutes } = require('./lib/apiUpload');
 const { registerMiscRoutes } = require('./lib/apiMisc');
 const { registerWatchlistRoutes } = require('./lib/apiWatchlist');
-const { registerTradingRoutes } = require('./lib/apiTrading');
+const { registerTradingRoutes, startTradingMatchScheduler } = require('./lib/apiTrading');
+const { registerAdminAuthRoutes } = require('./lib/apiAdminAuth');
+const { registerAdminConfigRoutes } = require('./lib/apiAdminConfig');
 const { requireAuth, optionalAuth } = require('./lib/authMiddleware');
 const { startRefreshScheduler } = require('./lib/refreshScheduler');
 const { startRotationScheduler } = require('./lib/rotationScheduler');
 const { createQuotesWsServer } = require('./lib/wsQuotes');
 const { startForexScheduler } = require('./lib/forexScheduler');
+const { startStockRealtimeIngestor } = require('./lib/stockRealtimeIngestor');
+const { startForexRealtimeIngestor } = require('./lib/forexRealtimeIngestor');
+const { startCryptoScheduler } = require('./lib/cryptoScheduler');
+const { startCryptoRealtimeIngestor } = require('./lib/cryptoRealtimeIngestor');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -89,12 +95,19 @@ registerUploadRoutes(app, requireAuth);
 registerMiscRoutes(app, requireAuth);
 registerWatchlistRoutes(app, requireAuth);
 registerTradingRoutes(app, requireAuth);
+registerAdminAuthRoutes(app);
+registerAdminConfigRoutes(app);
+startTradingMatchScheduler();
 if (polygonKey) {
   startRefreshScheduler(polygonKey);
   startRotationScheduler(polygonKey);
+  startStockRealtimeIngestor(polygonKey);
 }
 if (twelveKey) {
   startForexScheduler(twelveKey);
+  startForexRealtimeIngestor(twelveKey);
+  startCryptoScheduler(twelveKey);
+  startCryptoRealtimeIngestor(twelveKey);
 }
 
 const httpServer = app.listen(PORT, '0.0.0.0', () => {

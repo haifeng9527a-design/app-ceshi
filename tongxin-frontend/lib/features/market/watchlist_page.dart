@@ -51,16 +51,9 @@ class _WatchlistPageState extends State<WatchlistPage> {
     setState(() => _quotes = quotes);
   }
 
-  bool _isUsStock(String symbol) {
-    final s = symbol.trim().toUpperCase();
-    if (s.isEmpty || s.length > 5) return false;
-    if (s.contains('/')) return false;
-    return s.runes.every((r) => r >= 0x41 && r <= 0x5A);
-  }
-
   void _openDetail(String symbol) {
     final name = _quotes[symbol]?.name ?? symbol;
-    if (_isUsStock(symbol)) {
+    if (SymbolResolver.isUsStock(symbol)) {
       final sorted = _sortedSymbols;
       final idx = sorted.indexOf(symbol);
       Navigator.of(context).push(

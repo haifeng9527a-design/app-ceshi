@@ -147,6 +147,110 @@ async function getForexQuotesBySymbols(symbols) {
   return out;
 }
 
+async function getAllForexSymbols() {
+  const sb = supabaseClient.getClient();
+  if (!sb) return [];
+  const out = [];
+  let from = 0;
+  const pageSize = 1000;
+  while (true) {
+    const to = from + pageSize - 1;
+    const { data, error } = await sb
+      .from(PAIRS_TABLE)
+      .select('symbol')
+      .order('symbol', { ascending: true })
+      .range(from, to);
+    if (error || !Array.isArray(data) || data.length === 0) break;
+    for (const row of data) {
+      const symbol = String(row?.symbol || '').trim();
+      if (symbol) out.push(symbol);
+    }
+    if (data.length < pageSize) break;
+    from += pageSize;
+  }
+  return out;
+}
+
+async function setForexRealtimePricesBatch(updates) {
+  const sb = supabaseClient.getClient();
+  if (!sb || !Array.isArray(updates) || updates.length === 0) return;
+  const normalized = updates
+    .map((u) => {
+      const symbol = String(u?.symbol || '').trim();
+      const price = Number(u?.price);
+      if (!symbol || !Number.isFinite(price) || price <= 0) return null;
+      return {
+        symbol,
+        close: price,
+        change: Number.isFinite(Number(u?.change)) ? Number(u.change) : null,
+        percent_change: Number.isFinite(Number(u?.percent_change)) ? Number(u.percent_change) : null,
+        open: Number.isFinite(Number(u?.open)) ? Number(u.open) : null,
+        high: Number.isFinite(Number(u?.high)) ? Number(u.high) : null,
+        low: Number.isFinite(Number(u?.low)) ? Number(u.low) : null,
+        volume: Number.isFinite(Number(u?.volume)) ? Number(u.volume) : null,
+        timestamp: Number.isFinite(Number(u?.timestamp)) ? Number(u.timestamp) : null,
+      };
+    })
+    .filter(Boolean);
+  if (normalized.length === 0) return;
+
+  const now = Date.now();
+  for (let i = 0; i < normalized.length; i += UPSERT_CHUNK) {
+    const chunk = normalized.slice(i, i + UPSERT_CHUNK);
+    const symbols = chunk.map((u) => u.symbol);
+    const { data, error } = await sb
+      .from(QUOTES_TABLE)
+      .select('symbol,payload_json')
+      .in('symbol', symbols);
+    const existing = new Map();
+    if (!error && Array.isArray(data)) {
+      for (const row of data) {
+        const symbol = String(row?.symbol || '').trim();
+        if (!symbol) continue;
+        const payload = row?.payload_json && typeof row.payload_json === 'object'
+          ? row.payload_json
+          : {};
+        existing.set(symbol, payload);
+      }
+    }
+
+    const quoteRows = [];
+    const touchRows = [];
+    for (const u of chunk) {
+      const base = existing.get(u.symbol) || {};
+      const payload = { ...base, symbol: u.symbol, close: u.close };
+      if (u.change != null) payload.change = u.change;
+      if (u.percent_change != null) payload.percent_change = u.percent_change;
+      if (u.open != null) payload.open = u.open;
+      if (u.high != null) payload.high = u.high;
+      if (u.low != null) payload.low = u.low;
+      if (u.volume != null) payload.volume = u.volume;
+      payload.timestamp = u.timestamp != null
+        ? u.timestamp
+        : Math.floor(now / 1000);
+      quoteRows.push({
+        symbol: u.symbol,
+        payload_json: payload,
+        updated_at_ms: now,
+      });
+      touchRows.push({
+        symbol: u.symbol,
+        last_quote_at_ms: now,
+        updated_at_ms: now,
+        market: 'forex',
+        name: u.symbol,
+      });
+    }
+
+    if (quoteRows.length > 0) {
+      await sb.from(QUOTES_TABLE).upsert(quoteRows, { onConflict: 'symbol' });
+    }
+    if (touchRows.length > 0) {
+      await sb.from(PAIRS_TABLE).upsert(touchRows, { onConflict: 'symbol' });
+    }
+  }
+}
+
 module.exports = {
   isConfigured,
   upsertForexPairs,
@@ -155,4 +259,6 @@ module.exports = {
   getForexSymbolsBatch,
   getForexPairsPage,
   getForexQuotesBySymbols,
+  getAllForexSymbols,
+  setForexRealtimePricesBatch,
 };

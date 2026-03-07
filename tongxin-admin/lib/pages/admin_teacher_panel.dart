@@ -1511,7 +1511,9 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
                 ),
           ),
           const SizedBox(height: 8),
-          Row(
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
             children: [
               OutlinedButton.icon(
                 onPressed: _freezeWithDuration,

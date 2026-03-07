@@ -22,6 +22,7 @@ import '../trading/market_snapshot_repository.dart';
 import '../trading/mock_market_data.dart';
 import '../trading/realtime_quote_service.dart';
 import '../trading/trading_cache.dart';
+import '../trading/twelve_data_realtime_client.dart';
 import 'gainers_losers_page.dart';
 import 'generic_chart_page.dart';
 import 'market_colors.dart';
@@ -2880,10 +2881,11 @@ class _UsStocksTabState extends State<_UsStocksTab> {
   String? _sortColumn = 'pct';
   bool _sortAscending = false;
 
-  /// 分页加载：每次从 DB 读取条数，避免一次性加载过多导致 UI 卡顿
-  static const int _pageSize = 30;
+  /// 分页加载：每次从后端 API 读取 20 条
+  static const int _pageSize = 20;
   bool _hasMoreTickers = true;
   bool _loadingMore = false;
+  int _currentPage = 1;
 
   static const _indexSymbols = ['DJI', 'IXIC', 'SPX'];
 
@@ -3102,33 +3104,16 @@ class _UsStocksTabState extends State<_UsStocksTab> {
     }
   }
 
-  /// WebSocket 推送后防抖写入本地 DB（避免频繁写）
+  /// 改为纯后端链路：不再写本地行情 DB
   void _debouncedPersistQuotes(Map<String, MarketQuote> q) {
     _persistDebounceTimer?.cancel();
-    _persistDebounceTimer = Timer(const Duration(milliseconds: 500), () {
-      _persistDebounceTimer = null;
-      // 异步存储，不 await，避免影响 UI 显示
-      unawaited(_market.persistQuotesToLocalDb(q));
-    });
+    _persistDebounceTimer = null;
   }
 
-  /// 服务端同步完成后刷新列表（从本地 DB 分页加载首屏）
+  /// 服务端同步完成后刷新列表（后端分页接口）
   Future<void> _reloadFromServerAfterSync() async {
-    try {
-      final fromDb = await _market.getTickersFromLocalDbPage(
-        sortColumn: _sortColumn,
-        sortAscending: _sortAscending,
-        limit: _pageSize,
-        offset: 0,
-      );
-      if (fromDb != null && fromDb.tickers.isNotEmpty && mounted) {
-        setState(() {
-          _allTickers = fromDb.tickers;
-          _quotes = {..._quotes, ...fromDb.quotes};
-          _hasMoreTickers = fromDb.tickers.length >= _pageSize;
-        });
-      }
-    } catch (_) {}
+    if (_listMode != 0) return;
+    await _reloadFromDbWithSort();
   }
 
   @override
@@ -3155,8 +3140,12 @@ class _UsStocksTabState extends State<_UsStocksTab> {
     if (!mounted) return;
     if (_isUsStocksVisible) {
       if (_listMode == 0 && _allTickers.isNotEmpty) {
-        _onAllListScroll();
-        _startQuoteRefreshTimer();
+        // 切回美股列表时，首帧强制拉首屏报价，避免必须滚动才显示。
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || !_isUsStocksVisible || _listMode != 0) return;
+          _loadFirstVisibleQuotesAndStartTimer();
+          _onAllListScroll();
+        });
       }
     } else {
       _stopQuoteRefreshTimer();
@@ -3179,11 +3168,9 @@ class _UsStocksTabState extends State<_UsStocksTab> {
     if (_lastVisibleStart != start || _lastVisibleEnd != end) {
       _lastVisibleStart = start;
       _lastVisibleEnd = end;
-      _scheduleVisibleRangeLatestFetch(start, end);
     }
     // 滚动到底部附近时加载下一页（距底部 10 行内触发）
-    if (_useDbForAll &&
-        _hasMoreTickers &&
+    if (_hasMoreTickers &&
         !_loadingMore &&
         end >= display.length - 10) {
       unawaited(_loadMoreTickers());
@@ -3217,40 +3204,14 @@ class _UsStocksTabState extends State<_UsStocksTab> {
   /// 可视范围变化时防抖拉取最新报价，避免快速滚动期间频繁请求。
   void _scheduleVisibleRangeLatestFetch(int start, int end,
       {bool immediate = false}) {
+    // 美股列表关闭可视区轮询拉取：只保留范围记录，报价由 WebSocket 推送更新。
     _pendingFetchStart = start;
     _pendingFetchEnd = end;
-    _visibleRangeFetchDebounce?.cancel();
-    if (immediate) {
-      _loadQuotesForVisibleRange(start, end);
-      return;
-    }
-    _visibleRangeFetchDebounce = Timer(const Duration(milliseconds: 180), () {
-      final s = _pendingFetchStart;
-      final e = _pendingFetchEnd;
-      if (s == null || e == null) return;
-      _loadQuotesForVisibleRange(s, e);
-    });
   }
 
-  /// 启动可见范围报价刷新（WebSocket 实时推送为主，此定时器作为兜底，15 秒间隔保证有更新）
+  /// 美股列表不再使用定时轮询：改为首次拉取 + WebSocket 实时推送更新。
   void _startQuoteRefreshTimer() {
-    if (!_isUsStocksVisible) return;
-    _quoteRefreshTimer?.cancel();
-    _quoteRefreshTimer = Timer.periodic(const Duration(seconds: 15), (_) {
-      if (!mounted ||
-          !_isUsStocksVisible ||
-          _listMode != 0 ||
-          _allTickers.isEmpty) return;
-      final display = _sortedTickers;
-      if (display.isEmpty) return;
-      final rowHeight = _allListRowHeight;
-      final offset = _allListScrollController.offset;
-      final first = (offset / rowHeight).floor();
-      final last = ((offset + _allListHeight) / rowHeight).floor();
-      final start = (first - _visibleBuffer).clamp(0, display.length - 1);
-      final end = (last + _visibleBuffer).clamp(0, display.length - 1);
-      _loadQuotesForVisibleRange(start, end);
-    });
+    _stopQuoteRefreshTimer();
   }
 
   void _stopQuoteRefreshTimer() {
@@ -3341,164 +3302,93 @@ class _UsStocksTabState extends State<_UsStocksTab> {
     } catch (_) {}
   }
 
-  /// 是否使用本地 DB 作为「全部」列表数据源（有则排序用 SQL，无则内存排序）
+  /// 兼容旧逻辑标记：当前「全部」列表始终由后端分页 API 提供
   bool _useDbForAll = false;
 
-  /// 加载全量美股列表
-  ///
-  /// 流程：
-  /// 1. 本地 DB 有数据 → 直接展示（SQL 排序），订阅成交流获取实时价，推送时写入 DB
-  /// 2. 本地 DB 无数据 → 缓存/内置 S&P 500 秒开，后台用全量美股列表（Polygon）同步到 DB
-  /// 3. 报价：可视区域优先拉取 REST，订阅 WebSocket 成交流实时更新，防抖写入 DB
-  /// 4. 定时刷新：15 秒拉取可视区域报价；1 小时同步 tickers
+  String get _serverSortColumn {
+    final c = (_sortColumn ?? 'pct').trim();
+    switch (c) {
+      case 'code':
+      case 'name':
+      case 'pct':
+      case 'price':
+      case 'change':
+      case 'open':
+      case 'prev':
+      case 'high':
+      case 'low':
+      case 'vol':
+        return c;
+      default:
+        return 'pct';
+    }
+  }
+
+  Future<void> _loadTickerPageFromServer({required int page, required bool append}) async {
+    final result = await _market.getStockTickersPageFromServer(
+      page: page,
+      pageSize: _pageSize,
+      sortColumn: _serverSortColumn,
+      sortAscending: _sortAscending,
+    );
+    if (!mounted) return;
+    setState(() {
+      _allTickers = append ? [..._allTickers, ...result.items] : result.items;
+      _quotes = _mergeQuotesKeepingLastGood(result.quotes);
+      _hasMoreTickers = result.hasMore;
+      _currentPage = result.page;
+      _useDbForAll = true;
+      _loading = false;
+      _error = null;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_isUsStocksVisible || _listMode != 0) return;
+      _loadFirstVisibleQuotesAndStartTimer();
+    });
+    // 分页拉到股票后，对当前页无价格项做一次性补拉；后续由 WebSocket 推送更新。
+    final pageSymbols = result.items.map((e) => e.symbol).toList();
+    unawaited(_fetchMissingPageQuotesOnce(pageSymbols));
+  }
+
+  Future<void> _fetchMissingPageQuotesOnce(List<String> symbols) async {
+    if (!mounted || symbols.isEmpty) return;
+    final missing = symbols
+        .where((s) => !_hasValidQuote(s))
+        .take(80)
+        .toList();
+    if (missing.isEmpty) return;
+    try {
+      final q = await _market.getQuotes(missing);
+      if (!mounted || q.isEmpty) return;
+      setState(() => _quotes = _mergeQuotesKeepingLastGood(q));
+      _realtime.syncQuotes(_quotes);
+    } catch (_) {}
+  }
+
+  /// 加载美股列表（纯后端分页接口）
   Future<void> _loadAllTickers() async {
     if (!mounted) return;
-    setState(() => _loading = true);
-    // 1. 优先读本地 DB（分页加载首屏 30 条，SQL 排序，秒开）
-    final fromDb = await _market.getTickersFromLocalDbPage(
-      sortColumn: _sortColumn,
-      sortAscending: _sortAscending,
-      limit: _pageSize,
-      offset: 0,
-    );
-    if (fromDb != null && fromDb.tickers.isNotEmpty && mounted) {
-      setState(() {
-        _allTickers = fromDb.tickers;
-        _quotes = _mergeQuotesKeepingLastGood(fromDb.quotes);
-        _useDbForAll = true;
-        _hasMoreTickers = fromDb.tickers.length >= _pageSize;
-        _loading = false;
-        _error = null;
-      });
-      if (_quotes.isEmpty) await _restoreQuotesFromCache();
-      _loadFirstVisibleQuotesAndStartTimer();
-      MarketSyncService.instance.startPeriodicSync();
-      _syncTickersAndQuotesInBackground();
-      return;
-    }
-    _useDbForAll = false;
-    // 2. 无 DB 时：先用缓存/内置兜底秒开，再后台用全量美股列表同步
-    var list = await _market.getCachedUsTickers();
-    if (list == null || list.isEmpty) {
-      list = await _market.getBundledUsTickers();
-    }
-    final toShow = list;
-    if (toShow.isNotEmpty && mounted) {
-      // 先写入 DB，再从 DB 分页加载首屏 30 条，保证始终使用 SQLite 排序
-      await MarketDb.instance.upsertTickers(toShow);
-      final fromDb = await _market.getTickersFromLocalDbPage(
-          sortColumn: _sortColumn,
-          sortAscending: _sortAscending,
-          limit: _pageSize,
-          offset: 0);
-      if (fromDb != null && fromDb.tickers.isNotEmpty && mounted) {
-        setState(() {
-          _allTickers = fromDb.tickers;
-          _quotes = _mergeQuotesKeepingLastGood(fromDb.quotes);
-          _useDbForAll = true;
-          _hasMoreTickers = fromDb.tickers.length >= _pageSize;
-          _loading = false;
-          _error = null;
-        });
-      } else {
-        setState(() {
-          _allTickers = toShow;
-          _hasMoreTickers = false;
-          _loading = false;
-          _error = null;
-        });
-      }
-      await _restoreQuotesFromCache();
-      _loadFirstVisibleQuotesAndStartTimer();
-      // 后台：用全量美股列表同步到 DB（getAllUsTickers 或 stock_quote_cache），并拉取报价
-      MarketSyncService.instance.syncTickers().then((_) async {
-        if (!mounted) return;
-        final fromDb = await _market.getTickersFromLocalDbPage(
-            sortColumn: _sortColumn,
-            sortAscending: _sortAscending,
-            limit: _pageSize,
-            offset: 0);
-        if (fromDb != null && fromDb.tickers.isNotEmpty && mounted) {
-          setState(() {
-            _allTickers = fromDb.tickers;
-            _quotes = _mergeQuotesKeepingLastGood(fromDb.quotes);
-            _useDbForAll = true;
-            _hasMoreTickers = fromDb.tickers.length >= _pageSize;
-          });
-          _loadFirstVisibleQuotesAndStartTimer();
-          MarketSyncService.instance.startPeriodicSync();
-        }
-      });
-    }
-    // 3. 从后端 stock_quote_cache 合并（非替换），补充 symbol/name
     try {
-      final fresh = await _market.getTickersFromStockQuoteCache();
-      if (!mounted) return;
       setState(() {
-        if (fresh.isNotEmpty) {
-          final base = _allTickers;
-          if (base.isEmpty) {
-            _allTickers = fresh;
-          } else {
-            // 合并：以数量多的为底，另一份补充/更新
-            final baseMap = <String, MarketSearchResult>{};
-            for (final t in base) baseMap[t.symbol] = t;
-            for (final f in fresh) {
-              final existing = baseMap[f.symbol];
-              if (existing == null) {
-                baseMap[f.symbol] = f;
-              } else if (f.name.isNotEmpty && existing.name.isEmpty) {
-                baseMap[f.symbol] = MarketSearchResult(
-                    symbol: f.symbol,
-                    name: f.name,
-                    market: f.market ?? existing.market);
-              }
-            }
-            _allTickers = baseMap.values.toList();
-          }
-          _error = null;
-        } else {
-          _error = _allTickers.isEmpty ? 'STOCK_QUOTE_CACHE_EMPTY' : null;
-        }
-        _loading = false;
+        _loading = true;
+        _error = null;
+        _allTickers = [];
+        _hasMoreTickers = true;
+        _currentPage = 1;
       });
-      if (_allTickers.isNotEmpty) {
-        await MarketDb.instance.upsertTickers(_allTickers);
-        unawaited(_market.syncTickersToServer(_allTickers));
-        // 从 DB 分页加载首屏 30 条，使用 SQL 排序
-        final fromDb = await _market.getTickersFromLocalDbPage(
-            sortColumn: _sortColumn,
-            sortAscending: _sortAscending,
-            limit: _pageSize,
-            offset: 0);
-        if (fromDb != null && fromDb.tickers.isNotEmpty && mounted) {
-          setState(() {
-            _allTickers = fromDb.tickers;
-            _quotes = _mergeQuotesKeepingLastGood(fromDb.quotes);
-            _useDbForAll = true;
-            _hasMoreTickers = fromDb.tickers.length >= _pageSize;
-          });
-        }
-        await _restoreQuotesFromCache();
-        _loadFirstVisibleQuotesAndStartTimer();
-      }
+      await _loadTickerPageFromServer(page: 1, append: false);
     } catch (e) {
       if (!mounted) return;
-      if (_allTickers.isEmpty) {
-        setState(() {
-          _loading = false;
-          _error = e.toString();
-        });
-      }
+      setState(() {
+        _loading = false;
+        _error = e.toString();
+      });
     }
   }
 
   /// 后台同步 tickers 并分批拉取报价写入 DB
   Future<void> _syncTickersAndQuotesInBackground() async {
-    if (!_useDbForAll || _allTickers.isEmpty) return;
-    try {
-      await MarketSyncService.instance.syncTickers();
-    } catch (_) {}
+    return;
   }
 
   /// 首屏可见范围：优先拉取可视区域报价（含昨日数据+实时订阅），再后台分批拉取其余
@@ -3515,14 +3405,12 @@ class _UsStocksTabState extends State<_UsStocksTab> {
         ? <String>[]
         : sorted.sublist(0, end + 1).map((t) => t.symbol).toList();
     _resubscribeVisibleSymbols(visibleSymbols);
-    // 先拉取可视区域报价（含昨日数据），再后台拉取其余
-    _loadQuotesForVisibleRange(0, end).then((_) {
-      if (mounted && _listMode == 0) _prefetchAllQuotesInChunks();
-    });
+    // 不做分块轮询拉取，仅对首屏缺失项补拉一次；后续由 WebSocket 推送更新。
+    unawaited(_fetchMissingPageQuotesOnce(visibleSymbols));
     _startQuoteRefreshTimer();
   }
 
-  /// 后台分批拉取非可视区域报价，仅写入 SQLite，不更新 UI（滚动到可视区域时从 DB 读取）
+  /// 后台分批拉取非可视区域报价（纯后端，内存更新，不落本地 DB）
   static const int _prefetchChunkSize = 500;
   void _prefetchAllQuotesInChunks() {
     if (_allTickers.isEmpty || _listMode != 0) return;
@@ -3539,15 +3427,16 @@ class _UsStocksTabState extends State<_UsStocksTab> {
         try {
           final q = await _market.getQuotes(symbols);
           if (!mounted || _listMode != 0 || !_isUsStocksVisible) return;
-          if (q.isNotEmpty) unawaited(_market.persistQuotesToLocalDb(q));
+          if (q.isNotEmpty) {
+            setState(() => _quotes = _mergeQuotesKeepingLastGood(q));
+          }
         } catch (_) {}
         await Future<void>.delayed(const Duration(milliseconds: 150));
       }
     });
   }
 
-  /// 为「可见范围」[start, end] 的标的拉取报价并更新 _quotes（基于展示顺序 _sortedTickers）
-  /// 优先从 SQLite 读取，缺失或无效的再从 API 拉取
+  /// 为「可见范围」[start, end] 的标的拉取报价并更新 _quotes（纯后端 API）
   Future<void> _loadQuotesForVisibleRange(int start, int end) async {
     if (start > end || _allTickers.isEmpty || !mounted) return;
     final display = _sortedTickers;
@@ -3556,17 +3445,7 @@ class _UsStocksTabState extends State<_UsStocksTab> {
         display.sublist(start, end + 1).map((t) => t.symbol).toList();
     if (symbols.isEmpty) return;
     try {
-      // 1. 优先从 SQLite 读取
-      final fromDb = await MarketDb.instance.getQuotes(symbols);
-      if (mounted && fromDb.isNotEmpty) {
-        setState(() {
-          _quotes = _mergeQuotesKeepingLastGood(fromDb);
-          _quoteLoadError = null;
-        });
-        _realtime.syncQuotes(_quotes);
-        unawaited(_market.persistQuotesToLocalDb(fromDb));
-      }
-      // 2. 可视区域必须拉最新；为避免滚动抖动导致频繁请求，对单个 symbol 做短间隔限频
+      // 可视区域必须拉最新；为避免滚动抖动导致频繁请求，对单个 symbol 做短间隔限频
       final nowMs = DateTime.now().millisecondsSinceEpoch;
       final latestTargets = symbols.where((s) {
         final lastMs = _lastLatestFetchAtMs[s] ?? 0;
@@ -3584,7 +3463,6 @@ class _UsStocksTabState extends State<_UsStocksTab> {
           _quoteLoadError = null;
         });
         _realtime.syncQuotes(_quotes);
-        if (q.isNotEmpty) unawaited(_market.persistQuotesToLocalDb(q));
         // 对最新拉取后仍失败/无效的 symbol 延迟补拉一次
         final stillMissing = latestTargets.where((s) {
           final quote = q[s];
@@ -3601,7 +3479,6 @@ class _UsStocksTabState extends State<_UsStocksTab> {
               if (mounted && q2.isNotEmpty) {
                 setState(() => _quotes = _mergeQuotesKeepingLastGood(q2));
                 _realtime.syncQuotes(_quotes);
-                unawaited(_market.persistQuotesToLocalDb(q2));
               }
             } catch (_) {}
           });
@@ -4376,52 +4253,26 @@ class _UsStocksTabState extends State<_UsStocksTab> {
   }
 
   Future<void> _reloadFromDbWithSort() async {
-    if (!_useDbForAll) return;
+    if (_listMode != 0) return;
     try {
       setState(() {
         _allTickers = [];
+        _quotes = {};
         _hasMoreTickers = true;
+        _currentPage = 1;
       });
-      final fromDb = await _market.getTickersFromLocalDbPage(
-        sortColumn: _sortColumn,
-        sortAscending: _sortAscending,
-        limit: _pageSize,
-        offset: 0,
-      );
-      if (fromDb != null && fromDb.tickers.isNotEmpty && mounted) {
-        setState(() {
-          _allTickers = fromDb.tickers;
-          _quotes = _mergeQuotesKeepingLastGood(fromDb.quotes);
-          _hasMoreTickers = fromDb.tickers.length >= _pageSize;
-        });
-        _loadFirstVisibleQuotesAndStartTimer();
-      }
+      await _loadTickerPageFromServer(page: 1, append: false);
     } catch (_) {}
   }
 
   /// 滚动到底部附近时加载下一页（每次 30 条）
   Future<void> _loadMoreTickers() async {
-    if (!_useDbForAll ||
-        _loadingMore ||
+    if (_loadingMore ||
         !_hasMoreTickers ||
         _allTickers.isEmpty) return;
     _loadingMore = true;
     try {
-      final fromDb = await _market.getTickersFromLocalDbPage(
-        sortColumn: _sortColumn,
-        sortAscending: _sortAscending,
-        limit: _pageSize,
-        offset: _allTickers.length,
-      );
-      if (fromDb != null && fromDb.tickers.isNotEmpty && mounted) {
-        setState(() {
-          _allTickers = [..._allTickers, ...fromDb.tickers];
-          _quotes = _mergeQuotesKeepingLastGood(fromDb.quotes);
-          _hasMoreTickers = fromDb.tickers.length >= _pageSize;
-        });
-      } else {
-        if (mounted) setState(() => _hasMoreTickers = false);
-      }
+      await _loadTickerPageFromServer(page: _currentPage + 1, append: true);
     } catch (_) {}
     _loadingMore = false;
   }
@@ -5490,7 +5341,8 @@ class _ForexTab extends StatefulWidget {
 
 class _ForexTabState extends State<_ForexTab> {
   final _market = MarketRepository();
-  final _snapshotRepo = MarketSnapshotRepository();
+  final _realtime = TwelveDataRealtimeClient();
+  StreamSubscription<TwelveDataRealtimeQuote>? _realtimeSub;
 
   /// 热门外汇排前面，全量列表以热门为首
   static const _popularSymbols = [
@@ -5528,24 +5380,14 @@ class _ForexTabState extends State<_ForexTab> {
   Map<String, MarketQuote?> _quotes = {};
   bool _loading = true;
   bool _isMockData = false;
-  static final _cache = TradingCache.instance;
-  static const _cacheMaxAge = Duration(days: 7);
   static const _quoteChunkSize = 80;
   static const _forexPageSize = 30;
   Set<String> _attemptedSymbols = <String>{};
-  final ScrollController _scrollController = ScrollController();
-  Timer? _visiblePollTimer;
-  Timer? _scrollFetchDebounce;
-  Set<String> _subscribedSymbols = <String>{};
-  List<String>? _pendingVisibleSymbols;
-  int? _lastVisibleStart;
-  int? _lastVisibleEnd;
-  bool _fetchingVisible = false;
   bool _loadingMorePairs = false;
   bool _hasMorePairs = true;
   int _forexPage = 1;
-  static const double _rowHeightEstimate = 64;
-  static const Duration _visiblePollInterval = Duration(seconds: 3);
+  Set<String> _pairSymbolSet = <String>{};
+  Set<String> _realtimeSubscribedSymbols = <String>{};
 
   bool _isValidQuote(MarketQuote? quote) {
     return quote != null && !quote.hasError && quote.price > 0;
@@ -5554,74 +5396,14 @@ class _ForexTabState extends State<_ForexTab> {
   @override
   void initState() {
     super.initState();
-    _scrollController.addListener(_onScrollVisibleChanged);
-    _loadCachedThenRefresh();
+    _load();
   }
 
   @override
   void dispose() {
-    _visiblePollTimer?.cancel();
-    _scrollFetchDebounce?.cancel();
-    _scrollController.removeListener(_onScrollVisibleChanged);
-    _scrollController.dispose();
+    _realtimeSub?.cancel();
+    _realtime.dispose();
     super.dispose();
-  }
-
-  Future<void> _loadCachedThenRefresh() async {
-    setState(() {
-      _loading = true;
-      _isMockData = false;
-    });
-    final symbolsCached =
-        await _cache.getList('market_forex_symbols', maxAge: _cacheMaxAge);
-    if (symbolsCached != null && symbolsCached.isNotEmpty) {
-      final parsed = <(String, String)>[];
-      for (final e in symbolsCached) {
-        if (e is! Map<String, dynamic>) continue;
-        final symbol = (e['symbol'] as String?)?.trim();
-        final name = (e['name'] as String?)?.trim();
-        if (symbol == null || symbol.isEmpty) continue;
-        parsed.add((name == null || name.isEmpty ? symbol : name, symbol));
-      }
-      if (parsed.isNotEmpty) _pairs = parsed;
-    }
-    if (symbolsCached == null || symbolsCached.isEmpty) {
-      final sqlitePairs = await MarketDb.instance.getForexPairs();
-      if (sqlitePairs.isNotEmpty) {
-        _pairs = sqlitePairs.map((e) => (e.name, e.symbol)).toList();
-      }
-    }
-    final out = <String, MarketQuote?>{};
-    final forexSymbols = _pairs.map((e) => e.$2).toList();
-    final fromSqlite = await MarketDb.instance.getForexQuotes(forexSymbols);
-    for (final sym in forexSymbols) {
-      final q = fromSqlite[sym];
-      if (q != null && !q.hasError) out[sym] = q;
-    }
-    if (out.length < _pairs.length) {
-      final list =
-          await _cache.getList('market_forex_tab', maxAge: _cacheMaxAge);
-      if (list != null)
-        for (final m in list) {
-          if (m is Map<String, dynamic>) {
-            final q = MarketQuote.fromSnapshotMap(m);
-            if (q != null && !q.hasError) out[q.symbol] = q;
-          }
-        }
-    }
-    if (out.length < _pairs.length) {
-      final fromDb = await _snapshotRepo.getQuotes('forex');
-      for (final m in fromDb) {
-        final q = MarketQuote.fromSnapshotMap(m);
-        if (q != null && !q.hasError) out[q.symbol] = q;
-      }
-    }
-    if (mounted)
-      setState(() {
-        _quotes = out;
-        _loading = out.isEmpty;
-      });
-    _load();
   }
 
   void _applyMockForex() {
@@ -5635,116 +5417,63 @@ class _ForexTabState extends State<_ForexTab> {
   }
 
   Future<void> _load() async {
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _isMockData = false;
+      });
+    }
     if (!_market.forexBackendAvailable) {
-      if (_quotes.isEmpty) _applyMockForex();
-      if (mounted) setState(() => _loading = false);
+      final directQuotes = await _market.getQuotes(_pairs.map((e) => e.$2).toList());
+      if (directQuotes.isNotEmpty) {
+        _pairSymbolSet = _pairs.map((e) => e.$2).toSet();
+        _attemptedSymbols.addAll(_pairSymbolSet);
+        if (mounted) {
+          setState(() {
+            _quotes = directQuotes;
+            _isMockData = false;
+            _loading = false;
+          });
+        }
+        _startRealtimeAndSubscribeCurrentPairs();
+        return;
+      }
+      if (_quotes.isEmpty) {
+        _applyMockForex();
+      }
+      _startRealtimeAndSubscribeCurrentPairs();
+      if (mounted) {
+        setState(() => _loading = false);
+      }
       return;
     }
 
     _forexPage = 1;
     _hasMorePairs = true;
     await _loadMorePairs(reset: true);
-    final out = <String, MarketQuote?>{};
-    for (final e in _quotes.entries) {
-      final q = e.value;
-      if (q != null && !q.hasError) out[e.key] = q;
-    }
+    await _fetchQuotesBySymbols(_pairs.map((e) => e.$2).toList(), reset: true);
+    _startRealtimeAndSubscribeCurrentPairs();
     if (mounted) {
       setState(() {
-        _quotes = out;
-        _isMockData = false;
         _loading = false;
       });
-      _attemptedSymbols = <String>{};
-      _subscribedSymbols = <String>{};
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        _refreshVisibleSubscription(force: true);
-        _startVisiblePolling();
-      });
     }
   }
 
-  void _onScrollVisibleChanged() {
-    if (_scrollController.hasClients &&
-        _hasMorePairs &&
-        !_loadingMorePairs &&
-        _scrollController.position.extentAfter < 600) {
-      unawaited(_loadMorePairs());
-    }
-    _scrollFetchDebounce?.cancel();
-    _scrollFetchDebounce = Timer(const Duration(milliseconds: 120), () {
-      if (!mounted) return;
-      _refreshVisibleSubscription(force: true);
-    });
-  }
-
-  void _startVisiblePolling() {
-    _visiblePollTimer?.cancel();
-    _visiblePollTimer = Timer.periodic(_visiblePollInterval, (_) {
-      if (!mounted || _subscribedSymbols.isEmpty) return;
-      unawaited(_fetchVisibleQuotes(_subscribedSymbols.toList(growable: false)));
-    });
-  }
-
-  bool _sameSet(Set<String> a, Set<String> b) {
-    if (a.length != b.length) return false;
-    for (final v in a) {
-      if (!b.contains(v)) return false;
-    }
-    return true;
-  }
-
-  ({int start, int end})? _currentVisibleRange() {
-    if (_pairs.isEmpty) return null;
-    if (!_scrollController.hasClients) {
-      // 首帧尚未拿到滚动视口时，按估算首屏条数兜底。
-      final estimatedRows =
-          (MediaQuery.of(context).size.height / _rowHeightEstimate).ceil();
-      final end = (estimatedRows - 1).clamp(0, _pairs.length - 1);
-      return (start: 0, end: end);
-    }
-    final viewport = _scrollController.position.viewportDimension;
-    final bannerOffset = _isMockData ? 56.0 : 0.0;
-    final effectiveOffset =
-        (_scrollController.offset - bannerOffset).clamp(0.0, double.infinity);
-    final first = (effectiveOffset / _rowHeightEstimate).floor();
-    final last = ((effectiveOffset + viewport) / _rowHeightEstimate).floor();
-    final start = first.clamp(0, _pairs.length - 1);
-    final end = last.clamp(0, _pairs.length - 1);
-    return (start: start, end: end);
-  }
-
-  void _refreshVisibleSubscription({bool force = false}) {
-    final range = _currentVisibleRange();
-    if (range == null) return;
-    final start = range.start;
-    final end = range.end;
-    final visibleSymbols = _pairs.sublist(start, end + 1).map((e) => e.$2).toList();
-    final nextSet = visibleSymbols.toSet();
-    final rangeChanged = _lastVisibleStart != start || _lastVisibleEnd != end;
-    _lastVisibleStart = start;
-    _lastVisibleEnd = end;
-    if (!force && !rangeChanged && _sameSet(nextSet, _subscribedSymbols)) return;
-    _subscribedSymbols = nextSet;
-    _attemptedSymbols.addAll(nextSet);
-    if (mounted) setState(() {});
-    unawaited(_fetchVisibleQuotes(visibleSymbols));
-  }
-
-  Future<void> _fetchVisibleQuotes(List<String> symbols) async {
-    if (!mounted || symbols.isEmpty) return;
-    if (_fetchingVisible) {
-      _pendingVisibleSymbols = symbols;
-      return;
-    }
-    _fetchingVisible = true;
+  Future<void> _fetchQuotesBySymbols(List<String> symbols,
+      {bool reset = false}) async {
+    if (symbols.isEmpty) return;
+    final uniqueSymbols = <String>{
+      for (final s in symbols)
+        if (s.trim().isNotEmpty) s.trim()
+    }.toList();
+    final merged = reset ? <String, MarketQuote?>{} : Map<String, MarketQuote?>.from(_quotes);
     try {
-      final merged = Map<String, MarketQuote?>.from(_quotes);
-      final toPersist = <String, MarketQuote>{};
-      for (var i = 0; i < symbols.length; i += _quoteChunkSize) {
-        final chunk =
-            symbols.sublist(i, (i + _quoteChunkSize).clamp(0, symbols.length).toInt());
+      for (var i = 0; i < uniqueSymbols.length; i += _quoteChunkSize) {
+        final end = (i + _quoteChunkSize > uniqueSymbols.length)
+            ? uniqueSymbols.length
+            : i + _quoteChunkSize;
+        final chunk = uniqueSymbols.sublist(i, end);
         if (chunk.isEmpty) continue;
         final chunkQuotes = await _market.getForexQuotesBySymbols(chunk);
         for (final entry in chunkQuotes.entries) {
@@ -5755,38 +5484,17 @@ class _ForexTabState extends State<_ForexTab> {
           if (!nextValid && prevValid) continue;
           if (!nextValid && !prevValid) continue;
           merged[entry.key] = next;
-          if (nextValid) toPersist[entry.key] = next;
         }
       }
-      if (toPersist.isNotEmpty) {
-        await MarketDb.instance.upsertForexQuotes(toPersist);
-        final list = toPersist.entries
-            .map((e) => {
-                  ...e.value.toSnapshotMap(),
-                  'name': _pairs
-                      .firstWhere((p) => p.$2 == e.key, orElse: () => (e.key, e.key))
-                      .$1,
-                })
-            .toList();
-        if (list.isNotEmpty) {
-          await _snapshotRepo.saveQuotes('forex', list);
-          await _cache.setList('market_forex_tab', list);
-        }
-      }
+      _attemptedSymbols.addAll(uniqueSymbols);
       if (mounted) {
         setState(() {
           _quotes = merged;
-          _loading = false;
           if (merged.values.any(_isValidQuote)) _isMockData = false;
         });
       }
-    } catch (_) {} finally {
-      _fetchingVisible = false;
-      final pending = _pendingVisibleSymbols;
-      _pendingVisibleSymbols = null;
-      if (mounted && pending != null && pending.isNotEmpty) {
-        unawaited(_fetchVisibleQuotes(pending));
-      }
+    } catch (_) {
+      _attemptedSymbols.addAll(uniqueSymbols);
     }
   }
 
@@ -5805,6 +5513,25 @@ class _ForexTabState extends State<_ForexTab> {
         return;
       }
       final incoming = page.items;
+      final incomingOrdered = (() {
+        if (!reset || incoming.length <= 1) return incoming;
+        final map = <String, dynamic>{
+          for (final item in incoming) item.symbol: item
+        };
+        final out = <dynamic>[];
+        final seen = <String>{};
+        for (final sym in _popularSymbols) {
+          final hit = map[sym];
+          if (hit == null) continue;
+          out.add(hit);
+          seen.add(sym);
+        }
+        for (final item in incoming) {
+          if (seen.contains(item.symbol)) continue;
+          out.add(item);
+        }
+        return out;
+      })();
       final merged = <(String, String)>[];
       final seen = <String>{};
       if (!reset) {
@@ -5813,28 +5540,76 @@ class _ForexTabState extends State<_ForexTab> {
           seen.add(p.$2);
         }
       }
-      for (final p in incoming) {
+      for (final p in incomingOrdered) {
         if (seen.contains(p.symbol)) continue;
         merged.add((p.name, p.symbol));
         seen.add(p.symbol);
       }
       _pairs = merged;
+      _pairSymbolSet = _pairs.map((e) => e.$2).toSet();
       _forexPage = targetPage + 1;
       _hasMorePairs = page.hasMore;
-      await MarketDb.instance.upsertForexPairs(incoming);
-      if (reset) {
-        await _cache.setList(
-          'market_forex_symbols',
-          incoming
-              .map((e) => {'symbol': e.symbol, 'name': e.name, 'market': e.market})
-              .toList(),
+      if (!reset && incomingOrdered.isNotEmpty) {
+        await _fetchQuotesBySymbols(
+          incomingOrdered.map<String>((e) => e.symbol as String).toList(),
         );
       }
+      _startRealtimeAndSubscribeCurrentPairs();
       if (mounted) setState(() {});
     } catch (_) {
     } finally {
       _loadingMorePairs = false;
     }
+  }
+
+  void _startRealtimeAndSubscribeCurrentPairs() {
+    if (!_realtime.isAvailable || _pairs.isEmpty) return;
+    _realtimeSub ??= _realtime.stream.listen(_onRealtimeQuote);
+    _realtime.connect();
+    final symbols = _pairs.map((e) => e.$2).toSet();
+    if (_sameSet(symbols, _realtimeSubscribedSymbols)) return;
+    _realtimeSubscribedSymbols = symbols;
+    _realtime.subscribeSymbols(symbols);
+  }
+
+  bool _sameSet(Set<String> a, Set<String> b) {
+    if (a.length != b.length) return false;
+    for (final v in a) {
+      if (!b.contains(v)) return false;
+    }
+    return true;
+  }
+
+  void _onRealtimeQuote(TwelveDataRealtimeQuote u) {
+    if (!mounted) return;
+    final symbol = u.symbol;
+    if (!_pairSymbolSet.contains(symbol)) return;
+    final prev = _quotes[symbol];
+    if (prev != null && !prev.hasError && (prev.price - u.price).abs() < 0.0000001) return;
+    final prevClose = prev?.prevClose ??
+        ((prev != null && prev.change != 0) ? (prev.price - prev.change) : null);
+    final effectiveChange =
+        (prevClose != null && prevClose > 0) ? (u.price - prevClose) : (u.change ?? 0);
+    final effectivePct = (prevClose != null && prevClose > 0)
+        ? ((effectiveChange / prevClose) * 100)
+        : (u.percentChange ?? 0);
+    final next = MarketQuote(
+      symbol: symbol,
+      name: prev?.name ?? symbol,
+      price: u.price,
+      change: effectiveChange,
+      changePercent: effectivePct,
+      open: u.open ?? prev?.open,
+      high: u.high ?? prev?.high,
+      low: u.low ?? prev?.low,
+      volume: u.volume ?? prev?.volume,
+      prevClose: prevClose,
+    );
+    _attemptedSymbols.add(symbol);
+    setState(() {
+      _quotes[symbol] = next;
+      _isMockData = false;
+    });
   }
 
   @override
@@ -5851,14 +5626,24 @@ class _ForexTabState extends State<_ForexTab> {
     return RefreshIndicator(
       onRefresh: _load,
       color: const Color(0xFFD4AF37),
-      child: ListView(
-        controller: _scrollController,
+      child: ListView.builder(
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-        children: [
-          if (_isMockData) _forexCryptoMockBanner(context),
-          ...List.generate(_pairs.length, (i) {
-            final name = _pairs[i].$1;
-            final symbol = _pairs[i].$2;
+        itemCount: _pairs.length + 2,
+        itemBuilder: (context, index) {
+          if (index == 0) {
+            return _isMockData
+                ? _forexCryptoMockBanner(context)
+                : const SizedBox.shrink();
+          }
+
+          final rowIndex = index - 1;
+          if (rowIndex < _pairs.length) {
+            if (_hasMorePairs && !_loadingMorePairs && rowIndex >= _pairs.length - 5) {
+              unawaited(_loadMorePairs());
+            }
+            final name = _pairs[rowIndex].$1;
+            final symbol = _pairs[rowIndex].$2;
             final q = _quotes[symbol];
             final tried = _attemptedSymbols.contains(symbol);
             final notYetLoaded = q == null && !tried;
@@ -5868,7 +5653,6 @@ class _ForexTabState extends State<_ForexTab> {
               price: q?.price ?? 0,
               change: q?.change ?? 0,
               changePercent: q?.changePercent ?? 0,
-              // 只有明确失败才显示失败，未加载时显示占位
               hasError: q?.hasError ?? tried,
               isLoading: notYetLoaded,
               onTap: () {
@@ -5879,14 +5663,15 @@ class _ForexTabState extends State<_ForexTab> {
                         symbol: symbol,
                         name: name,
                         symbolList: symbolList,
-                        symbolIndex: i),
+                        symbolIndex: rowIndex),
                   ),
                 );
               },
             );
-          }),
-          if (_loadingMorePairs)
-            const Padding(
+          }
+
+          if (_loadingMorePairs) {
+            return const Padding(
               padding: EdgeInsets.symmetric(vertical: 12),
               child: Center(
                 child: SizedBox(
@@ -5895,8 +5680,10 @@ class _ForexTabState extends State<_ForexTab> {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 ),
               ),
-            ),
-        ],
+            );
+          }
+          return const SizedBox.shrink();
+        },
       ),
     );
   }
@@ -5938,6 +5725,10 @@ class _CryptoTab extends StatefulWidget {
 
 class _CryptoTabState extends State<_CryptoTab> {
   final _market = MarketRepository();
+  final _realtime = TwelveDataRealtimeClient();
+  StreamSubscription<TwelveDataRealtimeQuote>? _realtimeSub;
+  final ScrollController _scrollController = ScrollController();
+  final GlobalKey _cryptoRowsAnchorKey = GlobalKey();
   Set<String> _attemptedSymbols = <String>{};
 
   bool _isValidQuote(MarketQuote? quote) {
@@ -5977,10 +5768,22 @@ class _CryptoTabState extends State<_CryptoTab> {
   Map<String, MarketQuote?> _quotes = {};
   bool _loading = true;
   bool _isMockData = false;
-  static final _cache = TradingCache.instance;
-  static const _cacheMaxAge = Duration(days: 7);
+  bool _loadingMoreCoins = false;
+  bool _hasMoreCoins = true;
+  int _cryptoPage = 1;
+  Set<String> _coinSymbolSet = <String>{};
+  Map<String, String> _coinSymbolByUpper = <String, String>{};
+  Set<String> _realtimeSubscribedSymbols = <String>{};
   static const _quoteChunkSize = 80;
-  static const _initialQuoteFetchCount = 80;
+  static const _cryptoRowExtentEstimate = 56.0;
+  static const _realtimeVisibleOverscanRows = 6;
+  static const _realtimeFlushInterval = Duration(milliseconds: 250);
+  static const _realtimeResubscribeDebounce = Duration(milliseconds: 120);
+  static const _realtimeMinResubscribeInterval = Duration(seconds: 1);
+  final Map<String, TwelveDataRealtimeQuote> _pendingRealtimeUpdates = <String, TwelveDataRealtimeQuote>{};
+  Timer? _realtimeFlushTimer;
+  Timer? _realtimeResubscribeTimer;
+  int _lastRealtimeResubscribeAtMs = 0;
 
   static const _hotReads = [
     '比特币价格低于大行ETF成本线!捞底华尔街的时机...',
@@ -5991,49 +5794,47 @@ class _CryptoTabState extends State<_CryptoTab> {
   @override
   void initState() {
     super.initState();
-    _loadCachedThenRefresh();
+    _scrollController.addListener(_onListScroll);
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _scrollController.removeListener(_onListScroll);
+    _scrollController.dispose();
+    _realtimeFlushTimer?.cancel();
+    _realtimeResubscribeTimer?.cancel();
+    _realtimeSub?.cancel();
+    _realtime.dispose();
+    super.dispose();
+  }
+
+  void _onListScroll() {
+    if (!_scrollController.hasClients) return;
+    if (_hasMoreCoins &&
+        !_loadingMoreCoins &&
+        _scrollController.position.extentAfter < 900) {
+      unawaited(_loadMoreCoins());
+    }
+    _scheduleCryptoRealtimeResubscribe();
   }
 
   Future<void> _loadCachedThenRefresh() async {
-    setState(() {
-      _loading = true;
-      _isMockData = false;
-    });
-    final out = <String, MarketQuote?>{};
-    final symbolsCached =
-        await _cache.getList('market_crypto_symbols', maxAge: _cacheMaxAge);
-    if (symbolsCached != null && symbolsCached.isNotEmpty) {
-      final parsed = <(String, String)>[];
-      for (final e in symbolsCached) {
-        if (e is! Map<String, dynamic>) continue;
-        final symbol = (e['symbol'] as String?)?.trim();
-        final name = (e['name'] as String?)?.trim();
-        if (symbol == null || symbol.isEmpty) continue;
-        parsed.add((name == null || name.isEmpty ? symbol : name, symbol));
-      }
-      if (parsed.isNotEmpty) _coins = parsed;
+    await _load();
+  }
+
+  void _rebuildCoinSymbolLookup() {
+    final symbolSet = <String>{};
+    final symbolByUpper = <String, String>{};
+    for (final item in _coins) {
+      final original = item.$2.trim();
+      if (original.isEmpty) continue;
+      final upper = original.toUpperCase();
+      symbolSet.add(upper);
+      symbolByUpper[upper] = original;
     }
-    final coinSymbols = _coins.map((e) => e.$2).toList();
-    final fromSqlite = await MarketDb.instance.getCryptoQuotes(coinSymbols);
-    for (final sym in coinSymbols) {
-      final q = fromSqlite[sym];
-      if (q != null && !q.hasError) out[sym] = q;
-    }
-    final list =
-        await _cache.getList('market_crypto_tab', maxAge: _cacheMaxAge);
-    if (list != null)
-      for (final m in list) {
-        if (m is Map<String, dynamic>) {
-          final q = MarketQuote.fromSnapshotMap(m);
-          if (q != null && !q.hasError) out[q.symbol] = q;
-        }
-      }
-    if (mounted)
-      setState(() {
-        _quotes = out;
-        _loading = out.isEmpty;
-      });
-    _load();
+    _coinSymbolSet = symbolSet;
+    _coinSymbolByUpper = symbolByUpper;
   }
 
   void _applyMockCrypto() {
@@ -6047,107 +5848,273 @@ class _CryptoTabState extends State<_CryptoTab> {
   }
 
   Future<void> _load() async {
-    if (!_market.twelveDataAvailable) {
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _isMockData = false;
+      });
+    }
+    if (!_market.cryptoBackendAvailable) {
+      final directQuotes = await _market.getQuotes(_coins.map((e) => e.$2).toList());
+      if (directQuotes.isNotEmpty) {
+        _rebuildCoinSymbolLookup();
+        _attemptedSymbols.addAll(_coins.map((e) => e.$2));
+        if (mounted) {
+          setState(() {
+            _quotes = directQuotes;
+            _isMockData = false;
+            _loading = false;
+          });
+        }
+        _startCryptoRealtimeAndSubscribeCurrentPairs();
+        return;
+      }
       if (_quotes.isEmpty) _applyMockCrypto();
+      _startCryptoRealtimeAndSubscribeCurrentPairs();
       if (mounted) setState(() => _loading = false);
       return;
     }
-    final latest = await _market.getAllCryptoPairs();
-    if (latest.isNotEmpty) {
-      // 热门币种置顶，避免首屏展示的是冷门/异常交易对导致“看起来都没数据”。
-      final latestMap = {for (final e in latest) e.symbol: e};
-      final popular = <(String, String)>[];
-      final seen = <String>{};
-      for (final sym in _popularCryptoSymbols) {
-        final hit = latestMap[sym];
-        if (hit == null) continue;
-        popular.add((hit.name, hit.symbol));
-        seen.add(hit.symbol);
-      }
-      final rest = <(String, String)>[];
-      for (final e in latest) {
-        if (seen.contains(e.symbol)) continue;
-        rest.add((e.name, e.symbol));
-      }
-      _coins = [...popular, ...rest];
-      await _cache.setList(
-          'market_crypto_symbols',
-          latest
-              .map((e) =>
-                  {'symbol': e.symbol, 'name': e.name, 'market': e.market})
-              .toList());
-    }
 
-    final out = <String, MarketQuote?>{};
-    for (final e in _quotes.entries) {
-      final q = e.value;
-      if (q != null && !q.hasError) out[e.key] = q;
-    }
-    final symbolsForQuote = <String>[];
-    final added = <String>{};
-    void addSymbol(String symbol) {
-      if (added.contains(symbol)) return;
-      if (symbolsForQuote.length >= _initialQuoteFetchCount) return;
-      symbolsForQuote.add(symbol);
-      added.add(symbol);
-    }
-
-    // 优先热门，再补齐首屏/前排展示币种。
-    for (final s in _popularCryptoSymbols) {
-      if (_coins.any((c) => c.$2 == s)) addSymbol(s);
-      if (symbolsForQuote.length >= _initialQuoteFetchCount) break;
-    }
-    for (final c in _coins) {
-      addSymbol(c.$2);
-      if (symbolsForQuote.length >= _initialQuoteFetchCount) break;
-    }
-    _attemptedSymbols = symbolsForQuote.toSet();
-
-    for (var i = 0; i < symbolsForQuote.length; i += _quoteChunkSize) {
-      final chunk = symbolsForQuote.sublist(
-          i, (i + _quoteChunkSize).clamp(0, symbolsForQuote.length).toInt());
-      final chunkQuotes = await _market.getQuotes(chunk);
-      for (final e in chunkQuotes.entries) {
-        final next = e.value;
-        final prev = out[e.key];
-        final nextValid = _isValidQuote(next);
-        final prevValid = _isValidQuote(prev);
-        if (!nextValid && prevValid) continue;
-        if (!nextValid && !prevValid) continue;
-        out[e.key] = next;
-      }
-      if (mounted) setState(() => _quotes = Map.from(out));
-    }
-    final hasAny = out.values.any(_isValidQuote);
-    if (hasAny) {
-      final quoteList = out.values.whereType<MarketQuote>().toList();
-      final toSave = quoteList
-          .map((q) => {...q.toSnapshotMap(), 'name': q.name ?? q.symbol})
-          .toList();
-      if (toSave.isNotEmpty) {
-        await MarketDb.instance.upsertCryptoQuotes(
-          Map<String, MarketQuote>.fromEntries(
-            quoteList
-                .where((q) => !q.hasError)
-                .map((q) => MapEntry(q.symbol, q)),
-          ),
-        );
-        await _cache.setList('market_crypto_tab', toSave);
-      }
-    }
-    final fromSqlite = await MarketDb.instance
-        .getCryptoQuotes(_coins.map((e) => e.$2).toList());
-    for (final entry in fromSqlite.entries) {
-      if (!entry.value.hasError) out.putIfAbsent(entry.key, () => entry.value);
-    }
+    _cryptoPage = 1;
+    _hasMoreCoins = true;
+    await _loadMoreCoins(reset: true);
+    await _fetchCryptoQuotesBySymbols(_coins.map((e) => e.$2).toList(), reset: true);
+    _startCryptoRealtimeAndSubscribeCurrentPairs();
     if (mounted) {
-      if (out.isEmpty)
-        _applyMockCrypto();
-      else {
-        _quotes = out;
-        _isMockData = false;
-      }
       setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _fetchCryptoQuotesBySymbols(List<String> symbols,
+      {bool reset = false}) async {
+    if (symbols.isEmpty) return;
+    final uniqueSymbols = <String>{
+      for (final s in symbols)
+        if (s.trim().isNotEmpty) s.trim()
+    }.toList();
+    final merged = reset ? <String, MarketQuote?>{} : Map<String, MarketQuote?>.from(_quotes);
+    try {
+      for (var i = 0; i < uniqueSymbols.length; i += _quoteChunkSize) {
+        final end = (i + _quoteChunkSize > uniqueSymbols.length)
+            ? uniqueSymbols.length
+            : i + _quoteChunkSize;
+        final chunk = uniqueSymbols.sublist(i, end);
+        if (chunk.isEmpty) continue;
+        final chunkQuotes = await _market.getCryptoQuotesBySymbols(chunk);
+        for (final entry in chunkQuotes.entries) {
+          final next = entry.value;
+          final prev = merged[entry.key];
+          final nextValid = _isValidQuote(next);
+          final prevValid = _isValidQuote(prev);
+          if (!nextValid && prevValid) continue;
+          if (!nextValid && !prevValid) continue;
+          merged[entry.key] = next;
+        }
+      }
+      _attemptedSymbols.addAll(uniqueSymbols);
+      if (mounted) {
+        setState(() {
+          _quotes = merged;
+          if (merged.values.any(_isValidQuote)) _isMockData = false;
+        });
+      }
+    } catch (_) {
+      _attemptedSymbols.addAll(uniqueSymbols);
+    }
+  }
+
+  Future<void> _loadMoreCoins({bool reset = false}) async {
+    if (_loadingMoreCoins) return;
+    if (!reset && !_hasMoreCoins) return;
+    _loadingMoreCoins = true;
+    try {
+      final targetPage = reset ? 1 : _cryptoPage;
+      final page = await _market.getCryptoPairsPage(
+        page: targetPage,
+        pageSize: 30,
+      );
+      if (page.items.isEmpty) {
+        _hasMoreCoins = false;
+        return;
+      }
+      final incoming = page.items;
+      final incomingOrdered = (() {
+        if (!reset || incoming.length <= 1) return incoming;
+        final map = <String, dynamic>{for (final item in incoming) item.symbol: item};
+        final out = <dynamic>[];
+        final seen = <String>{};
+        for (final sym in _popularCryptoSymbols) {
+          final hit = map[sym];
+          if (hit == null) continue;
+          out.add(hit);
+          seen.add(sym);
+        }
+        for (final item in incoming) {
+          if (seen.contains(item.symbol)) continue;
+          out.add(item);
+        }
+        return out;
+      })();
+      final merged = <(String, String)>[];
+      final seen = <String>{};
+      if (!reset) {
+        for (final p in _coins) {
+          merged.add(p);
+          seen.add(p.$2);
+        }
+      }
+      for (final p in incomingOrdered) {
+        if (seen.contains(p.symbol)) continue;
+        merged.add((p.name, p.symbol));
+        seen.add(p.symbol);
+      }
+      _coins = merged;
+      _rebuildCoinSymbolLookup();
+      _cryptoPage = targetPage + 1;
+      _hasMoreCoins = page.hasMore;
+      if (!reset && incomingOrdered.isNotEmpty) {
+        await _fetchCryptoQuotesBySymbols(
+          incomingOrdered.map<String>((e) => e.symbol as String).toList(),
+        );
+      }
+      _startCryptoRealtimeAndSubscribeCurrentPairs();
+      if (mounted) setState(() {});
+    } catch (_) {
+    } finally {
+      _loadingMoreCoins = false;
+    }
+  }
+
+  void _startCryptoRealtimeAndSubscribeCurrentPairs() {
+    if (!_realtime.isAvailable) return;
+    _realtimeSub ??= _realtime.stream.listen(_onCryptoRealtimeQuote);
+    _realtime.connect();
+    final symbols = _visibleCryptoSymbolsForRealtime();
+    if (_sameSet(symbols, _realtimeSubscribedSymbols)) return;
+    _realtimeSubscribedSymbols = symbols;
+    _realtime.subscribeSymbols(symbols);
+  }
+
+  void _scheduleCryptoRealtimeResubscribe({bool force = false}) {
+    if (_realtimeResubscribeTimer != null && !force) return;
+    if (force) {
+      _realtimeResubscribeTimer?.cancel();
+      _realtimeResubscribeTimer = null;
+    }
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final sinceLast = now - _lastRealtimeResubscribeAtMs;
+    final waitByCooldown = _realtimeMinResubscribeInterval.inMilliseconds - sinceLast;
+    final delayMs = waitByCooldown > 0
+        ? (waitByCooldown > _realtimeResubscribeDebounce.inMilliseconds
+            ? waitByCooldown
+            : _realtimeResubscribeDebounce.inMilliseconds)
+        : _realtimeResubscribeDebounce.inMilliseconds;
+    _realtimeResubscribeTimer = Timer(Duration(milliseconds: delayMs), () {
+      _realtimeResubscribeTimer = null;
+      _lastRealtimeResubscribeAtMs = DateTime.now().millisecondsSinceEpoch;
+      _startCryptoRealtimeAndSubscribeCurrentPairs();
+    });
+  }
+
+  Set<String> _visibleCryptoSymbolsForRealtime() {
+    final sortedSymbols = _sortedCryptoList().map((e) => e.$2).toList(growable: false);
+    if (sortedSymbols.isEmpty) return <String>{};
+    if (!_scrollController.hasClients) {
+      return sortedSymbols
+          .take(_realtimeVisibleOverscanRows * 3)
+          .toSet();
+    }
+    final anchorContext = _cryptoRowsAnchorKey.currentContext;
+    final scrollContext = _scrollController.position.context.notificationContext;
+    final anchorBox = anchorContext?.findRenderObject() as RenderBox?;
+    final scrollBox = scrollContext?.findRenderObject() as RenderBox?;
+    if (anchorBox == null || scrollBox == null) {
+      return sortedSymbols
+          .take(_realtimeVisibleOverscanRows * 3)
+          .toSet();
+    }
+    final viewportTop = scrollBox.localToGlobal(Offset.zero).dy;
+    final anchorTop = anchorBox.localToGlobal(Offset.zero).dy;
+    final anchorInViewport = anchorTop - viewportTop;
+    final viewportHeight = _scrollController.position.viewportDimension;
+
+    var first = ((-anchorInViewport) / _cryptoRowExtentEstimate).floor();
+    var last =
+        ((viewportHeight - anchorInViewport) / _cryptoRowExtentEstimate).ceil();
+    first -= _realtimeVisibleOverscanRows;
+    last += _realtimeVisibleOverscanRows;
+    if (last < 0 || first >= sortedSymbols.length) {
+      return <String>{};
+    }
+    first = first.clamp(0, sortedSymbols.length - 1).toInt();
+    last = last.clamp(0, sortedSymbols.length).toInt();
+    if (last <= first) {
+      last = (first + 1).clamp(0, sortedSymbols.length).toInt();
+    }
+    return sortedSymbols.sublist(first, last).toSet();
+  }
+
+  bool _sameSet(Set<String> a, Set<String> b) {
+    if (a.length != b.length) return false;
+    for (final v in a) {
+      if (!b.contains(v)) return false;
+    }
+    return true;
+  }
+
+  void _onCryptoRealtimeQuote(TwelveDataRealtimeQuote u) {
+    if (!mounted) return;
+    final upper = u.symbol.trim().toUpperCase();
+    if (!_coinSymbolSet.contains(upper)) return;
+    _pendingRealtimeUpdates[upper] = u;
+    _realtimeFlushTimer ??=
+        Timer(_realtimeFlushInterval, _flushPendingRealtimeUpdates);
+  }
+
+  void _flushPendingRealtimeUpdates() {
+    _realtimeFlushTimer = null;
+    if (!mounted || _pendingRealtimeUpdates.isEmpty) return;
+    final updates = Map<String, TwelveDataRealtimeQuote>.from(_pendingRealtimeUpdates);
+    _pendingRealtimeUpdates.clear();
+    var changed = false;
+    for (final entry in updates.entries) {
+      final symbol =
+          _coinSymbolByUpper[entry.key] ?? entry.value.symbol.trim();
+      final u = entry.value;
+      final prev = _quotes[symbol];
+      if (prev != null &&
+          !prev.hasError &&
+          (prev.price - u.price).abs() < 0.0000001) {
+        continue;
+      }
+      final prevClose = prev?.prevClose ??
+          ((prev != null && prev.change != 0) ? (prev.price - prev.change) : null);
+      final effectiveChange =
+          (prevClose != null && prevClose > 0) ? (u.price - prevClose) : (u.change ?? 0);
+      final effectivePct = (prevClose != null && prevClose > 0)
+          ? ((effectiveChange / prevClose) * 100)
+          : (u.percentChange ?? 0);
+      _quotes[symbol] = MarketQuote(
+        symbol: symbol,
+        name: prev?.name ?? symbol,
+        price: u.price,
+        change: effectiveChange,
+        changePercent: effectivePct,
+        open: u.open ?? prev?.open,
+        high: u.high ?? prev?.high,
+        low: u.low ?? prev?.low,
+        volume: u.volume ?? prev?.volume,
+        prevClose: prevClose,
+      );
+      _attemptedSymbols.add(symbol);
+      changed = true;
+    }
+    if (!changed) return;
+    setState(() {
+      _isMockData = false;
+    });
+    if (_cryptoSubTab != 0 && _realtimeSubscribedSymbols.isNotEmpty) {
+      _scheduleCryptoRealtimeResubscribe();
     }
   }
 
@@ -6167,14 +6134,10 @@ class _CryptoTabState extends State<_CryptoTab> {
       onRefresh: _load,
       color: const Color(0xFFD4AF37),
       child: ListView(
+        controller: _scrollController,
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
         children: [
           if (_isMockData) _cryptoMockBanner(context),
-          const SizedBox(height: 8),
-          _buildCryptoTopCards(),
-          const SizedBox(height: 20),
-          _buildHotReads(context),
-          const SizedBox(height: 20),
           _buildTradableCryptoSection(context, sorted),
         ],
       ),
@@ -6328,20 +6291,36 @@ class _CryptoTabState extends State<_CryptoTab> {
             _CryptoSubChip(
                 label: AppLocalizations.of(context)!.marketMarketCap,
                 selected: _cryptoSubTab == 0,
-                onTap: () => setState(() => _cryptoSubTab = 0)),
+                onTap: () {
+                  if (_cryptoSubTab == 0) return;
+                  setState(() => _cryptoSubTab = 0);
+                  WidgetsBinding.instance
+                      .addPostFrameCallback((_) => _scheduleCryptoRealtimeResubscribe(force: true));
+                }),
             const SizedBox(width: 8),
             _CryptoSubChip(
                 label: AppLocalizations.of(context)!.marketTopGainers,
                 selected: _cryptoSubTab == 1,
-                onTap: () => setState(() => _cryptoSubTab = 1)),
+                onTap: () {
+                  if (_cryptoSubTab == 1) return;
+                  setState(() => _cryptoSubTab = 1);
+                  WidgetsBinding.instance
+                      .addPostFrameCallback((_) => _scheduleCryptoRealtimeResubscribe(force: true));
+                }),
             const SizedBox(width: 8),
             _CryptoSubChip(
                 label: AppLocalizations.of(context)!.marketTopLosers,
                 selected: _cryptoSubTab == 2,
-                onTap: () => setState(() => _cryptoSubTab = 2)),
+                onTap: () {
+                  if (_cryptoSubTab == 2) return;
+                  setState(() => _cryptoSubTab = 2);
+                  WidgetsBinding.instance
+                      .addPostFrameCallback((_) => _scheduleCryptoRealtimeResubscribe(force: true));
+                }),
           ],
         ),
         const SizedBox(height: 12),
+        SizedBox(key: _cryptoRowsAnchorKey),
         ...sorted.toList().asMap().entries.map((e) {
           final i = e.key;
           final item = e.value;
@@ -6370,6 +6349,17 @@ class _CryptoTabState extends State<_CryptoTab> {
             },
           );
         }),
+        if (_loadingMoreCoins)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Center(
+              child: SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+          ),
       ],
     );
   }

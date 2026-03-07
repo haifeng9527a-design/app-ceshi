@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../api/users_api.dart';
 import '../../core/api_client.dart';
-import '../../core/supabase_bootstrap.dart';
 import '../../l10n/app_localizations.dart';
 import 'chat_detail_page.dart';
 import 'customer_service_repository.dart';
@@ -69,22 +68,6 @@ class _CustomerServiceWorkbenchPageState
             if (p != null) {
               names[uid] = p['display_name'] ?? '用户';
               avatars[uid] = p['avatar_url'];
-            }
-          }
-        } else {
-          final client = SupabaseBootstrap.clientOrNull;
-          if (client != null) {
-            final rows = await client
-                .from('user_profiles')
-                .select('user_id, display_name, avatar_url')
-                .inFilter('user_id', peerIds);
-            for (final r in rows) {
-              final uid = r['user_id']?.toString();
-              if (uid == null) continue;
-              names[uid] = (r['display_name']?.toString().trim() ??
-                  r['email']?.toString().split('@').first ??
-                  '用户');
-              avatars[uid] = r['avatar_url']?.toString();
             }
           }
         }

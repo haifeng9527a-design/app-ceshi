@@ -182,4 +182,134 @@ class TeachersApi {
       return [];
     }
   }
+
+  Future<void> upsertMyProfile(Map<String, dynamic> payload) async {
+    if (!_api.isAvailable) return;
+    await _api.put('api/teachers/me/profile', body: payload);
+  }
+
+  Future<int> getLikeCount(String teacherId) async {
+    if (!_api.isAvailable) return 0;
+    final resp = await _api.get('api/teachers/$teacherId/likes/count');
+    if (resp.statusCode != 200) return 0;
+    try {
+      final json = jsonDecode(resp.body) as Map?;
+      return (json?['count'] as num?)?.toInt() ?? 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  Future<bool> getMyLikeStatus(String teacherId) async {
+    if (!_api.isAvailable) return false;
+    final resp = await _api.get('api/teachers/$teacherId/likes/me');
+    if (resp.statusCode != 200) return false;
+    try {
+      final json = jsonDecode(resp.body) as Map?;
+      return json?['liked'] == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> toggleLike(String teacherId) async {
+    if (!_api.isAvailable) return false;
+    final resp = await _api.post('api/teachers/$teacherId/likes/toggle');
+    if (resp.statusCode != 200) return false;
+    try {
+      final json = jsonDecode(resp.body) as Map?;
+      return json?['liked'] == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> addStrategy({
+    required String title,
+    required String summary,
+    required String content,
+    List<String> imageUrls = const [],
+  }) async {
+    if (!_api.isAvailable) return;
+    await _api.post('api/teachers/me/strategies', body: {
+      'title': title,
+      'summary': summary,
+      'content': content,
+      'image_urls': imageUrls,
+      'status': 'published',
+    });
+  }
+
+  Future<void> updateStrategyStatus({
+    required String strategyId,
+    required String status,
+  }) async {
+    if (!_api.isAvailable) return;
+    await _api.patch('api/teachers/strategies/$strategyId/status', body: {
+      'status': status,
+    });
+  }
+
+  Future<List<TradeRecord>> getTradeRecords(String teacherId) async {
+    if (!_api.isAvailable) return [];
+    final resp = await _api.get('api/teachers/$teacherId/trade-records');
+    if (resp.statusCode != 200) return [];
+    try {
+      final list = jsonDecode(resp.body) as List? ?? [];
+      return list
+          .map((e) => TradeRecord.fromMap(Map<String, dynamic>.from(e as Map)))
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<List<TeacherPosition>> getPositions(
+    String teacherId, {
+    bool history = false,
+  }) async {
+    if (!_api.isAvailable) return [];
+    final resp = await _api.get(
+      'api/teachers/$teacherId/positions',
+      queryParameters: {'history': history ? 'true' : 'false'},
+    );
+    if (resp.statusCode != 200) return [];
+    try {
+      final list = jsonDecode(resp.body) as List? ?? [];
+      return list
+          .map((e) => TeacherPosition.fromMap(Map<String, dynamic>.from(e as Map)))
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> addTradeRecord(Map<String, dynamic> payload) async {
+    if (!_api.isAvailable) return;
+    await _api.post('api/teachers/me/trade-records', body: payload);
+  }
+
+  Future<String?> uploadBase64(
+    String path, {
+    required List<int> bytes,
+    required String fileName,
+    required String contentType,
+    String? category,
+  }) async {
+    if (!_api.isAvailable) return null;
+    final resp = await _api.post(path, body: {
+      'content_base64': base64Encode(bytes),
+      'file_name': fileName,
+      'content_type': contentType,
+      if (category != null) 'category': category,
+    });
+    if (resp.statusCode != 200) return null;
+    try {
+      final json = jsonDecode(resp.body) as Map?;
+      final url = json?['url']?.toString().trim();
+      return url != null && url.isNotEmpty ? url : null;
+    } catch (_) {
+      return null;
+    }
+  }
 }

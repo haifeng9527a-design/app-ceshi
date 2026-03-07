@@ -116,12 +116,34 @@ enum OrderSide {
   sell,
 }
 
+enum ProductType {
+  spot,
+  perpetual,
+  future,
+}
+
+enum PositionSide {
+  long,
+  short,
+}
+
+enum MarginMode {
+  cross,
+  isolated,
+}
+
 /// 委托单模型（先本地/模拟，后续对接交易 API）
 class Order {
   const Order({
     required this.id,
     required this.symbol,
     this.symbolName,
+    this.assetClass,
+    this.productType = ProductType.spot,
+    this.positionSide = PositionSide.long,
+    this.positionAction,
+    this.marginMode = MarginMode.cross,
+    this.leverage = 1,
     required this.side,
     required this.type,
     required this.price,
@@ -135,6 +157,12 @@ class Order {
   final String id;
   final String symbol;
   final String? symbolName;
+  final String? assetClass;
+  final ProductType productType;
+  final PositionSide positionSide;
+  final String? positionAction;
+  final MarginMode marginMode;
+  final double leverage;
   final OrderSide side;
   final OrderType type;
   /// 限价单价格；市价单可为 0
@@ -157,9 +185,16 @@ class OrderFill {
     required this.orderId,
     required this.symbol,
     this.symbolName,
+    this.assetClass,
+    this.productType = ProductType.spot,
+    this.positionSide = PositionSide.long,
+    this.marginMode = MarginMode.cross,
+    this.leverage = 1,
     required this.side,
     required this.price,
     required this.quantity,
+    this.notional = 0,
+    this.realizedPnl,
     required this.filledAt,
   });
 
@@ -167,9 +202,17 @@ class OrderFill {
   final String orderId;
   final String symbol;
   final String? symbolName;
+  final String? assetClass;
+  final ProductType productType;
+  final PositionSide positionSide;
+  final MarginMode marginMode;
+  final double leverage;
   final OrderSide side;
   final double price;
   final double quantity;
+  final double notional;
+  /// 平仓成交时的已实现盈亏，开仓为 null
+  final double? realizedPnl;
   final DateTime filledAt;
 
   bool get isBuy => side == OrderSide.buy;

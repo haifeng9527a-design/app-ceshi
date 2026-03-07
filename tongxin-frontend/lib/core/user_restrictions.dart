@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import '../api/users_api.dart';
 import '../core/api_client.dart';
 import '../l10n/app_localizations.dart';
-import 'supabase_bootstrap.dart';
 
 /// 当前用户限制状态（后台在 user_profiles 中配置，此处只读校验）
 class UserRestrictions {
@@ -22,21 +21,9 @@ class UserRestrictions {
       return _cachedRow;
     }
     try {
-      if (ApiClient.instance.isAvailable) {
-        final row = await UsersApi.instance.getMyRestrictions();
-        _cachedRow = row;
-        _cachedUserId = uid;
-        _cachedAt = DateTime.now();
-        return _cachedRow;
-      }
-      final client = SupabaseBootstrap.clientOrNull;
-      if (client == null || !SupabaseBootstrap.isReady) return null;
-      final row = await client
-          .from('user_profiles')
-          .select('banned_until, frozen_until, restrict_login, restrict_send_message, restrict_add_friend, restrict_join_group, restrict_create_group')
-          .eq('user_id', uid)
-          .maybeSingle();
-      _cachedRow = row != null ? Map<String, dynamic>.from(row) : null;
+      if (!ApiClient.instance.isAvailable) return null;
+      final row = await UsersApi.instance.getMyRestrictions();
+      _cachedRow = row;
       _cachedUserId = uid;
       _cachedAt = DateTime.now();
       return _cachedRow;

@@ -1,20 +1,26 @@
 import 'dart:async';
 
-import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../market/chart/intraday_chart.dart';
 import '../market/market_colors.dart';
 import '../market/market_repository.dart';
 import 'trading_api_client.dart';
 import 'trading_models.dart';
 import 'trading_ui.dart';
+import 'twelve_data_realtime_client.dart';
 
 /// 行情与交易 Tab：整体行情（Polygon）→ 搜索标的 → 行情区 → 买入/卖出
 class MarketTradeTab extends StatefulWidget {
-  const MarketTradeTab({super.key, required this.teacherId});
+  const MarketTradeTab({
+    super.key,
+    required this.teacherId,
+    this.isActive = false,
+  });
 
   final String teacherId;
+  final bool isActive;
 
   @override
   State<MarketTradeTab> createState() => _MarketTradeTabState();
@@ -25,7 +31,6 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
   static const Color _bg = Color(0xFF0F1722);
   static const Color _muted = Color(0x8CFFFFFF); // rgba(255,255,255,0.55)
   static const Color _surface = Color(0xFF0F1722);
-  static const Color _chartGrid = Color(0x14FFFFFF); // rgba(255,255,255,0.08)
 
   final _searchController = TextEditingController();
   final _priceController = TextEditingController();
@@ -34,9 +39,17 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
 
   String? _selectedSymbol;
   String? _selectedName;
+  String? _selectedMarket;
   double? _currentPrice;
   double? _changePercent;
   int? _volume; // 实时累计成交量（WebSocket 推送累加）
+  ProductType _selectedProductType = ProductType.spot;
+  PositionSide _selectedPositionSide = PositionSide.long;
+  MarginMode _selectedMarginMode = MarginMode.cross;
+  double _selectedLeverage = 5;
+  double _maxLeverage = 50;
+  double _maintenanceMarginRate = 0.005;
+  bool _allowShort = true;
   bool _loadingSearch = false;
 
   bool _orderTypeLimit = true;
@@ -63,17 +76,91 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
 
   PolygonRealtime? _realtime;
   StreamSubscription<PolygonTradeUpdate>? _realtimeSub;
+  final _twelveRealtime = TwelveDataRealtimeClient();
+  StreamSubscription<TwelveDataRealtimeQuote>? _twelveRealtimeSub;
+
+  String _selectedAssetClass() {
+    if (MarketRepository.isCryptoMarket(_selectedMarket)) return 'crypto';
+    if (MarketRepository.isForexMarket(_selectedMarket)) return 'forex';
+    return 'stock';
+  }
+
+  bool get _isContractSelected => _selectedProductType != ProductType.spot;
+
+  String _positionActionForButton(
+    bool isBuy, {
+    required ProductType productType,
+    required PositionSide positionSide,
+  }) {
+    if (productType == ProductType.spot) {
+      return isBuy ? 'open' : 'close';
+    }
+    if (positionSide == PositionSide.long) {
+      return isBuy ? 'open' : 'close';
+    }
+    return isBuy ? 'close' : 'open';
+  }
+
+  String _tradeIntentLabel(bool isBuy) {
+    if (!_isContractSelected) {
+      return isBuy ? '现货买入' : '现货卖出';
+    }
+    if (_selectedPositionSide == PositionSide.long) {
+      return isBuy ? '开多' : '平多';
+    }
+    return isBuy ? '平空' : '开空';
+  }
+
+  String _productTypeLabel(ProductType type) {
+    switch (type) {
+      case ProductType.spot:
+        return '现货';
+      case ProductType.perpetual:
+        return '永续';
+      case ProductType.future:
+        return '期货';
+    }
+  }
+
+  String _positionSideLabel(PositionSide side) {
+    return side == PositionSide.short ? '做空' : '做多';
+  }
+
+  String _marginModeLabel(MarginMode mode) {
+    return mode == MarginMode.isolated ? '逐仓' : '全仓';
+  }
 
   @override
   void initState() {
     super.initState();
     _applyCachedDataThenLoad();
     _refreshTradingSummary();
-    _refreshTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+    _loadTradingRuntimeConfig();
+    _syncRefreshTimer();
+  }
+
+  @override
+  void didUpdateWidget(covariant MarketTradeTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isActive != widget.isActive) {
+      _syncRefreshTimer();
+    }
+  }
+
+  void _syncRefreshTimer() {
+    _refreshTimer?.cancel();
+    if (!widget.isActive) return;
+    var tick = 0;
+    _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (!mounted) return;
+      tick++;
       _loadGainers();
-      if (_selectedSymbol != null && _market.polygonAvailable) _refreshSelectedQuote();
-      if (DateTime.now().second % 4 == 0) {
+      if (_selectedSymbol != null &&
+          (_selectedMarket == null ||
+              MarketRepository.isStockMarket(_selectedMarket))) {
+        _refreshSelectedQuote();
+      }
+      if (tick % 2 == 0) {
         _refreshTradingSummary();
       }
     });
@@ -84,6 +171,26 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
       final s = await _tradingApi.getSummary();
       if (!mounted) return;
       setState(() => _summary = s);
+    } catch (_) {}
+  }
+
+  Future<void> _loadTradingRuntimeConfig() async {
+    try {
+      final config = await _tradingApi.getRuntimeConfig();
+      if (!mounted) return;
+      setState(() {
+        _selectedProductType = config.defaultProductType;
+        _selectedMarginMode = config.defaultMarginMode;
+        _selectedLeverage = config.defaultProductType == ProductType.spot
+            ? 1
+            : config.defaultLeverage.clamp(1, config.maxLeverage);
+        _maxLeverage = config.maxLeverage;
+        _maintenanceMarginRate = config.maintenanceMarginRate;
+        _allowShort = config.allowShort;
+        if (!_allowShort) {
+          _selectedPositionSide = PositionSide.long;
+        }
+      });
     } catch (_) {}
   }
 
@@ -107,22 +214,46 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
     setState(() => _loadingGainers = true);
     try {
       final list = await _market.getTopGainers(limit: 10);
-      if (mounted) setState(() {
-        _gainers = list;
-        _loadingGainers = false;
-        _lastUpdate = DateTime.now();
-      });
+      if (mounted) {
+        setState(() {
+          _gainers = list;
+          _loadingGainers = false;
+          _lastUpdate = DateTime.now();
+        });
+      }
     } catch (_) {
-      if (mounted) setState(() {
-        _loadingGainers = false;
-        _lastUpdate = DateTime.now();
-      });
+      if (mounted) {
+        setState(() {
+          _loadingGainers = false;
+          _lastUpdate = DateTime.now();
+        });
+      }
     }
   }
 
   void _startRealtime(String symbol) {
     _realtimeSub?.cancel();
     _realtime?.dispose();
+    _twelveRealtimeSub?.cancel();
+    if (_selectedMarket != null &&
+        !MarketRepository.isStockMarket(_selectedMarket)) {
+      if (!_twelveRealtime.isAvailable) return;
+      _twelveRealtimeSub = _twelveRealtime.stream.listen((update) {
+        if (!mounted) return;
+        if (update.symbol.trim().toUpperCase() != symbol.trim().toUpperCase()) {
+          return;
+        }
+        setState(() {
+          _currentPrice = update.price;
+          if (update.percentChange != null) {
+            _changePercent = update.percentChange;
+          }
+        });
+      });
+      _twelveRealtime.connect();
+      _twelveRealtime.subscribeSymbols({symbol});
+      return;
+    }
     _realtime = _market.openRealtime(symbol);
     if (_realtime == null) return;
     _realtime!.connect();
@@ -140,10 +271,12 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
     final sym = _selectedSymbol!;
     final quote = await _market.getQuote(sym);
     if (quote.hasError || !mounted) return;
-    if (mounted) setState(() {
-      _currentPrice = quote.price;
-      _changePercent = quote.changePercent;
-    });
+    if (mounted) {
+      setState(() {
+        _currentPrice = quote.price;
+        _changePercent = quote.changePercent;
+      });
+    }
   }
 
   bool _chartLoading = false;
@@ -154,15 +287,35 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
     final sym = _selectedSymbol!;
     List<ChartCandle> list = [];
     final now = DateTime.now();
-    if (_market.polygonAvailable) {
+    final isStock = MarketRepository.isStockMarket(_selectedMarket) ||
+        SymbolResolver.isUsStock(sym);
+    if (isStock && _market.polygonAvailable) {
       final toMs = now.millisecondsSinceEpoch;
       if (_chartKLine) {
         final fromMs = toMs - 30 * 24 * 3600 * 1000;
-        list = await _market.getAggregates(sym, multiplier: 1, timespan: 'day', fromMs: fromMs, toMs: toMs);
+        list = await _market.getAggregates(
+          sym,
+          multiplier: 1,
+          timespan: 'day',
+          fromMs: fromMs,
+          toMs: toMs,
+        );
       } else {
-        final fromMs = toMs - 6 * 3600 * 1000;
-        list = await _market.getAggregates(sym, multiplier: 1, timespan: 'minute', fromMs: fromMs, toMs: toMs);
+        final fromMs = toMs - 24 * 3600 * 1000;
+        list = await _market.getAggregates(
+          sym,
+          multiplier: 1,
+          timespan: 'minute',
+          fromMs: fromMs,
+          toMs: toMs,
+        );
       }
+    } else {
+      list = await _market.getCandles(
+        sym,
+        _chartKLine ? '1day' : '1min',
+        lastDays: _chartKLine ? null : 1,
+      );
     }
     if (mounted) {
       setState(() {
@@ -195,6 +348,8 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
     _chartRefreshTimer?.cancel();
     _realtimeSub?.cancel();
     _realtime?.dispose();
+    _twelveRealtimeSub?.cancel();
+    _twelveRealtime.dispose();
     _searchController.dispose();
     _priceController.dispose();
     _qtyController.dispose();
@@ -206,20 +361,47 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
     if (text.isEmpty) return;
     final symbol = text.toUpperCase();
     setState(() {
-      _selectedSymbol = symbol;
       _selectedName = text;
       _loadingSearch = true;
     });
+    List<MarketSearchResult> candidates;
+    if (_searchCategoryIndex == 0) {
+      candidates = await _market.searchStocks(text);
+    } else if (_searchCategoryIndex == 1) {
+      candidates = await _market.searchForexPairs(text);
+    } else {
+      candidates = await _market.searchCryptoPairs(text);
+    }
+    MarketSearchResult? match;
+    final exact = candidates.where((item) =>
+        item.symbol.trim().toUpperCase() == symbol ||
+        item.name.trim().toLowerCase() == text.toLowerCase());
+    if (exact.isNotEmpty) {
+      match = exact.first;
+    } else if (candidates.isNotEmpty) {
+      match = candidates.first;
+    }
+    if (match == null) {
+      if (!mounted) return;
+      setState(() {
+        _loadingSearch = false;
+      });
+      return;
+    }
+    final resolvedSymbol = match.symbol.trim();
     double? price;
     double? percentChange;
-    final quote = await _market.getQuote(symbol);
+    final quote = await _market.getQuote(resolvedSymbol);
     if (!quote.hasError) {
       price = quote.price > 0 ? quote.price : null;
       percentChange = quote.changePercent;
     }
     if (mounted) {
       setState(() {
+        _selectedSymbol = resolvedSymbol;
         _loadingSearch = false;
+        _selectedMarket = match!.market;
+        _selectedName = match.name;
         _currentPrice = price ?? (!_market.polygonAvailable ? 100.0 : null);
         _changePercent = percentChange;
         _volume = 0;
@@ -227,20 +409,35 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
         _candles = [];
         _chartLoading = true;
       });
-      _startRealtime(symbol);
+      _startRealtime(resolvedSymbol);
       _loadCandles();
     }
   }
 
-  void _openOrderSheet(bool isBuy) {
+  Future<void> _openOrderSheet(bool isBuy) async {
     if (_selectedSymbol == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(AppLocalizations.of(context)!.tradingSearchAndSelectFirst)),
       );
       return;
     }
-    _priceController.text =
-        (_currentPrice ?? 0).toStringAsFixed(2);
+    try {
+      final latest = await _market.getQuote(_selectedSymbol!, realtime: true);
+      if (!latest.hasError && latest.price > 0 && mounted) {
+        setState(() {
+          _currentPrice = latest.price;
+          _changePercent = latest.changePercent;
+        });
+      }
+    } catch (_) {}
+    try {
+      final latestSummary = await _tradingApi.getSummary();
+      if (mounted) {
+        setState(() => _summary = latestSummary);
+      }
+    } catch (_) {}
+    if (!mounted) return;
+    _priceController.text = (_currentPrice ?? 0).toStringAsFixed(2);
     _qtyController.text = '100';
     showModalBottomSheet(
       context: context,
@@ -257,13 +454,42 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
           symbol: _selectedSymbol!,
           symbolName: _selectedName,
           isBuy: isBuy,
+          intentLabel: _tradeIntentLabel(isBuy),
           defaultPrice: _currentPrice ?? 0,
           orderTypeLimit: _orderTypeLimit,
+          productType: _selectedProductType,
+          positionSide: _selectedPositionSide,
+          marginMode: _selectedMarginMode,
+          leverage: _selectedLeverage,
+          maxLeverage: _maxLeverage,
+          allowShort: _allowShort,
+          availableFunds: _summary?.cashAvailable,
+          productTypeLabel: _productTypeLabel,
+          positionSideLabel: _positionSideLabel,
+          marginModeLabel: _marginModeLabel,
           priceController: _priceController,
           qtyController: _qtyController,
           onOrderTypeChanged: (limit) => setState(() => _orderTypeLimit = limit),
-          onSubmit: (orderTypeLimit) async {
+          onSubmit: (orderTypeLimit, productType, positionSide, marginMode, leverage) async {
             if (_placingOrder) return;
+            setState(() {
+              _selectedProductType = productType;
+              _selectedPositionSide = positionSide;
+              _selectedMarginMode = marginMode;
+              _selectedLeverage = leverage;
+            });
+            try {
+              final latest = await _market.getQuote(_selectedSymbol!, realtime: true);
+              if (!latest.hasError && latest.price > 0 && mounted) {
+                setState(() {
+                  _currentPrice = latest.price;
+                  _changePercent = latest.changePercent;
+                });
+                if (!orderTypeLimit) {
+                  _priceController.text = latest.price.toStringAsFixed(2);
+                }
+              }
+            } catch (_) {}
             final qty = double.tryParse(_qtyController.text.trim());
             final limitPrice = double.tryParse(_priceController.text.trim());
             if (qty == null || qty <= 0) return;
@@ -279,18 +505,21 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
                 type: orderTypeLimit ? OrderType.limit : OrderType.market,
                 quantity: qty,
                 limitPrice: orderTypeLimit ? limitPrice : null,
+                assetClass: _selectedAssetClass(),
+                productType: productType,
+                positionSide: positionSide,
+                positionAction: _positionActionForButton(
+                  isBuy,
+                  productType: productType,
+                  positionSide: positionSide,
+                ),
+                marginMode: marginMode,
+                leverage: leverage,
               );
               if (!mounted || !ctx.mounted) return;
               Navigator.of(ctx).pop();
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    AppLocalizations.of(context)!.tradingBuySellSubmitted(
-                      isBuy ? AppLocalizations.of(context)!.tradingBuy : AppLocalizations.of(context)!.tradingSell,
-                      _selectedSymbol!,
-                    ),
-                  ),
-                ),
+                const SnackBar(content: Text('已经委托')),
               );
               _refreshTradingSummary();
             } catch (e) {
@@ -327,6 +556,8 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
             _buildAccountSummaryCard(),
             const SizedBox(height: 12),
             if (_selectedSymbol != null) _buildSelectedSymbolCard() else _buildPlaceholderCard(),
+            const SizedBox(height: 12),
+            _buildTradeModeCard(),
             const SizedBox(height: 12),
             _buildBuySellButtons(),
           ],
@@ -503,6 +734,7 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
                       onTap: () {
                         setState(() {
                           _selectedSymbol = g.ticker;
+                          _selectedMarket = 'stocks';
                           _selectedName = g.ticker;
                           _currentPrice = g.price;
                           _changePercent = g.todaysChangePerc;
@@ -739,82 +971,21 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
   /// 分时：折线图（收盘价连线 + 下方填充），末端接实时价随 WebSocket 跳动，Y 轴显示价格数字
   Widget _buildLineChart() {
     if (_candles.isEmpty && _currentPrice == null) return const SizedBox.shrink();
-    final closes = _candles.map((c) => c.close).toList();
-    double minY = closes.isEmpty ? (_currentPrice ?? 0) : closes.reduce((a, b) => a < b ? a : b);
-    double maxY = closes.isEmpty ? (_currentPrice ?? 0) : closes.reduce((a, b) => a > b ? a : b);
-    if (_currentPrice != null) {
-      if (_currentPrice! < minY) minY = _currentPrice!;
-      if (_currentPrice! > maxY) maxY = _currentPrice!;
-    }
-    final range = (maxY - minY).clamp(0.01, double.infinity);
-    final minYPlot = minY - range * 0.05;
-    final maxYPlot = maxY + range * 0.05;
-
-    final spots = <FlSpot>[];
-    for (var i = 0; i < _candles.length; i++) {
-      spots.add(FlSpot(i.toDouble(), _candles[i].close));
-    }
-    // 分时末端接实时价，随 WebSocket 更新而跳动
-    if (_currentPrice != null) {
-      final lastX = _candles.isEmpty ? 0.0 : (_candles.length - 1).toDouble();
-      spots.add(FlSpot(lastX + 1, _currentPrice!));
-    }
-    if (spots.isEmpty) return const SizedBox.shrink();
-
-    final lastClose = _candles.isNotEmpty ? _candles.last.close : _currentPrice;
-    final firstOpen = _candles.isNotEmpty ? _candles.first.open : _currentPrice;
-    final lineColor = (lastClose ?? firstOpen ?? 0) >= (firstOpen ?? lastClose ?? 0) ? MarketColors.up : MarketColors.down;
-
-    final maxX = spots.length <= 1 ? 1.0 : (spots.length - 1).toDouble();
-    return LineChart(
-      LineChartData(
-        minX: 0,
-        maxX: maxX,
-        minY: minYPlot,
-        maxY: maxYPlot,
-        lineBarsData: [
-          LineChartBarData(
-            spots: spots,
-            isCurved: true,
-            color: lineColor,
-            barWidth: 2,
-            dotData: const FlDotData(show: false),
-            belowBarData: BarAreaData(
-              show: true,
-              color: lineColor.withValues(alpha: 0.15),
-            ),
-          ),
-        ],
-        gridData: FlGridData(
-          show: true,
-          drawVerticalLine: false,
-          getDrawingHorizontalLine: (_) => FlLine(color: _chartGrid, strokeWidth: 0.8),
-        ),
-        titlesData: FlTitlesData(
-          show: true,
-          leftTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 44,
-              interval: range > 0 ? (range / 4).clamp(0.01, double.infinity) : 1,
-              getTitlesWidget: (value, meta) {
-                return Padding(
-                  padding: const EdgeInsets.only(right: 6),
-                  child: Text(
-                    value.toStringAsFixed(2),
-                    style: const TextStyle(color: _muted, fontSize: 10, fontFamily: 'monospace'),
-                  ),
-                );
-              },
-            ),
-          ),
-          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          bottomTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-        ),
-        borderData: FlBorderData(show: false),
-      ),
-      duration: const Duration(milliseconds: 150),
+    final prevClose = (_currentPrice != null &&
+            _changePercent != null &&
+            (1 + _changePercent! / 100) != 0)
+        ? (_currentPrice! / (1 + _changePercent! / 100))
+        : null;
+    return IntradayChart(
+      candles: _candles,
+      prevClose: prevClose,
+      currentPrice: _currentPrice,
+      chartHeight: 160,
+      timeAxisHeight: 22,
+      volumeHeight: 36,
+      periodLabel: '1m',
+      useSessionMarketHours:
+          _selectedSymbol != null && SymbolResolver.isUsStock(_selectedSymbol!),
     );
   }
 
@@ -836,6 +1007,163 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
         candles: _candles,
         minY: minY,
         maxY: maxY,
+      ),
+    );
+  }
+
+  Widget _buildTradeModeCard() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.tune_rounded, size: 16, color: _accent),
+              const SizedBox(width: 6),
+              const Text(
+                '交易模式',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                _isContractSelected
+                    ? '${_productTypeLabel(_selectedProductType)} / ${_positionSideLabel(_selectedPositionSide)} / ${_selectedLeverage.toStringAsFixed(0)}x'
+                    : '现货 / 做多 / 1x',
+                style: TextStyle(color: _muted, fontSize: 11),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (_isContractSelected)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Text(
+                '当前维持保证金率 ${(100 * _maintenanceMarginRate).toStringAsFixed(2)}%',
+                style: TextStyle(color: _muted, fontSize: 12),
+              ),
+            ),
+          SegmentedButton<ProductType>(
+            segments: const [
+              ButtonSegment(value: ProductType.spot, label: Text('现货')),
+              ButtonSegment(value: ProductType.perpetual, label: Text('永续')),
+              ButtonSegment(value: ProductType.future, label: Text('期货')),
+            ],
+            selected: {_selectedProductType},
+            onSelectionChanged: (selection) {
+              final next = selection.first;
+              setState(() {
+                _selectedProductType = next;
+                if (next == ProductType.spot) {
+                  _selectedPositionSide = PositionSide.long;
+                  _selectedMarginMode = MarginMode.cross;
+                  _selectedLeverage = 1;
+                } else if (_selectedLeverage < 1) {
+                  _selectedLeverage = 5;
+                } else if (_selectedLeverage == 1) {
+                  _selectedLeverage = 5;
+                }
+              });
+            },
+            style: ButtonStyle(
+              visualDensity: VisualDensity.compact,
+              padding: WidgetStateProperty.all(
+                const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              ),
+            ),
+          ),
+          if (_isContractSelected) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                SizedBox(
+                  width: 150,
+                  child: DropdownButtonFormField<PositionSide>(
+                    initialValue: _selectedPositionSide,
+                    decoration: const InputDecoration(
+                      labelText: '持仓方向',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: [
+                      DropdownMenuItem(
+                        value: PositionSide.long,
+                        child: Text('做多'),
+                      ),
+                      if (_allowShort)
+                        const DropdownMenuItem(
+                          value: PositionSide.short,
+                          child: Text('做空'),
+                        ),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) {
+                        setState(() => _selectedPositionSide = value);
+                      }
+                    },
+                  ),
+                ),
+                SizedBox(
+                  width: 160,
+                  child: DropdownButtonFormField<MarginMode>(
+                    initialValue: _selectedMarginMode,
+                    decoration: const InputDecoration(
+                      labelText: '保证金模式',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: const [
+                      DropdownMenuItem(
+                        value: MarginMode.cross,
+                        child: Text('全仓'),
+                      ),
+                      DropdownMenuItem(
+                        value: MarginMode.isolated,
+                        child: Text('逐仓'),
+                      ),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) {
+                        setState(() => _selectedMarginMode = value);
+                      }
+                    },
+                  ),
+                ),
+                SizedBox(
+                  width: 180,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '杠杆 ${_selectedLeverage.toStringAsFixed(0)}x / 上限 ${_maxLeverage.toStringAsFixed(0)}x',
+                        style: TextStyle(color: _muted, fontSize: 12),
+                      ),
+                      Slider(
+                        value: _selectedLeverage.clamp(1, _maxLeverage),
+                        min: 1,
+                        max: _maxLeverage,
+                        divisions: (_maxLeverage - 1).round().clamp(1, 99),
+                        label: '${_selectedLeverage.toStringAsFixed(0)}x',
+                        onChanged: (value) {
+                          setState(() => _selectedLeverage = value.roundToDouble());
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -912,8 +1240,19 @@ class _OrderSheet extends StatefulWidget {
     required this.symbol,
     this.symbolName,
     required this.isBuy,
+    required this.intentLabel,
     required this.defaultPrice,
     required this.orderTypeLimit,
+    required this.productType,
+    required this.positionSide,
+    required this.marginMode,
+    required this.leverage,
+    required this.maxLeverage,
+    required this.allowShort,
+    required this.availableFunds,
+    required this.productTypeLabel,
+    required this.positionSideLabel,
+    required this.marginModeLabel,
     required this.priceController,
     required this.qtyController,
     required this.onOrderTypeChanged,
@@ -924,12 +1263,29 @@ class _OrderSheet extends StatefulWidget {
   final String symbol;
   final String? symbolName;
   final bool isBuy;
+  final String intentLabel;
   final double defaultPrice;
   final bool orderTypeLimit;
+  final ProductType productType;
+  final PositionSide positionSide;
+  final MarginMode marginMode;
+  final double leverage;
+  final double maxLeverage;
+  final bool allowShort;
+  final double? availableFunds;
+  final String Function(ProductType type) productTypeLabel;
+  final String Function(PositionSide side) positionSideLabel;
+  final String Function(MarginMode mode) marginModeLabel;
   final TextEditingController priceController;
   final TextEditingController qtyController;
   final ValueChanged<bool> onOrderTypeChanged;
-  final Future<void> Function(bool orderTypeLimit) onSubmit;
+  final Future<void> Function(
+    bool orderTypeLimit,
+    ProductType productType,
+    PositionSide positionSide,
+    MarginMode marginMode,
+    double leverage,
+  ) onSubmit;
   final VoidCallback onCancel;
 
   @override
@@ -939,16 +1295,27 @@ class _OrderSheet extends StatefulWidget {
 class _OrderSheetState extends State<_OrderSheet> {
   static const Color _bg = Color(0xFF111215);
 
+  bool _isSubmitting = false;
   late bool _orderTypeLimit;
+  late ProductType _productType;
+  late PositionSide _positionSide;
+  late MarginMode _marginMode;
+  late double _leverage;
 
   @override
   void initState() {
     super.initState();
     _orderTypeLimit = widget.orderTypeLimit;
+    _productType = widget.productType;
+    _positionSide = widget.positionSide;
+    _marginMode = widget.marginMode;
+    _leverage = widget.leverage;
   }
 
   @override
   Widget build(BuildContext context) {
+    final estimatedFunds = _estimatedRequiredFunds();
+    final availableFunds = widget.availableFunds;
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -957,13 +1324,120 @@ class _OrderSheetState extends State<_OrderSheet> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              '${widget.isBuy ? AppLocalizations.of(context)!.tradingBuy : AppLocalizations.of(context)!.tradingSell} ${widget.symbol}',
+              '${widget.intentLabel} ${widget.symbol}',
               style: const TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w600,
               ),
             ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _miniChip(widget.productTypeLabel(_productType)),
+                _miniChip(widget.positionSideLabel(_positionSide)),
+                _miniChip(_productType == ProductType.spot ? '全仓' : widget.marginModeLabel(_marginMode)),
+                _miniChip('${_productType == ProductType.spot ? 1 : _leverage.toStringAsFixed(0)}x'),
+              ],
+            ),
             const SizedBox(height: 16),
+            SegmentedButton<ProductType>(
+              segments: const [
+                ButtonSegment(value: ProductType.spot, label: Text('现货')),
+                ButtonSegment(value: ProductType.perpetual, label: Text('永续')),
+                ButtonSegment(value: ProductType.future, label: Text('期货')),
+              ],
+              selected: {_productType},
+              onSelectionChanged: (s) {
+                final next = s.first;
+                setState(() {
+                  _productType = next;
+                  if (next == ProductType.spot) {
+                    _positionSide = PositionSide.long;
+                    _marginMode = MarginMode.cross;
+                    _leverage = 1;
+                  } else if (_leverage <= 1) {
+                    _leverage = 5;
+                  }
+                });
+              },
+            ),
+            if (_productType != ProductType.spot) ...[
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: DropdownButtonFormField<PositionSide>(
+                      initialValue: _positionSide,
+                      decoration: InputDecoration(
+                        labelText: '方向',
+                        filled: true,
+                        fillColor: _bg,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      items: [
+                        const DropdownMenuItem(value: PositionSide.long, child: Text('做多')),
+                        if (widget.allowShort)
+                          const DropdownMenuItem(value: PositionSide.short, child: Text('做空')),
+                      ],
+                      onChanged: (value) {
+                        if (value != null) {
+                          setState(() => _positionSide = value);
+                        }
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: DropdownButtonFormField<MarginMode>(
+                      initialValue: _marginMode,
+                      decoration: InputDecoration(
+                        labelText: '保证金',
+                        filled: true,
+                        fillColor: _bg,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: MarginMode.cross, child: Text('全仓')),
+                        DropdownMenuItem(value: MarginMode.isolated, child: Text('逐仓')),
+                      ],
+                      onChanged: (value) {
+                        if (value != null) {
+                          setState(() => _marginMode = value);
+                        }
+                      },
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '杠杆 ${_leverage.toStringAsFixed(0)}x / 上限 ${widget.maxLeverage.toStringAsFixed(0)}x',
+                      style: const TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
+                  ),
+                ],
+              ),
+              Slider(
+                value: _leverage.clamp(1, widget.maxLeverage),
+                min: 1,
+                max: widget.maxLeverage,
+                divisions: (widget.maxLeverage - 1).round().clamp(1, 99),
+                label: '${_leverage.toStringAsFixed(0)}x',
+                onChanged: (value) {
+                  setState(() => _leverage = value.roundToDouble());
+                },
+              ),
+            ],
+            const SizedBox(height: 8),
             SegmentedButton<bool>(
               segments: [
                 ButtonSegment(value: true, label: Text(AppLocalizations.of(context)!.tradingLimitOrder)),
@@ -1004,6 +1478,43 @@ class _OrderSheetState extends State<_OrderSheet> {
               ),
               style: const TextStyle(color: Colors.white),
             ),
+            const SizedBox(height: 12),
+            if (availableFunds != null || estimatedFunds != null)
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.04),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _kvText(
+                        '可用资金',
+                        availableFunds != null
+                            ? availableFunds.toStringAsFixed(2)
+                            : '--',
+                      ),
+                    ),
+                    Expanded(
+                      child: _kvText(
+                        _requiresFunds()
+                            ? (_productType == ProductType.spot ? '预计占用' : '预计保证金')
+                            : '预计占用',
+                        estimatedFunds != null
+                            ? estimatedFunds.toStringAsFixed(2)
+                            : (_requiresFunds() ? '--' : '0.00'),
+                        valueColor: estimatedFunds != null &&
+                                availableFunds != null &&
+                                estimatedFunds > availableFunds
+                            ? Colors.redAccent
+                            : Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             const SizedBox(height: 24),
             Row(
               children: [
@@ -1017,37 +1528,131 @@ class _OrderSheetState extends State<_OrderSheet> {
                 Expanded(
                   flex: 2,
                   child: FilledButton(
-                    onPressed: () async {
-                      final qtyStr = widget.qtyController.text.trim();
-                      final qty = double.tryParse(qtyStr);
-                      if (qty == null || qty <= 0) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(AppLocalizations.of(context)!.tradingEnterValidQuantity)),
-                        );
-                        return;
-                      }
-                      if (_orderTypeLimit) {
-                        final priceStr = widget.priceController.text.trim();
-                        final price = double.tryParse(priceStr);
-                        if (price == null || price <= 0) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text(AppLocalizations.of(context)!.tradingEnterValidPriceForLimit)),
-                          );
-                          return;
-                        }
-                      }
-                      widget.onOrderTypeChanged(_orderTypeLimit);
-                      await widget.onSubmit(_orderTypeLimit);
-                    },
+                    onPressed: _isSubmitting
+                        ? null
+                        : () async {
+                            if (_isSubmitting) return;
+                            final qtyStr = widget.qtyController.text.trim();
+                            final qty = double.tryParse(qtyStr);
+                            if (qty == null || qty <= 0) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text(AppLocalizations.of(context)!.tradingEnterValidQuantity)),
+                              );
+                              return;
+                            }
+                            if (_orderTypeLimit) {
+                              final priceStr = widget.priceController.text.trim();
+                              final price = double.tryParse(priceStr);
+                              if (price == null || price <= 0) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text(AppLocalizations.of(context)!.tradingEnterValidPriceForLimit)),
+                                );
+                                return;
+                              }
+                            }
+                            final estimatedFunds = _estimatedRequiredFunds();
+                            final availableFunds = widget.availableFunds;
+                            if (_requiresFunds() &&
+                                estimatedFunds != null &&
+                                availableFunds != null &&
+                                estimatedFunds > availableFunds) {
+                              final label = _productType == ProductType.spot ? '可用资金不足，无法委托' : '可用保证金不足，无法委托';
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('$label（需要 ${estimatedFunds.toStringAsFixed(2)}，当前 ${availableFunds.toStringAsFixed(2)}）')),
+                              );
+                              return;
+                            }
+                            setState(() => _isSubmitting = true);
+                            widget.onOrderTypeChanged(_orderTypeLimit);
+                            try {
+                              await widget.onSubmit(
+                                _orderTypeLimit,
+                                _productType,
+                                _positionSide,
+                                _productType == ProductType.spot ? MarginMode.cross : _marginMode,
+                                _productType == ProductType.spot ? 1 : _leverage,
+                              );
+                            } finally {
+                              if (mounted) setState(() => _isSubmitting = false);
+                            }
+                          },
                     style: FilledButton.styleFrom(
                       backgroundColor: widget.isBuy ? Colors.green : Colors.red,
                     ),
-                    child: Text(widget.isBuy ? AppLocalizations.of(context)!.tradingConfirmBuy : AppLocalizations.of(context)!.tradingConfirmSell),
+                    child: Text(
+                      _isSubmitting
+                          ? '提交中...'
+                          : (widget.isBuy ? AppLocalizations.of(context)!.tradingConfirmBuy : AppLocalizations.of(context)!.tradingConfirmSell),
+                    ),
                   ),
                 ),
               ],
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  bool _requiresFunds() {
+    if (_productType == ProductType.spot) {
+      return widget.isBuy;
+    }
+    if (_positionSide == PositionSide.long) {
+      return widget.isBuy;
+    }
+    return !widget.isBuy;
+  }
+
+  double? _estimatedRequiredFunds() {
+    if (!_requiresFunds()) return 0;
+    final qty = double.tryParse(widget.qtyController.text.trim());
+    final price = double.tryParse(widget.priceController.text.trim()) ?? widget.defaultPrice;
+    if (qty == null || qty <= 0 || price <= 0) return null;
+    if (_productType == ProductType.spot) {
+      return qty * price;
+    }
+    final leverage = _leverage <= 0 ? 1 : _leverage;
+    return qty * price / leverage;
+  }
+
+  Widget _kvText(String label, String value, {Color valueColor = Colors.white}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            color: Colors.white70,
+            fontSize: 11,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: TextStyle(
+            color: valueColor,
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _miniChip(String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: Colors.white70,
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
         ),
       ),
     );

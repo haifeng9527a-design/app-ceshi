@@ -18,6 +18,7 @@ class IntradayChart extends StatelessWidget {
     this.volumeHeight = 0,
     this.periodLabel = '5m',
     this.capitalFlowText,
+    this.useSessionMarketHours = false,
   });
 
   final List<ChartCandle> candles;
@@ -28,6 +29,8 @@ class IntradayChart extends StatelessWidget {
   /// 若 >0 则底部绘制成交量柱
   final double volumeHeight;
   final String periodLabel;
+  /// 仅美股分时启用 9:30-16:00 交易时段裁剪；加密/外汇应关闭（24x7）。
+  final bool useSessionMarketHours;
   /// 主力流入等资金流向文案，如 "主力流入 -1.1亿"
   final String? capitalFlowText;
 
@@ -234,7 +237,8 @@ class IntradayChart extends StatelessWidget {
     final basePrice = prevClose ?? candles.first.open;
 
     // 1m/5m/15m/30m 按“当日交易时段”展示（9:30-16:00），右侧预留空白；2d/3d/4d 为多日连续分时
-    bool useSessionMode = ['1m', '5m', '15m', '30m'].contains(periodLabel);
+    bool useSessionMode =
+        useSessionMarketHours && ['1m', '5m', '15m', '30m'].contains(periodLabel);
     double sessionStartSec = 0, sessionEndSec = 0, sessionLen = 0, dataEndX = 1.0;
     List<ChartCandle> plotCandles = candles;
     if (useSessionMode && candles.isNotEmpty) {

@@ -17,9 +17,7 @@ import '../messages/friends_repository.dart';
 import '../messages/message_models.dart';
 import '../messages/messages_page.dart';
 import '../messages/messages_repository.dart';
-import '../market/market_db.dart';
 import '../market/market_page.dart';
-import '../market/market_repository.dart';
 import '../market/watchlist_page.dart';
 import '../market/watchlist_repository.dart';
 import '../profile/profile_page.dart';
@@ -36,7 +34,6 @@ class _HomePageState extends State<HomePage> {
   int _currentIndex = 0;
   final _messagesRepo = MessagesRepository();
   final _friendsRepo = FriendsRepository();
-  final _marketRepo = MarketRepository();
   int _pendingFriendRequestCount = 0;
   StreamSubscription? _incomingRequestsSubscription;
   StreamSubscription? _authSubscription;
@@ -68,7 +65,6 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     _subscribeIncomingRequests();
-    unawaited(_preloadForexPairsToSqlite());
     unawaited(StartupDataSyncService.instance.syncTradingDataOnAppStart());
     unawaited(WatchlistRepository.instance.syncFromServerIfLoggedIn());
     if (FirebaseBootstrap.isReady) {
@@ -81,15 +77,6 @@ class _HomePageState extends State<HomePage> {
         unawaited(WatchlistRepository.instance.syncFromServerIfLoggedIn());
       });
     }
-  }
-
-  Future<void> _preloadForexPairsToSqlite() async {
-    try {
-      final pairs = (await _marketRepo.getForexPairsPage(page: 1, pageSize: 30))
-          .items;
-      if (pairs.isEmpty) return;
-      await MarketDb.instance.upsertForexPairs(pairs);
-    } catch (_) {}
   }
 
   @override

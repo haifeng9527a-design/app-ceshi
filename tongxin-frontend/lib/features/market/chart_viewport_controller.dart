@@ -53,13 +53,22 @@ class ChartViewportController extends ChangeNotifier {
   /// 变化速度减半（阻尼），并 clamp 在 minVisibleCount~maxVisibleCount（默认 30~400）
   /// [scaleStartCount] 若提供则相对手势开始时的根数计算，否则相对当前 _visibleCount
   static const double _zoomDamp = 0.5;
-  void onZoom(double scale, int totalCandles, {double? scaleStartCount}) {
+  void onZoom(
+    double scale,
+    int totalCandles, {
+    double? scaleStartCount,
+    double? scaleStartIndex,
+    double focalRatio = 0.5,
+  }) {
     if (totalCandles <= 0) return;
     final base = scaleStartCount ?? _visibleCount;
+    final baseStart = scaleStartIndex ?? _visibleStartIndex;
     final rawCount = base / scale;
     double newCount = base + (rawCount - base) * _zoomDamp;
     newCount = newCount.clamp(minVisibleCount, maxVisibleCount).clamp(1.0, totalCandles.toDouble());
-    double newStart = _visibleStartIndex;
+    final anchor = focalRatio.clamp(0.0, 1.0);
+    final anchorIndex = baseStart + base * anchor;
+    double newStart = anchorIndex - newCount * anchor;
     final maxStart = (totalCandles - newCount).clamp(0.0, double.infinity);
     newStart = newStart.clamp(0.0, maxStart);
     if (newCount != _visibleCount || newStart != _visibleStartIndex) {

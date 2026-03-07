@@ -21,6 +21,7 @@ class MarketSyncService {
   bool get _useBackend => _market.useBackend;
   static const int _quoteSyncBatchSize = 200;
   static const int _maxMissingQuoteBatchesOnEnter = 12;
+  static const int _fullQuoteSyncBatchSize = 200;
 
   /// 同步美股列表到本地 DB
   /// 优先级：后端 stock_quote_cache → 本地缓存 → 内置 S&P 500 → 全量 Polygon（DB 空时用全量列表补全）
@@ -151,5 +152,34 @@ class MarketSyncService {
     _tickersSyncTimer = null;
     _quotesSyncTimer?.cancel();
     _quotesSyncTimer = null;
+  }
+
+  /// 启动阶段强制把全量股票最新报价分批拉取并写入本地 DB。
+  /// 数据源走 MarketRepository（第三方 API 直连或后端代理）。
+  Future<void> syncAllLatestQuotesOnStartup() async {
+    try {
+      final total = await MarketDb.instance.getTickerCount();
+      if (total <= 0) return;
+      for (var offset = 0; offset < total; offset += _fullQuoteSyncBatchSize) {
+        final page = await MarketDb.instance.getTickersWithQuotes(
+          sortColumn: 'code',
+          sortAscending: true,
+          limit: _fullQuoteSyncBatchSize,
+          offset: offset,
+        );
+        if (page.isEmpty) break;
+        final symbols = page.map((e) => e.symbol).toList();
+        await syncQuotes(symbols);
+        // 轻微让出事件循环，避免启动阶段长任务阻塞 UI。
+        await Future<void>.delayed(const Duration(milliseconds: 60));
+      }
+      if (!_syncCompleteController.isClosed) {
+        _syncCompleteController.add(null);
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('MarketSyncService syncAllLatestQuotesOnStartup: $e');
+      }
+    }
   }
 }

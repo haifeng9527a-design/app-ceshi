@@ -12,6 +12,8 @@ enum AdminSection {
   dashboard,
   users,
   teachers,
+  admins,
+  appConfig,
   systemMessages,
   reports,
   settings,
@@ -54,6 +56,10 @@ class _AdminHomePageState extends State<AdminHomePage> {
         );
       case AdminSection.users:
         return const _AdminUserPanel();
+      case AdminSection.admins:
+        return const _AdminAccountsPanel();
+      case AdminSection.appConfig:
+        return const _AppConfigPanel();
       case AdminSection.teachers:
         return const AdminTeacherPanel();
       case AdminSection.systemMessages:
@@ -801,6 +807,620 @@ class _UserDetailPanel extends StatelessWidget {
   }
 }
 
+class _AdminAccountsPanel extends StatefulWidget {
+  const _AdminAccountsPanel();
+
+  @override
+  State<_AdminAccountsPanel> createState() => _AdminAccountsPanelState();
+}
+
+class _AdminAccountsPanelState extends State<_AdminAccountsPanel> {
+  static const Color _accent = Color(0xFFD4AF37);
+  final _api = AdminApiClient.instance;
+
+  List<Map<String, dynamic>> _admins = [];
+  bool _loading = true;
+  String? _loadError;
+  final _addUsernameController = TextEditingController();
+  final _addPasswordController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _addUsernameController.dispose();
+    _addPasswordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    if (!mounted) return;
+    setState(() {
+      _loading = true;
+      _loadError = null;
+    });
+    try {
+      final resp = await _api.get('api/admin/accounts');
+      if (!mounted) return;
+      if (resp.statusCode != 200) {
+        throw StateError('加载失败(${resp.statusCode})：${resp.body}');
+      }
+      final list = (jsonDecode(resp.body) as List<dynamic>).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      setState(() {
+        _admins = list;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loadError = e.toString();
+        _loading = false;
+      });
+    }
+  }
+
+  void _showAddAdminDialog() {
+    _addUsernameController.clear();
+    _addPasswordController.clear();
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => _AddAdminDialog(
+        usernameController: _addUsernameController,
+        passwordController: _addPasswordController,
+        onAdd: (username, password) => _addAdminFromDialog(ctx, username, password),
+      ),
+    );
+  }
+
+  Future<void> _addAdminFromDialog(BuildContext dialogContext, String username, String password) async {
+    try {
+      final resp = await _api.post('api/admin/accounts', body: {'username': username, 'password': password});
+      if (!mounted) return;
+      if (resp.statusCode == 201 || resp.statusCode == 200) {
+        if (mounted) Navigator.of(dialogContext).pop();
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已添加管理员')));
+        _load();
+      } else {
+        final body = resp.body.isNotEmpty ? jsonDecode(resp.body) : null;
+        final err = body is Map ? body['error']?.toString() : resp.body;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err ?? '添加失败'), backgroundColor: Colors.red.shade700));
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('添加失败：$e'), backgroundColor: Colors.red.shade700));
+    }
+  }
+
+  Future<void> _unlock(String id) async {
+    try {
+      final resp = await _api.patch('api/admin/accounts/$id', body: {'unlock': true});
+      if (!mounted) return;
+      if (resp.statusCode == 200) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已解锁')));
+        _load();
+      } else {
+        final body = resp.body.isNotEmpty ? jsonDecode(resp.body) : null;
+        final err = body is Map ? body['error']?.toString() : resp.body;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err ?? '解锁失败'), backgroundColor: Colors.red.shade700));
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('解锁失败：$e'), backgroundColor: Colors.red.shade700));
+    }
+  }
+
+  Future<void> _changePassword(String id) async {
+    final password = await showDialog<String>(
+      context: context,
+      builder: (ctx) {
+        final ctrl = TextEditingController();
+        return AlertDialog(
+          title: const Text('修改密码'),
+          content: TextField(
+            controller: ctrl,
+            obscureText: true,
+            decoration: const InputDecoration(labelText: '新密码（至少 6 位）'),
+            onSubmitted: (_) => Navigator.pop(ctx, ctrl.text),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: Text(AdminStrings.commonCancel)),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, ctrl.text),
+              child: Text(AdminStrings.commonSave),
+            ),
+          ],
+        );
+      },
+    );
+    if (password == null || password.length < 6) return;
+    try {
+      final resp = await _api.patch('api/admin/accounts/$id', body: {'password': password});
+      if (!mounted) return;
+      if (resp.statusCode == 200) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('密码已修改')));
+      } else {
+        final body = resp.body.isNotEmpty ? jsonDecode(resp.body) : null;
+        final err = body is Map ? body['error']?.toString() : resp.body;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err ?? '修改失败'), backgroundColor: Colors.red.shade700));
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('修改失败：$e'), backgroundColor: Colors.red.shade700));
+    }
+  }
+
+  Future<void> _deleteAdmin(String id, String username) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除管理员'),
+        content: Text('确定删除管理员「$username」？'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(AdminStrings.commonCancel)),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      final resp = await _api.delete('api/admin/accounts/$id');
+      if (!mounted) return;
+      if (resp.statusCode == 204 || resp.statusCode == 200) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已删除')));
+        _load();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('删除失败：${resp.body}'), backgroundColor: Colors.red.shade700));
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('删除失败：$e'), backgroundColor: Colors.red.shade700));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.all(24),
+      children: [
+        Row(
+          children: [
+            Text('管理员账号', style: Theme.of(context).textTheme.headlineSmall?.copyWith(color: _accent, fontWeight: FontWeight.w600)),
+            const SizedBox(width: 12),
+            Text('共 ${_admins.length} 个', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6))),
+            const Spacer(),
+            IconButton(icon: const Icon(Icons.refresh), onPressed: _loading ? null : _load, tooltip: AdminStrings.adminRefresh),
+            FilledButton.icon(
+              icon: const Icon(Icons.add, size: 20),
+              label: const Text('添加管理员'),
+              onPressed: _showAddAdminDialog,
+            ),
+          ],
+        ),
+        const SizedBox(height: 24),
+        if (_loading)
+          const Center(child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator(color: _accent)))
+        else if (_loadError != null)
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.error_outline, size: 48, color: Theme.of(context).colorScheme.error),
+                  const SizedBox(height: 12),
+                  Text(_loadError!, textAlign: TextAlign.center, style: Theme.of(context).textTheme.bodySmall),
+                  const SizedBox(height: 16),
+                  FilledButton.icon(onPressed: _load, icon: const Icon(Icons.refresh, size: 18), label: Text(AdminStrings.commonRetry)),
+                ],
+              ),
+            ),
+          )
+        else if (_admins.isEmpty)
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.admin_panel_settings_outlined, size: 56, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.4)),
+                  const SizedBox(height: 12),
+                  Text('暂无管理员，请点击「添加管理员」', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7))),
+                ],
+              ),
+            ),
+          )
+        else
+          ...List<Widget>.from(_admins.map((a) {
+            final id = a['id']?.toString() ?? '';
+            final username = a['username']?.toString() ?? '—';
+            final failed = (a['failed_attempts'] as num?)?.toInt() ?? 0;
+            final lockedUntil = a['locked_until'] != null ? DateTime.tryParse(a['locked_until'].toString()) : null;
+            final isLocked = lockedUntil != null && lockedUntil.isAfter(DateTime.now());
+            final createdAt = a['created_at']?.toString();
+            return Card(
+              margin: const EdgeInsets.only(bottom: 12),
+              child: ListTile(
+                leading: CircleAvatar(backgroundColor: _accent.withOpacity(0.3), child: Icon(Icons.person, color: _accent)),
+                title: Text(username),
+                subtitle: Text(
+                  [
+                    if (isLocked) '已锁定',
+                    if (failed > 0 && !isLocked) '错误 $failed 次',
+                    if (createdAt != null) '创建于 ${createdAt.split('T').first}',
+                  ].join(' · '),
+                ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (isLocked)
+                      TextButton.icon(
+                        icon: const Icon(Icons.lock_open, size: 18),
+                        label: const Text('解锁'),
+                        onPressed: () => _unlock(id),
+                      ),
+                    TextButton.icon(
+                      icon: const Icon(Icons.lock_reset, size: 18),
+                      label: const Text('改密'),
+                      onPressed: () => _changePassword(id),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, color: Colors.red),
+                      onPressed: () => _deleteAdmin(id, username),
+                      tooltip: '删除',
+                    ),
+                  ],
+                ),
+              ),
+            );
+          })),
+      ],
+    );
+  }
+}
+
+class _AppConfigPanel extends StatefulWidget {
+  const _AppConfigPanel();
+
+  @override
+  State<_AppConfigPanel> createState() => _AppConfigPanelState();
+}
+
+class _AppConfigPanelState extends State<_AppConfigPanel> {
+  static const Color _accent = Color(0xFFD4AF37);
+  final _api = AdminApiClient.instance;
+
+  List<Map<String, dynamic>> _configs = [];
+  bool _loading = true;
+  String? _loadError;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    if (!mounted) return;
+    setState(() {
+      _loading = true;
+      _loadError = null;
+    });
+    try {
+      final resp = await _api.get('api/admin/config');
+      if (!mounted) return;
+      if (resp.statusCode != 200) {
+        throw StateError('加载失败(${resp.statusCode})：${resp.body}');
+      }
+      final list = (jsonDecode(resp.body) as List<dynamic>).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      setState(() {
+        _configs = list;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loadError = e.toString();
+        _loading = false;
+      });
+    }
+  }
+
+  void _showAddDialog() {
+    final keyCtrl = TextEditingController();
+    final valueCtrl = TextEditingController();
+    final remarkCtrl = TextEditingController();
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('新增配置'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: keyCtrl,
+                decoration: const InputDecoration(labelText: 'Key'),
+                textCapitalization: TextCapitalization.none,
+                autocorrect: false,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: valueCtrl,
+                decoration: const InputDecoration(labelText: 'Value'),
+                maxLines: 3,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: remarkCtrl,
+                decoration: const InputDecoration(labelText: '备注（参数说明）'),
+                maxLines: 2,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(AdminStrings.commonCancel)),
+          FilledButton(
+            onPressed: () async {
+              final key = keyCtrl.text.trim();
+              final value = valueCtrl.text;
+              if (key.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Key 不能为空')));
+                return;
+              }
+              try {
+                final resp = await _api.post('api/admin/config', body: {
+                  'key': key,
+                  'value': value,
+                  'remark': remarkCtrl.text.trim().isEmpty ? null : remarkCtrl.text.trim(),
+                });
+                if (!mounted) return;
+                if (resp.statusCode == 200 || resp.statusCode == 201) {
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已保存')));
+                  _load();
+                } else {
+                  final body = resp.body.isNotEmpty ? jsonDecode(resp.body) : null;
+                  final err = body is Map ? body['error']?.toString() : resp.body;
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err ?? '保存失败'), backgroundColor: Colors.red.shade700));
+                }
+              } catch (e) {
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('保存失败：$e'), backgroundColor: Colors.red.shade700));
+              }
+            },
+            child: Text(AdminStrings.commonSave),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showEditDialog(Map<String, dynamic> item) {
+    final key = item['key']?.toString() ?? '';
+    final valueCtrl = TextEditingController(text: item['value']?.toString() ?? '');
+    final remarkCtrl = TextEditingController(text: item['remark']?.toString() ?? '');
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('编辑 $key'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: valueCtrl,
+                decoration: const InputDecoration(labelText: 'Value'),
+                maxLines: 3,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: remarkCtrl,
+                decoration: const InputDecoration(labelText: '备注（参数说明）'),
+                maxLines: 2,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(AdminStrings.commonCancel)),
+          FilledButton(
+            onPressed: () async {
+              try {
+                final resp = await _api.patch('api/admin/config/${Uri.encodeComponent(key)}', body: {
+                  'value': valueCtrl.text,
+                  'remark': remarkCtrl.text.trim().isEmpty ? null : remarkCtrl.text.trim(),
+                });
+                if (!mounted) return;
+                if (resp.statusCode == 200) {
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已保存')));
+                  _load();
+                } else {
+                  final body = resp.body.isNotEmpty ? jsonDecode(resp.body) : null;
+                  final err = body is Map ? body['error']?.toString() : resp.body;
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err ?? '保存失败'), backgroundColor: Colors.red.shade700));
+                }
+              } catch (e) {
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('保存失败：$e'), backgroundColor: Colors.red.shade700));
+              }
+            },
+            child: Text(AdminStrings.commonSave),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.all(24),
+      children: [
+        Row(
+          children: [
+            Text('应用配置', style: Theme.of(context).textTheme.headlineSmall?.copyWith(color: _accent, fontWeight: FontWeight.w600)),
+            const SizedBox(width: 12),
+            Text('共 ${_configs.length} 项', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6))),
+            const Spacer(),
+            IconButton(icon: const Icon(Icons.refresh), onPressed: _loading ? null : _load, tooltip: AdminStrings.adminRefresh),
+            FilledButton.icon(
+              icon: const Icon(Icons.add, size: 20),
+              label: const Text('新增配置'),
+              onPressed: _showAddDialog,
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Key-Value 配置，用于客服、交易模拟盘等系统参数',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6)),
+        ),
+        const SizedBox(height: 24),
+        if (_loading)
+          const Center(child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator(color: _accent)))
+        else if (_loadError != null)
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.error_outline, size: 48, color: Theme.of(context).colorScheme.error),
+                  const SizedBox(height: 12),
+                  Text(_loadError!, textAlign: TextAlign.center, style: Theme.of(context).textTheme.bodySmall),
+                  const SizedBox(height: 16),
+                  FilledButton.icon(onPressed: _load, icon: const Icon(Icons.refresh, size: 18), label: Text(AdminStrings.commonRetry)),
+                ],
+              ),
+            ),
+          )
+        else if (_configs.isEmpty)
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.tune_outlined, size: 56, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.4)),
+                  const SizedBox(height: 12),
+                  Text('暂无配置，请点击「新增配置」', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7))),
+                ],
+              ),
+            ),
+          )
+        else
+          ...List<Widget>.from(_configs.map((c) {
+            final key = c['key']?.toString() ?? '—';
+            final value = c['value']?.toString() ?? '';
+            final remark = c['remark']?.toString() ?? '';
+            final updatedAt = c['updated_at']?.toString();
+            final displayValue = value.length > 80 ? '${value.substring(0, 80)}...' : value;
+            return Card(
+              margin: const EdgeInsets.only(bottom: 12),
+              child: ListTile(
+                leading: Icon(Icons.key, color: _accent),
+                title: Text(key, style: const TextStyle(fontWeight: FontWeight.w600)),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (remark.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Text(remark, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: _accent.withOpacity(0.9))),
+                      ),
+                    SelectableText(displayValue, style: Theme.of(context).textTheme.bodySmall),
+                    if (updatedAt != null)
+                      Text(updatedAt.split('T').first, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5))),
+                  ],
+                ),
+                isThreeLine: true,
+                trailing: IconButton(
+                  icon: const Icon(Icons.edit_outlined),
+                  onPressed: () => _showEditDialog(c),
+                  tooltip: '编辑',
+                ),
+              ),
+            );
+          })),
+      ],
+    );
+  }
+}
+
+class _AddAdminDialog extends StatefulWidget {
+  const _AddAdminDialog({
+    required this.usernameController,
+    required this.passwordController,
+    required this.onAdd,
+  });
+
+  final TextEditingController usernameController;
+  final TextEditingController passwordController;
+  final Future<void> Function(String username, String password) onAdd;
+
+  @override
+  State<_AddAdminDialog> createState() => _AddAdminDialogState();
+}
+
+class _AddAdminDialogState extends State<_AddAdminDialog> {
+  bool _adding = false;
+
+  Future<void> _submit() async {
+    final username = widget.usernameController.text.trim();
+    final password = widget.passwordController.text;
+    if (username.isEmpty || password.length < 6) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('账号不能为空，密码至少 6 位')),
+      );
+      return;
+    }
+    setState(() => _adding = true);
+    await widget.onAdd(username, password);
+    if (mounted) setState(() => _adding = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('添加管理员'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: widget.usernameController,
+            decoration: const InputDecoration(labelText: '账号'),
+            textCapitalization: TextCapitalization.none,
+            autocorrect: false,
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: widget.passwordController,
+            obscureText: true,
+            decoration: const InputDecoration(labelText: '密码（至少 6 位）'),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(onPressed: _adding ? null : () => Navigator.pop(context), child: Text(AdminStrings.commonCancel)),
+        FilledButton(
+          onPressed: _adding ? null : _submit,
+          child: _adding ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black)) : Text(AdminStrings.commonSave),
+        ),
+      ],
+    );
+  }
+}
+
 class _SideNav extends StatelessWidget {
   const _SideNav({required this.current, required this.onSelect});
 
@@ -817,6 +1437,8 @@ class _SideNav extends StatelessWidget {
           _NavItem(title: AdminStrings.adminOverview, icon: Icons.dashboard_outlined, active: current == AdminSection.dashboard, onTap: () => onSelect(AdminSection.dashboard)),
           _NavItem(title: AdminStrings.adminUserManagement, icon: Icons.people_outline, active: current == AdminSection.users, onTap: () => onSelect(AdminSection.users)),
           _NavItem(title: AdminStrings.adminTeacherReview, icon: Icons.verified_outlined, active: current == AdminSection.teachers, onTap: () => onSelect(AdminSection.teachers)),
+          _NavItem(title: '管理员账号', icon: Icons.admin_panel_settings_outlined, active: current == AdminSection.admins, onTap: () => onSelect(AdminSection.admins)),
+          _NavItem(title: '应用配置', icon: Icons.tune_outlined, active: current == AdminSection.appConfig, onTap: () => onSelect(AdminSection.appConfig)),
           _NavItem(title: AdminStrings.adminSystemMessages, icon: Icons.notifications_outlined, active: current == AdminSection.systemMessages, onTap: () => onSelect(AdminSection.systemMessages)),
           _NavItem(title: AdminStrings.adminReports, icon: Icons.report_outlined, active: current == AdminSection.reports, onTap: () => onSelect(AdminSection.reports)),
           _NavItem(title: AdminStrings.adminSettings, icon: Icons.settings_outlined, active: current == AdminSection.settings, onTap: () => onSelect(AdminSection.settings)),

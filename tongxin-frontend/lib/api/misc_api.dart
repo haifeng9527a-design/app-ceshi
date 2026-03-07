@@ -208,4 +208,23 @@ class MiscApi {
       return [];
     }
   }
+
+  Future<String?> getAgoraToken(String channelId, {int? uid}) async {
+    if (!_api.isAvailable || channelId.trim().isEmpty) return null;
+    final resp = await _api.get(
+      'api/call-invitations/agora-token',
+      queryParameters: {
+        'channel_id': channelId,
+        if (uid != null) 'uid': '$uid',
+      },
+    );
+    if (resp.statusCode != 200) return null;
+    try {
+      final json = jsonDecode(resp.body) as Map?;
+      final token = json?['token']?.toString().trim();
+      return token != null && token.isNotEmpty ? token : null;
+    } catch (_) {
+      return null;
+    }
+  }
 }

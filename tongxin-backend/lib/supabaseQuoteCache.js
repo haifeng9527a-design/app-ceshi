@@ -132,6 +132,31 @@ async function upsertSymbolsAndNames(entries) {
 }
 
 /**
+ * 批量写入实时成交价（仅更新 symbol/close/updated_at），避免覆盖 prev_close 等基准字段。
+ * trades: [{ symbol, price }]
+ */
+async function setRealtimeTradesBatch(trades) {
+  const supabase = getClient();
+  if (!supabase || !Array.isArray(trades) || trades.length === 0) return;
+  const now = new Date().toISOString();
+  const rows = trades
+    .map((t) => {
+      const symbol = String(t.symbol || '').trim().toUpperCase();
+      const price = Number(t.price);
+      if (!symbol || !Number.isFinite(price) || price <= 0) return null;
+      return {
+        symbol,
+        close: price,
+        updated_at: now,
+      };
+    })
+    .filter(Boolean);
+  if (rows.length > 0) {
+    await supabase.from(TABLE).upsert(rows, { onConflict: 'symbol' });
+  }
+}
+
+/**
  * 获取 stock_quote_cache 表中所有 symbol+name（24 小时内更新过的），用于美股列表秒开
  * 返回 [{ symbol, name }, ...]，按 symbol 排序
  */
@@ -148,10 +173,101 @@ async function getAllSymbolsAndNames(maxAgeMs = 24 * 60 * 60 * 1000) {
   return (data || []).map((row) => ({ symbol: row.symbol || '', name: row.name || row.symbol || '' }));
 }
 
+function mapSortColumn(sortColumn) {
+  switch (String(sortColumn || '').toLowerCase()) {
+    case 'code':
+      return 'symbol';
+    case 'name':
+      return 'name';
+    case 'pct':
+      return 'percent_change';
+    case 'price':
+      return 'close';
+    case 'change':
+      return 'change';
+    case 'open':
+      return 'open';
+    case 'prev':
+      return 'prev_close';
+    case 'high':
+      return 'high';
+    case 'low':
+      return 'low';
+    case 'vol':
+      return 'volume';
+    default:
+      return 'percent_change';
+  }
+}
+
+/**
+ * 分页读取 stock_quote_cache（含报价字段），支持排序和时效过滤。
+ */
+async function getTickersPageWithQuotes({
+  page = 1,
+  pageSize = 30,
+  sortColumn = 'pct',
+  sortAscending = false,
+  maxAgeMs = 0,
+} = {}) {
+  const supabase = getClient();
+  if (!supabase) {
+    return { rows: [], total: 0, page: 1, pageSize: 30, hasMore: false };
+  }
+  const p = Math.max(1, Number(page || 1));
+  const ps = Math.max(1, Math.min(200, Number(pageSize || 30)));
+  const offset = (p - 1) * ps;
+  const to = offset + ps - 1;
+  const useAgeFilter = Number(maxAgeMs || 0) > 0;
+  const since = useAgeFilter
+    ? new Date(Date.now() - Math.max(1000, Number(maxAgeMs || 0))).toISOString()
+    : null;
+  const orderCol = mapSortColumn(sortColumn);
+  const ascending = !!sortAscending;
+
+  let baseQuery = supabase
+    .from(TABLE)
+    .select('id', { count: 'exact', head: true });
+  if (useAgeFilter && since) {
+    baseQuery = baseQuery.gte('updated_at', since);
+  }
+  const { count, error: countError } = await baseQuery;
+  if (countError) {
+    return { rows: [], total: 0, page: p, pageSize: ps, hasMore: false };
+  }
+  const total = Number(count || 0);
+  if (total <= 0) {
+    return { rows: [], total: 0, page: p, pageSize: ps, hasMore: false };
+  }
+
+  let dataQuery = supabase
+    .from(TABLE)
+    .select('symbol, name, close, change, percent_change, open, high, low, volume, prev_close, updated_at')
+    .order(orderCol, { ascending, nullsFirst: false })
+    .order('symbol', { ascending: true })
+    .range(offset, to);
+  if (useAgeFilter && since) {
+    dataQuery = dataQuery.gte('updated_at', since);
+  }
+  const { data, error } = await dataQuery;
+  if (error) {
+    return { rows: [], total: 0, page: p, pageSize: ps, hasMore: false };
+  }
+  return {
+    rows: data || [],
+    total,
+    page: p,
+    pageSize: ps,
+    hasMore: offset + (data?.length || 0) < total,
+  };
+}
+
 module.exports = {
   isConfigured,
   getBySymbols,
   setBatch,
+  setRealtimeTradesBatch,
   upsertSymbolsAndNames,
   getAllSymbolsAndNames,
+  getTickersPageWithQuotes,
 };

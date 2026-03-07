@@ -337,6 +337,83 @@ function registerTeacherRoutes(app, requireAuth, optionalAuth) {
     }
   });
 
+  /** GET /api/teachers/:userId/likes/count — 点赞数 */
+  app.get('/api/teachers/:userId/likes/count', optionalAuth, async (req, res) => {
+    const { userId } = req.params;
+    if (!userId) return res.status(400).json({ error: 'missing userId' });
+    const sb = supabase();
+    if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
+    try {
+      const { data, error } = await sb
+        .from('teacher_strategy_likes')
+        .select('teacher_id')
+        .eq('teacher_id', userId);
+      if (error) return res.status(502).json({ error: error.message });
+      res.json({ count: (data || []).length });
+    } catch (e) {
+      res.status(502).json({ error: String(e.message || e) });
+    }
+  });
+
+  /** GET /api/teachers/:userId/likes/me — 当前用户是否已点赞 */
+  app.get('/api/teachers/:userId/likes/me', requireAuth, async (req, res) => {
+    const uid = req.firebaseUid;
+    const { userId } = req.params;
+    if (!uid) return res.status(401).json({ error: '未鉴权' });
+    if (!userId) return res.status(400).json({ error: 'missing userId' });
+    const sb = supabase();
+    if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
+    try {
+      const { data, error } = await sb
+        .from('teacher_strategy_likes')
+        .select('teacher_id')
+        .eq('teacher_id', userId)
+        .eq('user_id', uid)
+        .maybeSingle();
+      if (error) return res.status(502).json({ error: error.message });
+      res.json({ liked: !!data });
+    } catch (e) {
+      res.status(502).json({ error: String(e.message || e) });
+    }
+  });
+
+  /** POST /api/teachers/:userId/likes/toggle — 点赞/取消点赞 */
+  app.post('/api/teachers/:userId/likes/toggle', requireAuth, async (req, res) => {
+    const uid = req.firebaseUid;
+    const { userId } = req.params;
+    if (!uid) return res.status(401).json({ error: '未鉴权' });
+    if (!userId) return res.status(400).json({ error: 'missing userId' });
+    const sb = supabase();
+    if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
+    try {
+      const { data: existed, error: qErr } = await sb
+        .from('teacher_strategy_likes')
+        .select('teacher_id')
+        .eq('teacher_id', userId)
+        .eq('user_id', uid)
+        .maybeSingle();
+      if (qErr) return res.status(502).json({ error: qErr.message });
+      if (existed) {
+        const { error } = await sb
+          .from('teacher_strategy_likes')
+          .delete()
+          .eq('teacher_id', userId)
+          .eq('user_id', uid);
+        if (error) return res.status(502).json({ error: error.message });
+        return res.json({ liked: false });
+      }
+      const { error } = await sb.from('teacher_strategy_likes').insert({
+        teacher_id: userId,
+        user_id: uid,
+        created_at: new Date().toISOString(),
+      });
+      if (error) return res.status(502).json({ error: error.message });
+      return res.json({ liked: true });
+    } catch (e) {
+      res.status(502).json({ error: String(e.message || e) });
+    }
+  });
+
   /** POST /api/teachers/:userId/comments — 发表评论 */
   app.post('/api/teachers/:userId/comments', requireAuth, async (req, res) => {
     const uid = req.firebaseUid;
@@ -427,6 +504,178 @@ function registerTeacherRoutes(app, requireAuth, optionalAuth) {
       res.json({ count: (data || []).length });
     } catch (e) {
       res.status(502).json({ error: String(e.message || e) });
+    }
+  });
+
+  /** PUT /api/teachers/me/profile — 当前用户保存交易员资料 */
+  app.put('/api/teachers/me/profile', requireAuth, async (req, res) => {
+    const uid = req.firebaseUid;
+    if (!uid) return res.status(401).json({ error: '未鉴权' });
+    const sb = supabase();
+    if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
+    try {
+      const body = req.body || {};
+      const allowed = [
+        'display_name', 'real_name', 'title', 'organization', 'country', 'city',
+        'years_experience', 'markets', 'instruments', 'certifications',
+        'license_no', 'broker', 'track_record', 'application_ack', 'id_photo_url',
+        'license_photo_url', 'certification_photo_url', 'bio', 'style',
+        'risk_level', 'specialties', 'avatar_url', 'status', 'frozen_until',
+        'tags', 'wins', 'losses', 'rating', 'today_strategy', 'pnl_current',
+        'pnl_month', 'pnl_year', 'pnl_total',
+      ];
+      const payload = { user_id: uid, updated_at: new Date().toISOString() };
+      for (const k of allowed) {
+        if (body[k] !== undefined) payload[k] = body[k];
+      }
+      const { error } = await sb.from('teacher_profiles').upsert(payload, {
+        onConflict: 'user_id',
+      });
+      if (error) return res.status(502).json({ error: error.message });
+      return res.json({ ok: true });
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message || e) });
+    }
+  });
+
+  /** POST /api/teachers/me/strategies — 当前用户发布策略 */
+  app.post('/api/teachers/me/strategies', requireAuth, async (req, res) => {
+    const uid = req.firebaseUid;
+    if (!uid) return res.status(401).json({ error: '未鉴权' });
+    const sb = supabase();
+    if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
+    try {
+      const body = req.body || {};
+      const { data, error } = await sb
+        .from('trade_strategies')
+        .insert({
+          teacher_id: uid,
+          title: body.title || '',
+          summary: body.summary || '',
+          content: body.content || '',
+          image_urls: Array.isArray(body.image_urls) && body.image_urls.length > 0
+            ? body.image_urls
+            : null,
+          status: body.status || 'published',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .select('*')
+        .single();
+      if (error) return res.status(502).json({ error: error.message });
+      return res.json(data);
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message || e) });
+    }
+  });
+
+  /** PATCH /api/teachers/strategies/:strategyId/status — 当前用户更新策略状态 */
+  app.patch('/api/teachers/strategies/:strategyId/status', requireAuth, async (req, res) => {
+    const uid = req.firebaseUid;
+    const { strategyId } = req.params;
+    const status = String(req.body?.status || '').trim();
+    if (!uid) return res.status(401).json({ error: '未鉴权' });
+    if (!strategyId) return res.status(400).json({ error: 'missing strategyId' });
+    if (!status) return res.status(400).json({ error: 'missing status' });
+    const sb = supabase();
+    if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
+    try {
+      const { data, error } = await sb
+        .from('trade_strategies')
+        .update({
+          status,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', strategyId)
+        .eq('teacher_id', uid)
+        .select('*')
+        .maybeSingle();
+      if (error) return res.status(502).json({ error: error.message });
+      return res.json(data || { ok: true });
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message || e) });
+    }
+  });
+
+  /** GET /api/teachers/:userId/trade-records — 交易记录 */
+  app.get('/api/teachers/:userId/trade-records', optionalAuth, async (req, res) => {
+    const { userId } = req.params;
+    if (!userId) return res.status(400).json({ error: 'missing userId' });
+    const sb = supabase();
+    if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
+    try {
+      const { data, error } = await sb
+        .from('trade_records')
+        .select('*')
+        .eq('teacher_id', userId)
+        .order('trade_time', { ascending: false });
+      if (error) return res.status(502).json({ error: error.message });
+      return res.json(data || []);
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message || e) });
+    }
+  });
+
+  /** GET /api/teachers/:userId/positions — 当前/历史持仓 */
+  app.get('/api/teachers/:userId/positions', optionalAuth, async (req, res) => {
+    const { userId } = req.params;
+    if (!userId) return res.status(400).json({ error: 'missing userId' });
+    const history = String(req.query.history || '').trim().toLowerCase() === 'true';
+    const sb = supabase();
+    if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
+    try {
+      const { data, error } = await sb
+        .from('teacher_positions')
+        .select('*')
+        .eq('teacher_id', userId)
+        .eq('is_history', history)
+        .order('created_at', { ascending: false });
+      if (error) return res.status(502).json({ error: error.message });
+      return res.json(data || []);
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message || e) });
+    }
+  });
+
+  /** POST /api/teachers/me/trade-records — 当前用户新增交易记录 */
+  app.post('/api/teachers/me/trade-records', requireAuth, async (req, res) => {
+    const uid = req.firebaseUid;
+    if (!uid) return res.status(401).json({ error: '未鉴权' });
+    const sb = supabase();
+    if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
+    try {
+      const body = req.body || {};
+      const payload = {
+        teacher_id: uid,
+        symbol: body.symbol || body.asset || '',
+        asset: body.asset || body.symbol || '',
+        side: body.side || 'buy',
+        pnl: body.pnl ?? body.pnl_amount ?? 0,
+        pnl_amount: body.pnl_amount ?? body.pnl ?? 0,
+        pnl_ratio: body.pnl_ratio ?? 0,
+        buy_time: body.buy_time || null,
+        buy_shares: body.buy_shares ?? null,
+        buy_price: body.buy_price ?? null,
+        sell_time: body.sell_time || null,
+        sell_shares: body.sell_shares ?? null,
+        sell_price: body.sell_price ?? null,
+        trade_time: body.trade_time || body.sell_time || new Date().toISOString(),
+        attachment_url: body.attachment_url || null,
+        created_at: new Date().toISOString(),
+      };
+      const { data, error } = await sb.from('trade_records').insert(payload).select('*').single();
+      if (error) return res.status(502).json({ error: error.message });
+      if (payload.attachment_url) {
+        await sb.from('trade_record_files').insert({
+          teacher_id: uid,
+          file_url: payload.attachment_url,
+          file_type: 'image',
+          created_at: new Date().toISOString(),
+        });
+      }
+      return res.json(data);
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message || e) });
     }
   });
 

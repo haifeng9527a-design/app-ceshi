@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -9,9 +11,10 @@ import 'trading_ui.dart';
 /// 当日委托 Tab：委托列表（标的、方向、委托价/量、已成交、状态、时间、撤单）
 /// 数据先 mock，接口就绪后替换为 API
 class OrdersTab extends StatefulWidget {
-  const OrdersTab({super.key, required this.teacherId});
+  const OrdersTab({super.key, required this.teacherId, this.isActive = false});
 
   final String teacherId;
+  final bool isActive;
 
   @override
   State<OrdersTab> createState() => _OrdersTabState();
@@ -19,30 +22,51 @@ class OrdersTab extends StatefulWidget {
 
 class _OrdersTabState extends State<OrdersTab> {
   final _api = TradingApiClient.instance;
+  final _scrollController = ScrollController();
+  static const int _pageSize = 5;
   List<Order> _orders = const [];
   bool _loading = true;
+  bool _loadingMore = false;
+  bool _hasMore = true;
   String? _error;
   bool _actioning = false;
   TradingAccountSummary? _summary;
   late final DateFormat _timeFmt;
-  late final Duration _refreshInterval;
+  Timer? _refreshTimer;
+  int _page = 1;
 
   @override
   void initState() {
     super.initState();
     _timeFmt = DateFormat('HH:mm');
-    _refreshInterval = const Duration(seconds: 3);
+    _scrollController.addListener(_onScroll);
     _loadOrders(showLoading: true);
     _loadSummary();
-    _scheduleRefresh();
+    _syncPolling();
   }
 
-  void _scheduleRefresh() async {
-    while (mounted) {
-      await Future.delayed(_refreshInterval);
-      if (!mounted) break;
-      await _loadOrders();
+  @override
+  void didUpdateWidget(covariant OrdersTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isActive != widget.isActive) {
+      _syncPolling();
+    }
+  }
+
+  void _syncPolling() {
+    _refreshTimer?.cancel();
+    if (!widget.isActive) return;
+    _refreshTimer = Timer.periodic(const Duration(seconds: 6), (_) async {
+      if (!mounted) return;
       await _loadSummary();
+    });
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    if (_scrollController.position.pixels >=
+        _scrollController.position.maxScrollExtent - 180) {
+      _loadMore();
     }
   }
 
@@ -54,6 +78,14 @@ class _OrdersTabState extends State<OrdersTab> {
     } catch (_) {}
   }
 
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadOrders({bool showLoading = false}) async {
     if (showLoading && mounted) {
       setState(() {
@@ -62,10 +94,13 @@ class _OrdersTabState extends State<OrdersTab> {
       });
     }
     try {
-      final list = await _api.getOpenOrders();
+      final list = await _api.getOpenOrders(page: 1, pageSize: _pageSize);
       if (!mounted) return;
       setState(() {
         _orders = list;
+        _page = 1;
+        _hasMore = list.length >= _pageSize;
+        _loadingMore = false;
         _loading = false;
         _error = null;
       });
@@ -76,6 +111,41 @@ class _OrdersTabState extends State<OrdersTab> {
         _error = '$e';
       });
     }
+  }
+
+  Future<void> _loadMore() async {
+    if (_loading || _loadingMore || !_hasMore) return;
+    setState(() => _loadingMore = true);
+    try {
+      final nextPage = _page + 1;
+      final list = await _api.getOpenOrders(page: nextPage, pageSize: _pageSize);
+      if (!mounted) return;
+      setState(() {
+        if (list.isNotEmpty) {
+          _orders = _appendUniqueOrders(_orders, list);
+          _page = nextPage;
+        }
+        _hasMore = list.length >= _pageSize;
+        _loadingMore = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loadingMore = false;
+        _error = '$e';
+      });
+    }
+  }
+
+  List<Order> _appendUniqueOrders(List<Order> current, List<Order> incoming) {
+    final existingIds = current.map((e) => e.id).toSet();
+    final merged = [...current];
+    for (final item in incoming) {
+      if (existingIds.add(item.id)) {
+        merged.add(item);
+      }
+    }
+    return merged;
   }
 
   Future<void> _cancelOrder(Order order) async {
@@ -145,10 +215,11 @@ class _OrdersTabState extends State<OrdersTab> {
     return TradingPageScaffold(
       child: RefreshIndicator(
         onRefresh: () async {
-          await _loadOrders();
+          await _loadOrders(showLoading: true);
           await _loadSummary();
         },
         child: ListView(
+          controller: _scrollController,
           padding: const EdgeInsets.all(16),
           children: [
             TradingSectionHeader(
@@ -199,6 +270,27 @@ class _OrdersTabState extends State<OrdersTab> {
                       onCancel: o.canCancel && !_actioning ? () => _cancelOrder(o) : null,
                     )),
               ],
+              if (_loadingMore)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 16),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (_hasMore)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Center(
+                    child: OutlinedButton(
+                      onPressed: _loadMore,
+                      child: Text(
+                        '加载更多',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.8),
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
             ],
           ],
         ),
@@ -244,6 +336,20 @@ class _OrderCard extends StatelessWidget {
   static const Color _muted = Color(0xFF6C6F77);
   static const Color _surface = Color(0xFF1A1C21);
 
+  String _intentLabel(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    if (order.productType == ProductType.spot) {
+      return order.isBuy ? l10n.ordersBuy : l10n.ordersSell;
+    }
+    final isLong = order.positionSide == PositionSide.long;
+    final action = (order.positionAction ?? 'open').toLowerCase();
+    if (isLong && action == 'open') return '开多';
+    if (isLong && action == 'close') return '平多';
+    if (!isLong && action == 'open') return '开空';
+    if (!isLong && action == 'close') return '平空';
+    return order.isBuy ? l10n.ordersBuy : l10n.ordersSell;
+  }
+
   @override
   Widget build(BuildContext context) {
     final isBuy = order.isBuy;
@@ -274,6 +380,15 @@ class _OrderCard extends StatelessWidget {
                     style: const TextStyle(color: _muted, fontSize: 13),
                   ),
                 ],
+                if (order.productType != ProductType.spot ||
+                    order.assetClass != null) ...[
+                  const SizedBox(width: 8),
+                  _tag('${order.assetClass ?? 'asset'} / ${order.productType.name}'),
+                ],
+                if (order.productType != ProductType.spot) ...[
+                  const SizedBox(width: 6),
+                  _tag('${order.positionSide.name} / ${order.positionAction ?? '--'}'),
+                ],
                 const Spacer(),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -284,7 +399,7 @@ class _OrderCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Text(
-                    isBuy ? AppLocalizations.of(context)!.ordersBuy : AppLocalizations.of(context)!.ordersSell,
+                    _intentLabel(context),
                     style: TextStyle(
                       color: isBuy ? Colors.green : Colors.red,
                       fontWeight: FontWeight.w600,
@@ -302,6 +417,14 @@ class _OrderCard extends StatelessWidget {
                 _labelValue(context, AppLocalizations.of(context)!.ordersQuantity, order.quantity.toStringAsFixed(0)),
                 const SizedBox(width: 16),
                 _labelValue(context, AppLocalizations.of(context)!.ordersFilled, order.filledQuantity.toStringAsFixed(0)),
+                if (order.productType != ProductType.spot) ...[
+                  const SizedBox(width: 16),
+                  _labelValue(
+                    context,
+                    '杠杆',
+                    '${order.leverage.toStringAsFixed(order.leverage.truncateToDouble() == order.leverage ? 0 : 1)}x',
+                  ),
+                ],
               ],
             ),
             const SizedBox(height: 8),
@@ -309,12 +432,12 @@ class _OrderCard extends StatelessWidget {
               children: [
                 Text(
                   statusText,
-                  style: TextStyle(color: _muted, fontSize: 13),
+                  style: const TextStyle(color: _muted, fontSize: 13),
                 ),
                 const SizedBox(width: 12),
                 Text(
                   timeFmt.format(order.createdAt),
-                  style: TextStyle(color: _muted, fontSize: 13),
+                  style: const TextStyle(color: _muted, fontSize: 13),
                 ),
                 const Spacer(),
                 if (onCancel != null)
@@ -339,6 +462,24 @@ class _OrderCard extends StatelessWidget {
         const SizedBox(height: 2),
         Text(value, style: const TextStyle(fontSize: 13)),
       ],
+    );
+  }
+
+  Widget _tag(String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          color: Colors.white70,
+          fontSize: 10.5,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
     );
   }
 }

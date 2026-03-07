@@ -1,7 +1,7 @@
 /**
  * 行情代理路由：/api/quotes 按 symbol 缓存 + 批量查/补拉；其余接口仍用 getOrStale/set
  */
-const { getOrStale, set, DEFAULT_TTL_MS } = require('./cache');
+const { get, getOrStale, set, DEFAULT_TTL_MS } = require('./cache');
 const { resolve } = require('./symbolResolver');
 const polygon = require('./polygon');
 const { getBatchSnapshotsV2, getBatchSnapshotsV3, V2_SNAPSHOT_BATCH_SIZE, V3_SNAPSHOT_BATCH_SIZE } = polygon;
@@ -21,6 +21,8 @@ const supabaseQuoteCache = require('./supabaseQuoteCache');
 const supabaseClient = require('./supabaseClient');
 const forexScheduler = require('./forexScheduler');
 const supabaseForexCache = require('./supabaseForexCache');
+const cryptoScheduler = require('./cryptoScheduler');
+const supabaseCryptoCache = require('./supabaseCryptoCache');
 
 const toQuoteSnapshot = quoteFetcher.toQuoteSnapshot;
 
@@ -78,26 +80,42 @@ async function handleQuotes(req, res, polygonKey, twelveKey) {
     const r = resolve(sym);
     if (r.usePolygon) {
       try {
-        let q = await polygon.getTickerSnapshot(polygonKey, r.polygon);
-        // 休市或 Snapshot 无有效价格时：用 last+prev 和 /prev 日线兜底，保证至少显示昨收和当前价
+        const [snapshot, quote, prevBar] = await Promise.all([
+          polygon.getTickerSnapshot(polygonKey, r.polygon),
+          polygon.getQuote(polygonKey, r.polygon),
+          polygon.getPrevDayBar(polygonKey, r.polygon),
+        ]);
+        // 单标的 realtime=1：现价优先使用 last trade，更贴近成交明细；其余字段继续复用 snapshot/day 信息。
+        let q = {
+          ...snapshot,
+          symbol: sym,
+          price: quote?.price > 0
+            ? quote.price
+            : (snapshot?.price > 0 ? snapshot.price : (prevBar?.c || 0)),
+          change: quote?.price > 0
+            ? (quote.change ?? snapshot?.change ?? 0)
+            : (snapshot?.change ?? quote?.change ?? 0),
+          changePercent: quote?.price > 0
+            ? (quote.changePercent ?? snapshot?.changePercent ?? 0)
+            : (snapshot?.changePercent ?? quote?.changePercent ?? 0),
+          prevClose: snapshot?.prevClose ?? (prevBar?.c ?? null),
+          open: snapshot?.open ?? (prevBar?.o ?? null),
+          high: snapshot?.high ?? (prevBar?.h ?? null),
+          low: snapshot?.low ?? (prevBar?.l ?? null),
+          volume: snapshot?.volume ?? (prevBar?.v ?? null),
+        };
         if (!q.price || q.price <= 0) {
-          const [quote, prevBar] = await Promise.all([
-            polygon.getQuote(polygonKey, r.polygon),
-            polygon.getPrevDayBar(polygonKey, r.polygon),
-          ]);
-          if (quote.price > 0 || prevBar?.c) {
-            q = {
-              symbol: sym,
-              price: quote.price || prevBar?.c || 0,
-              change: quote.change ?? 0,
-              changePercent: quote.changePercent ?? 0,
-              prevClose: prevBar?.c ?? (quote.price > 0 ? quote.price - (quote.change ?? 0) : null),
-              open: prevBar?.o ?? null,
-              high: prevBar?.h ?? null,
-              low: prevBar?.l ?? null,
-              volume: prevBar?.v ?? null,
-            };
-          }
+          q = {
+            symbol: sym,
+            price: quote?.price || prevBar?.c || 0,
+            change: quote?.change ?? 0,
+            changePercent: quote?.changePercent ?? 0,
+            prevClose: prevBar?.c ?? (quote?.price > 0 ? quote.price - (quote.change ?? 0) : null),
+            open: prevBar?.o ?? null,
+            high: prevBar?.h ?? null,
+            low: prevBar?.l ?? null,
+            volume: prevBar?.v ?? null,
+          };
         }
         const snap = toQuoteSnapshot({ ...q, symbol: sym });
         quoteStore.setQuotesBatch([{ symbol: sym, payload: snap, priority: 0 }]);
@@ -305,7 +323,8 @@ async function handleCandles(req, res, polygonKey, twelveKey) {
   const cacheKey = hasRange
     ? `candles_${r.polygon || r.twelve}_${interval}_${fromMs}_${toMs}`
     : `candles_${r.polygon || r.twelve}_${interval}`;
-  const cached = getOrStale(cacheKey);
+  // K线必须避免读取长期陈旧的 DB stale 缓存，否则会出现“当前价与图上差很多”的问题。
+  const cached = get(cacheKey);
   if (cached) return res.json(cached);
 
   let list = [];
@@ -336,7 +355,9 @@ async function handleCandles(req, res, polygonKey, twelveKey) {
       list = (bars || []).map((b) => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));
     } catch (_) {}
   }
-  set(cacheKey, list, DEFAULT_TTL_MS.candles);
+  const isIntraday = ['1min', '5min', '15min', '30min', '1h'].includes(interval);
+  const candlesTtlMs = isIntraday ? 15 * 1000 : DEFAULT_TTL_MS.candles;
+  set(cacheKey, list, candlesTtlMs);
   res.json(list);
 }
 
@@ -515,6 +536,57 @@ async function handleTickersFromCache(req, res) {
   }
 }
 
+/** GET /api/tickers-page — 从 stock_quote_cache 按排序字段分页读取（含报价） */
+async function handleTickersPage(req, res) {
+  if (!supabaseQuoteCache.isConfigured()) {
+    return res.status(503).json({ error: 'Supabase 未配置' });
+  }
+  try {
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const pageSize = Math.max(1, Math.min(parseInt(req.query.pageSize, 10) || 30, 200));
+    const sortColumn = String(req.query.sortColumn || 'pct');
+    const sortAscending = req.query.sortAscending === '1' || req.query.sortAscending === 'true';
+    const maxAgeHours = parseInt(req.query.maxAgeHours, 10);
+    const maxAgeMs = Number.isFinite(maxAgeHours) && maxAgeHours > 0
+      ? maxAgeHours * 60 * 60 * 1000
+      : 0;
+    const result = await supabaseQuoteCache.getTickersPageWithQuotes({
+      page,
+      pageSize,
+      sortColumn,
+      sortAscending,
+      maxAgeMs,
+    });
+    const rows = (result.rows || []).map((row) => {
+      const symbol = String(row.symbol || '').toUpperCase();
+      return {
+        symbol,
+        name: row.name || symbol,
+        stock_type: null,
+        is_24h_trading: STOCK_24H_SYMBOLS.has(symbol),
+        close: row.close != null ? Number(row.close) : null,
+        change: row.change != null ? Number(row.change) : null,
+        percent_change: row.percent_change != null ? Number(row.percent_change) : null,
+        open: row.open != null ? Number(row.open) : null,
+        high: row.high != null ? Number(row.high) : null,
+        low: row.low != null ? Number(row.low) : null,
+        volume: row.volume != null ? Number(row.volume) : null,
+        prev_close: row.prev_close != null ? Number(row.prev_close) : null,
+        updated_at: row.updated_at || null,
+      };
+    });
+    return res.json({
+      items: rows,
+      total: result.total || 0,
+      page,
+      pageSize,
+      hasMore: !!result.hasMore,
+    });
+  } catch (e) {
+    return res.status(502).json({ error: String(e.message || e) });
+  }
+}
+
 /** POST /api/tickers-upsert — 批量写入 symbol+name 到 stock_quote_cache（无报价也可，用于预填股票列表） */
 async function handleTickersUpsert(req, res) {
   if (!supabaseQuoteCache.isConfigured()) {
@@ -575,15 +647,57 @@ async function handleForexQuotes(req, res) {
   return res.json(out);
 }
 
+/** GET /api/crypto/pairs?page=1&pageSize=30 — 服务端分页加密货币交易对 */
+async function handleCryptoPairs(req, res) {
+  if (!supabaseCryptoCache.isConfigured()) {
+    return res.status(503).json({ error: 'crypto supabase cache not configured' });
+  }
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const pageSize = Math.max(1, Math.min(parseInt(req.query.pageSize, 10) || 30, 200));
+  const result = await supabaseCryptoCache.getCryptoPairsPage(page, pageSize);
+  return res.json({
+    items: (result.rows || []).map((r) => ({
+      symbol: r.symbol,
+      name: r.name || r.symbol,
+      market: r.market || 'crypto',
+    })),
+    total: result.total || 0,
+    page: result.page || page,
+    pageSize: result.pageSize || pageSize,
+    hasMore: !!result.hasMore,
+  });
+}
+
+/** GET /api/crypto/quotes?symbols=BTC/USD,ETH/USD — 从 Supabase 加密缓存读数据 */
+async function handleCryptoQuotes(req, res) {
+  if (!supabaseCryptoCache.isConfigured()) {
+    return res.status(503).json({ error: 'crypto supabase cache not configured' });
+  }
+  const raw = req.query.symbols;
+  if (!raw || typeof raw !== 'string') {
+    return res.status(400).json({ error: 'missing symbols' });
+  }
+  const symbols = [...new Set(raw.split(',').map((s) => s.trim()).filter(Boolean))];
+  if (symbols.length === 0) return res.json({});
+  if (symbols.length > 100) {
+    return res.status(400).json({ error: 'symbols 最多 100 个' });
+  }
+  const out = await cryptoScheduler.getCryptoQuotesFromCache(symbols);
+  return res.json(out);
+}
+
 function registerRoutes(app, polygonKey, twelveKey, requireAuth) {
   const requireAdminRole = createRequireAdminRole();
   rateLimiter.init(require('./config').POLYGON_RATE_LIMIT_PER_SEC);
   app.get('/api/market/snapshots', handleMarketSnapshotsGet);
   app.put('/api/market/snapshots', requireAuth, requireAdminRole, handleMarketSnapshotsPut);
   app.get('/api/tickers-from-cache', handleTickersFromCache);
+  app.get('/api/tickers-page', handleTickersPage);
   app.post('/api/tickers-upsert', requireAuth, requireAdminRole, handleTickersUpsert);
   app.get('/api/forex/pairs', handleForexPairs);
   app.get('/api/forex/quotes', handleForexQuotes);
+  app.get('/api/crypto/pairs', handleCryptoPairs);
+  app.get('/api/crypto/quotes', handleCryptoQuotes);
   app.get('/api/quotes', (req, res) => handleQuotes(req, res, polygonKey, twelveKey));
   app.get('/api/candles', (req, res) => handleCandles(req, res, polygonKey, twelveKey));
   app.get('/api/gainers', (req, res) => handleGainers(req, res, polygonKey));

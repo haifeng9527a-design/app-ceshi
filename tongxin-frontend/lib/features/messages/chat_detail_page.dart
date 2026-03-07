@@ -34,7 +34,6 @@ import '../../core/role_badge.dart';
 import '../../ui/components/components.dart';
 import '../../api/messages_api.dart';
 import '../../core/api_client.dart';
-import '../../core/supabase_bootstrap.dart';
 import '../../core/user_restrictions.dart';
 import 'friend_models.dart';
 import 'message_models.dart';
@@ -511,25 +510,6 @@ class _ChatDetailPageState extends State<ChatDetailPage>
           }
         }
         return _peerId;
-      }
-      final client = SupabaseBootstrap.clientOrNull;
-      if (client == null) return _peerId;
-      final members = await client
-          .from('chat_members')
-          .select('user_id')
-          .eq('conversation_id', widget.conversation.id);
-      final resolved = members
-          .map((row) => row['user_id'] as String?)
-          .whereType<String>()
-          .firstWhere((id) => id != _userId, orElse: () => '');
-      if (resolved.isNotEmpty) {
-        if (!mounted) {
-          _peerId = resolved;
-        } else {
-          setState(() {
-            _peerId = resolved;
-          });
-        }
       }
     } catch (_) {
       // Ignore peer resolve errors, push will be skipped.
@@ -1154,8 +1134,8 @@ class _ChatDetailPageState extends State<ChatDetailPage>
     int? durationMs,
   }) async {
     final l10n = AppLocalizations.of(context)!;
-    if (!SupabaseBootstrap.isReady) {
-      _showToast(l10n.chatNoSupabaseCannotSendMedia);
+    if (!ApiClient.instance.isAvailable) {
+      _showToast(l10n.messagesApiNotConfigured);
       return;
     }
     // 与文本发送一致：后台限制发消息时禁止发送图片/语音/视频

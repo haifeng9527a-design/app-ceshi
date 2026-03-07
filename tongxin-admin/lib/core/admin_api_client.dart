@@ -56,4 +56,8 @@ class AdminApiClient {
   Future<http.Response> put(String path, {Object? body}) {
     return http.put(_uri(path), headers: _headers(), body: jsonEncode(body ?? const {}));
   }
+
+  Future<http.Response> delete(String path) {
+    return http.delete(_uri(path), headers: _headers());
+  }
 }

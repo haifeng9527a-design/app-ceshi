@@ -10,16 +10,6 @@ class I18nExtra {
         .startsWith('zh');
   }
 
-  static String webViewUserPageTitle(BuildContext context) {
-    return _isZh(context) ? 'WebView 用户信息页' : 'WebView User Info';
-  }
-
-  static String webViewUserPageSubtitle(BuildContext context) {
-    return _isZh(context)
-        ? '通过 WebView 打开并显示当前登录用户信息'
-        : 'Open with WebView and show current user info';
-  }
-
   static String webViewUserPageUrlMissing(BuildContext context) {
     return _isZh(context)
         ? '未配置 WEBVIEW_USER_PAGE_URL'

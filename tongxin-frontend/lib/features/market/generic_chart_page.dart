@@ -1,16 +1,19 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../l10n/app_localizations.dart';
-import 'chart/chart_mode_tabs.dart';
 import 'chart/chart_theme.dart';
 import 'chart/detail_header.dart';
 import 'chart/indicators_panel.dart';
 import 'chart/intraday_chart.dart';
+import 'chart/price_section.dart';
 import 'chart/stats_bar.dart';
 import 'chart/tv_chart_container.dart';
 import 'chart_viewport.dart';
 import 'chart_viewport_controller.dart';
 import 'market_repository.dart';
+import '../trading/twelve_data_realtime_client.dart';
 
 /// 指数/外汇/加密货币详情页切换时的内存缓存（最近 5 只）
 class _GenericDetailCache {
@@ -56,8 +59,21 @@ class GenericChartPage extends StatefulWidget {
 
 class _GenericChartPageState extends State<GenericChartPage>
     with SingleTickerProviderStateMixin {
+  static const List<(String, String)> _chartTabs = <(String, String)>[
+    ('分时', 'line'),
+    ('1分K', '1min'),
+    ('5分', '5min'),
+    ('15分', '15min'),
+    ('30分', '30min'),
+    ('1小时', '1h'),
+    ('日K', '1day'),
+  ];
+
   late TabController _tabController;
   final _market = MarketRepository();
+  final _realtime = TwelveDataRealtimeClient();
+  StreamSubscription<TwelveDataRealtimeQuote>? _realtimeSub;
+  String _realtimeSubscribedSymbol = '';
 
   MarketQuote? _quote;
   List<ChartCandle> _intraday = [];
@@ -70,7 +86,7 @@ class _GenericChartPageState extends State<GenericChartPage>
   bool _showPrevCloseLine = true;
   bool _loading = true;
   String _chartPeriod = '1m';
-  String _klineTimespan = 'day';
+  String _klineInterval = '1min';
   late String _currentSymbol;
   String _currentName = '';
   int _currentIndex = 0;
@@ -79,10 +95,8 @@ class _GenericChartPageState extends State<GenericChartPage>
   String get _effectiveName => widget.symbolList != null ? _currentName : widget.name;
   int get _effectiveIndex => widget.symbolList != null ? _currentIndex : _prevNextIndex;
 
-  static const double _chartMinHeight = 320.0;
   static const double _chartContainerPaddingV = 28.0;
   static const double _intradayChartPaddingV = 16.0;
-  static const double _intradaySummaryRowHeight = 56.0;
   static const double _ratioChart = 220 / 298;
   static const double _ratioVolume = 56 / 298;
   static const double _ratioTimeAxis = 22 / 298;
@@ -101,6 +115,16 @@ class _GenericChartPageState extends State<GenericChartPage>
 
   static String _klineToInterval(String t) {
     switch (t) {
+      case '1min':
+        return '1min';
+      case '5min':
+        return '5min';
+      case '15min':
+        return '15min';
+      case '30min':
+        return '30min';
+      case '1h':
+        return '1h';
       case '5day':
       case 'day': return '1day';
       case 'week': return '1day'; // Twelve Data 可后续扩展 1week
@@ -155,6 +179,7 @@ class _GenericChartPageState extends State<GenericChartPage>
       _currentIndex = newIndex;
       _loading = true;
     });
+    _startRealtimeForCurrentSymbol();
 
     final cached = _genericDetailCache[newSym];
     if (cached != null && (cached.intraday.isNotEmpty || cached.daily.isNotEmpty)) {
@@ -163,7 +188,7 @@ class _GenericChartPageState extends State<GenericChartPage>
         _intraday = List.from(cached.intraday);
         _daily = List.from(cached.daily);
         _chartPeriod = cached.chartPeriod;
-        _klineTimespan = cached.klineTimespan;
+        _klineInterval = cached.klineTimespan;
         _loading = false;
       });
       _dailyController.initFromCandlesLength(_daily.length);
@@ -184,7 +209,7 @@ class _GenericChartPageState extends State<GenericChartPage>
       ..intraday = List.from(_intraday)
       ..daily = List.from(_daily)
       ..chartPeriod = _chartPeriod
-      ..klineTimespan = _klineTimespan;
+      ..klineTimespan = _klineInterval;
     _genericDetailCache[sym] = c;
     _trimGenericCache();
   }
@@ -222,19 +247,193 @@ class _GenericChartPageState extends State<GenericChartPage>
     } else {
       _currentIndex = 0;
     }
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: _chartTabs.length, vsync: this);
     _tabController.addListener(() {
       if (_tabController.indexIsChanging) return;
-      setState(() {});
+      final index = _tabController.index;
+      if (index == 0) {
+        setState(() {});
+        return;
+      }
+      final nextInterval = _chartTabs[index].$2;
+      if (_klineInterval == nextInterval) {
+        setState(() {});
+        return;
+      }
+      setState(() {
+        _klineInterval = nextInterval;
+        _loading = true;
+      });
+      _load().then((_) {
+        if (mounted) setState(() => _loading = false);
+      });
     });
     _dailyController = ChartViewportController(initialVisibleCount: 80, minVisibleCount: 30, maxVisibleCount: 200);
+    _startRealtimeForCurrentSymbol();
     _load();
   }
 
   @override
   void dispose() {
+    _realtimeSub?.cancel();
+    _realtime.dispose();
     _tabController.dispose();
     super.dispose();
+  }
+
+  void _startRealtimeForCurrentSymbol() {
+    if (!_realtime.isAvailable) return;
+    final symbol = _effectiveSymbol.trim().toUpperCase();
+    if (symbol.isEmpty) return;
+    _realtimeSub ??= _realtime.stream.listen(_onRealtimeQuote);
+    _realtime.connect();
+    if (_realtimeSubscribedSymbol == symbol) return;
+    _realtimeSubscribedSymbol = symbol;
+    _realtime.subscribeSymbols({symbol});
+  }
+
+  void _onRealtimeQuote(TwelveDataRealtimeQuote u) {
+    if (!mounted) return;
+    final current = _effectiveSymbol.trim().toUpperCase();
+    if (current.isEmpty || u.symbol.toUpperCase() != current) return;
+    final prev = _quote;
+    final prevClose = prev?.prevClose ??
+        ((prev != null && prev.change != 0) ? (prev.price - prev.change) : null);
+    final change = (prevClose != null && prevClose > 0)
+        ? (u.price - prevClose)
+        : (u.change ?? prev?.change ?? 0);
+    final changePercent = (prevClose != null && prevClose > 0)
+        ? ((change / prevClose) * 100)
+        : (u.percentChange ?? prev?.changePercent ?? 0);
+    final minuteSec = ((DateTime.now().millisecondsSinceEpoch ~/ 60000) * 60).toDouble();
+
+    setState(() {
+      _quote = MarketQuote(
+        symbol: u.symbol,
+        name: prev?.name ?? _effectiveName,
+        price: u.price,
+        change: change,
+        changePercent: changePercent,
+        open: u.open ?? prev?.open,
+        high: u.high ?? (prev?.high != null ? (u.price > prev!.high! ? u.price : prev.high) : u.price),
+        low: u.low ?? (prev?.low != null ? (u.price < prev!.low! ? u.price : prev.low) : u.price),
+        volume: u.volume ?? prev?.volume,
+        prevClose: prevClose,
+      );
+
+      if (_intraday.isEmpty) {
+        _intraday = <ChartCandle>[
+          ChartCandle(
+            time: minuteSec,
+            open: u.price,
+            high: u.price,
+            low: u.price,
+            close: u.price,
+            volume: u.volume,
+          ),
+        ];
+        return;
+      }
+
+      final last = _intraday.last;
+      final lastMinute = (last.time ~/ 60);
+      final nowMinute = (minuteSec ~/ 60);
+      if (lastMinute == nowMinute) {
+        _intraday = <ChartCandle>[
+          ..._intraday.sublist(0, _intraday.length - 1),
+          ChartCandle(
+            time: last.time,
+            open: last.open,
+            high: u.price > last.high ? u.price : last.high,
+            low: u.price < last.low ? u.price : last.low,
+            close: u.price,
+            volume: u.volume ?? last.volume,
+          ),
+        ];
+      } else {
+        _intraday = <ChartCandle>[
+          ..._intraday,
+          ChartCandle(
+            time: minuteSec,
+            open: last.close,
+            high: u.price,
+            low: u.price,
+            close: u.price,
+            volume: u.volume,
+          ),
+        ];
+        if (_intraday.length > 1500) {
+          _intraday = _intraday.sublist(_intraday.length - 1500);
+        }
+      }
+
+      final bucketSizeSec = _klineBucketSeconds(_klineInterval);
+      final bucketStartSec = ((DateTime.now().millisecondsSinceEpoch ~/ 1000) ~/
+              bucketSizeSec) *
+          bucketSizeSec.toDouble();
+      if (_daily.isEmpty) {
+        _daily = <ChartCandle>[
+          ChartCandle(
+            time: bucketStartSec,
+            open: u.price,
+            high: u.price,
+            low: u.price,
+            close: u.price,
+            volume: u.volume,
+          ),
+        ];
+      } else {
+        final lastK = _daily.last;
+        final lastBucket = (lastK.time ~/ bucketSizeSec);
+        final nowBucket = (bucketStartSec ~/ bucketSizeSec);
+        if (lastBucket == nowBucket) {
+          _daily = <ChartCandle>[
+            ..._daily.sublist(0, _daily.length - 1),
+            ChartCandle(
+              time: lastK.time,
+              open: lastK.open,
+              high: u.price > lastK.high ? u.price : lastK.high,
+              low: u.price < lastK.low ? u.price : lastK.low,
+              close: u.price,
+              volume: u.volume ?? lastK.volume,
+            ),
+          ];
+        } else {
+          _daily = <ChartCandle>[
+            ..._daily,
+            ChartCandle(
+              time: bucketStartSec,
+              open: lastK.close,
+              high: u.price,
+              low: u.price,
+              close: u.price,
+              volume: u.volume,
+            ),
+          ];
+          if (_daily.length > 1500) {
+            _daily = _daily.sublist(_daily.length - 1500);
+          }
+        }
+      }
+    });
+  }
+
+  int _klineBucketSeconds(String interval) {
+    switch (interval) {
+      case '1min':
+        return 60;
+      case '5min':
+        return 5 * 60;
+      case '15min':
+        return 15 * 60;
+      case '30min':
+        return 30 * 60;
+      case '1h':
+        return 60 * 60;
+      case '1day':
+      default:
+        return 24 * 60 * 60;
+    }
   }
 
   Future<void> _load() async {
@@ -244,10 +443,18 @@ class _GenericChartPageState extends State<GenericChartPage>
     }
     setState(() => _loading = true);
     final sym = _effectiveSymbol.trim();
-    final q = await _market.getQuote(sym);
+    _startRealtimeForCurrentSymbol();
+    final q = await _market.getQuote(sym, realtime: true);
     final lastDays = _intradayLastDays(_chartPeriod);
-    final intra = await _market.getCandles(sym, _intradayToInterval(_chartPeriod), lastDays: lastDays);
-    final day = await _market.getCandles(sym, _klineToInterval(_klineTimespan));
+    final intra = await _market.getCandles(
+      sym,
+      _intradayToInterval(_chartPeriod),
+      lastDays: lastDays,
+    );
+    final day = await _market.getCandles(
+      sym,
+      _klineToInterval(_klineInterval),
+    );
     if (!mounted) return;
     setState(() {
       _quote = q;
@@ -269,7 +476,7 @@ class _GenericChartPageState extends State<GenericChartPage>
       final beforeLen = _daily.length;
       final list = await _market.getCandlesOlderThan(
         _effectiveSymbol,
-        _klineToInterval(_klineTimespan),
+        _klineToInterval(_klineInterval),
         olderThanMs: earliestTimestampMs,
         limit: 300,
       );
@@ -291,148 +498,142 @@ class _GenericChartPageState extends State<GenericChartPage>
   @override
   Widget build(BuildContext context) {
     final q = _quote;
+    final price = (q != null && !q.hasError) ? q.price : null;
     final changeVal = (q != null && !q.hasError) ? q.change : null;
     final changePercent = (q != null && !q.hasError) ? q.changePercent : null;
+    final prevClose = (q != null && !q.hasError && q.price > 0 && q.change != 0)
+        ? q.price - q.change
+        : q?.prevClose;
+    final turnover = (q != null &&
+            !q.hasError &&
+            q.volume != null &&
+            q.volume! > 0 &&
+            q.price > 0)
+        ? q.volume! * q.price
+        : null;
+    final amplitude =
+        (q != null && !q.hasError && q.high != null && q.low != null && (prevClose ?? 0) > 0)
+            ? (q.high! - q.low!) / prevClose! * 100
+            : null;
 
     return Scaffold(
       backgroundColor: ChartTheme.background,
-      body: Column(
-        children: [
-          DetailHeader(
-            symbol: _effectiveSymbol,
-            name: _effectiveName.isNotEmpty ? _effectiveName : null,
-            onBack: () => Navigator.of(context).maybePop(),
-            onPrev: _prevNextIndex > 0 ? _switchToPrev : null,
-            onNext: _prevNextIndex >= 0 && _prevNextIndex < _symbolListLength - 1 ? _switchToNext : null,
-          ),
-          ChartModeTabs(
-            labels: ChartModeTabs.genericLabels(AppLocalizations.of(context)!),
-            tabIndex: _tabController.index,
-            onTabChanged: (i) => _tabController.animateTo(i),
-            isIntraday: _tabController.index == 0,
-            intradayPeriod: _chartPeriod,
-            klineTimespan: _klineTimespan,
-            onIntradayPeriodChanged: (p) async {
-              if (_chartPeriod == p) return;
-              setState(() => _chartPeriod = p);
-              setState(() => _loading = true);
-              await _load();
-              if (mounted) setState(() => _loading = false);
-            },
-            onKlineTimespanChanged: (t) async {
-              if (_klineTimespan == t) return;
-              setState(() => _klineTimespan = t);
-              setState(() => _loading = true);
-              await _load();
-              if (mounted) setState(() => _loading = false);
-            },
-          ),
-          Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final availableHeight = constraints.maxHeight.clamp(_chartMinHeight, double.infinity);
-                final contentHeight = (availableHeight - _chartContainerPaddingV - _intradayChartPaddingV).clamp(200.0, double.infinity);
-                final contentHeightIntraday = (contentHeight - _intradaySummaryRowHeight).clamp(200.0, double.infinity);
-                final chartHeight = contentHeight * _ratioChart;
-                final volumeHeight = contentHeight * _ratioVolume;
-                final timeAxisHeight = contentHeight * _ratioTimeAxis;
-                final chartHeightIntraday = contentHeightIntraday * _ratioChart;
-                final timeAxisHeightIntraday = contentHeightIntraday * _ratioTimeAxis;
-                final intradayVolumeHeight = contentHeightIntraday * _ratioIntradayVolume;
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final screenH = MediaQuery.sizeOf(context).height;
+            final fixedChartHeight = (screenH * 0.45).clamp(320.0, 420.0);
+            final availableHeight =
+                fixedChartHeight - _chartContainerPaddingV - _intradayChartPaddingV - 8;
+            final contentHeight = availableHeight.clamp(160.0, double.infinity);
+            final contentHeightIntraday =
+                contentHeight.clamp(180.0, double.infinity);
+            final chartHeight = contentHeight * _ratioChart;
+            final volumeHeight = contentHeight * _ratioVolume;
+            final timeAxisHeight = contentHeight * _ratioTimeAxis;
+            final chartHeightIntraday = contentHeightIntraday * _ratioChart;
+            final timeAxisHeightIntraday =
+                contentHeightIntraday * _ratioTimeAxis;
+            final intradayVolumeHeight =
+                contentHeightIntraday * _ratioIntradayVolume;
 
-                Widget chartContent;
-                if (_loading) {
-                  chartContent = Center(
-                    child: Text(AppLocalizations.of(context)!.chartLoading, style: TextStyle(color: ChartTheme.textSecondary, fontSize: 13)),
-                  );
-                } else if (_intraday.isEmpty && _daily.isEmpty) {
-                  chartContent = _buildEmptyStateCard();
-                } else {
-                  chartContent = TabBarView(
-                    controller: _tabController,
-                    children: [
-                      _intraday.isEmpty
-                          ? _buildNoDataHint(true)
-                          : Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                _buildIntradaySummaryRow(),
-                                Expanded(
-                                  child: IntradayChart(
-                                    candles: _intraday,
-                                    prevClose: (q != null && !q.hasError && q.price > 0 && q.change != 0) ? q.price - q.change : null,
-                                    currentPrice: (q != null && !q.hasError) ? q.price : null,
-                                    chartHeight: chartHeightIntraday,
-                                    timeAxisHeight: timeAxisHeightIntraday,
-                                    volumeHeight: intradayVolumeHeight,
-                                    periodLabel: _chartPeriod,
-                                  ),
-                                ),
-                              ],
-                            ),
-                      _daily.isEmpty
-                          ? _buildNoDataHint(false)
-                          : Stack(
-                              children: [
-                                ChartViewport(
-                                  controller: _dailyController,
-                                  candles: _daily,
-                                  onLoadMoreHistory: _loadDailyOlder,
-                                  isLoadingMore: _dailyLoadingMore,
-                                  chartHeight: chartHeight,
-                                  volumeHeight: volumeHeight,
-                                  timeAxisHeight: timeAxisHeight,
-                                  overlayIndicator: _overlayIndicator,
-                                  subChartIndicator: _subChartIndicator,
-                                  showPrevCloseLine: _showPrevCloseLine,
-                                ),
-                                ListenableBuilder(
-                                  listenable: _dailyController,
-                                  builder: (_, __) {
-                                    final atRealtime = _dailyController.isAtRealtime(_daily.length);
-                                    if (atRealtime) return const SizedBox.shrink();
-                                    return Positioned(
-                                      right: 12,
-                                      bottom: 12,
-                                      child: Material(
-                                        color: ChartTheme.cardBackground,
-                                        borderRadius: BorderRadius.circular(ChartTheme.radiusButton),
-                                        child: InkWell(
-                                          onTap: () => _dailyController.goToRealtime(_daily.length),
-                                          borderRadius: BorderRadius.circular(ChartTheme.radiusButton),
-                                          child: Padding(
-                                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                            child: Text(AppLocalizations.of(context)!.chartBackToLatest, style: TextStyle(color: ChartTheme.accentGold, fontSize: 12, fontWeight: FontWeight.w600)),
-                                          ),
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                ),
-                              ],
-                            ),
-                    ],
-                  );
-                }
+            Widget chartContent;
+            if (_loading) {
+              chartContent = Center(
+                child: Text(
+                  AppLocalizations.of(context)!.chartLoading,
+                  style: TextStyle(
+                    color: ChartTheme.textSecondary,
+                    fontSize: 13,
+                  ),
+                ),
+              );
+            } else if (_intraday.isEmpty && _daily.isEmpty) {
+              chartContent = _buildEmptyStateCard();
+            } else if (_tabController.index == 0) {
+              chartContent = _intraday.isEmpty
+                  ? _buildNoDataHint(true)
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _buildIntradaySummaryRow(),
+                        Expanded(
+                          child: IntradayChart(
+                            candles: _intraday,
+                            prevClose: prevClose,
+                            currentPrice: price,
+                            chartHeight: chartHeightIntraday,
+                            timeAxisHeight: timeAxisHeightIntraday,
+                            volumeHeight: intradayVolumeHeight,
+                            periodLabel: '1m',
+                            useSessionMarketHours: false,
+                          ),
+                        ),
+                      ],
+                    );
+            } else {
+              chartContent = _daily.isEmpty
+                  ? _buildNoDataHint(false)
+                  : _buildKlineTab(chartHeight, volumeHeight, timeAxisHeight);
+            }
 
-                return TvChartContainer(
-                  padding: const EdgeInsets.fromLTRB(ChartTheme.innerPadding, 16, ChartTheme.innerPadding, ChartTheme.innerPadding),
-                  child: SizedBox(height: double.infinity, child: chartContent),
-                );
-              },
-            ),
-          ),
-          if (_tabController.index == 1)
-            IndicatorsPanel(
-              overlayIndicator: _overlayIndicator,
-              subChartIndicator: _subChartIndicator,
-              showPrevCloseLine: _showPrevCloseLine,
-              onOverlayChanged: (v) => setState(() => _overlayIndicator = v),
-              onSubChartChanged: (v) => setState(() => _subChartIndicator = v),
-              onShowPrevCloseLineChanged: (v) => setState(() => _showPrevCloseLine = v),
-            ),
-          _buildStatsBar(),
-        ],
+            return SingleChildScrollView(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.paddingOf(context).bottom + 12,
+              ),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: Column(
+                  children: [
+                    DetailHeader(
+                      symbol: _effectiveSymbol,
+                      name: _effectiveName.isNotEmpty ? _effectiveName : null,
+                      onBack: () => Navigator.of(context).maybePop(),
+                      onPrev: _prevNextIndex > 0 ? _switchToPrev : null,
+                      onNext: _prevNextIndex >= 0 &&
+                              _prevNextIndex < _symbolListLength - 1
+                          ? _switchToNext
+                          : null,
+                    ),
+                    PriceSection(
+                      currentPrice: price,
+                      change: changeVal,
+                      changePercent: changePercent,
+                      prevClose: prevClose,
+                      open: q?.open,
+                      high: q?.high,
+                      low: q?.low,
+                      turnover: turnover,
+                      amplitude: amplitude,
+                    ),
+                    _buildGenericModeTabs(),
+                    TvChartContainer(
+                      edgeToEdge: true,
+                      padding: const EdgeInsets.fromLTRB(0, 6, 0, 16),
+                      child: SizedBox(
+                        height: fixedChartHeight,
+                        child: ClipRect(child: chartContent),
+                      ),
+                    ),
+                    if (_tabController.index != 0)
+                      IndicatorsPanel(
+                        overlayIndicator: _overlayIndicator,
+                        subChartIndicator: _subChartIndicator,
+                        showPrevCloseLine: _showPrevCloseLine,
+                        onOverlayChanged: (v) =>
+                            setState(() => _overlayIndicator = v),
+                        onSubChartChanged: (v) =>
+                            setState(() => _subChartIndicator = v),
+                        onShowPrevCloseLineChanged: (v) =>
+                            setState(() => _showPrevCloseLine = v),
+                      ),
+                    _buildStatsBar(),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
       ),
     );
   }
@@ -445,6 +646,113 @@ class _GenericChartPageState extends State<GenericChartPage>
     if (hour < 9 || (hour == 9 && minute < 30)) return l10n.chartPreMarket;
     if (hour > 16 || (hour == 16 && minute > 0)) return l10n.chartClosed;
     return l10n.chartIntraday;
+  }
+
+  Widget _buildGenericModeTabs() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: const BoxDecoration(
+        border: Border(
+          bottom: BorderSide(color: ChartTheme.border, width: 0.5),
+        ),
+      ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: List.generate(_chartTabs.length, (i) {
+            final selected = _tabController.index == i;
+            return GestureDetector(
+              onTap: () => _tabController.animateTo(i),
+              behavior: HitTestBehavior.opaque,
+              child: Container(
+                margin: const EdgeInsets.only(right: 14),
+                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 2),
+                decoration: BoxDecoration(
+                  border: Border(
+                    bottom: BorderSide(
+                      color: selected
+                          ? ChartTheme.tabUnderline
+                          : Colors.transparent,
+                      width: 2,
+                    ),
+                  ),
+                ),
+                child: Text(
+                  _chartTabs[i].$1,
+                  style: TextStyle(
+                    color: selected
+                        ? ChartTheme.textPrimary
+                        : ChartTheme.textSecondary,
+                    fontSize: 14,
+                    fontWeight:
+                        selected ? FontWeight.w600 : FontWeight.w500,
+                  ),
+                ),
+              ),
+            );
+          }),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildKlineTab(
+    double chartHeight,
+    double volumeHeight,
+    double timeAxisHeight,
+  ) {
+    return Stack(
+      children: [
+        ChartViewport(
+          controller: _dailyController,
+          candles: _daily,
+          onLoadMoreHistory: _loadDailyOlder,
+          isLoadingMore: _dailyLoadingMore,
+          chartHeight: chartHeight,
+          volumeHeight: volumeHeight,
+          timeAxisHeight: timeAxisHeight,
+          overlayIndicator: _overlayIndicator,
+          subChartIndicator: _subChartIndicator,
+          showPrevCloseLine: _showPrevCloseLine,
+          prevClose: _showPrevCloseLine ? _quote?.prevClose : null,
+          currentPrice: _showPrevCloseLine ? _quote?.price : null,
+        ),
+        ListenableBuilder(
+          listenable: _dailyController,
+          builder: (_, __) {
+            final atRealtime = _dailyController.isAtRealtime(_daily.length);
+            if (atRealtime) return const SizedBox.shrink();
+            return Positioned(
+              right: 12,
+              bottom: 12,
+              child: Material(
+                color: ChartTheme.cardBackground,
+                borderRadius: BorderRadius.circular(ChartTheme.radiusButton),
+                child: InkWell(
+                  onTap: () => _dailyController.goToRealtime(_daily.length),
+                  borderRadius:
+                      BorderRadius.circular(ChartTheme.radiusButton),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    child: Text(
+                      AppLocalizations.of(context)!.chartBackToLatest,
+                      style: TextStyle(
+                        color: ChartTheme.accentGold,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      ],
+    );
   }
 
   /// 分时图上方摘要行：价 均 涨 涨跌幅 量 额（与股票详情一致，数据一目了然）

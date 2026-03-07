@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import '../../api/teachers_api.dart';
 import '../../core/api_client.dart';
 import '../../core/design/design_tokens.dart';
-import '../../core/supabase_bootstrap.dart';
 import '../../l10n/app_localizations.dart';
 import '../teachers/teacher_models.dart';
 import '../teachers/teacher_public_page.dart';
@@ -23,25 +22,10 @@ class _RankingsPageState extends State<RankingsPage> {
   Stream<List<TeacherProfile>>? _cachedRankingsStream;
 
   Stream<List<TeacherProfile>> _rankingsStream() {
-    if (ApiClient.instance.isAvailable) {
-      return TeachersApi.instance.watchRankings();
-    }
-    final client = SupabaseBootstrap.clientOrNull;
-    if (!SupabaseBootstrap.isReady || client == null) {
+    if (!ApiClient.instance.isAvailable) {
       return Stream.value(<TeacherProfile>[]);
     }
-    return client
-        .from('teacher_profiles')
-        .stream(primaryKey: ['user_id'])
-        .map(
-          (rows) => rows
-              .where(
-                (row) =>
-                    (row['status'] as String? ?? '').toLowerCase() == 'approved',
-              )
-              .map((row) => TeacherProfile.fromMap(row))
-              .toList(),
-        );
+    return TeachersApi.instance.watchRankings();
   }
 
   @override

@@ -102,6 +102,32 @@ async function getForexPairs(apiKey) {
   return out;
 }
 
+/** 获取加密货币交易对列表，返回 [{ symbol, name, market: 'crypto' }] */
+async function getCryptoPairs(apiKey) {
+  const url = `${TWELVE_BASE}/cryptocurrencies?apikey=${apiKey}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
+  if (res.status !== 200) return [];
+  const data = await res.json();
+  if (data?.code != null && data.code !== 200 && data.code !== 0) return [];
+  const rows = Array.isArray(data?.data) ? data.data : [];
+  const out = [];
+  const seen = new Set();
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue;
+    const symbol = String(row.symbol || '').trim();
+    if (!symbol || !symbol.includes('/')) continue;
+    if (seen.has(symbol)) continue;
+    const rowName = String(row.name || '').trim();
+    const base = String(row.currency_base || '').trim();
+    const quote = String(row.currency_quote || '').trim();
+    const name = rowName || ((base && quote) ? `${base}/${quote}` : symbol);
+    out.push({ symbol, name, market: 'crypto' });
+    seen.add(symbol);
+  }
+  out.sort((a, b) => a.symbol.localeCompare(b.symbol));
+  return out;
+}
+
 /** K 线 time_series，返回 [{ t(ms), o, h, l, c, v }] */
 async function getTimeSeries(apiKey, symbol, interval, outputsize = 120) {
   const url = `${TWELVE_BASE}/time_series?symbol=${encodeURIComponent(symbol)}&interval=${interval}&outputsize=${outputsize}&apikey=${apiKey}`;
@@ -110,7 +136,7 @@ async function getTimeSeries(apiKey, symbol, interval, outputsize = 120) {
   const data = await res.json();
   const values = data?.values;
   if (!Array.isArray(values)) return [];
-  return values.map((v) => {
+  const rows = values.map((v) => {
     const dt = v.datetime;
     const ms = dt ? new Date(dt).getTime() : 0;
     return {
@@ -122,6 +148,9 @@ async function getTimeSeries(apiKey, symbol, interval, outputsize = 120) {
       v: parseInt(v.volume, 10) || 0,
     };
   });
+  // Twelve Data 常返回“最新在前”，统一转换为“时间升序”以匹配图表组件习惯（最后一根=最新）。
+  rows.sort((a, b) => a.t - b.t);
+  return rows;
 }
 
-module.exports = { getQuotes, getTimeSeries, getForexPairs };
+module.exports = { getQuotes, getTimeSeries, getForexPairs, getCryptoPairs };

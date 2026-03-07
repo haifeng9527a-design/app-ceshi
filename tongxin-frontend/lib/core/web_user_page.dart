@@ -1,18 +1,18 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 
+import 'app_config_service.dart';
 import 'app_webview_page.dart';
 import 'i18n_extra.dart';
 
-/// WebView 用户信息页地址（.env: WEBVIEW_USER_PAGE_URL）
-String? get webUserPageUrl {
-  final v = dotenv.env['WEBVIEW_USER_PAGE_URL'];
-  return (v != null && v.trim().isNotEmpty) ? v.trim() : null;
+/// WebView 用户交易中心地址（app_config 或 .env: WEBVIEW_USER_PAGE_URL）
+String get webUserPageUrl {
+  return AppConfigService.instance.webviewUserPageUrl?.trim() ?? '';
 }
 
 Future<void> openWebUserPage(BuildContext context) async {
+  await AppConfigService.instance.ensureLoaded();
   final url = webUserPageUrl;
-  if (url == null) {
+  if (url.isEmpty) {
     if (context.mounted) {
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         SnackBar(content: Text(I18nExtra.webViewUserPageUrlMissing(context))),
@@ -35,7 +35,7 @@ Future<void> openWebUserPage(BuildContext context) async {
   await openInAppWebView(
     context,
     url: parsed.toString(),
-    title: I18nExtra.webViewUserPageTitle(context),
+    title: AppConfigService.instance.userTradingCenterMenuTitle,
     allowedHosts: <String>[parsed.host],
   );
 }

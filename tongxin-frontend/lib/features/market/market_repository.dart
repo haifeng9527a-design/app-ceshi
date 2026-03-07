@@ -39,6 +39,12 @@ class SymbolResolver {
     'N225'
   };
 
+  static const _cryptoBases = {
+    'BTC', 'ETH', 'SOL', 'XRP', 'DOGE', 'AVAX', 'BNB', 'ADA', 'DOT',
+    'MATIC', 'LINK', 'LTC', 'TRX', 'ATOM', 'UNI', 'USDT', 'USDC',
+    'DAI', 'BCH', 'ETC', 'XLM', 'FIL', 'APT', 'ARB', 'OP',
+  };
+
   /// 是否已知指数（走 Polygon 时用 I: 前缀，或 Twelve Data 兜底）
   static bool isIndex(String symbol) {
     return _polygonIndices.contains(symbol.trim().toUpperCase());
@@ -47,21 +53,21 @@ class SymbolResolver {
   /// 是否外汇（含 / 或 6 位无斜杠如 EURUSD）
   static bool isFx(String symbol) {
     final s = symbol.trim().toUpperCase();
-    if (s.contains('/')) return s.length >= 7 && s.contains('/');
+    if (s.contains('/')) return s.length >= 7 && s.contains('/') && !isCrypto(s);
     return s.length == 6 && s.runes.every((r) => r >= 0x41 && r <= 0x5A);
   }
 
   /// 是否加密货币（含 / 或常见 crypto 代码）
   static bool isCrypto(String symbol) {
     final s = symbol.trim();
-    if (s.contains('/')) return true;
+    if (s.contains('/')) {
+      final parts = s.toUpperCase().split('/');
+      if (parts.length == 2) {
+        return _cryptoBases.contains(parts[0]) || _cryptoBases.contains(parts[1]);
+      }
+    }
     final u = s.toUpperCase();
-    return u == 'BTC' ||
-        u == 'ETH' ||
-        u == 'SOL' ||
-        u == 'XRP' ||
-        u == 'DOGE' ||
-        u == 'AVAX' ||
+    return _cryptoBases.contains(u) ||
         (u.endsWith('USD') && u.length >= 6);
   }
 
@@ -150,12 +156,13 @@ class MarketRepository {
   late final PolygonRepository _polygon;
   final TwelveDataRepository _twelve;
   final BackendMarketClient? _backend;
-  // 业务要求：行情数据（搜索/报价/K线）直连第三方，不走后端 /api 代理。
-  static const bool _directThirdPartyOnly = true;
+  // 当前需求：统一走后端 API 代理，不在端上直连第三方。
+  static const bool _directThirdPartyOnly = false;
 
   bool get polygonAvailable => useBackend || _polygon.isAvailable;
   bool get twelveDataAvailable => useBackend || _twelve.isAvailable;
   bool get forexBackendAvailable => _backend != null;
+  bool get cryptoBackendAvailable => _backend != null;
 
   /// 是否使用后端代理（有 TONGXIN_API_URL 时 K 线等优先走后端）
   bool get useBackend => !_directThirdPartyOnly && _backend != null;
@@ -256,6 +263,71 @@ class MarketRepository {
     } catch (_) {}
     return out;
   }
+
+  Future<List<MarketSearchResult>> searchStocks(String query) async {
+    final q = query.trim();
+    if (q.isEmpty) return [];
+    if (useBackend) {
+      final backendList = await _backend!.search(q);
+      return backendList
+          .where((item) => isStockMarket(item.market))
+          .toList(growable: false);
+    }
+    final list = await _polygon.searchTickers(q, limit: 50);
+    return list
+        .map((r) => MarketSearchResult(
+              symbol: r.ticker,
+              name: r.name,
+              market: r.market ?? 'stocks',
+              stockType: r.type,
+              is24HourTrading: _is24hStock(
+                symbol: r.ticker,
+                name: r.name,
+                type: r.type,
+                primaryExchange: r.primaryExchange,
+              ),
+            ))
+        .toList(growable: false);
+  }
+
+  Future<List<MarketSearchResult>> searchForexPairs(String query) async {
+    final q = query.trim().toLowerCase();
+    if (q.isEmpty) return [];
+    final all = await getAllForexPairs();
+    return all.where((item) {
+      return item.symbol.toLowerCase().contains(q) ||
+          item.name.toLowerCase().contains(q);
+    }).toList(growable: false);
+  }
+
+  Future<List<MarketSearchResult>> searchCryptoPairs(String query) async {
+    final q = query.trim().toLowerCase();
+    if (q.isEmpty) return [];
+    final all = await getAllCryptoPairs();
+    return all.where((item) {
+      return item.symbol.toLowerCase().contains(q) ||
+          item.name.toLowerCase().contains(q);
+    }).toList(growable: false);
+  }
+
+  static String normalizeMarket(String? market) {
+    final m = (market ?? '').trim().toLowerCase();
+    if (m == 'stocks' || m == 'stock') return 'stocks';
+    if (m == 'fx' || m == 'forex') return 'forex';
+    if (m == 'crypto' || m == 'cryptocurrency') return 'crypto';
+    if (m == 'indices' || m == 'index') return 'indices';
+    return m;
+  }
+
+  static bool isStockMarket(String? market) =>
+      normalizeMarket(market) == 'stocks' ||
+      normalizeMarket(market) == 'indices';
+
+  static bool isForexMarket(String? market) =>
+      normalizeMarket(market) == 'forex';
+
+  static bool isCryptoMarket(String? market) =>
+      normalizeMarket(market) == 'crypto';
 
   // ---------- 报价 ----------
 
@@ -410,6 +482,7 @@ class MarketRepository {
     final out = <String, MarketQuote>{};
     final twelveRequest = <String>[];
     final fxSymbols = <String>[];
+    final stockSymbols = <String>[];
     for (final s in symbols) {
       final sym = s.trim();
       if (sym.isEmpty) continue;
@@ -427,7 +500,45 @@ class MarketRepository {
         _quoteDebugLog(sym, 'result', 'hasError=true errorReason=无法解析 symbol');
         continue;
       }
+      if (r.usePolygon && SymbolResolver.isUsStock(sym)) {
+        stockSymbols.add(sym);
+      }
       if (r.useTwelve) twelveRequest.add(r.twelve);
+    }
+
+    // 美股优先批量拉取，避免逐只请求造成启动阶段“慢慢显示”。
+    if (stockSymbols.isNotEmpty && _polygon.isAvailable) {
+      try {
+        final batch = await _polygon.getBatchSnapshots(stockSymbols);
+        for (final s in stockSymbols) {
+          final g = batch[s.toUpperCase()];
+          if (g == null) continue;
+          final price = g.price ?? (g.prevClose ?? 0);
+          if (price <= 0) continue;
+          final prevClose = g.prevClose;
+          final change = (prevClose != null && prevClose > 0)
+              ? (price - prevClose)
+              : g.todaysChange;
+          final changePercent = (prevClose != null && prevClose > 0)
+              ? (change / prevClose * 100)
+              : g.todaysChangePerc;
+          out[s] = MarketQuote(
+            symbol: s,
+            name: null,
+            price: price,
+            change: change,
+            changePercent: changePercent,
+            prevClose: prevClose,
+            open: g.dayOpen,
+            high: g.dayHigh,
+            low: g.dayLow,
+            volume: g.dayVolume,
+          );
+          _quoteDebugLog(s, 'PolygonBatch', 'ok');
+        }
+      } catch (e) {
+        if (kDebugMode) debugPrint('[Quote batch] Polygon batch exception: $e');
+      }
     }
     if (fxSymbols.isNotEmpty) {
       if (_backend != null) {
@@ -856,6 +967,24 @@ class MarketRepository {
     return list;
   }
 
+  /// 仅后端模式：从 stock_quote_cache 按排序字段分页读取（含报价）
+  Future<BackendStockTickersPage> getStockTickersPageFromServer({
+    required int page,
+    required int pageSize,
+    required String sortColumn,
+    required bool sortAscending,
+  }) async {
+    if (_backend == null) {
+      return BackendStockTickersPage.empty(page: page, pageSize: pageSize);
+    }
+    return _backend!.getStockTickersPage(
+      page: page,
+      pageSize: pageSize,
+      sortColumn: sortColumn,
+      sortAscending: sortAscending,
+    );
+  }
+
   static const _bundledTickersAsset = 'assets/us_tickers_fallback.json';
 
   /// 从应用内置资源读取美股列表（S&P 500），用于首次进入无缓存时的秒开
@@ -982,6 +1111,19 @@ class MarketRepository {
 
   /// 获取全部加密货币交易对（symbol + name）
   Future<List<MarketSearchResult>> getAllCryptoPairs() async {
+    if (_backend != null) {
+      const pageSize = 240;
+      var page = 1;
+      final all = <MarketSearchResult>[];
+      while (true) {
+        final chunk = await _backend!.getCryptoPairsPage(page: page, pageSize: pageSize);
+        if (chunk.items.isEmpty) break;
+        all.addAll(chunk.items);
+        if (!chunk.hasMore) break;
+        page += 1;
+      }
+      return all;
+    }
     final list = await _twelve.getCryptoPairs();
     return list
         .map((e) => MarketSearchResult(
@@ -990,6 +1132,29 @@ class MarketRepository {
               market: 'crypto',
             ))
         .toList();
+  }
+
+  Future<BackendCryptoPairsPage> getCryptoPairsPage({
+    required int page,
+    int pageSize = 30,
+  }) async {
+    if (_backend != null) {
+      return _backend!.getCryptoPairsPage(page: page, pageSize: pageSize);
+    }
+    return BackendCryptoPairsPage(
+      items: const [],
+      total: 0,
+      page: page < 1 ? 1 : page,
+      pageSize: pageSize <= 0 ? 30 : pageSize,
+      hasMore: false,
+    );
+  }
+
+  Future<Map<String, MarketQuote>> getCryptoQuotesBySymbols(
+      List<String> symbols) async {
+    if (symbols.isEmpty) return {};
+    if (_backend != null) return _backend!.getCryptoQuotes(symbols);
+    return getQuotes(symbols);
   }
 
   /// 将股票列表同步到服务器 stock_quote_cache（存在则更新，不存在则新增）

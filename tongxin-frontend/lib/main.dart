@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import 'app.dart';
+import 'core/app_config_service.dart';
 import 'core/locale_provider.dart';
 import 'features/messages/group_join_link_handler.dart';
 import 'core/firebase_bootstrap.dart';
@@ -43,6 +44,7 @@ Future<void> main() async {
     }
   }
   await LocaleProvider.init();
+  AppConfigService.instance.fetchAndCache();
   runApp(const TeacherHubApp());
   if (!kIsWeb) {
     initGroupJoinLinkHandler();

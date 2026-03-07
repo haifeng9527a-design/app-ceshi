@@ -23,7 +23,7 @@ import '../../ui/components/components.dart';
 import '../../core/role_badge.dart';
 import '../../core/notification_settings_guide.dart';
 import '../../core/notification_service.dart';
-import '../../core/i18n_extra.dart';
+import '../../core/app_config_service.dart';
 import '../../core/user_restrictions.dart';
 import '../../core/web_user_page.dart';
 import '../home/featured_teacher_page.dart';
@@ -368,7 +368,7 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
     required Widget leading,
     required String title,
     String? subtitle,
-    required VoidCallback onTap,
+    VoidCallback? onTap,
     Color? titleColor,
   }) {
     return AppCard(
@@ -808,11 +808,30 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
           subtitle: AppLocalizations.of(context)!.profilePrivacyPolicySubtitle,
           onTap: () => _showPrivacyPolicy(context),
         ),
-        _buildMenuItemCard(
-          leading: const Icon(Icons.web),
-          title: I18nExtra.webViewUserPageTitle(context),
-          subtitle: I18nExtra.webViewUserPageSubtitle(context),
-          onTap: () => openWebUserPage(context),
+        FutureBuilder<bool>(
+          future: AppConfigService.instance.isUserTradingCenterMenuEnabled(),
+          builder: (context, snap) {
+            final data = snap.data;
+            if (data == null) return const SizedBox.shrink();
+            final config = AppConfigService.instance;
+            if (data) {
+              return _buildMenuItemCard(
+                leading: const Icon(Icons.account_balance_wallet_outlined),
+                title: config.userTradingCenterMenuTitle,
+                subtitle: config.userTradingCenterMenuSubtitle,
+                onTap: () => openWebUserPage(context),
+              );
+            }
+            final url = config.webviewUserPageUrl ?? '';
+            final subtitle = config.userTradingCenterHiddenMenuSubtitle +
+                (url.isNotEmpty ? '\n链接：$url' : '');
+            return _buildMenuItemCard(
+              leading: Icon(Icons.account_balance_wallet_outlined, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5)),
+              title: config.userTradingCenterHiddenMenuTitle,
+              subtitle: subtitle,
+              onTap: null,
+            );
+          },
         ),
         _buildMenuItemCard(
           leading: const Icon(Icons.flag_outlined),
