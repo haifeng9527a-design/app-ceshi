@@ -54,7 +54,7 @@ class ChatWebSocketService {
     if (token == null || token.isEmpty) return;
 
     final uri = Uri.parse('$base/ws/chat?token=$token');
-    if (kDebugMode) debugPrint('[ChatWs] connecting to $base/ws/chat');
+    if (kDebugMode) debugPrint('[ChatWs] 正在连接 $base/ws/chat');
     try {
       _channel?.sink.close();
       _subscription?.cancel();
@@ -69,20 +69,18 @@ class ChatWebSocketService {
           _scheduleReconnect();
         },
         onDone: () {
-          if (kDebugMode) debugPrint('[ChatWs] connection closed');
+          if (kDebugMode) debugPrint('[ChatWs] 连接断开');
           _channel = null;
           _subscription = null;
           if (!_disposed) _scheduleReconnect();
         },
         cancelOnError: false,
       );
-      if (kDebugMode) debugPrint('[ChatWs] connected');
+      if (kDebugMode) debugPrint('[ChatWs] 连接成功 uid=${user.uid.length > 12 ? user.uid.substring(0, 12) : user.uid}');
       // 重连后重新订阅
-      if (_subscribedIds.isNotEmpty) {
-        _sendSubscribe();
-      }
+      if (_subscribedIds.isNotEmpty) _sendSubscribe();
     } catch (e) {
-      if (kDebugMode) debugPrint('[ChatWs] connect failed: $e');
+      if (kDebugMode) debugPrint('[ChatWs] 连接失败: $e');
       _scheduleReconnect();
     }
   }
@@ -91,7 +89,7 @@ class ChatWebSocketService {
     if (_disposed || _reconnectTimer != null) return;
     _reconnectAttempts++;
     final delayMs = (_reconnectAttempts * 2 * 1000).clamp(2000, _maxReconnectDelayMs);
-    if (kDebugMode) debugPrint('[ChatWs] reconnect in ${delayMs}ms (attempt $_reconnectAttempts)');
+    if (kDebugMode) debugPrint('[ChatWs] ${delayMs}ms 后重连 (第 $_reconnectAttempts 次)');
     _reconnectTimer = Timer(Duration(milliseconds: delayMs), () {
       _reconnectTimer = null;
       connect();
@@ -108,10 +106,16 @@ class ChatWebSocketService {
       if (type == 'new_message') {
         final msg = decoded['message'];
         if (msg is Map) {
-          _handleNewMessage(Map<String, dynamic>.from(msg));
+          final m = Map<String, dynamic>.from(msg);
+          final convId = (m['conversation_id'] ?? '').toString();
+          final sender = (m['sender_id'] ?? '').toString();
+          final content = (m['content'] ?? '').toString();
+          final preview = content.length > 20 ? '${content.substring(0, 20)}...' : content;
+          if (kDebugMode) debugPrint('[ChatWs] 收到新消息 conv=${convId.length > 8 ? convId.substring(0, 8) : convId} sender=${sender.length > 12 ? sender.substring(0, 12) : sender} content=$preview');
+          _handleNewMessage(m); // 不 await，避免阻塞
         }
       } else if (type == 'error') {
-        if (kDebugMode) debugPrint('[ChatWs] server error: ${decoded['error']}');
+        if (kDebugMode) debugPrint('[ChatWs] 服务端错误: ${decoded['error']}');
       }
     } catch (e) {
       if (kDebugMode) debugPrint('[ChatWs] parse error: $e');
@@ -128,13 +132,25 @@ class ChatWebSocketService {
     }
   }
 
-  void _handleNewMessage(Map<String, dynamic> row) {
+  Future<void> _handleNewMessage(Map<String, dynamic> row) async {
     final convId = row['conversation_id'] as String?;
     final uid = _currentUserId;
     if (convId == null || uid == null) return;
     try {
+      final senderId = row['sender_id'] as String? ?? '';
+      // 若是自己发的，先删除本地临时消息，避免重复显示
+      if (senderId == uid) {
+        await ChatDb.instance.deleteLocalMessageMatch(
+          conversationId: convId,
+          currentUserId: uid,
+          senderId: senderId,
+          content: row['content'] as String? ?? '',
+          messageType: row['message_type'] as String? ?? 'text',
+          mediaUrl: row['media_url'] as String?,
+        );
+      }
       final msg = ChatMessage.fromSupabase(row: row, currentUserId: uid);
-      ChatDb.instance.upsertMessages(
+      await ChatDb.instance.upsertMessages(
         conversationId: convId,
         currentUserId: uid,
         list: [msg],
@@ -160,14 +176,18 @@ class ChatWebSocketService {
         'type': 'subscribe',
         'conversation_ids': _subscribedIds.toList(),
       }));
+      if (kDebugMode) debugPrint('[ChatWs] 已订阅 ${_subscribedIds.length} 个会话');
     } catch (e) {
       if (kDebugMode) debugPrint('[ChatWs] sendSubscribe error: $e');
     }
   }
 
   /// 通过 WebSocket 发送消息（连接时优先用 WS，否则回退 HTTP）
+  /// 发送成功立即写入本地数据库，不等待服务器返回
   Future<String?> sendMessage({
     required String conversationId,
+    required String senderId,
+    required String senderName,
     required String content,
     String messageType = 'text',
     String? mediaUrl,
@@ -190,7 +210,34 @@ class ChatWebSocketService {
         if (mediaUrl != null) map['media_url'] = mediaUrl;
         if (durationMs != null) map['duration_ms'] = durationMs;
         _channel!.sink.add(_encode(map));
-        return null; // WS 发送无同步返回 id，由 new_message 推送
+        if (kDebugMode) {
+          final preview = content.length > 20 ? '${content.substring(0, 20)}...' : content;
+          final convPreview = conversationId.length > 8 ? conversationId.substring(0, 8) : conversationId;
+          debugPrint('[ChatWs] 已发送 conv=$convPreview type=$messageType content=$preview');
+        }
+
+        // 发送成功立即写入本地数据库，不等待服务器返回
+        final localId = 'local-${DateTime.now().microsecondsSinceEpoch}';
+        final msg = ChatMessage(
+          id: localId,
+          senderId: senderId,
+          senderName: senderName,
+          content: content,
+          messageType: messageType,
+          time: DateTime.now(),
+          isMine: true,
+          mediaUrl: mediaUrl,
+          durationMs: durationMs,
+          replyToMessageId: replyToMessageId,
+          replyToSenderName: replyToSenderName,
+          replyToContent: replyToContent,
+        );
+        await ChatDb.instance.upsertMessages(
+          conversationId: conversationId,
+          currentUserId: senderId,
+          list: [msg],
+        );
+        return null;
       } catch (e) {
         if (kDebugMode) debugPrint('[ChatWs] send error: $e');
         return null;

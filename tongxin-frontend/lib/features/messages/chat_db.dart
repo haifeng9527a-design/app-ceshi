@@ -183,6 +183,29 @@ class ChatDb {
     );
   }
 
+  /// 删除本地临时消息（id 以 local- 开头）中与给定内容匹配的，用于收到服务端 new_message 时替换
+  Future<void> deleteLocalMessageMatch({
+    required String conversationId,
+    required String currentUserId,
+    required String senderId,
+    required String content,
+    required String messageType,
+    String? mediaUrl,
+  }) async {
+    if (conversationId.isEmpty || currentUserId.isEmpty) return;
+    final db = await _getDb();
+    final args = <dynamic>[conversationId, currentUserId, 'local-%', senderId, content, messageType];
+    String where = 'conversation_id = ? AND current_user_id = ? AND id LIKE ? AND sender_id = ? AND content = ? AND message_type = ?';
+    if (mediaUrl != null && mediaUrl.isNotEmpty) {
+      where += ' AND media_url = ?';
+      args.add(mediaUrl);
+    } else {
+      where += ' AND (media_url IS NULL OR media_url = \'\')';
+    }
+    await db.delete('messages', where: where, whereArgs: args);
+    _notifyMessages(conversationId, currentUserId);
+  }
+
   /// 更新会话（如最后一条消息、未读数变化）
   Future<void> updateConversation(String userId, Conversation c) async {
     await upsertConversations(userId, [c]);

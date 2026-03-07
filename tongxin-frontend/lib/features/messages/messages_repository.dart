@@ -138,6 +138,8 @@ class MessagesRepository {
     if (ChatWebSocketService.instance.isConnected) {
       await ChatWebSocketService.instance.sendMessage(
         conversationId: conversationId,
+        senderId: senderId,
+        senderName: senderName,
         content: content,
         messageType: messageType,
         mediaUrl: mediaUrl,

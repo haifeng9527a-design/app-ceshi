@@ -81,12 +81,14 @@ function createChatWsServer(httpServer) {
     if (url.pathname !== '/ws/chat') return;
     const token = url.searchParams.get('token')?.trim();
     if (!token) {
+      console.log('[chatWs] 连接拒绝: 缺少 token');
       socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
       socket.destroy();
       return;
     }
     verifyToken(token).then((uid) => {
       if (!uid) {
+        console.log('[chatWs] 连接拒绝: token 无效');
         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
         socket.destroy();
         return;
@@ -104,16 +106,29 @@ function createChatWsServer(httpServer) {
 
   wss.on('connection', (ws, req) => {
     const uid = ws.userId;
-    console.log(`[chatWs] client connected uid=${uid?.slice(0, 12)}`);
+    console.log(`[chatWs] 连接成功 uid=${uid?.slice(0, 12)}`);
+
+    ws.on('close', () => {
+      console.log(`[chatWs] 连接断开 uid=${uid?.slice(0, 12)}`);
+      unsubscribeClient(ws);
+    });
+
+    ws.on('error', () => {
+      unsubscribeClient(ws);
+    });
 
     ws.on('message', async (data) => {
       try {
         const msg = JSON.parse(data.toString());
         const type = msg?.type;
         if (type === 'subscribe') {
-          subscribeClient(ws, msg.conversation_ids);
+          const ids = msg.conversation_ids || [];
+          console.log(`[chatWs] 收到订阅 uid=${uid?.slice(0, 12)} conversation_ids=[${ids.slice(0, 3).join(',')}${ids.length > 3 ? '...' : ''}]`);
+          subscribeClient(ws, ids);
         } else if (type === 'send') {
           const { conversation_id, content, message_type, media_url, duration_ms, reply_to_message_id, reply_to_sender_name, reply_to_content } = msg;
+          const contentPreview = typeof content === 'string' ? (content.length > 30 ? content.slice(0, 30) + '...' : content) : String(content).slice(0, 30);
+          console.log(`[chatWs] 收到发送 uid=${uid?.slice(0, 12)} conv=${conversation_id?.slice(0, 8)} type=${message_type || 'text'} content=${contentPreview}`);
           if (!conversation_id || content === undefined) {
             ws.send(JSON.stringify({ type: 'error', error: 'missing conversation_id or content' }));
             return;
@@ -148,9 +163,11 @@ function createChatWsServer(httpServer) {
           };
           const { data: inserted, error } = await sb.from('chat_messages').insert(row).select('*').single();
           if (error) {
+            console.log(`[chatWs] 发送失败 uid=${uid?.slice(0, 12)} conv=${conversation_id?.slice(0, 8)} error=${error.message}`);
             ws.send(JSON.stringify({ type: 'error', error: error.message }));
             return;
           }
+          console.log(`[chatWs] 发送成功 uid=${uid?.slice(0, 12)} conv=${conversation_id?.slice(0, 8)} msgId=${inserted?.id?.slice(0, 8)}`);
           broadcastToConversation(conversation_id, { type: 'new_message', message: inserted });
         }
       } catch (e) {
@@ -160,13 +177,6 @@ function createChatWsServer(httpServer) {
       }
     });
 
-    ws.on('close', () => {
-      unsubscribeClient(ws);
-    });
-
-    ws.on('error', () => {
-      unsubscribeClient(ws);
-    });
   });
 
   // Supabase Realtime：监听 chat_messages 新插入，推送给订阅了该会话的客户端
@@ -174,6 +184,8 @@ function createChatWsServer(httpServer) {
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages' }, (payload) => {
       const record = payload?.new;
       if (!record?.conversation_id) return;
+      const contentPreview = (record.content || '').toString().slice(0, 20);
+      console.log(`[chatWs] Realtime 新消息 conv=${record.conversation_id?.slice(0, 8)} sender=${record.sender_id?.slice(0, 12)} content=${contentPreview}`);
       broadcastToConversation(record.conversation_id, { type: 'new_message', message: record });
     })
     .subscribe((status) => {
