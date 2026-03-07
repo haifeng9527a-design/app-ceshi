@@ -26,7 +26,14 @@ class ChatSyncService {
         peerId: c['peer_id'] as String?,
       )).toList();
       await ChatDb.instance.upsertConversations(userId, conversations);
-      ChatWebSocketService.instance.subscribe(conversations.map((c) => c.id).toList());
+      final currentIds = ChatWebSocketService.instance.subscribedConversationIds;
+      final missingIds = conversations
+          .map((c) => c.id)
+          .where((id) => id.isNotEmpty && !currentIds.contains(id))
+          .toList();
+      if (missingIds.isNotEmpty) {
+        ChatWebSocketService.instance.subscribe(missingIds);
+      }
     } catch (_) {
       // 静默失败，本地数据仍可用
     }

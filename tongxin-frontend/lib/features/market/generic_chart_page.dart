@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../core/chat_web_socket_service.dart';
 import '../../l10n/app_localizations.dart';
 import 'chart/chart_theme.dart';
 import 'chart/detail_header.dart';
@@ -13,7 +14,6 @@ import 'chart/tv_chart_container.dart';
 import 'chart_viewport.dart';
 import 'chart_viewport_controller.dart';
 import 'market_repository.dart';
-import '../trading/twelve_data_realtime_client.dart';
 
 /// 指数/外汇/加密货币详情页切换时的内存缓存（最近 5 只）
 class _GenericDetailCache {
@@ -71,8 +71,7 @@ class _GenericChartPageState extends State<GenericChartPage>
 
   late TabController _tabController;
   final _market = MarketRepository();
-  final _realtime = TwelveDataRealtimeClient();
-  StreamSubscription<TwelveDataRealtimeQuote>? _realtimeSub;
+  StreamSubscription<MarketQuoteUpdate>? _realtimeSub;
   String _realtimeSubscribedSymbol = '';
 
   MarketQuote? _quote;
@@ -276,23 +275,22 @@ class _GenericChartPageState extends State<GenericChartPage>
   @override
   void dispose() {
     _realtimeSub?.cancel();
-    _realtime.dispose();
     _tabController.dispose();
     super.dispose();
   }
 
   void _startRealtimeForCurrentSymbol() {
-    if (!_realtime.isAvailable) return;
+    if (!ChatWebSocketService.instance.isConnected) return;
     final symbol = _effectiveSymbol.trim().toUpperCase();
     if (symbol.isEmpty) return;
-    _realtimeSub ??= _realtime.stream.listen(_onRealtimeQuote);
-    _realtime.connect();
     if (_realtimeSubscribedSymbol == symbol) return;
+    _realtimeSub?.cancel();
     _realtimeSubscribedSymbol = symbol;
-    _realtime.subscribeSymbols({symbol});
+    ChatWebSocketService.instance.subscribeMarket([symbol]);
+    _realtimeSub = ChatWebSocketService.instance.marketQuoteStream.listen(_onRealtimeQuote);
   }
 
-  void _onRealtimeQuote(TwelveDataRealtimeQuote u) {
+  void _onRealtimeQuote(MarketQuoteUpdate u) {
     if (!mounted) return;
     final current = _effectiveSymbol.trim().toUpperCase();
     if (current.isEmpty || u.symbol.toUpperCase() != current) return;
@@ -306,18 +304,21 @@ class _GenericChartPageState extends State<GenericChartPage>
         ? ((change / prevClose) * 100)
         : (u.percentChange ?? prev?.changePercent ?? 0);
     final minuteSec = ((DateTime.now().millisecondsSinceEpoch ~/ 60000) * 60).toDouble();
+    final price = u.price;
+    final high = prev?.high != null ? (price > prev!.high! ? price : prev.high) : price;
+    final low = prev?.low != null ? (price < prev!.low! ? price : prev.low) : price;
 
     setState(() {
       _quote = MarketQuote(
         symbol: u.symbol,
         name: prev?.name ?? _effectiveName,
-        price: u.price,
+        price: price,
         change: change,
         changePercent: changePercent,
-        open: u.open ?? prev?.open,
-        high: u.high ?? (prev?.high != null ? (u.price > prev!.high! ? u.price : prev.high) : u.price),
-        low: u.low ?? (prev?.low != null ? (u.price < prev!.low! ? u.price : prev.low) : u.price),
-        volume: u.volume ?? prev?.volume,
+        open: prev?.open,
+        high: high,
+        low: low,
+        volume: prev?.volume,
         prevClose: prevClose,
       );
 
@@ -325,11 +326,11 @@ class _GenericChartPageState extends State<GenericChartPage>
         _intraday = <ChartCandle>[
           ChartCandle(
             time: minuteSec,
-            open: u.price,
-            high: u.price,
-            low: u.price,
-            close: u.price,
-            volume: u.volume,
+            open: price,
+            high: price,
+            low: price,
+            close: price,
+            volume: prev?.volume,
           ),
         ];
         return;
@@ -344,10 +345,10 @@ class _GenericChartPageState extends State<GenericChartPage>
           ChartCandle(
             time: last.time,
             open: last.open,
-            high: u.price > last.high ? u.price : last.high,
-            low: u.price < last.low ? u.price : last.low,
-            close: u.price,
-            volume: u.volume ?? last.volume,
+            high: price > last.high ? price : last.high,
+            low: price < last.low ? price : last.low,
+            close: price,
+            volume: last.volume,
           ),
         ];
       } else {
@@ -356,10 +357,10 @@ class _GenericChartPageState extends State<GenericChartPage>
           ChartCandle(
             time: minuteSec,
             open: last.close,
-            high: u.price,
-            low: u.price,
-            close: u.price,
-            volume: u.volume,
+            high: price,
+            low: price,
+            close: price,
+            volume: null,
           ),
         ];
         if (_intraday.length > 1500) {
@@ -375,11 +376,11 @@ class _GenericChartPageState extends State<GenericChartPage>
         _daily = <ChartCandle>[
           ChartCandle(
             time: bucketStartSec,
-            open: u.price,
-            high: u.price,
-            low: u.price,
-            close: u.price,
-            volume: u.volume,
+            open: price,
+            high: price,
+            low: price,
+            close: price,
+            volume: prev?.volume,
           ),
         ];
       } else {
@@ -392,10 +393,10 @@ class _GenericChartPageState extends State<GenericChartPage>
             ChartCandle(
               time: lastK.time,
               open: lastK.open,
-              high: u.price > lastK.high ? u.price : lastK.high,
-              low: u.price < lastK.low ? u.price : lastK.low,
-              close: u.price,
-              volume: u.volume ?? lastK.volume,
+              high: price > lastK.high ? price : lastK.high,
+              low: price < lastK.low ? price : lastK.low,
+              close: price,
+              volume: lastK.volume,
             ),
           ];
         } else {
@@ -404,10 +405,10 @@ class _GenericChartPageState extends State<GenericChartPage>
             ChartCandle(
               time: bucketStartSec,
               open: lastK.close,
-              high: u.price,
-              low: u.price,
-              close: u.price,
-              volume: u.volume,
+              high: price,
+              low: price,
+              close: price,
+              volume: null,
             ),
           ];
           if (_daily.length > 1500) {

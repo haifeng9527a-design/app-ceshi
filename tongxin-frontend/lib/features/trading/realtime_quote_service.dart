@@ -1,19 +1,18 @@
 import 'dart:async';
 
-import 'package:flutter_dotenv/flutter_dotenv.dart';
-
+import '../../core/chat_web_socket_service.dart';
 import '../market/market_repository.dart';
-import 'backend_realtime_client.dart';
+import 'polygon_realtime.dart';
 
 /// 将 WebSocket 成交推送合并进涨跌榜/报价，实现实时价更新
-/// 首次加载仍用 REST，后续由 WebSocket 推送更新
-/// 优先直连 Polygon 官方 WebSocket（wss://socket.polygon.io/stocks），无 API Key 时走后端代理
+/// 通过 chat WebSocket 复用连接接收行情（后端 ingestors 推送），不再直连 Polygon/BackendRealtimeClient
 class RealtimeQuoteService {
   RealtimeQuoteService();
 
-  PolygonRealtimeMulti? _realtime;
-  BackendRealtimeClient? _backendRealtime;
-  StreamSubscription<PolygonTradeUpdate>? _sub;
+  /// 是否启用 WebSocket 行情订阅，通过 chat WebSocket 接收
+  static const bool _useRealtimeWebSocket = true;
+
+  StreamSubscription<dynamic>? _sub;
   final _gainersController = StreamController<List<PolygonGainer>>.broadcast();
   final _losersController = StreamController<List<PolygonGainer>>.broadcast();
   final _quotesController = StreamController<Map<String, MarketQuote>>.broadcast();
@@ -28,13 +27,6 @@ class RealtimeQuoteService {
 
   /// 报价 Map 实时流（合并 WebSocket 更新）
   Stream<Map<String, MarketQuote>> get quotesStream => _quotesController.stream;
-
-  String? get _apiKey => dotenv.env['POLYGON_API_KEY']?.trim();
-  String? get _backendUrl =>
-      dotenv.env['TONGXIN_API_URL']?.trim() ?? dotenv.env['BACKEND_URL']?.trim();
-
-  /// 优先直连 Polygon 官方 WebSocket；无 API Key 时走后端代理
-  bool get _useDirectPolygon => _apiKey != null && _apiKey!.isNotEmpty;
 
   /// 最大订阅数（Polygon 单连接有上限，通常 30～50）
   static const int _maxSubscribeSymbols = 40;
@@ -62,22 +54,16 @@ class RealtimeQuoteService {
   }
 
   void _subscribeForQuotesAll() {
+    if (!_useRealtimeWebSocket) return;
     if (!_acceptAllSymbols && _symbolsToFilter.isEmpty) return;
-    if (!_useDirectPolygon && (_backendUrl == null || _backendUrl!.isEmpty)) return;
+    if (!ChatWebSocketService.instance.isConnected) return;
 
-    _realtime?.dispose();
-    _backendRealtime?.dispose();
     _sub?.cancel();
 
-    if (_useDirectPolygon) {
-      _realtime = PolygonRealtimeMulti(apiKey: _apiKey!, subscribeAll: true);
-      _realtime!.connect();
-      _sub = _realtime!.stream.listen(_onQuotesTradeFiltered);
-    } else {
-      _backendRealtime = BackendRealtimeClient(baseUrl: _backendUrl!);
-      _backendRealtime!.connect(subscribeAll: true);
-      _sub = _backendRealtime!.stream.listen(_onQuotesTradeFiltered);
-    }
+    ChatWebSocketService.instance.subscribeMarket(['*']);
+    _sub = ChatWebSocketService.instance.marketQuoteStream.listen((u) {
+      _onQuotesTradeFiltered(PolygonTradeUpdate(price: u.price, size: u.size, timestampMs: u.timestampMs, symbol: u.symbol));
+    });
   }
 
   void _onQuotesTradeFiltered(PolygonTradeUpdate u) {
@@ -99,6 +85,7 @@ class RealtimeQuoteService {
   }
 
   void _subscribeForGainersLosers() {
+    if (!_useRealtimeWebSocket) return;
     final symbols = <String>{};
     for (final g in _gainers.take(_maxSubscribeSymbols ~/ 2)) {
       if (g.prevClose != null && g.prevClose! > 0) symbols.add(g.ticker);
@@ -107,20 +94,14 @@ class RealtimeQuoteService {
       if (g.prevClose != null && g.prevClose! > 0) symbols.add(g.ticker);
     }
     if (symbols.isEmpty) return;
+    if (!ChatWebSocketService.instance.isConnected) return;
 
-    _realtime?.dispose();
-    _backendRealtime?.dispose();
     _sub?.cancel();
 
-    if (_useDirectPolygon) {
-      _realtime = PolygonRealtimeMulti(apiKey: _apiKey!, symbols: symbols.toList());
-      _realtime!.connect();
-      _sub = _realtime!.stream.listen(_onGainersLosersTrade);
-    } else if (_backendUrl != null && _backendUrl!.isNotEmpty) {
-      _backendRealtime = BackendRealtimeClient(baseUrl: _backendUrl!);
-      _backendRealtime!.connect(symbols: symbols.toList());
-      _sub = _backendRealtime!.stream.listen(_onGainersLosersTrade);
-    }
+    ChatWebSocketService.instance.subscribeMarket(symbols.toList());
+    _sub = ChatWebSocketService.instance.marketQuoteStream.listen((u) {
+      _onGainersLosersTrade(PolygonTradeUpdate(price: u.price, size: u.size, timestampMs: u.timestampMs, symbol: u.symbol));
+    });
   }
 
   void _onGainersLosersTrade(PolygonTradeUpdate u) {
@@ -174,10 +155,11 @@ class RealtimeQuoteService {
   }
 
   void _subscribeForQuotes({List<String>? prioritySymbols}) {
+    if (!_useRealtimeWebSocket) return;
+    if (!ChatWebSocketService.instance.isConnected) return;
     _symbolsToFilter = {}; // 切换回按 symbol 订阅模式
     List<String> symbols;
     if (prioritySymbols != null && prioritySymbols.isNotEmpty) {
-      // 优先订阅可见区域，即使暂无报价也订阅，WebSocket 推送时可创建新报价
       symbols = prioritySymbols.take(_maxSubscribeSymbols).toList();
     } else {
       symbols = _quotes.keys
@@ -189,21 +171,13 @@ class RealtimeQuoteService {
           .toList();
     }
     if (symbols.isEmpty) return;
-    if (!_useDirectPolygon && (_backendUrl == null || _backendUrl!.isEmpty)) return;
 
-    _realtime?.dispose();
-    _backendRealtime?.dispose();
     _sub?.cancel();
 
-    if (_useDirectPolygon) {
-      _realtime = PolygonRealtimeMulti(apiKey: _apiKey!, symbols: symbols);
-      _realtime!.connect();
-      _sub = _realtime!.stream.listen(_onQuotesTrade);
-    } else {
-      _backendRealtime = BackendRealtimeClient(baseUrl: _backendUrl!);
-      _backendRealtime!.connect(symbols: symbols);
-      _sub = _backendRealtime!.stream.listen(_onQuotesTrade);
-    }
+    ChatWebSocketService.instance.subscribeMarket(symbols);
+    _sub = ChatWebSocketService.instance.marketQuoteStream.listen((u) {
+      _onQuotesTrade(PolygonTradeUpdate(price: u.price, size: u.size, timestampMs: u.timestampMs, symbol: u.symbol));
+    });
   }
 
   /// 是否处于全量订阅模式（T.*）
@@ -275,8 +249,6 @@ class RealtimeQuoteService {
 
   void dispose() {
     _sub?.cancel();
-    _realtime?.dispose();
-    _backendRealtime?.dispose();
     _gainersController.close();
     _losersController.close();
     _quotesController.close();

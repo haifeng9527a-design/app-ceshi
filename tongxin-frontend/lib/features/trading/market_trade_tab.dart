@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../core/chat_web_socket_service.dart';
 import '../../l10n/app_localizations.dart';
 import '../market/chart/intraday_chart.dart';
 import '../market/market_colors.dart';
@@ -9,7 +10,6 @@ import '../market/market_repository.dart';
 import 'trading_api_client.dart';
 import 'trading_models.dart';
 import 'trading_ui.dart';
-import 'twelve_data_realtime_client.dart';
 
 /// 行情与交易 Tab：整体行情（Polygon）→ 搜索标的 → 行情区 → 买入/卖出
 class MarketTradeTab extends StatefulWidget {
@@ -74,10 +74,7 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
     AppLocalizations.of(context)!.tradingCrypto,
   ];
 
-  PolygonRealtime? _realtime;
-  StreamSubscription<PolygonTradeUpdate>? _realtimeSub;
-  final _twelveRealtime = TwelveDataRealtimeClient();
-  StreamSubscription<TwelveDataRealtimeQuote>? _twelveRealtimeSub;
+  StreamSubscription<dynamic>? _realtimeSub;
 
   String _selectedAssetClass() {
     if (MarketRepository.isCryptoMarket(_selectedMarket)) return 'crypto';
@@ -233,35 +230,15 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
 
   void _startRealtime(String symbol) {
     _realtimeSub?.cancel();
-    _realtime?.dispose();
-    _twelveRealtimeSub?.cancel();
-    if (_selectedMarket != null &&
-        !MarketRepository.isStockMarket(_selectedMarket)) {
-      if (!_twelveRealtime.isAvailable) return;
-      _twelveRealtimeSub = _twelveRealtime.stream.listen((update) {
-        if (!mounted) return;
-        if (update.symbol.trim().toUpperCase() != symbol.trim().toUpperCase()) {
-          return;
-        }
-        setState(() {
-          _currentPrice = update.price;
-          if (update.percentChange != null) {
-            _changePercent = update.percentChange;
-          }
-        });
-      });
-      _twelveRealtime.connect();
-      _twelveRealtime.subscribeSymbols({symbol});
-      return;
-    }
-    _realtime = _market.openRealtime(symbol);
-    if (_realtime == null) return;
-    _realtime!.connect();
-    _realtimeSub = _realtime!.stream.listen((update) {
-      if (!mounted) return;
+    if (!ChatWebSocketService.instance.isConnected) return;
+    final symUpper = symbol.trim().toUpperCase();
+    ChatWebSocketService.instance.subscribeMarket([symbol]);
+    _realtimeSub = ChatWebSocketService.instance.marketQuoteStream.listen((u) {
+      if (!mounted || u.symbol.trim().toUpperCase() != symUpper) return;
       setState(() {
-        _currentPrice = update.price;
-        _volume = (_volume ?? 0) + update.size;
+        _currentPrice = u.price;
+        if (u.percentChange != null) _changePercent = u.percentChange;
+        _volume = (_volume ?? 0) + u.size;
       });
     });
   }
@@ -347,9 +324,6 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
     _refreshTimer?.cancel();
     _chartRefreshTimer?.cancel();
     _realtimeSub?.cancel();
-    _realtime?.dispose();
-    _twelveRealtimeSub?.cancel();
-    _twelveRealtime.dispose();
     _searchController.dispose();
     _priceController.dispose();
     _qtyController.dispose();
