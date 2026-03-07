@@ -73,7 +73,7 @@ function registerAdminAuthRoutes(app) {
 
     const { data: row, error: fetchErr } = await sb
       .from('admin_users')
-      .select('id, username, password_hash, failed_attempts, locked_until')
+      .select('id, username, password_hash, failed_attempts, locked_until, permanently_locked')
       .eq('username', username)
       .maybeSingle();
 
@@ -83,6 +83,10 @@ function registerAdminAuthRoutes(app) {
 
     if (!row) {
       return res.status(401).json({ error: '账号或密码错误' });
+    }
+
+    if (row.permanently_locked === true) {
+      return res.status(403).json({ error: '账户已被后台永久锁定' });
     }
 
     const now = new Date();
@@ -136,7 +140,7 @@ function registerAdminAuthRoutes(app) {
 
     const { data, error } = await sb
       .from('admin_users')
-      .select('id, username, failed_attempts, locked_until, created_at, updated_at')
+      .select('id, username, failed_attempts, locked_until, permanently_locked, created_at, updated_at')
       .order('created_at', { ascending: false });
 
     if (error) return res.status(502).json({ error: error.message });
@@ -162,6 +166,7 @@ function registerAdminAuthRoutes(app) {
         password_hash: passwordHash,
         failed_attempts: 0,
         locked_until: null,
+        permanently_locked: false,
       })
       .select('id, username, created_at')
       .single();
@@ -198,7 +203,7 @@ function registerAdminAuthRoutes(app) {
       .from('admin_users')
       .update(updates)
       .eq('id', id)
-      .select('id, username, failed_attempts, locked_until, updated_at')
+      .select('id, username, failed_attempts, locked_until, permanently_locked, updated_at')
       .single();
 
     if (error) return res.status(502).json({ error: error.message });

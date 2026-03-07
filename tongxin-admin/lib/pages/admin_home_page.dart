@@ -913,6 +913,24 @@ class _AdminAccountsPanelState extends State<_AdminAccountsPanel> {
     }
   }
 
+  Future<void> _setPermanentLock(String id, bool locked) async {
+    try {
+      final resp = await _api.patch('api/admin/accounts/$id', body: {'locked': locked});
+      if (!mounted) return;
+      if (resp.statusCode == 200) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(locked ? '已永久锁定' : '已解除永久锁定')));
+        _load();
+      } else {
+        final body = resp.body.isNotEmpty ? jsonDecode(resp.body) : null;
+        final err = body is Map ? body['error']?.toString() : resp.body;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err ?? '操作失败'), backgroundColor: Colors.red.shade700));
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('操作失败：$e'), backgroundColor: Colors.red.shade700));
+    }
+  }
+
   Future<void> _changePassword(String id) async {
     final password = await showDialog<String>(
       context: context,
@@ -1043,29 +1061,45 @@ class _AdminAccountsPanelState extends State<_AdminAccountsPanel> {
             final username = a['username']?.toString() ?? '—';
             final failed = (a['failed_attempts'] as num?)?.toInt() ?? 0;
             final lockedUntil = a['locked_until'] != null ? DateTime.tryParse(a['locked_until'].toString()) : null;
-            final isLocked = lockedUntil != null && lockedUntil.isAfter(DateTime.now());
+            final permanentlyLocked = a['permanently_locked'] == true;
+            final isTempLocked = lockedUntil != null && lockedUntil.isAfter(DateTime.now());
             final createdAt = a['created_at']?.toString();
+            final statusParts = <String>[];
+            if (permanentlyLocked) statusParts.add('永久锁定');
+            if (isTempLocked) statusParts.add('密码错误锁定');
+            if (failed > 0 && !isTempLocked) statusParts.add('错误 $failed 次');
+            if (createdAt != null) statusParts.add('创建于 ${createdAt.split('T').first}');
             return Card(
               margin: const EdgeInsets.only(bottom: 12),
               child: ListTile(
-                leading: CircleAvatar(backgroundColor: _accent.withOpacity(0.3), child: Icon(Icons.person, color: _accent)),
-                title: Text(username),
-                subtitle: Text(
-                  [
-                    if (isLocked) '已锁定',
-                    if (failed > 0 && !isLocked) '错误 $failed 次',
-                    if (createdAt != null) '创建于 ${createdAt.split('T').first}',
-                  ].join(' · '),
+                leading: CircleAvatar(
+                  backgroundColor: _accent.withOpacity(0.3),
+                  child: Icon(Icons.person, color: permanentlyLocked ? Colors.grey : _accent),
                 ),
+                title: Row(
+                  children: [
+                    Text(username),
+                    if (permanentlyLocked) ...[
+                      const SizedBox(width: 6),
+                      Icon(Icons.lock, size: 16, color: Colors.orange.shade700),
+                    ],
+                  ],
+                ),
+                subtitle: Text(statusParts.join(' · ')),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (isLocked)
+                    if (isTempLocked)
                       TextButton.icon(
                         icon: const Icon(Icons.lock_open, size: 18),
                         label: const Text('解锁'),
                         onPressed: () => _unlock(id),
                       ),
+                    TextButton.icon(
+                      icon: Icon(permanentlyLocked ? Icons.lock_open : Icons.lock, size: 18),
+                      label: Text(permanentlyLocked ? '解除锁定' : '永久锁定'),
+                      onPressed: () => _setPermanentLock(id, !permanentlyLocked),
+                    ),
                     TextButton.icon(
                       icon: const Icon(Icons.lock_reset, size: 18),
                       label: const Text('改密'),
