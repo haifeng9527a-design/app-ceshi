@@ -48,6 +48,7 @@ class ChatWebSocketService {
   final Set<String> _subscribedIds = {};
   Set<String> _lastSentSubscribedIds = {};
   int _reconnectAttempts = 0;
+  int _connectionGeneration = 0;
   static const int _maxReconnectDelayMs = 30000;
   Timer? _reconnectTimer;
   Timer? _heartbeatTimer;
@@ -74,7 +75,10 @@ class ChatWebSocketService {
 
   /// 在已连接且用户相同时不重复连接，避免 authStateChanges（如 token 刷新）触发频繁断开重连
   Future<void> connectIfNeeded(String userId) async {
-    if (_channel != null && _currentUserId == userId) return;
+    if (_currentUserId == userId &&
+        (_channel != null || _isConnecting || _reconnectTimer != null)) {
+      return;
+    }
     await connect();
   }
 
@@ -92,51 +96,88 @@ class ChatWebSocketService {
     final token = await user.getIdToken();
     if (token == null || token.isEmpty) return;
 
+    final previousChannel = _channel;
+    final previousSubscription = _subscription;
+    final generation = ++_connectionGeneration;
     _isConnecting = true;
+    _currentUserId = user.uid;
     final uri = Uri.parse('$base/ws/chat?token=$token');
     if (kDebugMode) debugPrint('[ChatWs] 正在连接 $base/ws/chat');
     try {
-      _channel?.sink.close();
-      _subscription?.cancel();
-      _channel = WebSocketChannel.connect(uri);
-      _currentUserId = user.uid;
-      _reconnectAttempts = 0;
       _reconnectTimer?.cancel();
       _reconnectTimer = null;
+      _channel = null;
+      _subscription = null;
+      _stopHeartbeat();
 
-      _subscription = _channel!.stream.listen(
+      if (previousSubscription != null) {
+        unawaited(previousSubscription.cancel());
+      }
+      if (previousChannel != null) {
+        try {
+          previousChannel.sink.close();
+        } catch (_) {}
+      }
+
+      final channel = WebSocketChannel.connect(uri);
+      if (generation != _connectionGeneration) {
+        try {
+          channel.sink.close();
+        } catch (_) {}
+        return;
+      }
+      _channel = channel;
+
+      _subscription = channel.stream.listen(
         _onMessage,
         onError: (e) {
+          if (generation != _connectionGeneration) return;
           if (kDebugMode) debugPrint('[ChatWs] error: $e');
           _stopHeartbeat();
-          _scheduleReconnect();
+          if (identical(_channel, channel)) {
+            _channel = null;
+            _subscription = null;
+          }
+          _scheduleReconnect(generation);
         },
         onDone: () {
+          if (generation != _connectionGeneration) return;
           if (kDebugMode) debugPrint('[ChatWs] 连接断开');
           _stopHeartbeat();
-          _channel = null;
-          _subscription = null;
-          if (!_disposed) _scheduleReconnect();
+          if (identical(_channel, channel)) {
+            _channel = null;
+            _subscription = null;
+          }
+          if (!_disposed) _scheduleReconnect(generation);
         },
         cancelOnError: false,
       );
-      _startHeartbeat();
+      _reconnectAttempts = 0;
+      _startHeartbeat(generation);
       if (kDebugMode) debugPrint('[ChatWs] 连接成功 uid=${user.uid.length > 12 ? user.uid.substring(0, 12) : user.uid}');
       // 重连后服务端订阅状态已丢失，这里强制重发一次。
       if (_subscribedIds.isNotEmpty) _sendSubscribe(force: true);
       if (_marketSymbols.isNotEmpty) _sendMarketSubscribe();
     } catch (e) {
+      if (generation != _connectionGeneration) return;
       if (kDebugMode) debugPrint('[ChatWs] 连接失败: $e');
-      _scheduleReconnect();
+      _channel = null;
+      _subscription = null;
+      _stopHeartbeat();
+      _scheduleReconnect(generation);
     } finally {
-      _isConnecting = false;
+      if (generation == _connectionGeneration) {
+        _isConnecting = false;
+      }
     }
   }
 
-  void _startHeartbeat() {
+  void _startHeartbeat(int generation) {
     _heartbeatTimer?.cancel();
     _heartbeatTimer = Timer.periodic(const Duration(milliseconds: _heartbeatIntervalMs), (_) {
-      if (_channel == null || _disposed) return;
+      if (_channel == null || _disposed || generation != _connectionGeneration) {
+        return;
+      }
       try {
         _channel!.sink.add(_encode({'type': 'ping'}));
       } catch (_) {}
@@ -148,15 +189,20 @@ class ChatWebSocketService {
     _heartbeatTimer = null;
   }
 
-  void _scheduleReconnect() {
+  void _scheduleReconnect(int generation) {
     if (_disposed || _reconnectTimer != null) return;
+    if (generation != _connectionGeneration) return;
     _reconnectAttempts++;
     final delayMs = (_reconnectAttempts * 2 * 1000).clamp(2000, _maxReconnectDelayMs);
     if (kDebugMode) debugPrint('[ChatWs] ${delayMs}ms 后重连 (第 $_reconnectAttempts 次)');
-    _reconnectTimer = Timer(Duration(milliseconds: delayMs), () {
+    late final Timer timer;
+    timer = Timer(Duration(milliseconds: delayMs), () {
+      if (!identical(_reconnectTimer, timer)) return;
       _reconnectTimer = null;
+      if (_disposed || generation != _connectionGeneration) return;
       connect();
     });
+    _reconnectTimer = timer;
   }
 
   void _onMessage(dynamic data) {
@@ -360,7 +406,9 @@ class ChatWebSocketService {
   }
 
   void disconnect() {
+    _connectionGeneration++;
     _isConnecting = false;
+    _reconnectAttempts = 0;
     _stopHeartbeat();
     _reconnectTimer?.cancel();
     _reconnectTimer = null;

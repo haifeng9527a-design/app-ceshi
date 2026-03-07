@@ -34,18 +34,23 @@ Future<void> main() async {
   }
   await FirebaseBootstrap.init();
   await SupabaseBootstrap.init();
+  String? lastChatWsUserId;
+  final currentUser = FirebaseAuth.instance.currentUser;
+  if (currentUser != null) {
+    lastChatWsUserId = currentUser.uid;
+    ChatWebSocketService.instance.connectIfNeeded(currentUser.uid);
+  }
   FirebaseAuth.instance.authStateChanges().listen((user) {
     if (user != null) {
-      // 仅在实际需要时连接：未连接或用户变更。避免 authStateChanges 在 token 刷新时重复触发导致频繁断开重连
+      // 启动阶段 currentUser 与 authStateChanges 可能连续触发同一用户，避免重复建连。
+      if (lastChatWsUserId == user.uid) return;
+      lastChatWsUserId = user.uid;
       ChatWebSocketService.instance.connectIfNeeded(user.uid);
     } else {
+      lastChatWsUserId = null;
       ChatWebSocketService.instance.disconnect();
     }
   });
-  final currentUser = FirebaseAuth.instance.currentUser;
-  if (currentUser != null) {
-    ChatWebSocketService.instance.connectIfNeeded(currentUser.uid);
-  }
   if (!kIsWeb) {
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
     try {
