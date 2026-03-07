@@ -22,6 +22,25 @@ class ApiClient {
 
   bool get isAvailable => _baseUrl != null;
 
+  void _logRequest(String method, Uri uri, {Object? body}) {
+    if (kDebugMode) {
+      debugPrint('[ApiClient] $method ${uri.toString()}');
+      if (uri.queryParameters.isNotEmpty) {
+        debugPrint('[ApiClient] query: ${uri.queryParameters}');
+      }
+      if (body != null) {
+        final str = body is String ? body : jsonEncode(body);
+        debugPrint('[ApiClient] body: ${str.length > 500 ? '${str.substring(0, 500)}...' : str}');
+      }
+    }
+  }
+
+  void _logDuration(String method, String path, Duration duration, int statusCode) {
+    if (kDebugMode) {
+      debugPrint('[ApiClient] $method $path → ${statusCode} (${duration.inMilliseconds}ms)');
+    }
+  }
+
   /// [forceRefresh] 为 true 时强制刷新 Token，用于 401 重试
   Future<Map<String, String>> _headers({bool withAuth = true, bool forceRefresh = false}) async {
     final headers = <String, String>{
@@ -57,6 +76,7 @@ class ApiClient {
     if (queryParameters != null && queryParameters.isNotEmpty) {
       uri = uri.replace(queryParameters: queryParameters);
     }
+    _logRequest('GET', uri);
     try {
       var resp = await http
           .get(uri, headers: await _headers(withAuth: withAuth))
@@ -85,7 +105,9 @@ class ApiClient {
       return http.Response('{"error":"TONGXIN_API_URL not configured"}', 503);
     }
     final uri = Uri.parse('$base$path');
+    _logRequest('POST', uri, body: body);
     try {
+      final stopwatch = Stopwatch()..start();
       var resp = await http
           .post(
             uri,
@@ -102,6 +124,8 @@ class ApiClient {
             )
             .timeout(timeout ?? const Duration(seconds: 15));
       }
+      stopwatch.stop();
+      _logDuration('POST', path, stopwatch.elapsed, resp.statusCode);
       return resp;
     } catch (e) {
       if (kDebugMode) debugPrint('[ApiClient POST $path] $e');
@@ -120,7 +144,9 @@ class ApiClient {
       return http.Response('{"error":"TONGXIN_API_URL not configured"}', 503);
     }
     final uri = Uri.parse('$base$path');
+    _logRequest('PUT', uri, body: body);
     try {
+      final stopwatch = Stopwatch()..start();
       var resp = await http
           .put(
             uri,
@@ -137,6 +163,8 @@ class ApiClient {
             )
             .timeout(timeout ?? const Duration(seconds: 15));
       }
+      stopwatch.stop();
+      _logDuration('PUT', path, stopwatch.elapsed, resp.statusCode);
       return resp;
     } catch (e) {
       if (kDebugMode) debugPrint('[ApiClient PUT $path] $e');
@@ -155,7 +183,9 @@ class ApiClient {
       return http.Response('{"error":"TONGXIN_API_URL not configured"}', 503);
     }
     final uri = Uri.parse('$base$path');
+    _logRequest('PATCH', uri, body: body);
     try {
+      final stopwatch = Stopwatch()..start();
       var resp = await http
           .patch(
             uri,
@@ -172,6 +202,8 @@ class ApiClient {
             )
             .timeout(timeout ?? const Duration(seconds: 15));
       }
+      stopwatch.stop();
+      _logDuration('PATCH', path, stopwatch.elapsed, resp.statusCode);
       return resp;
     } catch (e) {
       if (kDebugMode) debugPrint('[ApiClient PATCH $path] $e');
@@ -189,7 +221,9 @@ class ApiClient {
       return http.Response('{"error":"TONGXIN_API_URL not configured"}', 503);
     }
     final uri = Uri.parse('$base$path');
+    _logRequest('DELETE', uri);
     try {
+      final stopwatch = Stopwatch()..start();
       var resp = await http
           .delete(uri, headers: await _headers(withAuth: withAuth))
           .timeout(timeout ?? const Duration(seconds: 15));
@@ -198,6 +232,8 @@ class ApiClient {
             .delete(uri, headers: await _headers(withAuth: true, forceRefresh: true))
             .timeout(timeout ?? const Duration(seconds: 15));
       }
+      stopwatch.stop();
+      _logDuration('DELETE', path, stopwatch.elapsed, resp.statusCode);
       return resp;
     } catch (e) {
       if (kDebugMode) debugPrint('[ApiClient DELETE $path] $e');
@@ -220,7 +256,9 @@ class ApiClient {
       return http.Response('{"error":"TONGXIN_API_URL not configured"}', 503);
     }
     final uri = Uri.parse('$base$path');
+    _logRequest('UPLOAD', uri, body: {'file': fileName, ...?extraFields});
     try {
+      final stopwatch = Stopwatch()..start();
       final request = http.MultipartRequest('POST', uri);
       request.headers.addAll(await _headers(withAuth: withAuth));
       request.files.add(http.MultipartFile.fromBytes(
@@ -235,6 +273,8 @@ class ApiClient {
             timeout ?? const Duration(seconds: 30),
           );
       final resp = await http.Response.fromStream(streamed);
+      stopwatch.stop();
+      _logDuration('UPLOAD', path, stopwatch.elapsed, resp.statusCode);
       return resp;
     } catch (e) {
       if (kDebugMode) debugPrint('[ApiClient UPLOAD $path] $e');

@@ -1158,17 +1158,10 @@ class MarketRepository {
   }
 
   /// 将股票列表同步到服务器 stock_quote_cache（存在则更新，不存在则新增）
-  /// 分批发送，每批最多 1000 条
+  /// 已停用：后端自行更新 tickers，前端不再调用 upsertTickersToServer
   Future<void> syncTickersToServer(List<MarketSearchResult> tickers) async {
-    if (!useBackend || tickers.isEmpty) return;
-    const chunkSize = 1000;
-    try {
-      for (var i = 0; i < tickers.length; i += chunkSize) {
-        final chunk =
-            tickers.sublist(i, (i + chunkSize).clamp(0, tickers.length));
-        await _backend!.upsertTickersToServer(chunk);
-      }
-    } catch (_) {}
+    // 后端自行更新，前端停止调用
+    return;
   }
 
   /// 缓存领涨（短 TTL），用于交易 Tab 等

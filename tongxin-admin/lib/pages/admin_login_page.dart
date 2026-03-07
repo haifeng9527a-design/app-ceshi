@@ -80,8 +80,17 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
         return;
       }
 
-      final body = resp.body.isNotEmpty ? jsonDecode(resp.body) : null;
-      final err = body is Map ? body['error']?.toString() : null;
+      String? err;
+      if (resp.body.isNotEmpty) {
+        try {
+          final body = jsonDecode(resp.body);
+          err = body is Map ? body['error']?.toString() : null;
+        } catch (_) {
+          err = resp.statusCode == 404
+              ? '后端接口不存在(404)，请确认 API 地址正确且已部署最新代码'
+              : '后端返回异常，请检查服务是否正常运行';
+        }
+      }
       if (resp.statusCode == 403) {
         setState(() {
           _errorText = err ?? '账户已锁定，请稍后再试';
