@@ -12,6 +12,7 @@ const WebSocket = require('ws');
 const supabaseClient = require('./supabaseClient');
 const restrictionGuard = require('./restrictionGuard');
 const authMiddleware = require('./authMiddleware');
+const { triggerChatMessagePush } = require('./chatPush');
 const { marketBroadcast } = require('./marketBroadcast');
 
 // conversation_id -> Set<WebSocket>
@@ -281,6 +282,9 @@ function createChatWsServer(httpServer) {
             return;
           }
           console.log(`[chatWs] 发送成功 uid=${uid?.slice(0, 12)} conv=${conversation_id?.slice(0, 8)} msgId=${inserted?.id?.slice(0, 8)}`);
+          triggerChatMessagePush(sb, inserted).catch((e) => {
+            console.warn(`[chatWs] send_push failed conv=${conversation_id?.slice(0, 8)} error=${e?.message || e}`);
+          });
           broadcastToConversation(conversation_id, { type: 'new_message', message: inserted });
         }
       } catch (e) {

@@ -4,6 +4,7 @@
  */
 const supabaseClient = require('./supabaseClient');
 const restrictionGuard = require('./restrictionGuard');
+const { triggerChatMessagePush } = require('./chatPush');
 
 function registerMessageRoutes(app, requireAuth) {
   const supabase = () => supabaseClient.getClient();
@@ -164,8 +165,11 @@ function registerMessageRoutes(app, requireAuth) {
         reply_to_sender_name: reply_to_sender_name || null,
         reply_to_content: reply_to_content || null,
       };
-      const { data: inserted, error } = await sb.from('chat_messages').insert(row).select('id, created_at').single();
+      const { data: inserted, error } = await sb.from('chat_messages').insert(row).select('*').single();
       if (error) return res.status(502).json({ error: error.message });
+      triggerChatMessagePush(sb, inserted).catch((e) => {
+        console.warn('[api/messages] send_push failed:', e?.message || e);
+      });
       res.json({ id: inserted.id, created_at: inserted.created_at });
     } catch (e) {
       res.status(502).json({ error: String(e.message || e) });

@@ -17,4 +17,8 @@ Write-Host "正在部署 create_call_invitation..." -ForegroundColor Cyan
 supabase functions deploy create_call_invitation --workdir .
 if ($LASTEXITCODE -ne 0) { exit 1 }
 
-Write-Host "`n部署完成（send_push + create_call_invitation）." -ForegroundColor Green
+Write-Host "正在部署 notify_new_message..." -ForegroundColor Cyan
+supabase functions deploy notify_new_message --workdir .
+if ($LASTEXITCODE -ne 0) { exit 1 }
+
+Write-Host "`n部署完成（send_push + create_call_invitation + notify_new_message）." -ForegroundColor Green
