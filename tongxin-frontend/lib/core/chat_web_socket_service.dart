@@ -40,6 +40,12 @@ class ChatWebSocketService {
     return 'wss://$u';
   }
 
+  /// 在已连接且用户相同时不重复连接，避免 authStateChanges（如 token 刷新）触发频繁断开重连
+  Future<void> connectIfNeeded(String userId) async {
+    if (_channel != null && _currentUserId == userId) return;
+    await connect();
+  }
+
   /// App 启动时调用，需在 Firebase 登录后
   Future<void> connect() async {
     if (_disposed) return;

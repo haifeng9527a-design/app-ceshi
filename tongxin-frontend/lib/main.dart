@@ -36,13 +36,15 @@ Future<void> main() async {
   await SupabaseBootstrap.init();
   FirebaseAuth.instance.authStateChanges().listen((user) {
     if (user != null) {
-      ChatWebSocketService.instance.connect();
+      // 仅在实际需要时连接：未连接或用户变更。避免 authStateChanges 在 token 刷新时重复触发导致频繁断开重连
+      ChatWebSocketService.instance.connectIfNeeded(user.uid);
     } else {
       ChatWebSocketService.instance.disconnect();
     }
   });
-  if (FirebaseAuth.instance.currentUser != null) {
-    ChatWebSocketService.instance.connect();
+  final currentUser = FirebaseAuth.instance.currentUser;
+  if (currentUser != null) {
+    ChatWebSocketService.instance.connectIfNeeded(currentUser.uid);
   }
   if (!kIsWeb) {
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
