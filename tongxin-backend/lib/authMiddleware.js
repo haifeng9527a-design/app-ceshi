@@ -14,15 +14,21 @@ function initFirebase() {
   if (admin) return auth != null;
   try {
     admin = require('firebase-admin');
-    const cred = process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim();
+    const jsonCred = process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim();
+    const credPath = process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim();
     const projectId = process.env.FIREBASE_PROJECT_ID?.trim();
     if (admin.apps.length === 0) {
-      if (cred) {
+      if (jsonCred) {
+        // 部署到 Render 等云平台：服务账号 JSON 存环境变量，无需文件
+        const serviceAccount = JSON.parse(jsonCred);
+        admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+      } else if (credPath) {
+        // 本地开发：从文件路径加载
         admin.initializeApp({ credential: admin.credential.applicationDefault() });
       } else if (projectId) {
         admin.initializeApp({ projectId });
       } else {
-        console.warn('[auth] Firebase Admin 未配置：需 GOOGLE_APPLICATION_CREDENTIALS 或 FIREBASE_PROJECT_ID');
+        console.warn('[auth] Firebase Admin 未配置：需 FIREBASE_SERVICE_ACCOUNT_JSON、GOOGLE_APPLICATION_CREDENTIALS 或 FIREBASE_PROJECT_ID');
         return false;
       }
     }

@@ -118,16 +118,20 @@ const httpServer = app.listen(PORT, '0.0.0.0', () => {
   const fs = require('fs');
   const path = require('path');
   if (!isAuthConfigured()) {
+    const hasJson = !!process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim();
     const absPath = credPath ? path.resolve(process.cwd(), credPath) : null;
     const exists = absPath && fs.existsSync(absPath);
     console.warn('');
     console.warn('*** 鉴权未就绪：聊天/好友等接口将返回 503 ***');
-    if (credPath && !exists) {
+    if (hasJson) {
+      console.warn('  FIREBASE_SERVICE_ACCOUNT_JSON 已配置但解析失败，请检查 JSON 格式');
+    } else if (credPath && !exists) {
       console.warn(`  serviceAccountKey.json 不存在，路径: ${absPath}`);
-      console.warn('  请从 Firebase 控制台 (项目 cesium-29c23) -> 项目设置 -> 服务账号 -> 生成新私钥');
-      console.warn('  下载 JSON 保存为: tongxin-backend/serviceAccountKey.json');
+      console.warn('  本地开发：下载 JSON 保存为 serviceAccountKey.json');
+      console.warn('  云部署：将 JSON 内容设为环境变量 FIREBASE_SERVICE_ACCOUNT_JSON');
     } else if (!credPath) {
-      console.warn('  请在 .env 中配置 GOOGLE_APPLICATION_CREDENTIALS=./serviceAccountKey.json');
+      console.warn('  本地：GOOGLE_APPLICATION_CREDENTIALS=./serviceAccountKey.json');
+      console.warn('  云部署：FIREBASE_SERVICE_ACCOUNT_JSON=<完整 JSON 字符串>');
     }
     console.warn('');
   }

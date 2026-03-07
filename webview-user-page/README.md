@@ -26,7 +26,17 @@ npm install
 npm run dev
 ```
 
-默认地址：`http://localhost:5174`
+默认端口 5174，可通过环境变量 `PORT` 指定：
+
+```bash
+PORT=3000 npm run dev
+```
+
+或创建 `.env` 文件：
+
+```env
+PORT=5174
+```
 
 ## Flutter 端配置
 

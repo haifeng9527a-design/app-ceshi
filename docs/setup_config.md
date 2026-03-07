@@ -18,6 +18,17 @@
 
 > 注意：`serviceAccountKey.json` 含敏感信息，已加入 .gitignore，切勿提交到版本库。
 
+### 云部署（Render / Railway / 等）
+
+云平台通常**不包含**本地文件，需将服务账号 JSON 存为环境变量：
+
+1. 打开 `serviceAccountKey.json`，复制**完整内容**（单行或格式化均可）
+2. 在 Render 等平台的环境变量中添加：
+   - **Key**: `FIREBASE_SERVICE_ACCOUNT_JSON`
+   - **Value**: 粘贴完整 JSON（注意不要有多余换行或引号包裹）
+
+Render 示例：Dashboard → 你的 Service → Environment → Add Environment Variable
+
 ---
 
 ## 二、Supabase Service Role Key
@@ -40,16 +51,15 @@
 
 ## 三、完整 .env 示例
 
+**本地开发：**
 ```env
 PORT=3000
-POLYGON_API_KEY=YIQDtez6a6OhyWsg2xtbRbOUp3Akhlp4
-TWELVE_DATA_API_KEY=9f4914120e5e421fb1ff985243090194
-
-SUPABASE_URL=https://theqizksqjrylsnrrrhx.supabase.co
+SUPABASE_URL=https://xxx.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=你的service_role密钥
-
 GOOGLE_APPLICATION_CREDENTIALS=./serviceAccountKey.json
 ```
+
+**云部署（Render 等）：** 用环境变量 `FIREBASE_SERVICE_ACCOUNT_JSON` 替代 `GOOGLE_APPLICATION_CREDENTIALS`，值为 serviceAccountKey.json 的完整 JSON 字符串。
 
 ---
 

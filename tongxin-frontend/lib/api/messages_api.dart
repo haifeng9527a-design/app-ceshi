@@ -90,7 +90,10 @@ class MessagesApi {
     if (!_api.isAvailable) return [];
     final params = before != null ? {'before': before} : null;
     final resp = await _api.get('api/conversations/$conversationId/messages', queryParameters: params);
-    if (resp.statusCode != 200) return [];
+    if (resp.statusCode != 200) {
+      if (kDebugMode) debugPrint('[MessagesApi] GET /api/conversations/$conversationId/messages => ${resp.statusCode} ${resp.body}');
+      return [];
+    }
     try {
       final list = jsonDecode(resp.body) as List? ?? [];
       return list.map((e) => ChatMessage.fromSupabase(row: Map<String, dynamic>.from(e as Map), currentUserId: currentUserId)).toList();
@@ -100,6 +103,7 @@ class MessagesApi {
   }
 
   /// POST /api/messages
+  /// 失败时抛出异常，便于 UI 显示发送失败（红感叹号）
   Future<String?> sendMessage({
     required String conversationId,
     required String senderId,
@@ -113,7 +117,7 @@ class MessagesApi {
     String? replyToSenderName,
     String? replyToContent,
   }) async {
-    if (!_api.isAvailable) return null;
+    if (!_api.isAvailable) throw StateError('API 未配置');
     final body = <String, dynamic>{
       'conversation_id': conversationId,
       'content': content,
@@ -125,7 +129,18 @@ class MessagesApi {
     if (replyToSenderName != null) body['reply_to_sender_name'] = replyToSenderName;
     if (replyToContent != null) body['reply_to_content'] = replyToContent;
     final resp = await _api.post('api/messages', body: body);
-    if (resp.statusCode != 200) return null;
+    if (resp.statusCode != 200) {
+      if (kDebugMode) debugPrint('[MessagesApi] POST /api/messages => ${resp.statusCode} ${resp.body}');
+      String msg = '发送失败';
+      try {
+        final json = jsonDecode(resp.body) as Map?;
+        msg = json?['error']?.toString() ?? msg;
+      } catch (_) {}
+      if (resp.statusCode == 401) throw Exception('鉴权失败，请重新登录');
+      if (resp.statusCode == 403) throw Exception(msg);
+      if (resp.statusCode == 502 || resp.statusCode == 503) throw Exception('$msg (${resp.statusCode})');
+      throw Exception('$msg (${resp.statusCode})');
+    }
     try {
       final json = jsonDecode(resp.body) as Map?;
       return json?['id'] as String?;

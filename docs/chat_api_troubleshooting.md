@@ -47,6 +47,24 @@ MessagesPage
 - 用户确实没有会话（chat_members 中无该 user_id）
 - 新用户需先加好友、发起会话才会有数据
 
+### 5. 无法收发消息（收发都失败）
+
+**排查顺序：**
+
+| 步骤 | 检查项 | 如何验证 |
+|------|--------|----------|
+| 1 | 前端 `TONGXIN_API_URL` | 确认 `tongxin-frontend/.env` 有 `TONGXIN_API_URL` 且非空 |
+| 2 | 后端可访问 | 浏览器访问 `{TONGXIN_API_URL}/health` 应返回 `{"ok":true}` |
+| 3 | 用户已登录 | App 消息页需 Firebase 登录，否则 401 |
+| 4 | 后端鉴权 | 后端 `.env` 需 `GOOGLE_APPLICATION_CREDENTIALS=./serviceAccountKey.json` 且文件存在 |
+| 5 | Supabase | 后端 `.env` 需 `SUPABASE_SERVICE_ROLE_KEY`（非 anon key） |
+
+**收发流程：**
+- **收**：每 3 秒 `GET /api/conversations/:id/messages` 拉取 → 写入本地 → 刷新 UI
+- **发**：`POST /api/messages` → 失败时消息旁显示红感叹号
+
+**调试**：Flutter Debug 模式下控制台会输出 `[MessagesApi] GET/POST ... => 401/403/502 {...}`
+
 ---
 
 ## 调试
