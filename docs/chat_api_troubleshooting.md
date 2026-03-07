@@ -60,8 +60,16 @@ MessagesPage
 | 5 | Supabase | 后端 `.env` 需 `SUPABASE_SERVICE_ROLE_KEY`（非 anon key） |
 
 **收发流程：**
-- **收**：每 3 秒 `GET /api/conversations/:id/messages` 拉取 → 写入本地 → 刷新 UI
+- **收**：每 2 秒 `GET /api/conversations/:id/messages` 拉取 → 写入本地 → 刷新 UI
 - **发**：`POST /api/messages` → 失败时消息旁显示红感叹号
+
+### 6. 部署后收发消息很慢
+
+| 原因 | 说明 | 建议 |
+|------|------|------|
+| **Render 冷启动** | 免费版闲置约 15 分钟后休眠，首请求需 30–60 秒唤醒 | 用 cron 每 5 分钟请求 `/health` 保活；或升级付费计划 |
+| **跨地域延迟** | 服务器在海外、用户在境内，单次请求 200–500ms | 考虑将后端部署到国内（如阿里云、腾讯云） |
+| **轮询间隔** | 收消息依赖 2 秒轮询，对方最多延迟约 2 秒 | 已优化；若需更低延迟可考虑 Supabase Realtime |
 
 **调试**：Flutter Debug 模式下控制台会输出 `[MessagesApi] GET/POST ... => 401/403/502 {...}`
 

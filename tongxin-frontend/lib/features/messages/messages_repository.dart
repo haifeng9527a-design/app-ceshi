@@ -84,8 +84,8 @@ class MessagesRepository {
       conversationId: conversationId,
       currentUserId: currentUserId,
     );
-    // 每 3 秒同步一次（收到新消息时服务端数据更新，合并到本地并刷新 UI）
-    final syncTimer = Stream.periodic(const Duration(seconds: 3), (_) {});
+    // 每 2 秒同步一次（减少收消息延迟，部署到远端服务器时体验更好）
+    final syncTimer = Stream.periodic(const Duration(seconds: 2), (_) {});
     final syncSub = syncTimer.listen((_) {
       ChatSyncService.instance.syncMessages(
         conversationId: conversationId,
@@ -143,6 +143,8 @@ class MessagesRepository {
       replyToSenderName: replyToSenderName,
       replyToContent: replyToContent,
     );
+    // 发送成功后立即同步，减少对方收到消息的延迟
+    ChatSyncService.instance.syncMessages(conversationId: conversationId, currentUserId: senderId);
   }
 
   Future<String> uploadChatMedia({

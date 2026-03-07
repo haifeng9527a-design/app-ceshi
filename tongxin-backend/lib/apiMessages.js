@@ -145,10 +145,13 @@ function registerMessageRoutes(app, requireAuth) {
     try {
       const memberRole = await ensureConversationMember(res, sb, conversation_id, uid);
       if (!memberRole) return;
-      const gate = await restrictionGuard.assertActionAllowed(sb, uid, 'send_message');
+      // 并行：权限校验 + 获取昵称，减少往返延迟
+      const [gate, profileRes] = await Promise.all([
+        restrictionGuard.assertActionAllowed(sb, uid, 'send_message'),
+        sb.from('user_profiles').select('display_name').eq('user_id', uid).maybeSingle(),
+      ]);
       if (!gate.allowed) return res.status(403).json({ error: gate.reason });
-      const { data: profile } = await sb.from('user_profiles').select('display_name').eq('user_id', uid).maybeSingle();
-      const senderName = profile?.display_name || '用户';
+      const senderName = String(profileRes?.data?.display_name || '').trim() || '用户';
       const row = {
         conversation_id,
         sender_id: uid,
