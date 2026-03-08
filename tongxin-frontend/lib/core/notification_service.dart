@@ -23,6 +23,7 @@ import '../features/messages/message_models.dart';
 import '../features/messages/messages_repository.dart';
 import '../api/users_api.dart';
 import 'api_client.dart';
+import 'chat_web_socket_service.dart';
 import 'firebase_bootstrap.dart';
 import 'supabase_bootstrap.dart';
 
@@ -52,6 +53,7 @@ class NotificationService {
 
   /// 来电 Realtime/轮询订阅：登录后全局监听，收到即弹接听界面
   static StreamSubscription<Map<String, dynamic>>? _incomingCallSubscription;
+  static StreamSubscription<Map<String, dynamic>>? _chatWsIncomingCallSubscription;
 
   /// 聊天详情页在 initState 时调用，dispose 时传 null
   static void setCurrentConversationId(String? conversationId) {
@@ -194,6 +196,15 @@ class NotificationService {
     }
 
     await _initGetui();
+
+    _chatWsIncomingCallSubscription ??=
+        ChatWebSocketService.instance.callInvitationStream.listen((data) {
+      final invitationId = data['invitationId']?.toString() ?? '';
+      final channelId = data['channelId']?.toString() ?? '';
+      if (invitationId.isEmpty || channelId.isEmpty) return;
+      debugPrint('[来电] ChatWs 收到邀请，直接弹接听界面');
+      _openIncomingCallIfNeeded(Map<String, dynamic>.from(data));
+    });
 
     // 个推冷启动：用户点击个推来电通知后拉起应用，检查并弹出来电界面（必须 await，否则 authStateChanges 可能先于 payload 检查完成）
     if (!kIsWeb && Platform.isAndroid) {

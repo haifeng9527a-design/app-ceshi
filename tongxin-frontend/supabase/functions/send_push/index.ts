@@ -4,6 +4,7 @@ import { SignJWT, importPKCS8 } from "https://deno.land/x/jose@v5.9.3/index.ts";
 
 type Payload = {
   receiverId: string;
+  senderId?: string;
   title?: string;
   body?: string;
   conversationId?: string;
@@ -104,6 +105,12 @@ serve(async (req) => {
   const body: Payload = await req.json();
   if (!body.receiverId) {
     return new Response("Missing receiverId", { status: 400 });
+  }
+  if (body.senderId && body.receiverId === body.senderId) {
+    return new Response(
+      JSON.stringify({ skipped: "receiver is sender" }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
   }
 
   const { data: tokens, error } = await supabase

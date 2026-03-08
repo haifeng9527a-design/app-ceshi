@@ -57,12 +57,16 @@ class ChatWebSocketService {
   bool _isConnecting = false;
   final Set<String> _marketSymbols = {};
   final _marketQuoteController = StreamController<MarketQuoteUpdate>.broadcast();
+  final _callInvitationController =
+      StreamController<Map<String, dynamic>>.broadcast();
 
   bool get isConnected => _channel != null;
   Set<String> get subscribedConversationIds => Set<String>.from(_subscribedIds);
 
   /// 行情推送流（通过 chat WebSocket 复用，后端 ingestors 写入时推送）
   Stream<MarketQuoteUpdate> get marketQuoteStream => _marketQuoteController.stream;
+  Stream<Map<String, dynamic>> get callInvitationStream =>
+      _callInvitationController.stream;
 
   String? get _wsBaseUrl {
     final url = dotenv.env['TONGXIN_API_URL']?.trim();
@@ -239,6 +243,18 @@ class ChatWebSocketService {
             change: (decoded['change'] as num?)?.toDouble(),
             percentChange: (decoded['percent_change'] as num?)?.toDouble(),
           ));
+        }
+      } else if (type == 'call_invitation') {
+        final payload = Map<String, dynamic>.from(decoded);
+        if (!_callInvitationController.isClosed) {
+          if (kDebugMode) {
+            final invitationId = payload['invitationId']?.toString() ?? '';
+            final fromUser = payload['fromUserName']?.toString() ?? '对方';
+            debugPrint(
+              '[ChatWs] 收到来电 invitation=${invitationId.isNotEmpty ? invitationId.substring(0, invitationId.length > 8 ? 8 : invitationId.length) : "-"} from=$fromUser',
+            );
+          }
+          _callInvitationController.add(payload);
         }
       } else if (type == 'error') {
         if (kDebugMode) debugPrint('[ChatWs] 服务端错误: ${decoded['error']}');
@@ -425,5 +441,7 @@ class ChatWebSocketService {
   void dispose() {
     _disposed = true;
     disconnect();
+    _callInvitationController.close();
+    _marketQuoteController.close();
   }
 }

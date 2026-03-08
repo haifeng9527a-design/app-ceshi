@@ -43,6 +43,7 @@ async function triggerChatMessagePush(sb, record) {
       const { error } = await sb.functions.invoke('send_push', {
         body: {
           receiverId,
+          senderId,
           title: senderName,
           body,
           conversationId: String(conversationId),

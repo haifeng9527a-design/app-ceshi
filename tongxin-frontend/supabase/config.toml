@@ -358,6 +358,11 @@ allow_dynamic_registration = false
 [functions.create_call_invitation]
 verify_jwt = false
 
+# Edge Function：get_agora_token 由客户端直接调用，当前 Authorization 可能是 Firebase Token，
+# 需关闭网关 JWT 校验，避免被 Supabase 当作无效 JWT 拦截。
+[functions.get_agora_token]
+verify_jwt = false
+
 [edge_runtime]
 enabled = true
 # Supported request policies: `oneshot`, `per_worker`.

@@ -19,6 +19,8 @@ const { marketBroadcast } = require('./marketBroadcast');
 const conversationSubs = new Map();
 // symbol -> Set<WebSocket>（行情订阅）
 const marketSubs = new Map();
+// user_id -> Set<WebSocket>
+const userSockets = new Map();
 // WebSocket -> { userId, conversationIds, marketSymbols }
 const clientMeta = new WeakMap();
 
@@ -44,9 +46,54 @@ function broadcastToConversation(conversationId, payload) {
   }
 }
 
+function addUserSocket(userId, ws) {
+  if (!userId) return;
+  let set = userSockets.get(userId);
+  if (!set) {
+    set = new Set();
+    userSockets.set(userId, set);
+  }
+  set.add(ws);
+}
+
+function removeUserSocket(userId, ws) {
+  if (!userId) return;
+  const set = userSockets.get(userId);
+  if (!set) return;
+  set.delete(ws);
+  if (set.size === 0) {
+    userSockets.delete(userId);
+  }
+}
+
+function sendToUser(userId, payload) {
+  if (!userId) return 0;
+  const set = userSockets.get(userId);
+  if (!set || set.size === 0) return 0;
+  const data = JSON.stringify(payload);
+  let sent = 0;
+  for (const ws of Array.from(set)) {
+    if (ws.readyState !== WebSocket.OPEN) {
+      set.delete(ws);
+      continue;
+    }
+    try {
+      ws.send(data);
+      sent += 1;
+    } catch (_) {
+      set.delete(ws);
+    }
+  }
+  if (set.size === 0) {
+    userSockets.delete(userId);
+  }
+  return sent;
+}
+
 function unsubscribeClient(ws) {
   const meta = clientMeta.get(ws);
   if (!meta) return;
+  removeUserSocket(meta.userId, ws);
   for (const cid of meta.conversationIds) {
     const set = conversationSubs.get(cid);
     if (set) {
@@ -193,6 +240,7 @@ function createChatWsServer(httpServer) {
 
   wss.on('connection', (ws, req) => {
     const uid = ws.userId;
+    addUserSocket(uid, ws);
     ws.isAlive = true;
     ws.connectedAt = Date.now();
     ws.lastActivityAt = ws.connectedAt;
@@ -323,4 +371,4 @@ function createChatWsServer(httpServer) {
   return wss;
 }
 
-module.exports = { createChatWsServer };
+module.exports = { createChatWsServer, sendToUser };

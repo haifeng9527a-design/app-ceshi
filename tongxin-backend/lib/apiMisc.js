@@ -2,6 +2,7 @@
  * 杂项 API：客服配置、通话邀请、举报等
  */
 const supabaseClient = require('./supabaseClient');
+const { sendToUser } = require('./chatWebSocket');
 
 async function getUserRole(sb, uid) {
   const { data, error } = await sb.from('user_profiles').select('role').eq('user_id', uid).maybeSingle();
@@ -717,18 +718,56 @@ function registerMiscRoutes(app, requireAuth) {
     const sb = supabase();
     if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
     try {
-      const { data: profile } = await sb.from('user_profiles').select('display_name').eq('user_id', uid).maybeSingle();
+      const { data: profile } = await sb.from('user_profiles').select('display_name, avatar_url').eq('user_id', uid).maybeSingle();
       const name = from_user_name || profile?.display_name || '用户';
+      const avatarUrl = profile?.avatar_url || null;
+      const callType = call_type || 'voice';
       const { data: inserted, error } = await sb.from('call_invitations').insert({
         from_user_id: uid,
         from_user_name: name,
         to_user_id,
         channel_id,
-        call_type: call_type || 'voice',
+        call_type: callType,
         status: 'ringing',
       }).select('id').single();
       if (error) return res.status(502).json({ error: error.message });
-      res.json({ id: inserted.id });
+      const invitationId = String(inserted.id);
+      const wsDelivered = sendToUser(String(to_user_id), {
+        type: 'call_invitation',
+        messageType: 'call_invitation',
+        invitationId,
+        channelId: String(channel_id),
+        callType,
+        fromUserId: uid,
+        fromUserName: name,
+        fromAvatarUrl: avatarUrl,
+      });
+      if (wsDelivered > 0) {
+        console.log(`[api/call-invitations] ws delivered uid=${String(to_user_id).slice(0, 12)} sockets=${wsDelivered} invitation=${invitationId.slice(0, 8)}`);
+      } else {
+        try {
+          const { error: pushError } = await sb.functions.invoke('send_push', {
+            body: {
+              receiverId: String(to_user_id),
+              title: callType === 'video' ? '视频通话' : '语音通话',
+              body: `${name} 邀请你${callType === 'video' ? '视频' : '语音'}通话`,
+              messageType: 'call_invitation',
+              invitationId,
+              channelId: String(channel_id),
+              callType,
+              fromUserName: name,
+            },
+          });
+          if (pushError) {
+            console.warn(`[api/call-invitations] send_push fallback failed invitation=${invitationId.slice(0, 8)} error=${pushError.message}`);
+          } else {
+            console.log(`[api/call-invitations] push fallback sent uid=${String(to_user_id).slice(0, 12)} invitation=${invitationId.slice(0, 8)}`);
+          }
+        } catch (pushError) {
+          console.warn(`[api/call-invitations] send_push fallback exception invitation=${invitationId.slice(0, 8)} error=${String(pushError?.message || pushError)}`);
+        }
+      }
+      res.json({ id: inserted.id, ws_delivered: wsDelivered });
     } catch (e) {
       res.status(502).json({ error: String(e.message || e) });
     }

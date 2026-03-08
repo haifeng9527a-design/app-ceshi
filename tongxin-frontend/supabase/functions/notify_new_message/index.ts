@@ -78,6 +78,7 @@ serve(async (req) => {
       .filter((id): id is string => !!id && id !== senderId);
   }
   const pushBody = {
+    senderId: String(senderId),
     title: senderName,
     body,
     conversationId: String(conversationId),

@@ -34,6 +34,17 @@ Future<void> main() async {
   }
   await FirebaseBootstrap.init();
   await SupabaseBootstrap.init();
+  if (!kIsWeb) {
+    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+    try {
+      await NotificationService.init();
+    } catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('[main] NotificationService.init 失败，继续启动: $e');
+        debugPrint('$st');
+      }
+    }
+  }
   String? lastChatWsUserId;
   final currentUser = FirebaseAuth.instance.currentUser;
   if (currentUser != null) {
@@ -51,17 +62,6 @@ Future<void> main() async {
       ChatWebSocketService.instance.disconnect();
     }
   });
-  if (!kIsWeb) {
-    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
-    try {
-      await NotificationService.init();
-    } catch (e, st) {
-      if (kDebugMode) {
-        debugPrint('[main] NotificationService.init 失败，继续启动: $e');
-        debugPrint('$st');
-      }
-    }
-  }
   await LocaleProvider.init();
   AppConfigService.instance.fetchAndCache();
   runApp(const TeacherHubApp());

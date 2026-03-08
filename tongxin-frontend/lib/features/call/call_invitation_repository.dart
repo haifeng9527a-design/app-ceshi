@@ -86,34 +86,45 @@ class CallInvitationRepository {
     await MiscApi.instance.updateCallInvitationStatus(id, status);
   }
 
-  /// 向 Edge Function 请求该频道的 Agora RTC Token（需在 Supabase 配置 AGORA_APP_ID、AGORA_APP_CERTIFICATE）
-  /// 若未配置或请求失败，返回 null，客户端将使用空字符串（仅当控制台未开启 Token 鉴权时有效）
+  /// 向 Supabase Edge Function 请求该频道的 Agora RTC Token。
+  /// 当前项目内已部署 `get_agora_token`，优先直连函数，避免先请求不存在的后端路由导致通话接入变慢。
+  /// 若未配置或请求失败，返回 null，客户端将使用空字符串（仅当控制台未开启 Token 鉴权时有效）。
   Future<String?> fetchAgoraToken(String channelId, {int? uid}) async {
-    // Agora token 不是表 CRUD，这里保留现有 Supabase Function 兜底；
-    // 若后端已提供接口则优先走 API。
+    if (SupabaseBootstrap.isReady) {
+      final authToken = await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      if (authToken != null && authToken.isNotEmpty) {
+        try {
+          final client = SupabaseBootstrap.clientOrNull;
+          if (client != null) {
+            final res = await client.functions.invoke(
+              'get_agora_token',
+              body: {'channel_id': channelId, if (uid != null) 'uid': uid},
+              headers: {'Authorization': 'Bearer $authToken'},
+            );
+            if (res.status == 200 && res.data != null) {
+              final data = res.data is Map ? res.data as Map : null;
+              final token = data?['token']?.toString();
+              if (token != null && token.isNotEmpty) return token;
+            } else {
+              print('[TH_CALL] get_agora_token 返回异常 status=${res.status} data=${res.data}');
+            }
+          }
+        } catch (e) {
+          print('[TH_CALL] fetchAgoraToken 函数调用异常: $e');
+        }
+      }
+    }
+
     if (_useApi) {
-      final token = await MiscApi.instance.getAgoraToken(channelId, uid: uid);
-      if (token != null && token.isNotEmpty) return token;
+      try {
+        final token = await MiscApi.instance.getAgoraToken(channelId, uid: uid);
+        if (token != null && token.isNotEmpty) return token;
+      } catch (e) {
+        print('[TH_CALL] fetchAgoraToken API 调用异常: $e');
+      }
     }
-    if (!SupabaseBootstrap.isReady) return null;
-    final authToken = await FirebaseAuth.instance.currentUser?.getIdToken(true);
-    if (authToken == null || authToken.isEmpty) return null;
-    try {
-      final client = SupabaseBootstrap.clientOrNull;
-      if (client == null) return null;
-      final res = await client.functions.invoke(
-        'get_agora_token',
-        body: {'channel_id': channelId, if (uid != null) 'uid': uid},
-        headers: {'Authorization': 'Bearer $authToken'},
-      );
-      if (res.status != 200 || res.data == null) return null;
-      final data = res.data is Map ? res.data as Map : null;
-      final token = data?['token']?.toString();
-      return token != null && token.isNotEmpty ? token : null;
-    } catch (e) {
-      print('[TH_CALL] fetchAgoraToken 异常: $e');
-      return null;
-    }
+
+    return null;
   }
 
   /// 查询与某人的通话记录（主叫/被叫均可查，需 RLS 允许 from_user_id=我 或 to_user_id=我）

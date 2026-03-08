@@ -168,7 +168,9 @@ class _MessagesPageState extends State<MessagesPage> {
       return;
     }
     _conversationStreamUserId = userId;
-    _conversationStream = _repository.watchConversations(userId: userId);
+    _conversationStream = _repository
+        .watchConversations(userId: userId)
+        .asBroadcastStream();
     _conversationStreamKey = UniqueKey();
   }
 

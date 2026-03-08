@@ -101,7 +101,9 @@ class _HomePageState extends State<HomePage> {
         _conversationStreamUserId != userId) {
       _conversationStreamEnabled = true;
       _conversationStreamUserId = userId;
-      _conversationsStream = _messagesRepo.watchConversations(userId: userId);
+      _conversationsStream = _messagesRepo
+          .watchConversations(userId: userId)
+          .asBroadcastStream();
     }
     return _conversationsStream!;
   }

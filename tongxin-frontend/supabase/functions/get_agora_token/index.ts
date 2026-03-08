@@ -181,11 +181,34 @@ serve(async (req) => {
     );
   }
 
+  if (!appId || !appCert) {
+    return new Response(
+      JSON.stringify({
+        error: "Missing AGORA_APP_ID or AGORA_APP_CERTIFICATE",
+      }),
+      { status: 503, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
+  if (appId.length !== APP_ID_LENGTH) {
+    return new Response(
+      JSON.stringify({ error: "Invalid AGORA_APP_ID length" }),
+      { status: 503, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
   const expireSeconds = 3600;
   const token = await buildRtcToken(channelId, uid, expireSeconds);
 
+  if (!token) {
+    return new Response(
+      JSON.stringify({ error: "Failed to build Agora token" }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
   return new Response(
-    JSON.stringify({ token: token || "", expireSeconds }),
+    JSON.stringify({ token, expireSeconds }),
     { status: 200, headers: { "Content-Type": "application/json" } }
   );
 });
