@@ -40,6 +40,7 @@ class _HomePageState extends State<HomePage> {
   Stream<List<Conversation>>? _conversationsStream;
   String _conversationStreamUserId = '';
   bool _conversationStreamEnabled = false;
+  int _lastBadgeCount = -1;
   final GlobalKey<NavigatorState> _desktopContentNavKey =
       GlobalKey<NavigatorState>();
 
@@ -157,8 +158,11 @@ class _HomePageState extends State<HomePage> {
         final chatUnread =
             conversations.fold<int>(0, (sum, c) => sum + c.unreadCount);
         final totalUnread = chatUnread + _pendingFriendRequestCount;
-        if (snapshot.hasData) {
-          NotificationService.updateBadgeCount(totalUnread);
+        if (snapshot.hasData && _lastBadgeCount != totalUnread) {
+          _lastBadgeCount = totalUnread;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            NotificationService.updateBadgeCount(totalUnread);
+          });
         }
 
         if (useDesktopLayout) {
@@ -200,7 +204,10 @@ class _HomePageState extends State<HomePage> {
             ? 4
             : (_currentIndex == 4 ? 0 : _currentIndex.clamp(0, 3));
         return Scaffold(
-          body: _pages[mobileIndex],
+          body: IndexedStack(
+            index: mobileIndex,
+            children: _pages,
+          ),
           bottomNavigationBar: Container(
             decoration: const BoxDecoration(
               border: Border(

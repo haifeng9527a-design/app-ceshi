@@ -48,7 +48,18 @@ class NotificationService {
   static const _callChannel = MethodChannel('teacherhub.call');
 
   static bool _initialized = false;
+  static bool _initializing = false;
   static const String _pushDeviceIdPrefsKey = 'push_device_id';
+  static final Map<String, String> _sessionSavedTokens = <String, String>{};
+  static Timer? _iosVoipTokenRetryTimer;
+  static int _iosVoipTokenRetryCount = 0;
+  static const int _maxIosVoipTokenRetryCount = 8;
+  static const Duration _iosVoipTokenRetryDelay = Duration(seconds: 3);
+  static Timer? _initRetryTimer;
+  static StreamSubscription<RemoteMessage>? _onMessageSubscription;
+  static StreamSubscription<RemoteMessage>? _onMessageOpenedAppSubscription;
+  static StreamSubscription<String>? _tokenRefreshSubscription;
+  static StreamSubscription<User?>? _authStateSubscription;
 
   /// 是否已完成推送初始化（用于应用恢复时若未初始化则重试）
   static bool get isInitialized => _initialized;
@@ -116,17 +127,26 @@ class NotificationService {
       debugPrint('[通知] 已初始化过，跳过');
       return;
     }
+    if (_initializing) {
+      debugPrint('[通知] 正在初始化中，跳过重复进入');
+      return;
+    }
     if (!FirebaseBootstrap.isReady) {
       if (retryCount >= _maxInitRetries) {
         debugPrint('[通知] Firebase 未就绪且已达最大重试次数，推送可能不可用');
         return;
       }
       debugPrint('[通知] Firebase 未就绪，${_initRetryDelay.inSeconds} 秒后重试 (${retryCount + 1}/$_maxInitRetries)');
-      Future.delayed(_initRetryDelay, () async {
+      _initRetryTimer?.cancel();
+      _initRetryTimer = Timer(_initRetryDelay, () async {
         await init(retryCount: retryCount + 1);
       });
       return;
     }
+    _initializing = true;
+    _initRetryTimer?.cancel();
+    _initRetryTimer = null;
+    try {
     if (!kIsWeb && Platform.isAndroid) {
       final status = await Permission.notification.request();
       debugPrint('[通知] Android 通知权限请求结果: $status');
@@ -164,14 +184,15 @@ class NotificationService {
       debugPrint('[通知] FCM 权限/配置 失败（如 macOS 可能不支持）: $e');
     }
 
-    FirebaseMessaging.onMessage.listen(
+    _onMessageSubscription ??= FirebaseMessaging.onMessage.listen(
       _showLocalNotification,
       onError: (e, st) {
         debugPrint('[通知] FCM onMessage 流错误: $e\n$st');
       },
     );
     debugPrint('[通知] FCM onMessage 监听已注册');
-    FirebaseMessaging.onMessageOpenedApp.listen((message) {
+    _onMessageOpenedAppSubscription ??=
+        FirebaseMessaging.onMessageOpenedApp.listen((message) {
       _handleNotificationData(message.data);
     });
     try {
@@ -227,8 +248,10 @@ class NotificationService {
     Future.delayed(const Duration(seconds: 1), () async {
       await refreshBadgeFromUnread();
     });
-    FirebaseMessaging.instance.onTokenRefresh.listen(_saveToken);
-    FirebaseAuth.instance.authStateChanges().listen((user) async {
+    _tokenRefreshSubscription ??=
+        FirebaseMessaging.instance.onTokenRefresh.listen(_saveToken);
+    _authStateSubscription ??=
+        FirebaseAuth.instance.authStateChanges().listen((user) async {
       if (user == null) {
         _incomingCallSubscription?.cancel();
         _incomingCallSubscription = null;
@@ -271,6 +294,9 @@ class NotificationService {
       }
       await _saveIosVoipTokenIfAvailable();
     });
+    } finally {
+      _initializing = false;
+    }
   }
 
   static Future<void> _showLocalNotification(RemoteMessage message) async {
@@ -381,20 +407,40 @@ class NotificationService {
     return generated;
   }
 
-  static Future<void> _saveIosVoipTokenIfAvailable() async {
+  static Future<void> _saveIosVoipTokenIfAvailable({bool allowRetry = true}) async {
     if (kIsWeb || !Platform.isIOS) return;
     try {
       final token = await _callChannel.invokeMethod<String>('getVoipToken');
       final trimmed = token?.trim() ?? '';
       if (trimmed.isEmpty) {
         debugPrint('[通知] iOS VoIP token 暂不可用');
+        if (allowRetry) {
+          _scheduleIosVoipTokenRetry();
+        }
         return;
       }
       await _saveDeviceToken(token: trimmed, platform: 'apns_voip');
+      _iosVoipTokenRetryTimer?.cancel();
+      _iosVoipTokenRetryTimer = null;
+      _iosVoipTokenRetryCount = 0;
       debugPrint('[通知] iOS VoIP token 已保存');
     } catch (e) {
       debugPrint('[通知] 获取 iOS VoIP token 失败: $e');
+      if (allowRetry) {
+        _scheduleIosVoipTokenRetry();
+      }
     }
+  }
+
+  static void _scheduleIosVoipTokenRetry() {
+    if (kIsWeb || !Platform.isIOS) return;
+    if (_iosVoipTokenRetryTimer != null) return;
+    if (_iosVoipTokenRetryCount >= _maxIosVoipTokenRetryCount) return;
+    _iosVoipTokenRetryCount += 1;
+    _iosVoipTokenRetryTimer = Timer(_iosVoipTokenRetryDelay, () async {
+      _iosVoipTokenRetryTimer = null;
+      await _saveIosVoipTokenIfAvailable();
+    });
   }
 
   static String _guessPreferredPushProvider({
@@ -474,17 +520,32 @@ class NotificationService {
       debugPrint('[通知] 保存 token 跳过: TONGXIN_API_URL 未配置');
       return;
     }
+    final trimmedToken = token.trim();
+    if (trimmedToken.isEmpty) {
+      debugPrint('[通知] 保存 token 跳过: token 为空 (platform=$platform)');
+      return;
+    }
+    final cacheKey = '$userId|$platform';
+    if (_sessionSavedTokens[cacheKey] == trimmedToken) {
+      debugPrint('[通知] 保存 token 跳过: 当前会话已保存相同 token (platform=$platform)');
+      return;
+    }
     debugPrint('[通知] 保存 device_token 走后端: platform=$platform userId=$userId');
     try {
       final metadata = await _buildDeviceTokenMetadata(platform);
       await UsersApi.instance.saveDeviceToken(
-        token: token,
+        token: trimmedToken,
         platform: platform,
         metadata: metadata,
       );
+      _sessionSavedTokens[cacheKey] = trimmedToken;
     } catch (e) {
       debugPrint('[通知] 采集设备信息失败，降级为基础 token 保存: $e');
-      await UsersApi.instance.saveDeviceToken(token: token, platform: platform);
+      await UsersApi.instance.saveDeviceToken(
+        token: trimmedToken,
+        platform: platform,
+      );
+      _sessionSavedTokens[cacheKey] = trimmedToken;
     }
   }
 
@@ -814,15 +875,8 @@ class NotificationService {
     }
 
     if (!kIsWeb && Platform.isIOS) {
-      if (showNativeCallUi) {
-        _showIncomingCallViaService(
-          caller: fromUserName,
-          invitationId: invitationId,
-          channelId: channelId,
-          callType: callType,
-        );
-        return;
-      }
+      // iOS 的系统级来电界面由 PushKit + CallKit 在原生侧触发；
+      // Dart 侧收到来电时只负责展示 Flutter 接听页，避免点通知进入 App 后再次触发 CallKit 导致白屏/卡住。
       _showIncomingCallDialogWhenReady(
         invitationId: invitationId,
         channelId: channelId,

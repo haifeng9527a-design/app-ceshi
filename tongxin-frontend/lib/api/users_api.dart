@@ -8,6 +8,12 @@ class UsersApi {
   static final UsersApi instance = UsersApi._();
   final _api = ApiClient.instance;
 
+  bool _isBenignDuplicateDeviceTokenFailure(int statusCode, String body) {
+    if (statusCode < 400) return false;
+    return body.contains('duplicate key value violates unique constraint') &&
+        body.contains('device_tokens');
+  }
+
   /// GET /api/users/:userId/profile
   Future<Map<String, dynamic>?> getProfile(String userId) async {
     if (!_api.isAvailable) return null;
@@ -55,11 +61,17 @@ class UsersApi {
     Map<String, dynamic>? metadata,
   }) async {
     if (!_api.isAvailable) return;
-    await _api.post('api/device-tokens', body: {
+    final resp = await _api.post('api/device-tokens', body: {
       'token': token,
       'platform': platform,
       if (metadata != null) ...metadata,
     });
+    if (_isBenignDuplicateDeviceTokenFailure(resp.statusCode, resp.body)) {
+      return;
+    }
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw Exception('saveDeviceToken failed: ${resp.statusCode} ${resp.body}');
+    }
   }
 
   /// GET /api/user-profiles/batch

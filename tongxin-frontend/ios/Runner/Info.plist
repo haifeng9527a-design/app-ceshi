@@ -52,27 +52,10 @@
 	<string>用于发送语音消息及语音/视频通话</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>用于选择聊天图片和视频</string>
-	<key>UIApplicationSceneManifest</key>
-	<dict>
-		<key>UIApplicationSupportsMultipleScenes</key>
-		<false/>
-		<key>UISceneConfigurations</key>
-		<dict>
-			<key>UIWindowSceneSessionRoleApplication</key>
-			<array>
-				<dict>
-					<key>UISceneClassName</key>
-					<string>UIWindowScene</string>
-					<key>UISceneConfigurationName</key>
-					<string>flutter</string>
-					<key>UISceneDelegateClassName</key>
-					<string>FlutterSceneDelegate</string>
-					<key>UISceneStoryboardFile</key>
-					<string>Main</string>
-				</dict>
-			</array>
-		</dict>
-	</dict>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>用于保存图片和视频到系统相册</string>
+	<key>NSContactsUsageDescription</key>
+	<string>用于在需要时读取通讯录，帮助你更方便地添加联系人</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UIBackgroundModes</key>

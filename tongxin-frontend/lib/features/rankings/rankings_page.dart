@@ -2,12 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../../api/teachers_api.dart';
 import '../../core/api_client.dart';
 import '../../core/design/design_tokens.dart';
 import '../../l10n/app_localizations.dart';
 import '../teachers/teacher_models.dart';
 import '../teachers/teacher_public_page.dart';
+import '../teachers/teacher_repository.dart';
 
 class RankingsPage extends StatefulWidget {
   const RankingsPage({super.key});
@@ -20,12 +20,13 @@ class _RankingsPageState extends State<RankingsPage> {
   /// 用于重试时重新订阅 stream
   int _streamKey = 0;
   Stream<List<TeacherProfile>>? _cachedRankingsStream;
+  final _repository = TeacherRepository();
 
   Stream<List<TeacherProfile>> _rankingsStream() {
     if (!ApiClient.instance.isAvailable) {
       return Stream.value(<TeacherProfile>[]);
     }
-    return TeachersApi.instance.watchRankings();
+    return _repository.watchRealRankings();
   }
 
   @override
@@ -64,13 +65,7 @@ class _RankingsPageState extends State<RankingsPage> {
               child: CircularProgressIndicator(color: AppColors.primary),
             );
           }
-          final list = snapshot.data ?? const <TeacherProfile>[];
-          final rankings = List<TeacherProfile>.from(list)
-            ..sort((a, b) {
-              final pa = (a.pnlMonth ?? 0).toDouble();
-              final pb = (b.pnlMonth ?? 0).toDouble();
-              return pb.compareTo(pa);
-            });
+          final rankings = snapshot.data ?? const <TeacherProfile>[];
           return ListView.builder(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
             itemCount: rankings.length + 2,

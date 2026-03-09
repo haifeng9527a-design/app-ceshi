@@ -622,7 +622,7 @@ class _KpiGrid extends StatelessWidget {
         const SizedBox(width: 8),
         Expanded(
             child:
-                _KpiTile(label: l10n.featuredYearPnl, value: teacher.pnlYear)),
+                _KpiTile(label: l10n.teachersMonthlyEarnings, value: teacher.pnlMonth)),
         const SizedBox(width: 8),
         Expanded(
             child: _KpiTile(

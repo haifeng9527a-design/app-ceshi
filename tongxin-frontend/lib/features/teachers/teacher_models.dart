@@ -166,6 +166,75 @@ class TeacherProfile {
   }
 }
 
+class TeacherPnlMetrics {
+  const TeacherPnlMetrics({
+    required this.userId,
+    required this.floatingPnl,
+    required this.monthRealizedPnl,
+    required this.yearRealizedPnl,
+    required this.totalRealizedPnl,
+    required this.wins,
+    required this.losses,
+  });
+
+  final String userId;
+  final double floatingPnl;
+  final double monthRealizedPnl;
+  final double yearRealizedPnl;
+  final double totalRealizedPnl;
+  final int wins;
+  final int losses;
+
+  factory TeacherPnlMetrics.fromMap(Map<String, dynamic> row) {
+    double asDouble(dynamic value) {
+      if (value is num) return value.toDouble();
+      return double.tryParse(value?.toString() ?? '') ?? 0;
+    }
+
+    int asInt(dynamic value) {
+      if (value is int) return value;
+      if (value is num) return value.toInt();
+      return int.tryParse(value?.toString() ?? '') ?? 0;
+    }
+
+    return TeacherPnlMetrics(
+      userId: row['user_id']?.toString() ?? '',
+      floatingPnl: asDouble(row['floating_pnl'] ?? row['pnl_current']),
+      monthRealizedPnl:
+          asDouble(row['month_realized_pnl'] ?? row['pnl_month']),
+      yearRealizedPnl: asDouble(row['year_realized_pnl'] ?? row['pnl_year']),
+      totalRealizedPnl:
+          asDouble(row['total_realized_pnl'] ?? row['pnl_total']),
+      wins: asInt(row['wins']),
+      losses: asInt(row['losses']),
+    );
+  }
+
+  factory TeacherPnlMetrics.fromProfile(TeacherProfile profile) {
+    return TeacherPnlMetrics(
+      userId: profile.userId,
+      floatingPnl: (profile.pnlCurrent ?? 0).toDouble(),
+      monthRealizedPnl: (profile.pnlMonth ?? 0).toDouble(),
+      yearRealizedPnl: (profile.pnlYear ?? 0).toDouble(),
+      totalRealizedPnl: (profile.pnlTotal ?? 0).toDouble(),
+      wins: profile.wins ?? 0,
+      losses: profile.losses ?? 0,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'user_id': userId,
+      'floating_pnl': floatingPnl,
+      'month_realized_pnl': monthRealizedPnl,
+      'year_realized_pnl': yearRealizedPnl,
+      'total_realized_pnl': totalRealizedPnl,
+      'wins': wins,
+      'losses': losses,
+    };
+  }
+}
+
 class TeacherStrategy {
   const TeacherStrategy({
     required this.id,

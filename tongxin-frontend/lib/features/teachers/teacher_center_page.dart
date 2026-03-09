@@ -17,7 +17,12 @@ import 'teacher_public_page.dart';
 import 'teacher_repository.dart';
 
 class TeacherCenterPage extends StatefulWidget {
-  const TeacherCenterPage({super.key});
+  const TeacherCenterPage({
+    super.key,
+    this.initialTeacherStatus,
+  });
+
+  final String? initialTeacherStatus;
 
   @override
   State<TeacherCenterPage> createState() => _TeacherCenterPageState();
@@ -48,6 +53,8 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
   final _specialtiesController = TextEditingController();
   bool _saving = false;
   bool _applicationAck = false;
+  bool _profileLoaded = false;
+  bool? _configuredApprovedState;
   String? _countryValue;
   int? _yearsValue;
   String? _idPhotoUrl;
@@ -61,6 +68,8 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
   @override
   void initState() {
     super.initState();
+    _statusLabel = widget.initialTeacherStatus?.trim().toLowerCase() ?? '';
+    _configureTabsForCurrentStatus();
     _loadProfile();
   }
 
@@ -120,7 +129,21 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
     _statusLabel = profile.status ?? 'pending';
     _frozenUntil = profile.frozenUntil;
     _applicationAck = profile.applicationAck ?? false;
-    final approved = (_statusLabel.toString().trim().toLowerCase() == 'approved');
+    _profileLoaded = true;
+    _configureTabsForCurrentStatus();
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  void _configureTabsForCurrentStatus() {
+    final approved = _statusLabel.toString().trim().toLowerCase() == 'approved';
+    final alreadyConfigured =
+        _configuredApprovedState == approved &&
+        ((approved && _tabController != null) || (!approved && _tabController == null));
+    if (alreadyConfigured) {
+      return;
+    }
     _tabController?.removeListener(_handleTradingTabChanged);
     _tabController?.dispose();
     if (approved) {
@@ -134,9 +157,7 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
     } else {
       _tabController = null;
     }
-    if (mounted) {
-      setState(() {});
-    }
+    _configuredApprovedState = approved;
   }
 
   void _handleTradingTabChanged() {
@@ -665,26 +686,32 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
               )
             : null,
       ),
-      body: (_isApproved && _tabController != null)
-          ? Container(
-              decoration: const BoxDecoration(
-                color: TradingUi.pageBg,
-              ),
-              child: Column(
-                children: [
-                  if (_activeTradingTabIndex >= 2) _buildTradingAccountSwitcher(),
-                  Expanded(
-                    child: TabBarView(
-                      controller: _tabController!,
-                      children: [
-                        for (var i = 0; i < 6; i++) _buildTradingTabChild(i, user.uid),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
+      body: !_profileLoaded && !_isApproved
+          ? const Center(
+              child: CircularProgressIndicator(color: TradingUi.accent),
             )
-          : _buildProfileTab(),
+          : (_isApproved && _tabController != null)
+              ? Container(
+                  decoration: const BoxDecoration(
+                    color: TradingUi.pageBg,
+                  ),
+                  child: Column(
+                    children: [
+                      if (_activeTradingTabIndex >= 2)
+                        _buildTradingAccountSwitcher(),
+                      Expanded(
+                        child: TabBarView(
+                          controller: _tabController!,
+                          children: [
+                            for (var i = 0; i < 6; i++)
+                              _buildTradingTabChild(i, user.uid),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              : _buildProfileTab(),
     );
   }
 

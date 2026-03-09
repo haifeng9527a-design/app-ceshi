@@ -65,6 +65,24 @@ class TeacherRepository {
     return TeachersApi.instance.getProfile(userId);
   }
 
+  Future<TeacherPnlMetrics?> fetchPnlMetrics(String userId) async {
+    if (userId.isEmpty || !_useApi) return null;
+    return TeachersApi.instance.getPnlMetrics(userId);
+  }
+
+  Stream<TeacherPnlMetrics?> watchPnlMetrics(
+    String userId, {
+    Duration interval = const Duration(seconds: 10),
+  }) {
+    if (userId.isEmpty || !_useApi) return Stream.value(null);
+    return _asBroadcast(
+      _pollImmediately(
+        () => TeachersApi.instance.getPnlMetrics(userId),
+        interval: interval,
+      ),
+    );
+  }
+
   Future<void> upsertProfile(TeacherProfile profile) async {
     if (!_useApi) return;
     await TeachersApi.instance.upsertMyProfile(profile.toMap());
@@ -258,6 +276,23 @@ class TeacherRepository {
   Future<TeacherProfile?> getRankOneTeacherProfile() async {
     if (!_useApi) return null;
     return TeachersApi.instance.getRankOne();
+  }
+
+  Future<List<TeacherProfile>> fetchRealRankings() async {
+    if (!_useApi) return [];
+    return TeachersApi.instance.getRealRankings();
+  }
+
+  Stream<List<TeacherProfile>> watchRealRankings({
+    Duration interval = const Duration(seconds: 10),
+  }) {
+    if (!_useApi) return Stream.value(const []);
+    return _asBroadcast(
+      _pollImmediately(
+        () => TeachersApi.instance.getRealRankings(),
+        interval: interval,
+      ),
+    );
   }
 
   Future<String> uploadStrategyImage({

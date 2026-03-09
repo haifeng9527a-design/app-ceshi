@@ -41,22 +41,28 @@ Future<void> main() async {
     lastChatWsUserId = currentUser.uid;
     ChatWebSocketService.instance.connectIfNeeded(currentUser.uid);
   }
-  FirebaseAuth.instance.authStateChanges().listen((user) {
-    if (user != null) {
-      // 启动阶段 currentUser 与 authStateChanges 可能连续触发同一用户，避免重复建连。
-      if (lastChatWsUserId == user.uid) return;
-      lastChatWsUserId = user.uid;
-      ChatWebSocketService.instance.connectIfNeeded(user.uid);
-    } else {
-      lastChatWsUserId = null;
-      ChatWebSocketService.instance.disconnect();
-    }
-  });
+  if (FirebaseBootstrap.isReady) {
+    FirebaseAuth.instance.authStateChanges().listen((user) {
+      if (user != null) {
+        // 启动阶段 currentUser 与 authStateChanges 可能连续触发同一用户，避免重复建连。
+        if (lastChatWsUserId == user.uid) return;
+        lastChatWsUserId = user.uid;
+        ChatWebSocketService.instance.connectIfNeeded(user.uid);
+      } else {
+        lastChatWsUserId = null;
+        ChatWebSocketService.instance.disconnect();
+      }
+    });
+  }
   await LocaleProvider.init();
   AppConfigService.instance.fetchAndCache();
   runApp(const TeacherHubApp());
   if (!kIsWeb) {
-    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+    if (FirebaseBootstrap.isReady) {
+      FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+    } else if (kDebugMode) {
+      debugPrint('[main] 跳过 FirebaseMessaging.onBackgroundMessage：Firebase 未就绪');
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       try {
         await NotificationService.init();

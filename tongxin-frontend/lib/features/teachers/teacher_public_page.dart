@@ -11,7 +11,7 @@ import '../messages/friends_repository.dart';
 import 'teacher_models.dart';
 import 'teacher_repository.dart';
 
-class TeacherPublicPage extends StatelessWidget {
+class TeacherPublicPage extends StatefulWidget {
   const TeacherPublicPage({
     super.key,
     required this.teacherId,
@@ -27,8 +27,26 @@ class TeacherPublicPage extends StatelessWidget {
   static const Color _surface = AppColors.surface2;
 
   @override
+  State<TeacherPublicPage> createState() => _TeacherPublicPageState();
+}
+
+class _TeacherPublicPageState extends State<TeacherPublicPage> {
+  late final TeacherRepository _repository;
+  late Future<TeacherProfile?> _profileFuture;
+  late Future<TeacherPnlMetrics?> _metricsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _repository = TeacherRepository();
+    _profileFuture = _repository.fetchProfile(widget.teacherId);
+    _metricsFuture = _repository.fetchPnlMetrics(widget.teacherId);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final repository = TeacherRepository();
+    final teacherId = widget.teacherId;
+    final isAlreadyFriend = widget.isAlreadyFriend;
     return StreamBuilder<User?>(
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, authSnapshot) {
@@ -40,31 +58,50 @@ class TeacherPublicPage extends StatelessWidget {
         backgroundColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, color: _accent, size: 20),
+          icon: const Icon(
+            Icons.arrow_back_ios_new,
+            color: TeacherPublicPage._accent,
+            size: 20,
+          ),
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: Text(
           AppLocalizations.of(context)!.teachersProfileTitle,
-          style: const TextStyle(color: _accent, fontWeight: FontWeight.w600),
+          style: const TextStyle(
+            color: TeacherPublicPage._accent,
+            fontWeight: FontWeight.w600,
+          ),
         ),
         centerTitle: true,
       ),
       body: FutureBuilder<TeacherProfile?>(
-        future: repository.fetchProfile(teacherId),
+        future: _profileFuture,
         builder: (context, snapshot) {
           final profile = snapshot.data;
           if (profile == null) {
-            return Center(child: Text(AppLocalizations.of(context)!.teachersNoTeacherInfo, style: const TextStyle(color: _muted)));
+            return Center(
+              child: Text(
+                AppLocalizations.of(context)!.teachersNoTeacherInfo,
+                style: const TextStyle(color: TeacherPublicPage._muted),
+              ),
+            );
           }
           final isApproved = (profile.status ?? '') == 'approved';
           final listChildren = [
               _HeaderBlock(
                 profile: profile,
                 teacherId: teacherId,
-                repository: repository,
+                repository: _repository,
               ),
               const SizedBox(height: AppSpacing.lg),
-              _StatsBlock(profile: profile),
+              FutureBuilder<TeacherPnlMetrics?>(
+                future: _metricsFuture,
+                builder: (context, metricsSnapshot) {
+                  final metrics =
+                      metricsSnapshot.data ?? TeacherPnlMetrics.fromProfile(profile);
+                  return _StatsBlock(profile: profile, metrics: metrics);
+                },
+              ),
               const SizedBox(height: AppSpacing.xl),
               _SectionBlock(
                 title: AppLocalizations.of(context)!.teachersPersonalIntro,
@@ -82,7 +119,7 @@ class TeacherPublicPage extends StatelessWidget {
                 _SectionBlock(
                   title: AppLocalizations.of(context)!.teachersStrategySection,
                   child: StreamBuilder<List<TeacherStrategy>>(
-                    stream: repository.watchPublishedStrategies(teacherId),
+                    stream: _repository.watchPublishedStrategies(teacherId),
                     builder: (context, strategySnapshot) {
                       final items =
                           strategySnapshot.data ?? const <TeacherStrategy>[];
@@ -91,7 +128,10 @@ class TeacherPublicPage extends StatelessWidget {
                           padding: const EdgeInsets.symmetric(vertical: 12),
                           child: Text(
                             AppLocalizations.of(context)!.teachersNoPublicStrategy,
-                            style: const TextStyle(color: _muted, fontSize: 14),
+                            style: const TextStyle(
+                              color: TeacherPublicPage._muted,
+                              fontSize: 14,
+                            ),
                           ),
                         );
                       }
@@ -123,7 +163,7 @@ class TeacherPublicPage extends StatelessWidget {
                                               (item.content ?? item.summary)
                                                   .trim(),
                                               style: const TextStyle(
-                                                color: _muted,
+                                                color: TeacherPublicPage._muted,
                                                 fontSize: 12,
                                               ),
                                               maxLines: 3,
@@ -136,7 +176,7 @@ class TeacherPublicPage extends StatelessWidget {
                                     Text(
                                       _formatDate(item.createdAt),
                                       style: const TextStyle(
-                                        color: _muted,
+                                        color: TeacherPublicPage._muted,
                                         fontSize: 11,
                                       ),
                                     ),
@@ -154,7 +194,7 @@ class TeacherPublicPage extends StatelessWidget {
                 _SectionBlock(
                   title: AppLocalizations.of(context)!.teachersMyTradeRecords,
                   child: StreamBuilder<List<TradeRecord>>(
-                    stream: repository.watchTradeRecords(teacherId),
+                    stream: _repository.watchTradeRecords(teacherId),
                     builder: (context, recordSnapshot) {
                       final items =
                           recordSnapshot.data ?? const <TradeRecord>[];
@@ -163,7 +203,10 @@ class TeacherPublicPage extends StatelessWidget {
                           padding: const EdgeInsets.symmetric(vertical: 12),
                           child: Text(
                             AppLocalizations.of(context)!.teachersNoTradeRecords,
-                            style: const TextStyle(color: _muted, fontSize: 14),
+                            style: const TextStyle(
+                              color: TeacherPublicPage._muted,
+                              fontSize: 14,
+                            ),
                           ),
                         );
                       }
@@ -190,7 +233,7 @@ class TeacherPublicPage extends StatelessWidget {
                                           Text(
                                             '${item.side}  PnL: ${item.pnl}',
                                             style: const TextStyle(
-                                              color: _muted,
+                                                  color: TeacherPublicPage._muted,
                                               fontSize: 12,
                                             ),
                                           ),
@@ -202,14 +245,15 @@ class TeacherPublicPage extends StatelessWidget {
                                       IconButton(
                                         icon: const Icon(
                                           Icons.image_outlined,
-                                          color: _accent,
+                                          color: TeacherPublicPage._accent,
                                           size: 20,
                                         ),
                                         onPressed: () {
                                           showDialog(
                                             context: context,
                                             builder: (_) => Dialog(
-                                              backgroundColor: _surface,
+                                              backgroundColor:
+                                                  TeacherPublicPage._surface,
                                               child: Image.network(
                                                 item.attachmentUrl!,
                                               ),
@@ -221,7 +265,7 @@ class TeacherPublicPage extends StatelessWidget {
                                       Text(
                                         _formatDate(item.tradeTime!),
                                         style: const TextStyle(
-                                          color: _muted,
+                                          color: TeacherPublicPage._muted,
                                           fontSize: 11,
                                         ),
                                       ),
@@ -259,7 +303,7 @@ class TeacherPublicPage extends StatelessWidget {
                 currentUserId: currentUserId,
                 isOwner: isOwner,
                 isAlreadyFriend: isAlreadyFriend,
-                repository: repository,
+                repository: _repository,
               ),
             ],
           );
@@ -569,20 +613,24 @@ class _InfoRow extends StatelessWidget {
 }
 
 class _StatsBlock extends StatelessWidget {
-  const _StatsBlock({required this.profile});
+  const _StatsBlock({
+    required this.profile,
+    required this.metrics,
+  });
 
   final TeacherProfile profile;
+  final TeacherPnlMetrics metrics;
 
   static const Color _accent = AppColors.primary;
   static const Color _surface = AppColors.surface2;
 
   @override
   Widget build(BuildContext context) {
-    final total = profile.pnlTotal ?? 0;
-    final month = profile.pnlMonth ?? 0;
-    final current = profile.pnlCurrent ?? 0;
-    final wins = profile.wins ?? 0;
-    final losses = profile.losses ?? 0;
+    final total = metrics.totalRealizedPnl;
+    final month = metrics.monthRealizedPnl;
+    final current = metrics.floatingPnl;
+    final wins = metrics.wins;
+    final losses = metrics.losses;
     final totalTrades = wins + losses;
     final winRate = totalTrades > 0
         ? (100.0 * wins / totalTrades).toStringAsFixed(0)

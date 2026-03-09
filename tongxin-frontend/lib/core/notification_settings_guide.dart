@@ -8,11 +8,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../l10n/app_localizations.dart';
 import 'notification_service.dart';
 
-/// 安装/首次启动时一次性请求应用所需全部权限（通知、后台运行、相机、麦克风、相册、悬浮窗等）。
+/// 安装/首次启动时一次性请求应用所需全部权限。
 class NotificationSettingsGuide {
   static const String _keyShown = 'notification_settings_guide_shown';
 
-  /// 若为 Android 且尚未请求过，直接依次触发系统权限弹窗（如「是否允许 teacher_hub 发送通知？」），用户逐项点「允许」即可，无需先点应用内弹窗。
+  /// 首次启动时直接依次触发系统权限弹窗。
+  /// iOS 启动阶段先不在 Splash 里批量请求，避免系统权限弹窗与冷启动流程冲突。
   static Future<void> showIfNeeded(BuildContext context) async {
     if (kIsWeb || !Platform.isAndroid) return;
     final prefs = await SharedPreferences.getInstance();
@@ -24,22 +25,25 @@ class NotificationSettingsGuide {
 
   /// 依次请求全部所需权限，每项间隔约 0.5 秒，避免系统弹窗重叠。
   static Future<void> _requestAllPermissions(BuildContext context) async {
-    if (kIsWeb || !Platform.isAndroid) return;
+    if (kIsWeb || (!Platform.isAndroid && !Platform.isIOS)) return;
 
     final permissions = <Permission>[
       Permission.notification,
-      Permission.ignoreBatteryOptimizations,
       Permission.camera,
       Permission.microphone,
       Permission.photos,
-      Permission.systemAlertWindow,
+      if (Platform.isAndroid) Permission.ignoreBatteryOptimizations,
+      if (Platform.isAndroid) Permission.systemAlertWindow,
     ];
 
     for (final p in permissions) {
       if (!context.mounted) return;
       try {
         final status = await p.status;
-        if (status.isDenied || status.isPermanentlyDenied) {
+        if (status.isGranted || status.isLimited) {
+          continue;
+        }
+        if (status.isDenied || status.isRestricted || status.isPermanentlyDenied) {
           await p.request();
           await Future<void>.delayed(const Duration(milliseconds: 500));
         }
@@ -47,15 +51,15 @@ class NotificationSettingsGuide {
         // 部分机型某项权限不可用时跳过
       }
     }
-    // Android 14+ 来电全屏：若未授予「全屏意图」，引导去设置
-    if (context.mounted) {
+    // Android 14+ 来电全屏：若未授予「全屏意图」，引导去设置。
+    if (context.mounted && Platform.isAndroid) {
       await showFullScreenIntentPermissionGuide(context);
     }
   }
 
   /// 立即请求全部权限（不检查是否已展示过），用于「收不到推送」等页面的「重新请求」按钮。
   static Future<void> requestAllPermissionsNow(BuildContext context) async {
-    if (kIsWeb || !Platform.isAndroid) return;
+    if (kIsWeb || (!Platform.isAndroid && !Platform.isIOS)) return;
     await _requestAllPermissions(context);
   }
 
@@ -82,7 +86,7 @@ class NotificationSettingsGuide {
 
   /// 若通知未授予，可再次触发系统请求或引导去设置。
   static Future<void> showIfPermissionDenied(BuildContext context) async {
-    if (kIsWeb || !Platform.isAndroid) return;
+    if (kIsWeb || (!Platform.isAndroid && !Platform.isIOS)) return;
     final status = await Permission.notification.status;
     if (status.isGranted) return;
     if (!context.mounted) return;

@@ -74,6 +74,10 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
   bool _uploadingAvatar = false;
   bool _savingSignature = false;
   bool _requestingShortId = false;
+  Future<UserRoleInfo?>? _roleInfoFuture;
+  Future<Map<String, dynamic>?>? _restrictionFuture;
+  Future<bool>? _userTradingCenterEnabledFuture;
+  String? _futureUserId;
 
   /// 通知权限未开启时为 true（仅 Android 检测）
   bool _notificationDenied = false;
@@ -105,6 +109,20 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
     if (mounted) {
       setState(() => _notificationDenied = !status.isGranted);
     }
+  }
+
+  void _ensureUserScopedFutures(String userId) {
+    if (_futureUserId == userId &&
+        _roleInfoFuture != null &&
+        _restrictionFuture != null &&
+        _userTradingCenterEnabledFuture != null) {
+      return;
+    }
+    _futureUserId = userId;
+    _roleInfoFuture = _fetchRoleInfo(userId);
+    _restrictionFuture = UserRestrictions.getMyRestrictionRow();
+    _userTradingCenterEnabledFuture =
+        AppConfigService.instance.isUserTradingCenterMenuEnabled();
   }
 
   Future<void> _loadAvatar(String userId) async {
@@ -449,17 +467,17 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
   Widget _buildLoggedInContent(User user) {
     final verified = user.emailVerified;
     final name = user.displayName?.trim();
+    _ensureUserScopedFutures(user.uid);
     if (_loadedUserId != user.uid) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         _loadAvatar(user.uid);
       });
     }
-    final roleFuture = _fetchRoleInfo(user.uid);
     return Column(
       children: [
         FutureBuilder<Map<String, dynamic>?>(
-          future: UserRestrictions.getMyRestrictionRow(),
+          future: _restrictionFuture,
           builder: (context, restrictionSnap) {
             final row = restrictionSnap.data;
             if (row == null || !UserRestrictions.hasAnyRestriction(row)) {
@@ -536,7 +554,7 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
           child: Padding(
             padding: EdgeInsets.zero,
             child: FutureBuilder<UserRoleInfo?>(
-              future: roleFuture,
+              future: _roleInfoFuture,
               builder: (context, roleSnapshot) {
                 final role = roleSnapshot.data ??
                     const UserRoleInfo(
@@ -749,7 +767,9 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                         onTap: () {
                           Navigator.of(context).push(
                             MaterialPageRoute(
-                              builder: (_) => const TeacherCenterPage(),
+                              builder: (_) => TeacherCenterPage(
+                                initialTeacherStatus: role.teacherStatus,
+                              ),
                             ),
                           );
                         },
@@ -809,7 +829,7 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
           onTap: () => _showPrivacyPolicy(context),
         ),
         FutureBuilder<bool>(
-          future: AppConfigService.instance.isUserTradingCenterMenuEnabled(),
+          future: _userTradingCenterEnabledFuture,
           builder: (context, snap) {
             final data = snap.data;
             if (data == null) return const SizedBox.shrink();

@@ -67,7 +67,7 @@ Future<void> openUserProfile(
 }
 
 /// 非交易员用户资料页：加好友、发消息
-class UserProfilePage extends StatelessWidget {
+class UserProfilePage extends StatefulWidget {
   const UserProfilePage({
     super.key,
     required this.userId,
@@ -83,7 +83,27 @@ class UserProfilePage extends StatelessWidget {
   static const Color _muted = Color(0xFF6C6F77);
 
   @override
+  State<UserProfilePage> createState() => _UserProfilePageState();
+}
+
+class _UserProfilePageState extends State<UserProfilePage> {
+  late final Future<bool> _isFriendFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
+    _isFriendFuture = currentUserId.isEmpty
+        ? Future.value(false)
+        : FriendsRepository()
+            .isFriend(userId: currentUserId, friendId: widget.userId);
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final userId = widget.userId;
+    final displayName = widget.displayName;
+    final avatarUrl = widget.avatarUrl;
     final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
     final isSelf = currentUserId == userId;
     final friendsRepo = FriendsRepository();
@@ -95,12 +115,19 @@ class UserProfilePage extends StatelessWidget {
         backgroundColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, color: _accent, size: 20),
+          icon: const Icon(
+            Icons.arrow_back_ios_new,
+            color: UserProfilePage._accent,
+            size: 20,
+          ),
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: Text(
           AppLocalizations.of(context)!.profilePersonalInfo,
-          style: const TextStyle(color: _accent, fontWeight: FontWeight.w600),
+          style: const TextStyle(
+            color: UserProfilePage._accent,
+            fontWeight: FontWeight.w600,
+          ),
         ),
         centerTitle: true,
       ),
@@ -127,7 +154,7 @@ class UserProfilePage extends StatelessWidget {
                             displayName.isEmpty ? '?' : displayName[0],
                             style: const TextStyle(
                               fontSize: 36,
-                              color: _accent,
+                              color: UserProfilePage._accent,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
@@ -137,7 +164,7 @@ class UserProfilePage extends StatelessWidget {
                             displayName.isEmpty ? '?' : displayName[0],
                             style: const TextStyle(
                               fontSize: 36,
-                              color: _accent,
+                              color: UserProfilePage._accent,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
@@ -148,7 +175,7 @@ class UserProfilePage extends StatelessWidget {
                       displayName.isEmpty ? '?' : displayName[0],
                       style: const TextStyle(
                         fontSize: 36,
-                        color: _accent,
+                        color: UserProfilePage._accent,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
@@ -164,11 +191,14 @@ class UserProfilePage extends StatelessWidget {
             ),
             if (isSelf) ...[
               const SizedBox(height: 24),
-              Text(AppLocalizations.of(context)!.profileItsYou, style: const TextStyle(color: _muted)),
+              Text(
+                AppLocalizations.of(context)!.profileItsYou,
+                style: const TextStyle(color: UserProfilePage._muted),
+              ),
             ] else ...[
               const SizedBox(height: 32),
               FutureBuilder<bool>(
-                future: friendsRepo.isFriend(userId: currentUserId, friendId: userId),
+                future: _isFriendFuture,
                 builder: (context, snapshot) {
                   final isFriend = snapshot.data ?? false;
                   // 已是好友：只显示「发消息」；非好友：只显示「加好友」，不两个一起展示
@@ -178,7 +208,7 @@ class UserProfilePage extends StatelessWidget {
                         ? FilledButton(
                             onPressed: () => _openChat(context, messagesRepo),
                             style: FilledButton.styleFrom(
-                              backgroundColor: _accent,
+                              backgroundColor: UserProfilePage._accent,
                               foregroundColor: Colors.black,
                               padding: const EdgeInsets.symmetric(vertical: 14),
                               shape: RoundedRectangleBorder(
@@ -196,7 +226,7 @@ class UserProfilePage extends StatelessWidget {
                         : FilledButton(
                             onPressed: () => _sendFriendRequest(context, friendsRepo),
                             style: FilledButton.styleFrom(
-                              backgroundColor: _accent,
+                              backgroundColor: UserProfilePage._accent,
                               foregroundColor: Colors.black,
                               padding: const EdgeInsets.symmetric(vertical: 14),
                               shape: RoundedRectangleBorder(
@@ -225,7 +255,8 @@ class UserProfilePage extends StatelessWidget {
     final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
     if (currentUserId.isEmpty) return;
     try {
-      await repo.sendFriendRequest(requesterId: currentUserId, receiverId: userId);
+      await repo.sendFriendRequest(
+          requesterId: currentUserId, receiverId: widget.userId);
       if (context.mounted) {
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(AppLocalizations.of(context)!.msgFriendRequestSent)));
       }
@@ -253,8 +284,8 @@ class UserProfilePage extends StatelessWidget {
     try {
       final conv = await repo.createOrGetDirectConversation(
         currentUserId: currentUserId,
-        friendId: userId,
-        friendName: displayName,
+        friendId: widget.userId,
+        friendName: widget.displayName,
       );
       if (!context.mounted) return;
       // 先关掉当前资料页，再清掉下层可能是的群聊，只保留根路由后压入私聊，避免点发消息后仍停在群聊

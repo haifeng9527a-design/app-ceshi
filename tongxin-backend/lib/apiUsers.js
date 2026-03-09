@@ -21,8 +21,34 @@ function normalizeNullableBool(value) {
   return null;
 }
 
+function isDuplicateDeviceTokenError(error) {
+  const message = String(error?.message || error || '');
+  return message.includes('duplicate key value violates unique constraint')
+    || message.includes('device_tokens_pkey')
+    || message.includes('device_tokens_user_device_platform_idx');
+}
+
+async function updateDeviceTokenByToken(sb, payload) {
+  const { error } = await sb
+    .from('device_tokens')
+    .update(payload)
+    .eq('token', payload.token);
+  if (error) throw new Error(error.message);
+}
+
 async function saveLegacyDeviceToken(sb, payload) {
   const platform = String(payload.platform || 'unknown').trim();
+  const token = String(payload.token || '').trim();
+  const { data: existingByToken, error: tokenSelectError } = await sb
+    .from('device_tokens')
+    .select('token')
+    .eq('token', token)
+    .maybeSingle();
+  if (tokenSelectError) throw new Error(tokenSelectError.message);
+  if (existingByToken) {
+    await updateDeviceTokenByToken(sb, payload);
+    return;
+  }
   const { data: existing, error: selectError } = await sb
     .from('device_tokens')
     .select('user_id, platform')
@@ -41,13 +67,31 @@ async function saveLegacyDeviceToken(sb, payload) {
     return;
   }
   const { error } = await sb.from('device_tokens').insert(payload);
-  if (error) throw new Error(error.message);
+  if (error) {
+    if (isDuplicateDeviceTokenError(error)) {
+      await updateDeviceTokenByToken(sb, payload);
+      return;
+    }
+    throw new Error(error.message);
+  }
 }
 
 async function saveDeviceAwareToken(sb, payload) {
   const deviceId = String(payload.device_id || '').trim();
+  const token = String(payload.token || '').trim();
+  const platform = String(payload.platform || 'unknown').trim();
   if (!deviceId) {
     await saveLegacyDeviceToken(sb, payload);
+    return;
+  }
+  const { data: existingByToken, error: tokenSelectError } = await sb
+    .from('device_tokens')
+    .select('token')
+    .eq('token', token)
+    .maybeSingle();
+  if (tokenSelectError) throw new Error(tokenSelectError.message);
+  if (existingByToken) {
+    await updateDeviceTokenByToken(sb, payload);
     return;
   }
   const { data: existing, error: selectError } = await sb
@@ -55,7 +99,7 @@ async function saveDeviceAwareToken(sb, payload) {
     .select('user_id, device_id, platform')
     .eq('user_id', payload.user_id)
     .eq('device_id', deviceId)
-    .eq('platform', payload.platform)
+    .eq('platform', platform)
     .limit(1)
     .maybeSingle();
   if (selectError) throw new Error(selectError.message);
@@ -65,12 +109,18 @@ async function saveDeviceAwareToken(sb, payload) {
       .update(payload)
       .eq('user_id', payload.user_id)
       .eq('device_id', deviceId)
-      .eq('platform', payload.platform);
+      .eq('platform', platform);
     if (error) throw new Error(error.message);
     return;
   }
   const { error } = await sb.from('device_tokens').insert(payload);
-  if (error) throw new Error(error.message);
+  if (error) {
+    if (isDuplicateDeviceTokenError(error)) {
+      await updateDeviceTokenByToken(sb, payload);
+      return;
+    }
+    throw new Error(error.message);
+  }
 }
 
 async function isAdminUser(sb, uid) {

@@ -94,12 +94,15 @@ class _IncomingCallScreenState extends State<_IncomingCallScreen>
         .listen((status) {
       if (!mounted) return;
       if (status == 'cancelled') {
+        final messenger = ScaffoldMessenger.maybeOf(
+          NotificationService.navigatorKey.currentContext ?? context,
+        );
         if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
           NotificationService.dismissIncomingCallService();
         }
         Navigator.of(context).pop();
         widget.onDismiss();
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger?.showSnackBar(
           SnackBar(content: Text(AppLocalizations.of(context)!.callOtherCancelled)),
         );
       }

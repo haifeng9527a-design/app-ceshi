@@ -3000,9 +3000,8 @@ class _UsStocksTabState extends State<_UsStocksTab> {
     return sorted;
   }
 
-  /// 「全部」列表视口高度：PC 700，移动端 400
+  /// 「全部」列表视口高度：PC 固定，移动端按可视区域动态计算
   static const double _allListHeightPc = 700;
-  static const double _allListHeightMobile = 400;
   static const double _allListRowHeightPc = 44;
   static const double _allListRowHeightMobile = 48;
 
@@ -3541,8 +3540,18 @@ class _UsStocksTabState extends State<_UsStocksTab> {
   }
 
   bool get _isPc => LayoutMode.useDesktopLikeLayout(context);
+  double get _mobileListViewportHeight {
+    final mediaQuery = MediaQuery.of(context);
+    final estimated = mediaQuery.size.height -
+        mediaQuery.padding.top -
+        mediaQuery.padding.bottom -
+        kBottomNavigationBarHeight -
+        260;
+    return estimated.clamp(420.0, 620.0);
+  }
+
   double get _allListHeight =>
-      _isPcList ? _allListHeightPc : _allListHeightMobile;
+      _isPcList ? _allListHeightPc : _mobileListViewportHeight;
   double get _allListRowHeight =>
       _isPcList ? _allListRowHeightPc : _allListRowHeightMobile;
 
@@ -4089,7 +4098,7 @@ class _UsStocksTabState extends State<_UsStocksTab> {
 
     final symbols = _sortedWatchlistSymbols;
     return SizedBox(
-      height: 400,
+      height: _allListHeight,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -4661,7 +4670,7 @@ class _UsStocksTabState extends State<_UsStocksTab> {
     );
 
     return SizedBox(
-      height: 400,
+      height: _allListHeight,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -4758,8 +4767,7 @@ class _UsStocksTabState extends State<_UsStocksTab> {
                       ),
                       child: headerDataRow,
                     ),
-                    SizedBox(
-                      height: 400 - 48,
+                    Expanded(
                       child: ListView.builder(
                         controller: _allListRightScrollController,
                         itemCount: _sortedTickers.length,

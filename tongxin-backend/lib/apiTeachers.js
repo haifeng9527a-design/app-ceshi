@@ -30,6 +30,100 @@ function registerTeacherRoutes(app, requireAuth, optionalAuth) {
     return;
   }
 
+  const toFiniteNumber = (value) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const toSafeInt = (value) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? Math.trunc(n) : 0;
+  };
+
+  const normalizeTeacherPnlMetrics = (row, fallbackUserId = '') => {
+    const payload = row && typeof row === 'object' ? row : {};
+    return {
+      user_id: String(payload.user_id || fallbackUserId || '').trim(),
+      floating_pnl: toFiniteNumber(payload.floating_pnl),
+      month_realized_pnl: toFiniteNumber(payload.month_realized_pnl),
+      year_realized_pnl: toFiniteNumber(payload.year_realized_pnl),
+      total_realized_pnl: toFiniteNumber(payload.total_realized_pnl),
+      wins: toSafeInt(payload.wins),
+      losses: toSafeInt(payload.losses),
+    };
+  };
+
+  const applyTeacherPnlMetrics = (profile, metrics) => {
+    if (!profile) return null;
+    const normalized = normalizeTeacherPnlMetrics(metrics, profile.user_id);
+    return {
+      ...profile,
+      wins: normalized.wins,
+      losses: normalized.losses,
+      pnl_current: normalized.floating_pnl,
+      pnl_month: normalized.month_realized_pnl,
+      pnl_year: normalized.year_realized_pnl,
+      pnl_total: normalized.total_realized_pnl,
+      floating_pnl: normalized.floating_pnl,
+      month_realized_pnl: normalized.month_realized_pnl,
+      year_realized_pnl: normalized.year_realized_pnl,
+      total_realized_pnl: normalized.total_realized_pnl,
+    };
+  };
+
+  const loadTeacherPnlMetrics = async (sb, userId) => {
+    const { data, error } = await sb.rpc('get_teacher_pnl_metrics', {
+      p_teacher_id: userId,
+    });
+    if (error) {
+      throw new Error(error.message);
+    }
+    return normalizeTeacherPnlMetrics(data, userId);
+  };
+
+  const loadTeacherRankingMetrics = async (
+    sb,
+    { approvedOnly = true, limit = null } = {},
+  ) => {
+    const payload = { p_only_approved: approvedOnly };
+    if (limit != null) payload.p_limit = limit;
+    const { data, error } = await sb.rpc('get_teacher_rankings_real', payload);
+    if (error) {
+      throw new Error(error.message);
+    }
+    return (data || []).map((row) => normalizeTeacherPnlMetrics(row));
+  };
+
+  const loadTeacherProfilesWithMetrics = async (
+    sb,
+    { approvedOnly = true, limit = null } = {},
+  ) => {
+    const metricsRows = await loadTeacherRankingMetrics(sb, {
+      approvedOnly,
+      limit,
+    });
+    const userIds = metricsRows
+      .map((item) => String(item.user_id || '').trim())
+      .filter(Boolean);
+    if (userIds.length === 0) return [];
+    const { data: profiles, error } = await sb
+      .from('teacher_profiles')
+      .select('*')
+      .in('user_id', userIds);
+    if (error) {
+      throw new Error(error.message);
+    }
+    const profileMap = new Map(
+      (profiles || []).map((row) => [String(row.user_id || '').trim(), row]),
+    );
+    return metricsRows
+      .map((metrics) => {
+        const profile = profileMap.get(metrics.user_id);
+        return profile ? applyTeacherPnlMetrics(profile, metrics) : null;
+      })
+      .filter(Boolean);
+  };
+
   /** GET /api/admin/teachers/profiles — 管理后台交易员资料列表 */
   app.get('/api/admin/teachers/profiles', requireAuth, requireAdminRole, async (req, res) => {
     const sb = supabase();
@@ -247,9 +341,10 @@ function registerTeacherRoutes(app, requireAuth, optionalAuth) {
     const sb = supabase();
     if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
     try {
-      const { data, error } = await sb.from('teacher_profiles').select('*').neq('status', 'blocked').order('pnl_month', { ascending: false });
-      if (error) return res.status(502).json({ error: error.message });
-      res.json(data || []);
+      const rows = await loadTeacherProfilesWithMetrics(sb, {
+        approvedOnly: false,
+      });
+      res.json(rows);
     } catch (e) {
       res.status(502).json({ error: String(e.message || e) });
     }
@@ -260,9 +355,24 @@ function registerTeacherRoutes(app, requireAuth, optionalAuth) {
     const sb = supabase();
     if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
     try {
-      const { data, error } = await sb.from('teacher_profiles').select('*').eq('status', 'approved').order('pnl_month', { ascending: false });
-      if (error) return res.status(502).json({ error: error.message });
-      res.json(data || []);
+      const rows = await loadTeacherProfilesWithMetrics(sb, {
+        approvedOnly: true,
+      });
+      res.json(rows);
+    } catch (e) {
+      res.status(502).json({ error: String(e.message || e) });
+    }
+  });
+
+  /** GET /api/teachers/rankings-real — 真实排行榜（按当月已实现盈亏） */
+  app.get('/api/teachers/rankings-real', optionalAuth, async (req, res) => {
+    const sb = supabase();
+    if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
+    try {
+      const rows = await loadTeacherProfilesWithMetrics(sb, {
+        approvedOnly: true,
+      });
+      res.json(rows);
     } catch (e) {
       res.status(502).json({ error: String(e.message || e) });
     }
@@ -273,9 +383,11 @@ function registerTeacherRoutes(app, requireAuth, optionalAuth) {
     const sb = supabase();
     if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
     try {
-      const { data, error } = await sb.from('teacher_profiles').select('*').eq('status', 'approved').order('pnl_month', { ascending: false }).limit(1).maybeSingle();
-      if (error) return res.status(502).json({ error: error.message });
-      res.json(data);
+      const rows = await loadTeacherProfilesWithMetrics(sb, {
+        approvedOnly: true,
+        limit: 1,
+      });
+      res.json(rows[0] || null);
     } catch (e) {
       res.status(502).json({ error: String(e.message || e) });
     }
@@ -291,10 +403,25 @@ function registerTeacherRoutes(app, requireAuth, optionalAuth) {
       const { data: tp, error: e1 } = await sb.from('teacher_profiles').select('*').eq('user_id', userId).maybeSingle();
       if (e1) return res.status(502).json({ error: e1.message });
       if (!tp) return res.json(null);
+      const metrics = await loadTeacherPnlMetrics(sb, userId);
       const { data: up } = await sb.from('user_profiles').select('signature').eq('user_id', userId).maybeSingle();
-      const out = { ...tp };
+      const out = applyTeacherPnlMetrics(tp, metrics);
       if (up?.signature != null) out.signature = up.signature;
       res.json(out);
+    } catch (e) {
+      res.status(502).json({ error: String(e.message || e) });
+    }
+  });
+
+  /** GET /api/teachers/:userId/pnl-metrics — 单个交易员真实盈亏指标 */
+  app.get('/api/teachers/:userId/pnl-metrics', optionalAuth, async (req, res) => {
+    const { userId } = req.params;
+    if (!userId) return res.status(400).json({ error: 'missing userId' });
+    const sb = supabase();
+    if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
+    try {
+      const metrics = await loadTeacherPnlMetrics(sb, userId);
+      res.json(metrics);
     } catch (e) {
       res.status(502).json({ error: String(e.message || e) });
     }

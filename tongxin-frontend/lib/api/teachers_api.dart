@@ -27,8 +27,13 @@ class TeachersApi {
 
   /// GET /api/teachers/rankings
   Future<List<TeacherProfile>> getRankings() async {
+    return getRealRankings();
+  }
+
+  /// GET /api/teachers/rankings-real
+  Future<List<TeacherProfile>> getRealRankings() async {
     if (!_api.isAvailable) return [];
-    final resp = await _api.get('api/teachers/rankings');
+    final resp = await _api.get('api/teachers/rankings-real');
     if (resp.statusCode != 200) return [];
     try {
       final list = jsonDecode(resp.body) as List? ?? [];
@@ -40,8 +45,13 @@ class TeachersApi {
 
   /// 轮询排行榜流
   Stream<List<TeacherProfile>> watchRankings({Duration interval = const Duration(seconds: 10)}) async* {
+    yield* watchRealRankings(interval: interval);
+  }
+
+  /// 轮询真实排行榜流
+  Stream<List<TeacherProfile>> watchRealRankings({Duration interval = const Duration(seconds: 10)}) async* {
     while (true) {
-      yield await getRankings();
+      yield await getRealRankings();
       await Future<void>.delayed(interval);
     }
   }
@@ -69,6 +79,20 @@ class TeachersApi {
       final json = jsonDecode(resp.body);
       if (json == null) return null;
       return TeacherProfile.fromMap(Map<String, dynamic>.from(json as Map));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// GET /api/teachers/:userId/pnl-metrics
+  Future<TeacherPnlMetrics?> getPnlMetrics(String userId) async {
+    if (!_api.isAvailable) return null;
+    final resp = await _api.get('api/teachers/$userId/pnl-metrics');
+    if (resp.statusCode != 200) return null;
+    try {
+      final json = jsonDecode(resp.body);
+      if (json == null) return null;
+      return TeacherPnlMetrics.fromMap(Map<String, dynamic>.from(json as Map));
     } catch (_) {
       return null;
     }

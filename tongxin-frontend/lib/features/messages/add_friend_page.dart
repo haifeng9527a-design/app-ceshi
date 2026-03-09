@@ -389,8 +389,15 @@ class _SegmentTab extends StatelessWidget {
   }
 }
 
-class _MyQrCard extends StatelessWidget {
+class _MyQrCard extends StatefulWidget {
   const _MyQrCard();
+
+  @override
+  State<_MyQrCard> createState() => _MyQrCardState();
+}
+
+class _MyQrCardState extends State<_MyQrCard> {
+  Future<String?>? _shortIdFuture;
 
   Future<String?> _loadShortId(String userId) async {
     if (ApiClient.instance.isAvailable) {
@@ -411,8 +418,9 @@ class _MyQrCard extends StatelessWidget {
     if (user == null) {
       return const SizedBox.shrink();
     }
+    _shortIdFuture ??= _loadShortId(user.uid);
     return FutureBuilder<String?>(
-      future: _loadShortId(user.uid),
+      future: _shortIdFuture,
       builder: (context, snapshot) {
         final shortId = snapshot.data?.trim();
         return Container(
