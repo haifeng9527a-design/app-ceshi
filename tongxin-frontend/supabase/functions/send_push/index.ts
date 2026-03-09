@@ -14,6 +14,7 @@ type Payload = {
   channelId?: string;
   callType?: string;
   fromUserName?: string;
+  fromAvatarUrl?: string;
 };
 
 type ServiceAccount = {
@@ -46,6 +47,13 @@ const serviceAccountBase64 =
 const getuiAppId = Deno.env.get("GETUI_APPID") ?? "";
 const getuiAppKey = Deno.env.get("GETUI_APPKEY") ?? "";
 const getuiMasterSecret = Deno.env.get("GETUI_MASTERSECRET") ?? "";
+const apnsKeyId = Deno.env.get("APNS_KEY_ID") ?? "";
+const apnsTeamId = Deno.env.get("APNS_TEAM_ID") ?? "";
+const apnsAuthKeyRaw =
+  Deno.env.get("APNS_AUTH_KEY_BASE64") ?? Deno.env.get("APNS_AUTH_KEY") ?? "";
+const apnsBundleId = Deno.env.get("APNS_BUNDLE_ID") ?? "com.example.teacherHub";
+const apnsUseSandbox =
+  (Deno.env.get("APNS_USE_SANDBOX") ?? "true").trim().toLowerCase() === "true";
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
@@ -114,8 +122,13 @@ async function getGetuiToken(): Promise<string> {
   return json.data.token as string;
 }
 
-function normalizeProvider(platform: string | null | undefined): "fcm" | "getui" {
-  return String(platform || "").trim().toLowerCase() === "getui" ? "getui" : "fcm";
+function normalizeProvider(
+  platform: string | null | undefined,
+): "fcm" | "getui" | "apns_voip" {
+  const value = String(platform || "").trim().toLowerCase();
+  if (value === "getui") return "getui";
+  if (value === "apns_voip") return "apns_voip";
+  return "fcm";
 }
 
 function parseTime(value: string | null | undefined): number {
@@ -133,7 +146,7 @@ function isHuaweiLike(row: DeviceTokenRow): boolean {
     brand.includes("honor");
 }
 
-function choosePreferredProvider(rows: DeviceTokenRow[]): "fcm" | "getui" {
+function choosePreferredAlertProvider(rows: DeviceTokenRow[]): "fcm" | "getui" {
   const explicit = rows
     .map((row) => String(row.preferred_push_provider || "").trim().toLowerCase())
     .find((value) => value === "fcm" || value === "getui");
@@ -158,7 +171,7 @@ function selectLatestPerProvider(rows: DeviceTokenRow[]): DeviceTokenRow[] {
   return Array.from(map.values());
 }
 
-function buildDeliveryRows(rows: DeviceTokenRow[]): DeviceTokenRow[] {
+function buildDeliveryRows(rows: DeviceTokenRow[], isCall: boolean): DeviceTokenRow[] {
   const delivery: DeviceTokenRow[] = [];
   const grouped = new Map<string, DeviceTokenRow[]>();
   const legacyRows: DeviceTokenRow[] = [];
@@ -178,14 +191,21 @@ function buildDeliveryRows(rows: DeviceTokenRow[]): DeviceTokenRow[] {
 
   for (const rowsForDevice of grouped.values()) {
     const perProvider = selectLatestPerProvider(rowsForDevice);
-    const preferred = choosePreferredProvider(perProvider);
-    delivery.push(
-      ...perProvider.filter((row) => normalizeProvider(row.platform) === preferred),
-    );
+    if (isCall) {
+      const voipRow = perProvider.find((row) => normalizeProvider(row.platform) === "apns_voip");
+      if (voipRow) {
+        delivery.push(voipRow);
+        continue;
+      }
+    }
+    const preferred = choosePreferredAlertProvider(perProvider);
+    delivery.push(...perProvider.filter((row) => normalizeProvider(row.platform) === preferred));
   }
 
   // 兼容旧表结构：没有 device_id 时，按 token 逐条发，避免“有 FCM 就压掉个推”。
-  delivery.push(...legacyRows);
+  delivery.push(
+    ...legacyRows.filter((row) => isCall || normalizeProvider(row.platform) !== "apns_voip"),
+  );
 
   const dedup = new Map<string, DeviceTokenRow>();
   for (const row of delivery) {
@@ -193,6 +213,70 @@ function buildDeliveryRows(rows: DeviceTokenRow[]): DeviceTokenRow[] {
     dedup.set(`${provider}:${row.token}`, row);
   }
   return Array.from(dedup.values());
+}
+
+function decodeApnsPrivateKey(raw: string): string {
+  if (!raw) return "";
+  if (raw.includes("BEGIN PRIVATE KEY")) {
+    return raw.replace(/\\n/g, "\n");
+  }
+  try {
+    const decoded = atob(raw);
+    if (decoded.includes("BEGIN PRIVATE KEY")) {
+      return decoded.replace(/\\n/g, "\n");
+    }
+  } catch (_) {
+    // Ignore base64 decode failure and fall back to raw string.
+  }
+  return raw.replace(/\\n/g, "\n");
+}
+
+async function getApnsVoipAccessToken(): Promise<string> {
+  if (!apnsKeyId || !apnsTeamId || !apnsAuthKeyRaw) {
+    throw new Error("Missing APNS_KEY_ID / APNS_TEAM_ID / APNS_AUTH_KEY_BASE64");
+  }
+  const privateKey = decodeApnsPrivateKey(apnsAuthKeyRaw);
+  const key = await importPKCS8(privateKey, "ES256");
+  const now = Math.floor(Date.now() / 1000);
+  return await new SignJWT({})
+    .setProtectedHeader({ alg: "ES256", kid: apnsKeyId })
+    .setIssuedAt(now)
+    .setIssuer(apnsTeamId)
+    .sign(key);
+}
+
+async function sendApnsVoipPush(row: DeviceTokenRow, body: Payload): Promise<string> {
+  const token = await getApnsVoipAccessToken();
+  const endpoint = apnsUseSandbox
+    ? "https://api.sandbox.push.apple.com"
+    : "https://api.push.apple.com";
+  const payload = {
+    aps: {
+      "content-available": 1,
+      sound: "default",
+    },
+    messageType: "call_invitation",
+    invitationId: body.invitationId ?? "",
+    channelId: body.channelId ?? "",
+    callType: body.callType ?? "voice",
+    fromUserName: body.fromUserName ?? "对方",
+    fromAvatarUrl: body.fromAvatarUrl ?? "",
+    title: body.callType === "video" ? "视频通话" : "语音通话",
+    body: `${body.fromUserName ?? "对方"} 邀请你${body.callType === "video" ? "视频" : "语音"}通话`,
+  };
+  const response = await fetch(`${endpoint}/3/device/${row.token}`, {
+    method: "POST",
+    headers: {
+      authorization: `bearer ${token}`,
+      "apns-push-type": "voip",
+      "apns-priority": "10",
+      "apns-topic": `${apnsBundleId}.voip`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+  const text = await response.text();
+  return response.ok ? (text || "success") : `${response.status} ${text}`;
 }
 
 serve(async (req) => {
@@ -255,11 +339,27 @@ serve(async (req) => {
     badgeCount = 1;
   }
   const badgeStr = String(badgeCount);
+  const isCall = body.invitationId != null && body.invitationId !== "";
+  const canUseApnsVoip = isCall && !!apnsKeyId && !!apnsTeamId && !!apnsAuthKeyRaw;
 
   const results: Array<{ platform: string; result: string }> = [];
-  const deliveryRows = buildDeliveryRows(tokens);
+  const deliveryRows = buildDeliveryRows(tokens, canUseApnsVoip);
+  const apnsVoipTokens = deliveryRows.filter((row) => normalizeProvider(row.platform) === "apns_voip");
   const fcmTokens = deliveryRows.filter((row) => normalizeProvider(row.platform) === "fcm");
   const getuiTokens = deliveryRows.filter((row) => normalizeProvider(row.platform) === "getui");
+
+  if (canUseApnsVoip && apnsVoipTokens.length > 0) {
+    for (const row of apnsVoipTokens) {
+      try {
+        results.push({
+          platform: "apns_voip",
+          result: await sendApnsVoipPush(row, body),
+        });
+      } catch (error) {
+        results.push({ platform: "apns_voip", result: String(error) });
+      }
+    }
+  }
 
   if (fcmTokens.length > 0) {
     if (!serviceAccountBase64) {
@@ -271,7 +371,6 @@ serve(async (req) => {
       const serviceAccountJson = atob(serviceAccountBase64);
       const serviceAccount = JSON.parse(serviceAccountJson) as ServiceAccount;
       const accessToken = await getAccessToken(serviceAccount);
-      const isCall = body.invitationId != null && body.invitationId !== "";
       const fcmTitle = isCall
         ? (body.callType === "video" ? "视频通话" : "语音通话")
         : (body.title ?? "新消息");
@@ -280,6 +379,17 @@ serve(async (req) => {
         : (body.body ?? "你收到一条新消息");
       // notification+data：由系统在后台/未运行时直接显示通知栏，来电用 incoming_call 渠道
       for (const row of fcmTokens) {
+        const apnsPayload = {
+          aps: {
+            alert: {
+              title: fcmTitle,
+              body: fcmBody,
+            },
+            badge: badgeCount,
+            sound: "default",
+            "content-available": 1,
+          },
+        };
         const payload = {
           message: {
             token: row.token,
@@ -297,6 +407,14 @@ serve(async (req) => {
               ...(body.channelId != null && { channelId: body.channelId }),
               ...(body.callType != null && { callType: body.callType }),
               ...(body.fromUserName != null && { fromUserName: body.fromUserName }),
+              ...(body.fromAvatarUrl != null && { fromAvatarUrl: body.fromAvatarUrl }),
+            },
+            apns: {
+              headers: {
+                "apns-priority": "10",
+                "apns-push-type": "alert",
+              },
+              payload: apnsPayload,
             },
             android: {
               priority: "HIGH",
@@ -330,7 +448,6 @@ serve(async (req) => {
   if (getuiTokens.length > 0) {
     try {
       const token = await getGetuiToken();
-      const isCall = body.invitationId != null && body.invitationId !== "";
       const callPayload = isCall
         ? JSON.stringify({
             messageType: "call_invitation",
@@ -338,6 +455,7 @@ serve(async (req) => {
             channelId: body.channelId ?? "",
             callType: body.callType ?? "voice",
             fromUserName: body.fromUserName ?? "对方",
+            fromAvatarUrl: body.fromAvatarUrl ?? "",
           })
         : undefined;
       for (const row of getuiTokens) {

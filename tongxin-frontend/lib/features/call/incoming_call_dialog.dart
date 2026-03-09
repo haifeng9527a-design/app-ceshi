@@ -94,7 +94,7 @@ class _IncomingCallScreenState extends State<_IncomingCallScreen>
         .listen((status) {
       if (!mounted) return;
       if (status == 'cancelled') {
-        if (!kIsWeb && Platform.isAndroid) {
+        if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
           NotificationService.dismissIncomingCallService();
         }
         Navigator.of(context).pop();
@@ -117,7 +117,7 @@ class _IncomingCallScreenState extends State<_IncomingCallScreen>
 
   Future<void> _reject() async {
     FlutterRingtonePlayer().stop();
-    if (!kIsWeb && Platform.isAndroid) {
+    if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
       NotificationService.dismissIncomingCallService();
     }
     Navigator.of(context).pop();
@@ -139,7 +139,7 @@ class _IncomingCallScreenState extends State<_IncomingCallScreen>
       return;
     }
     FlutterRingtonePlayer().stop();
-    if (!kIsWeb && Platform.isAndroid) {
+    if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
       NotificationService.dismissIncomingCallService();
     }
     print('[TH_CALL] 被叫接听，更新状态为 accepted invitationId=${widget.invitationId} channelId=${widget.channelId}');

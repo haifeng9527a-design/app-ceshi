@@ -132,20 +132,17 @@ class NotificationService {
       debugPrint('[通知] Android 通知权限请求结果: $status');
     }
 
-    if (!Platform.isMacOS) {
-      await _localNotifications.initialize(
-        settings: const InitializationSettings(
-          android: AndroidInitializationSettings('@mipmap/ic_launcher'),
-          iOS: DarwinInitializationSettings(),
-        ),
-        onDidReceiveNotificationResponse: (response) {
-          _handleNotificationPayload(response.payload);
-        },
-      );
-      debugPrint('[通知] 本地通知插件已初始化');
-    } else {
-      debugPrint('[通知] macOS 暂不初始化本地通知插件，跳过');
-    }
+    await _localNotifications.initialize(
+      settings: const InitializationSettings(
+        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+        iOS: DarwinInitializationSettings(),
+        macOS: DarwinInitializationSettings(),
+      ),
+      onDidReceiveNotificationResponse: (response) {
+        _handleNotificationPayload(response.payload);
+      },
+    );
+    debugPrint('[通知] 本地通知插件已初始化');
 
     if (!kIsWeb && Platform.isAndroid) {
       final android = _localNotifications.resolvePlatformSpecificImplementation<
@@ -185,17 +182,18 @@ class NotificationService {
     } catch (e) {
       debugPrint('[通知] FCM getInitialMessage 失败: $e');
     }
-    // 冷启动或由「来电通知」fullScreenIntent 拉起：通过本地通知的 launch 信息弹接听界面（macOS 未初始化本地通知则跳过）
-    if (!Platform.isMacOS) {
-      final launchDetails = await _localNotifications.getNotificationAppLaunchDetails();
-      if (launchDetails != null &&
-          launchDetails.didNotificationLaunchApp &&
-          launchDetails.notificationResponse != null) {
-        final payload = launchDetails.notificationResponse!.payload;
-        if (payload != null && payload.isNotEmpty) {
-          _handleNotificationPayload(payload);
-        }
+    // 冷启动或由本地通知点击拉起：通过 launch 信息恢复跳转/来电弹窗。
+    final launchDetails = await _localNotifications.getNotificationAppLaunchDetails();
+    if (launchDetails != null &&
+        launchDetails.didNotificationLaunchApp &&
+        launchDetails.notificationResponse != null) {
+      final payload = launchDetails.notificationResponse!.payload;
+      if (payload != null && payload.isNotEmpty) {
+        _handleNotificationPayload(payload);
       }
+    }
+    if (!kIsWeb && Platform.isIOS) {
+      await _checkNativeLaunchPayload();
     }
 
     await _initGetui();
@@ -223,6 +221,7 @@ class NotificationService {
     } catch (error) {
       debugPrint('[通知] FCM token 获取失败: $error');
     }
+    await _saveIosVoipTokenIfAvailable();
     _initialized = true;
     debugPrint('[通知] NotificationService.init 完成');
     Future.delayed(const Duration(seconds: 1), () async {
@@ -270,6 +269,7 @@ class NotificationService {
       } catch (error) {
         debugPrint('FCM token unavailable: $error');
       }
+      await _saveIosVoipTokenIfAvailable();
     });
   }
 
@@ -281,6 +281,9 @@ class NotificationService {
     if (isCallInvitation) {
       debugPrint('[来电] FCM 收到来电');
       _openIncomingCallIfNeeded(Map<String, dynamic>.from(data));
+      if (!kIsWeb && Platform.isIOS) {
+        return;
+      }
       // 同时显示本地通知（ForegroundService 兜底，华为等机型 MethodChannel 可能不可用）
       final fromUserName = data['fromUserName']?.toString().trim() ?? '对方';
       final isVideo = data['callType']?.toString() == 'video';
@@ -376,6 +379,22 @@ class NotificationService {
         'push-${DateTime.now().microsecondsSinceEpoch}-${random.nextInt(1 << 32)}';
     await prefs.setString(_pushDeviceIdPrefsKey, generated);
     return generated;
+  }
+
+  static Future<void> _saveIosVoipTokenIfAvailable() async {
+    if (kIsWeb || !Platform.isIOS) return;
+    try {
+      final token = await _callChannel.invokeMethod<String>('getVoipToken');
+      final trimmed = token?.trim() ?? '';
+      if (trimmed.isEmpty) {
+        debugPrint('[通知] iOS VoIP token 暂不可用');
+        return;
+      }
+      await _saveDeviceToken(token: trimmed, platform: 'apns_voip');
+      debugPrint('[通知] iOS VoIP token 已保存');
+    } catch (e) {
+      debugPrint('[通知] 获取 iOS VoIP token 失败: $e');
+    }
   }
 
   static String _guessPreferredPushProvider({
@@ -693,9 +712,32 @@ class NotificationService {
     // 冷启动时需等待 Flutter 首帧渲染完成，navigatorKey 才有 context
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Future.delayed(const Duration(milliseconds: 300), () {
-        _openIncomingCallIfNeeded(payload);
+        _openIncomingCallIfNeeded(
+          payload,
+          showNativeCallUi: !(!kIsWeb && Platform.isIOS),
+        );
       });
     });
+  }
+
+  static Future<void> _checkNativeLaunchPayload() async {
+    try {
+      const channel = MethodChannel('com.example.teacher_hub/launch');
+      final payloadStr = await channel.invokeMethod<String>('getLaunchPayload');
+      if (payloadStr == null || payloadStr.isEmpty) return;
+      Map<String, dynamic>? decoded;
+      try {
+        final d = jsonDecode(payloadStr);
+        if (d is Map<String, dynamic>) decoded = d;
+      } catch (_) {}
+      if (decoded != null &&
+          decoded['messageType']?.toString() == 'call_invitation') {
+        debugPrint('[来电] iOS 原生冷启动检测到来电 payload，待展示');
+        _pendingLaunchCallPayload = decoded;
+      }
+    } catch (e) {
+      debugPrint('[通知] iOS 原生 launch payload 检查失败: $e');
+    }
   }
 
   static String? _extractGetuiPayload(Map<String, dynamic> message) {
@@ -741,7 +783,7 @@ class NotificationService {
 
   static void _openIncomingCallIfNeeded(
     Map<String, dynamic> data, {
-    bool showAndroidService = true,
+    bool showNativeCallUi = true,
   }) {
     final invitationId = data['invitationId']?.toString();
     final channelId = data['channelId']?.toString();
@@ -752,7 +794,7 @@ class NotificationService {
 
     // Android: 尝试 ForegroundService CallStyle（后台弹出来电）+ 有 context 时显示 Flutter 弹窗
     if (!kIsWeb && Platform.isAndroid) {
-      if (showAndroidService) {
+      if (showNativeCallUi) {
         _showIncomingCallViaService(
           caller: fromUserName,
           invitationId: invitationId,
@@ -766,12 +808,32 @@ class NotificationService {
         fromUserName: fromUserName,
         callType: callType,
         fromAvatarUrl: fromAvatarUrl,
-        fallbackToNotification: !showAndroidService,
+        fallbackToNotification: !showNativeCallUi,
       );
       return;
     }
 
-    // iOS/其他: Flutter 来电弹窗
+    if (!kIsWeb && Platform.isIOS) {
+      if (showNativeCallUi) {
+        _showIncomingCallViaService(
+          caller: fromUserName,
+          invitationId: invitationId,
+          channelId: channelId,
+          callType: callType,
+        );
+        return;
+      }
+      _showIncomingCallDialogWhenReady(
+        invitationId: invitationId,
+        channelId: channelId,
+        fromUserName: fromUserName,
+        callType: callType,
+        fromAvatarUrl: fromAvatarUrl,
+      );
+      return;
+    }
+
+    // 其他平台: Flutter 来电弹窗
     _showIncomingCallDialogWhenReady(
       invitationId: invitationId,
       channelId: channelId,
@@ -824,14 +886,14 @@ class NotificationService {
     });
   }
 
-  /// Android 通过 ForegroundService + CallStyle 显示来电（后台可弹出）
+  /// 原生来电通道：Android 走 ForegroundService，iOS 走 CallKit。
   static Future<void> _showIncomingCallViaService({
     required String caller,
     required String invitationId,
     required String channelId,
     required String callType,
   }) async {
-    if (kIsWeb || !Platform.isAndroid) return;
+    if (kIsWeb || !(Platform.isAndroid || Platform.isIOS)) return;
     try {
       await _callChannel.invokeMethod('showIncomingCall', {
         'caller': caller,
@@ -839,23 +901,23 @@ class NotificationService {
         'channelId': channelId,
         'callType': callType,
       });
-      debugPrint('[来电] Android ForegroundService 已启动');
+      debugPrint('[来电] 原生来电界面已触发');
     } catch (e) {
       debugPrint('[来电] showIncomingCall 失败: $e');
     }
   }
 
-  /// Android 关闭 ForegroundService 来电通知（Flutter 弹窗接听/拒绝时调用）
+  /// 关闭原生来电界面（Android ForegroundService / iOS CallKit）。
   static Future<void> dismissIncomingCallService() async {
-    if (kIsWeb || !Platform.isAndroid) return;
+    if (kIsWeb || !(Platform.isAndroid || Platform.isIOS)) return;
     try {
       await _callChannel.invokeMethod('dismissIncomingCall');
     } catch (_) {}
   }
 
-  /// 检查 CallStyle 接听/拒绝后的待处理数据，打开 Agora 或更新状态（app 恢复时调用）
+  /// 检查原生接听/拒绝后的待处理数据，打开 Agora 或更新状态（app 恢复时调用）
   static Future<void> checkPendingCallAnswerAndDecline() async {
-    if (kIsWeb || !Platform.isAndroid) return;
+    if (kIsWeb || !(Platform.isAndroid || Platform.isIOS)) return;
     try {
       final pendingIncoming = await _callChannel
           .invokeMethod<Map<dynamic, dynamic>>('getPendingIncomingCall');
@@ -867,13 +929,13 @@ class NotificationService {
         final channelId = data['channelId'] ?? '';
         if (invitationId.isNotEmpty && channelId.isNotEmpty) {
           debugPrint('[来电] 检测到原生待处理来电，补弹 Flutter 接听界面');
-          _openIncomingCallIfNeeded(data, showAndroidService: false);
+          _openIncomingCallIfNeeded(data, showNativeCallUi: false);
         }
       }
       final declineId = await _callChannel.invokeMethod<String>('getPendingCallDecline');
       if (declineId != null && declineId.isNotEmpty) {
         await CallInvitationRepository().updateStatus(declineId, 'rejected');
-        debugPrint('[来电] 已处理 CallStyle 拒绝 invitationId=$declineId');
+        debugPrint('[来电] 已处理原生拒绝 invitationId=$declineId');
       }
       final answerData = await _callChannel.invokeMethod<Map<dynamic, dynamic>>('getPendingCallAnswer');
       if (answerData != null && answerData.isNotEmpty) {
@@ -900,7 +962,7 @@ class NotificationService {
                     ),
                   ),
                 );
-                debugPrint('[来电] CallStyle 接听，已打开 Agora 通话页');
+                debugPrint('[来电] 原生接听，已打开 Agora 通话页');
               }
             });
           }
@@ -961,6 +1023,7 @@ class NotificationService {
       final token = await FirebaseMessaging.instance.getToken();
       if (token != null) await _saveDeviceToken(token: token, platform: 'fcm');
     } catch (_) {}
+    await _saveIosVoipTokenIfAvailable();
   }
 
   /// 根据当前用户未读数刷新应用图标角标（与首页一致：聊天未读 + 好友请求数）

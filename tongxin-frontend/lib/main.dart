@@ -34,19 +34,9 @@ Future<void> main() async {
   }
   await FirebaseBootstrap.init();
   await SupabaseBootstrap.init();
-  if (!kIsWeb) {
-    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
-    try {
-      await NotificationService.init();
-    } catch (e, st) {
-      if (kDebugMode) {
-        debugPrint('[main] NotificationService.init 失败，继续启动: $e');
-        debugPrint('$st');
-      }
-    }
-  }
   String? lastChatWsUserId;
-  final currentUser = FirebaseAuth.instance.currentUser;
+  final currentUser =
+      FirebaseBootstrap.isReady ? FirebaseAuth.instance.currentUser : null;
   if (currentUser != null) {
     lastChatWsUserId = currentUser.uid;
     ChatWebSocketService.instance.connectIfNeeded(currentUser.uid);
@@ -66,6 +56,17 @@ Future<void> main() async {
   AppConfigService.instance.fetchAndCache();
   runApp(const TeacherHubApp());
   if (!kIsWeb) {
-    initGroupJoinLinkHandler();
+    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        await NotificationService.init();
+      } catch (e, st) {
+        if (kDebugMode) {
+          debugPrint('[main] NotificationService.init 失败，继续启动: $e');
+          debugPrint('$st');
+        }
+      }
+      initGroupJoinLinkHandler();
+    });
   }
 }

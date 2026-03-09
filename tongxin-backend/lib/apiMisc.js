@@ -872,6 +872,7 @@ function registerMiscRoutes(app, requireAuth) {
               channelId: String(channel_id),
               callType,
               fromUserName: name,
+              fromAvatarUrl: avatarUrl,
             },
           });
           if (pushError) {
