@@ -9,6 +9,8 @@
 - `TWELVE_DATA_API_KEY`：Twelve Data API Key（外汇、加密货币、部分指数）
 - `SUPABASE_URL`：Supabase 项目 URL（可选，用于股票报价缓存表）
 - `SUPABASE_ANON_KEY` 或 `SUPABASE_SERVICE_ROLE_KEY`：Supabase 密钥（与上面同时配置后，报价会先读/写 Supabase 表 `stock_quote_cache`）
+- `AGORA_APP_ID`：Agora App ID（语音/视频通话 Token 签发必填）
+- `AGORA_APP_CERTIFICATE`：Agora App Certificate（语音/视频通话 Token 签发必填）
 
 ## 接口
 
@@ -25,6 +27,7 @@
 - `POST /api/watchlist` — 新增自选（body: `{ symbol }`，需鉴权）
 - `DELETE /api/watchlist/:symbol` — 移除自选（需鉴权）
 - `PUT /api/watchlist` — 覆盖自选列表（body: `{ symbols: string[] }`，需鉴权）
+- `GET /api/call-invitations/agora-token?channel_id=xxx&uid=123` — 由后端签发 Agora RTC Token（需鉴权）
 
 后端使用**按 symbol 的缓存**（内存 → Supabase → SQLite）：
 - **Supabase**（可选）：配置 `SUPABASE_URL` + `SUPABASE_ANON_KEY` 后，会在 Supabase 中读写表 `stock_quote_cache`，作为跨实例的报价缓存。需在 Supabase Dashboard → SQL Editor 中执行 `supabase/stock_quote_cache.sql` 建表。
@@ -54,3 +57,5 @@ TONGXIN_API_URL=http://localhost:3000
 ```
 
 或使用 `BACKEND_URL`。不配置时前端仍直连 Polygon/Twelve Data（需在 .env 配置对应 API Key）。
+
+语音/视频通话的 Agora Token 也统一由后端接口签发，因此前端只需配置 `AGORA_APP_ID` 和后端地址；`AGORA_APP_ID`、`AGORA_APP_CERTIFICATE` 则配置在后端 `.env`。

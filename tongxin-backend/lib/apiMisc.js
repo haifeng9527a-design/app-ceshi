@@ -1,8 +1,109 @@
 /**
  * 杂项 API：客服配置、通话邀请、举报等
  */
+const crypto = require('crypto');
 const supabaseClient = require('./supabaseClient');
 const { sendToUser } = require('./chatWebSocket');
+
+const AGORA_TOKEN_VERSION = '006';
+const AGORA_APP_ID_LENGTH = 32;
+
+const crcTable = (() => {
+  const table = [];
+  for (let n = 0; n < 256; n += 1) {
+    let c = n;
+    for (let k = 0; k < 8; k += 1) {
+      c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+    }
+    table[n] = c >>> 0;
+  }
+  return table;
+})();
+
+function crc32Str(value) {
+  let crc = 0 ^ -1;
+  for (let i = 0; i < value.length; i += 1) {
+    crc = (crc >>> 8) ^ crcTable[(crc ^ value.charCodeAt(i)) & 0xff];
+  }
+  return (crc ^ -1) >>> 0;
+}
+
+function packMessages(salt, ts, messages) {
+  const keys = Object.keys(messages).map(Number);
+  const buf = Buffer.alloc(4 + 4 + 2 + (keys.length * 6));
+  let offset = 0;
+  buf.writeUInt32LE(salt >>> 0, offset);
+  offset += 4;
+  buf.writeUInt32LE(ts >>> 0, offset);
+  offset += 4;
+  buf.writeUInt16LE(keys.length, offset);
+  offset += 2;
+  for (const key of keys) {
+    buf.writeUInt16LE(key, offset);
+    offset += 2;
+    buf.writeUInt32LE(messages[key] >>> 0, offset);
+    offset += 4;
+  }
+  return buf;
+}
+
+function packWithLength(data) {
+  const payload = Buffer.isBuffer(data) ? data : Buffer.from(data);
+  const out = Buffer.alloc(2 + payload.length);
+  out.writeUInt16LE(payload.length, 0);
+  payload.copy(out, 2);
+  return out;
+}
+
+function buildRtcTokenV1(appId, appCertificate, channelName, uid, privilegeExpiredTs) {
+  const uidStr = uid === 0 ? '' : String(uid);
+  const salt = Math.floor(Math.random() * 0xffffffff) >>> 0;
+  const ts = Math.floor(Date.now() / 1000) + (24 * 3600);
+  const messages = {
+    1: privilegeExpiredTs,
+    2: privilegeExpiredTs,
+    3: privilegeExpiredTs,
+    4: privilegeExpiredTs,
+  };
+  const packedMessages = packMessages(salt, ts, messages);
+  const toSign = Buffer.concat([
+    Buffer.from(appId),
+    Buffer.from(channelName),
+    Buffer.from(uidStr),
+    packedMessages,
+  ]);
+  const signature = crypto.createHmac('sha256', appCertificate).update(toSign).digest();
+  const contentSig = packWithLength(signature);
+  const contentMessages = packWithLength(packedMessages);
+  const content = Buffer.alloc(contentSig.length + 4 + 4 + contentMessages.length);
+  let offset = 0;
+  contentSig.copy(content, offset);
+  offset += contentSig.length;
+  content.writeUInt32LE(crc32Str(channelName) >>> 0, offset);
+  offset += 4;
+  content.writeUInt32LE(crc32Str(uidStr) >>> 0, offset);
+  offset += 4;
+  contentMessages.copy(content, offset);
+  return `${AGORA_TOKEN_VERSION}${appId}${content.toString('base64')}`;
+}
+
+function buildAgoraRtcToken(channelId, uid, expireSeconds) {
+  const appId = String(process.env.AGORA_APP_ID || '').trim();
+  const appCertificate = String(process.env.AGORA_APP_CERTIFICATE || '').trim();
+  if (!appId || !appCertificate) {
+    return { error: 'Missing AGORA_APP_ID or AGORA_APP_CERTIFICATE', status: 503 };
+  }
+  if (appId.length !== AGORA_APP_ID_LENGTH) {
+    return { error: 'Invalid AGORA_APP_ID length', status: 503 };
+  }
+  const privilegeExpiredTs = Math.floor(Date.now() / 1000) + expireSeconds;
+  try {
+    return { token: buildRtcTokenV1(appId, appCertificate, channelId, uid, privilegeExpiredTs) };
+  } catch (e) {
+    console.error('[api/call-invitations/agora-token] build error:', e);
+    return { error: 'Failed to build Agora token', status: 500 };
+  }
+}
 
 async function getUserRole(sb, uid) {
   const { data, error } = await sb.from('user_profiles').select('role').eq('user_id', uid).maybeSingle();
@@ -31,6 +132,21 @@ function createRoleGuard(allowedRoles) {
 function registerMiscRoutes(app, requireAuth) {
   const requireAdminRole = createRoleGuard(['admin', 'customer_service_admin']);
   const supabase = () => supabaseClient.getClient();
+
+  /** GET /api/call-invitations/agora-token — 统一由后端签发 Agora RTC Token */
+  app.get('/api/call-invitations/agora-token', requireAuth, async (req, res) => {
+    const channelId = String(req.query?.channel_id || req.query?.channelId || '').trim();
+    const rawUid = Number.parseInt(String(req.query?.uid || '0'), 10);
+    const uid = Number.isFinite(rawUid) && rawUid > 0 ? rawUid : 0;
+    if (!channelId) return res.status(400).json({ error: 'Missing channel_id' });
+    const expireSeconds = 3600;
+    const result = buildAgoraRtcToken(channelId, uid, expireSeconds);
+    if (!result.token) {
+      return res.status(result.status || 500).json({ error: result.error || 'Failed to build Agora token' });
+    }
+    return res.json({ token: result.token, expireSeconds });
+  });
+
   if (!supabase()) {
     console.warn('[apiMisc] Supabase 未配置');
     return;

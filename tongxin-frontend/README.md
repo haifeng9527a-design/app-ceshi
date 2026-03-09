@@ -17,22 +17,20 @@ samples, guidance on mobile development, and a full API reference.
 
 ## Agora 通话配置
 
-项目内语音/视频通话依赖 `AGORA_APP_ID` 和 Supabase Edge Function `get_agora_token`。
+项目内语音/视频通话统一通过后端 `GET /api/call-invitations/agora-token` 获取 Token，前端不再直连 Supabase Function。
 
-1. 在前端 `.env` 中配置 `AGORA_APP_ID`
-2. 在 Supabase CLI 中配置项目 Secrets
-3. 部署 `get_agora_token`
+前端需要配置：
 
-```powershell
-supabase secrets set AGORA_APP_ID="<你的 Agora App ID>" --workdir .
-supabase secrets set AGORA_APP_CERTIFICATE="<你的 Agora App Certificate>" --workdir .
-supabase functions deploy get_agora_token --workdir .
+```env
+AGORA_APP_ID=<你的 Agora App ID>
+TONGXIN_API_URL=http://localhost:3000
 ```
 
-也可以直接运行：
+后端需要配置：
 
-```powershell
-.\deploy_send_push.ps1
+```env
+AGORA_APP_ID=<你的 Agora App ID>
+AGORA_APP_CERTIFICATE=<你的 Agora App Certificate>
 ```
 
 如果只是临时联调，也可以在 Agora 控制台关闭项目的 Token 鉴权；这时客户端可在未拿到 token 时直接入会，但不建议长期这样配置。

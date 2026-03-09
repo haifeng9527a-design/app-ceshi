@@ -293,17 +293,17 @@ class _AgoraCallPageState extends State<AgoraCallPage> {
       if (!mounted) return;
       final tokenLen = (token?.length ?? 0);
       print('[TH_CALL] 正在加入频道 channelId=${widget.channelId} uid=$agoraUid tokenLen=$tokenLen');
-      // 声网已开 Token 鉴权时，未拿到 Token 会报 errInvalidToken；提前提示便于区分是「没拿到」还是「格式错」
+      // 声网已开 Token 鉴权时，未拿到 Token 会报 errInvalidToken；提前提示后端配置是否缺失
       if (token == null || token.isEmpty) {
         if (mounted) {
           _showErrorAndPop(
-            '未获取到 Token。请：1) 在 Supabase 部署 get_agora_token 并配置 AGORA_APP_ID、AGORA_APP_CERTIFICATE；或 2) 在声网控制台暂时关闭 Token 鉴权',
+            '未获取到 Token。请检查后端是否已配置 AGORA_APP_ID、AGORA_APP_CERTIFICATE，并确认当前账号可正常调用 /api/call-invitations/agora-token；或在声网控制台暂时关闭 Token 鉴权',
           );
         }
         return;
       }
       await _engine!.joinChannel(
-        token: token ?? '',
+        token: token,
         channelId: widget.channelId,
         uid: agoraUid,
         options: ChannelMediaOptions(

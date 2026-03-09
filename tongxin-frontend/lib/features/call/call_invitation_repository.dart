@@ -1,12 +1,10 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../api/misc_api.dart';
 import '../../core/api_client.dart';
-import '../../core/supabase_bootstrap.dart';
 
 /// 单条通话记录（用于聊天窗口内展示呼叫记录）
 class CallRecord {
@@ -87,46 +85,15 @@ class CallInvitationRepository {
     await MiscApi.instance.updateCallInvitationStatus(id, status);
   }
 
-  /// 向 Supabase Edge Function 请求该频道的 Agora RTC Token。
-  /// 当前项目内已部署 `get_agora_token`，优先直连函数，避免先请求不存在的后端路由导致通话接入变慢。
-  /// 若未配置或请求失败，返回 null，客户端将使用空字符串（仅当控制台未开启 Token 鉴权时有效）。
+  /// 统一从后端请求该频道的 Agora RTC Token。
   Future<String?> fetchAgoraToken(String channelId, {int? uid}) async {
-    if (SupabaseBootstrap.isReady) {
-      final authToken =
-          await FirebaseAuth.instance.currentUser?.getIdToken(true);
-      if (authToken != null && authToken.isNotEmpty) {
-        try {
-          final client = SupabaseBootstrap.clientOrNull;
-          if (client != null) {
-            final res = await client.functions.invoke(
-              'get_agora_token',
-              body: {'channel_id': channelId, if (uid != null) 'uid': uid},
-              headers: {'Authorization': 'Bearer $authToken'},
-            );
-            if (res.status == 200 && res.data != null) {
-              final data = res.data is Map ? res.data as Map : null;
-              final token = data?['token']?.toString();
-              if (token != null && token.isNotEmpty) return token;
-            } else {
-              print(
-                  '[TH_CALL] get_agora_token 返回异常 status=${res.status} data=${res.data}');
-            }
-          }
-        } catch (e) {
-          print('[TH_CALL] fetchAgoraToken 函数调用异常: $e');
-        }
-      }
+    if (!_useApi) return null;
+    try {
+      final token = await MiscApi.instance.getAgoraToken(channelId, uid: uid);
+      if (token != null && token.isNotEmpty) return token;
+    } catch (e) {
+      print('[TH_CALL] fetchAgoraToken API 调用异常: $e');
     }
-
-    if (_useApi) {
-      try {
-        final token = await MiscApi.instance.getAgoraToken(channelId, uid: uid);
-        if (token != null && token.isNotEmpty) return token;
-      } catch (e) {
-        print('[TH_CALL] fetchAgoraToken API 调用异常: $e');
-      }
-    }
-
     return null;
   }
 
