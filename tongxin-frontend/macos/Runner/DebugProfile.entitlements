@@ -3,6 +3,8 @@
 <plist version="1.0">
 <dict>
 	<!-- Debug 下关闭沙盒，避免未配置开发签名时 keychain 无法访问导致登录失败；Release 保持沙盒 -->
+	<key>com.apple.developer.aps-environment</key>
+	<string>development</string>
 	<key>com.apple.security.app-sandbox</key>
 	<false/>
 	<key>com.apple.security.cs.allow-jit</key>
