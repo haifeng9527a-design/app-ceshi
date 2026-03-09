@@ -396,15 +396,21 @@ class BackendMarketClient {
   }
 
   /// [lastDays] 非 null 时请求多日数据（用于分时 2天/3天/4天 合并显示），会传 fromMs/toMs 给后端
-  Future<List<ChartCandle>> getCandles(String symbol, String interval, {int? lastDays, void Function(String)? onError}) async {
+  /// [fromMs]/[toMs] 显式指定时间范围时优先使用（用于 getAggregates 等精确范围请求）
+  Future<List<ChartCandle>> getCandles(String symbol, String interval, {int? lastDays, int? fromMs, int? toMs, void Function(String)? onError}) async {
     final sym = symbol.trim();
     if (sym.isEmpty) return [];
-    final toMs = DateTime.now().millisecondsSinceEpoch;
-    final fromMs = lastDays != null && lastDays > 0
-        ? toMs - lastDays * 24 * 3600 * 1000
-        : null;
-    final cacheKey = fromMs != null
-        ? 'backend_candles_${sym}_${interval}_${fromMs}_$toMs'
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    int? resolvedFromMs = fromMs;
+    int? resolvedToMs = toMs;
+    if (resolvedFromMs == null || resolvedToMs == null) {
+      resolvedToMs ??= nowMs;
+      resolvedFromMs ??= lastDays != null && lastDays > 0
+          ? resolvedToMs - lastDays * 24 * 3600 * 1000
+          : null;
+    }
+    final cacheKey = resolvedFromMs != null
+        ? 'backend_candles_${sym}_${interval}_${resolvedFromMs}_$resolvedToMs'
         : 'backend_candles_${sym}_$interval';
     final cached = await _cache.getList(cacheKey, maxAge: _candlesMaxAge);
     if (cached != null && cached.isNotEmpty) {
@@ -426,9 +432,9 @@ class BackendMarketClient {
       if (result.isNotEmpty) return result;
     }
     final queryParams = <String, String>{'symbol': sym, 'interval': interval};
-    if (fromMs != null) {
-      queryParams['fromMs'] = fromMs.toString();
-      queryParams['toMs'] = toMs.toString();
+    if (resolvedFromMs != null && resolvedToMs != null) {
+      queryParams['fromMs'] = resolvedFromMs.toString();
+      queryParams['toMs'] = resolvedToMs.toString();
     }
     final uri = Uri.parse('${_base}api/candles').replace(
       queryParameters: queryParams,

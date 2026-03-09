@@ -87,9 +87,11 @@ class MiscApi {
   }
 
   /// PUT /api/customer-service/assignments
-  Future<void> assignUserToStaff({required String userId, required String staffId}) async {
+  Future<void> assignUserToStaff(
+      {required String userId, required String staffId}) async {
     if (!_api.isAvailable) return;
-    await _api.put('api/customer-service/assignments', body: {'user_id': userId, 'staff_id': staffId});
+    await _api.put('api/customer-service/assignments',
+        body: {'user_id': userId, 'staff_id': staffId});
   }
 
   /// GET /api/customer-service/conversations
@@ -106,16 +108,20 @@ class MiscApi {
   }
 
   /// POST /api/customer-service/welcome-message
-  Future<void> trySendWelcomeMessage({required String conversationId, required String peerId}) async {
+  Future<void> trySendWelcomeMessage(
+      {required String conversationId, required String peerId}) async {
     if (!_api.isAvailable) return;
-    await _api.post('api/customer-service/welcome-message', body: {'conversation_id': conversationId, 'peer_id': peerId});
+    await _api.post('api/customer-service/welcome-message',
+        body: {'conversation_id': conversationId, 'peer_id': peerId});
   }
 
   /// POST /api/customer-service/broadcast
   Future<Map<String, dynamic>> broadcastMessage(String message) async {
     if (!_api.isAvailable) return {'ok': false, 'error': 'API 未配置', 'count': 0};
-    final resp = await _api.post('api/customer-service/broadcast', body: {'message': message});
-    if (resp.statusCode != 200) return {'ok': false, 'error': resp.body, 'count': 0};
+    final resp = await _api
+        .post('api/customer-service/broadcast', body: {'message': message});
+    if (resp.statusCode != 200)
+      return {'ok': false, 'error': resp.body, 'count': 0};
     try {
       return Map<String, dynamic>.from(jsonDecode(resp.body) as Map);
     } catch (_) {
@@ -126,7 +132,8 @@ class MiscApi {
   /// POST /api/customer-service/assign-or-get
   Future<String?> assignOrGetStaffForUser(String userId) async {
     if (!_api.isAvailable || userId.isEmpty) return null;
-    final resp = await _api.post('api/customer-service/assign-or-get', body: {'user_id': userId});
+    final resp = await _api
+        .post('api/customer-service/assign-or-get', body: {'user_id': userId});
     if (resp.statusCode != 200) return null;
     try {
       final json = jsonDecode(resp.body) as Map?;
@@ -162,7 +169,8 @@ class MiscApi {
   /// PATCH /api/call-invitations/:id/status
   Future<void> updateCallInvitationStatus(String id, String status) async {
     if (!_api.isAvailable) return;
-    await _api.patch('api/call-invitations/$id/status', body: {'status': status});
+    await _api
+        .patch('api/call-invitations/$id/status', body: {'status': status});
   }
 
   /// GET /api/call-invitations/:id
@@ -182,7 +190,10 @@ class MiscApi {
   /// GET /api/call-invitations/ringing — 被叫：获取发给我且 ringing 的最新一条
   Future<Map<String, dynamic>?> getLatestRingingInvitation() async {
     if (!_api.isAvailable) return null;
-    final resp = await _api.get('api/call-invitations/ringing');
+    final resp = await _api.get(
+      'api/call-invitations/ringing',
+      timeout: const Duration(seconds: 6),
+    );
     if (resp.statusCode != 200) return null;
     try {
       final json = jsonDecode(resp.body);
@@ -194,9 +205,11 @@ class MiscApi {
   }
 
   /// GET /api/call-invitations/records?peer_user_id=xxx
-  Future<List<Map<String, dynamic>>> getCallRecords(String peerUserId, {int limit = 50}) async {
+  Future<List<Map<String, dynamic>>> getCallRecords(String peerUserId,
+      {int limit = 50}) async {
     if (!_api.isAvailable) return [];
-    final resp = await _api.get('api/call-invitations/records', queryParameters: {
+    final resp =
+        await _api.get('api/call-invitations/records', queryParameters: {
       'peer_user_id': peerUserId,
       'limit': limit.toString(),
     });

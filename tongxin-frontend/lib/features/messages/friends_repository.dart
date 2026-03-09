@@ -9,6 +9,12 @@ class FriendsRepository {
   FriendsRepository();
 
   bool get _useApi => ApiClient.instance.isAvailable;
+  static final Map<String, StreamController<List<FriendRequestItem>>>
+      _incomingRequestControllers =
+      <String, StreamController<List<FriendRequestItem>>>{};
+  static final Map<String, StreamController<List<FriendRequestItem>>>
+      _allRequestRecordControllers =
+      <String, StreamController<List<FriendRequestItem>>>{};
 
   static String _roleLabel(String? role, String teacherStatus) {
     final r = (role ?? '').toString().trim().toLowerCase();
@@ -31,7 +37,8 @@ class FriendsRepository {
     final avatar = avatarUrlOverride?.trim().isNotEmpty == true
         ? avatarUrlOverride
         : (row['avatar_url'] as String?);
-    final roleLabel = roleLabelOverride ?? _roleLabel(row['role'] as String?, ts);
+    final roleLabel =
+        roleLabelOverride ?? _roleLabel(row['role'] as String?, ts);
     return FriendProfile(
       userId: row['user_id'] as String,
       displayName: (row['display_name'] as String?) ??
@@ -83,7 +90,8 @@ class FriendsRepository {
     required String remark,
   }) async {
     if (!_useApi) return;
-    await FriendsApi.instance.saveRemark(userId: userId, friendId: friendId, remark: remark);
+    await FriendsApi.instance
+        .saveRemark(userId: userId, friendId: friendId, remark: remark);
   }
 
   Future<int> getIncomingRequestCount(String userId) async {
@@ -93,15 +101,49 @@ class FriendsRepository {
 
   Stream<List<FriendRequestItem>> watchIncomingRequests({
     required String userId,
-  }) async* {
+  }) {
     if (!_useApi) {
-      yield <FriendRequestItem>[];
-      return;
+      return Stream.value(<FriendRequestItem>[]);
     }
-    yield await FriendsApi.instance.getIncomingRequests();
-    await for (final _ in Stream.periodic(const Duration(seconds: 5))) {
-      yield await FriendsApi.instance.getIncomingRequests();
+    if (userId.isEmpty) return Stream.value(<FriendRequestItem>[]);
+    final existed = _incomingRequestControllers[userId];
+    if (existed != null) return existed.stream;
+
+    Timer? timer;
+    var inFlight = false;
+    late final StreamController<List<FriendRequestItem>> controller;
+    Future<void> tick() async {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        final data = await FriendsApi.instance.getIncomingRequests();
+        if (!controller.isClosed) controller.add(data);
+      } finally {
+        inFlight = false;
+      }
     }
+
+    void start() {
+      timer ??= Timer.periodic(const Duration(seconds: 8), (_) => tick());
+      tick();
+    }
+
+    Future<void> stopIfIdle() async {
+      if (controller.hasListener) return;
+      timer?.cancel();
+      timer = null;
+      _incomingRequestControllers.remove(userId);
+      if (!controller.isClosed) {
+        await controller.close();
+      }
+    }
+
+    controller = StreamController<List<FriendRequestItem>>.broadcast(
+      onListen: start,
+      onCancel: stopIfIdle,
+    );
+    _incomingRequestControllers[userId] = controller;
+    return controller.stream;
   }
 
   static DateTime? _parseDateTime(dynamic v) {
@@ -112,15 +154,49 @@ class FriendsRepository {
 
   Stream<List<FriendRequestItem>> watchAllFriendRequestRecords({
     required String userId,
-  }) async* {
+  }) {
     if (!_useApi) {
-      yield <FriendRequestItem>[];
-      return;
+      return Stream.value(<FriendRequestItem>[]);
     }
-    yield await FriendsApi.instance.getAllRequestRecords();
-    await for (final _ in Stream.periodic(const Duration(seconds: 5))) {
-      yield await FriendsApi.instance.getAllRequestRecords();
+    if (userId.isEmpty) return Stream.value(<FriendRequestItem>[]);
+    final existed = _allRequestRecordControllers[userId];
+    if (existed != null) return existed.stream;
+
+    Timer? timer;
+    var inFlight = false;
+    late final StreamController<List<FriendRequestItem>> controller;
+    Future<void> tick() async {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        final data = await FriendsApi.instance.getAllRequestRecords();
+        if (!controller.isClosed) controller.add(data);
+      } finally {
+        inFlight = false;
+      }
     }
+
+    void start() {
+      timer ??= Timer.periodic(const Duration(seconds: 12), (_) => tick());
+      tick();
+    }
+
+    Future<void> stopIfIdle() async {
+      if (controller.hasListener) return;
+      timer?.cancel();
+      timer = null;
+      _allRequestRecordControllers.remove(userId);
+      if (!controller.isClosed) {
+        await controller.close();
+      }
+    }
+
+    controller = StreamController<List<FriendRequestItem>>.broadcast(
+      onListen: start,
+      onCancel: stopIfIdle,
+    );
+    _allRequestRecordControllers[userId] = controller;
+    return controller.stream;
   }
 
   Future<void> sendFriendRequest({
@@ -129,7 +205,8 @@ class FriendsRepository {
   }) async {
     if (requesterId == receiverId) return;
     if (!_useApi) return;
-    await FriendsApi.instance.sendFriendRequest(requesterId: requesterId, receiverId: receiverId);
+    await FriendsApi.instance
+        .sendFriendRequest(requesterId: requesterId, receiverId: receiverId);
   }
 
   Future<void> acceptRequest({
@@ -138,7 +215,8 @@ class FriendsRepository {
     required String receiverId,
   }) async {
     if (!_useApi) return;
-    await FriendsApi.instance.acceptRequest(requestId: requestId, requesterId: requesterId, receiverId: receiverId);
+    await FriendsApi.instance.acceptRequest(
+        requestId: requestId, requesterId: requesterId, receiverId: receiverId);
   }
 
   Future<void> rejectRequest({required String requestId}) async {
@@ -158,9 +236,14 @@ class FriendsRepository {
     required String userId,
     required String customerServiceId,
   }) async {
-    if (userId.isEmpty || customerServiceId.isEmpty || userId == customerServiceId) return;
+    if (userId.isEmpty ||
+        customerServiceId.isEmpty ||
+        userId == customerServiceId) {
+      return;
+    }
     if (!_useApi) return;
-    await FriendsApi.instance.ensureCustomerServiceFriend(userId: userId, customerServiceId: customerServiceId);
+    await FriendsApi.instance.ensureCustomerServiceFriend(
+        userId: userId, customerServiceId: customerServiceId);
   }
 
   Future<bool> isFriend({

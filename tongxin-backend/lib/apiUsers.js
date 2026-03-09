@@ -160,7 +160,45 @@ function registerUserRoutes(app, requireAuth) {
         )
         .order('display_name', { ascending: true });
       if (error) return res.status(502).json({ error: error.message });
-      return res.json(data || []);
+      const { data: teacherRows, error: teacherErr } = await sb
+        .from('teacher_profiles')
+        .select('user_id,status');
+      if (teacherErr) return res.status(502).json({ error: teacherErr.message });
+
+      const { data: csRow, error: csErr } = await sb
+        .from('app_config')
+        .select('value')
+        .eq('key', 'customer_service_user_id')
+        .maybeSingle();
+      if (csErr) return res.status(502).json({ error: csErr.message });
+
+      const teacherStatusByUserId = new Map(
+        (teacherRows || []).map((row) => [String(row.user_id || ''), String(row.status || '')]),
+      );
+      const systemCsUserId = String(csRow?.value || '').trim();
+
+      const merged = (data || []).map((row) => {
+        const userId = String(row.user_id || '');
+        const role = String(row.role || 'user').toLowerCase();
+        const teacherStatus = teacherStatusByUserId.get(userId) || null;
+        let effectiveRole = role;
+        if (userId && userId === systemCsUserId) {
+          effectiveRole = 'customer_service';
+        } else if (
+          (effectiveRole === 'user' || !effectiveRole)
+          && teacherStatus
+          && teacherStatus !== 'rejected'
+        ) {
+          effectiveRole = 'teacher';
+        }
+        return {
+          ...row,
+          teacher_status: teacherStatus,
+          effective_role: effectiveRole || 'user',
+        };
+      });
+
+      return res.json(merged);
     } catch (e) {
       return res.status(502).json({ error: String(e.message || e) });
     }

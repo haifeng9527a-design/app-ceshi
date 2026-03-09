@@ -10,9 +10,15 @@ import 'trading_ui.dart';
 
 /// 历史委托 Tab：历史委托列表，支持按日期/标的筛选与分页（先 mock，分页占位）
 class OrderHistoryTab extends StatefulWidget {
-  const OrderHistoryTab({super.key, required this.teacherId, this.isActive = false});
+  const OrderHistoryTab({
+    super.key,
+    required this.teacherId,
+    required this.accountType,
+    this.isActive = false,
+  });
 
   final String teacherId;
+  final TradingAccountType accountType;
   final bool isActive;
 
   @override
@@ -49,6 +55,10 @@ class _OrderHistoryTabState extends State<OrderHistoryTab> {
   @override
   void didUpdateWidget(covariant OrderHistoryTab oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.accountType != widget.accountType) {
+      _loadHistory(showLoading: true);
+      _loadSummary();
+    }
     if (oldWidget.isActive != widget.isActive) {
       _syncPolling();
     }
@@ -73,7 +83,7 @@ class _OrderHistoryTabState extends State<OrderHistoryTab> {
 
   Future<void> _loadSummary() async {
     try {
-      final s = await _api.getSummary();
+      final s = await _api.getSummary(accountType: widget.accountType);
       if (!mounted) return;
       setState(() => _summary = s);
     } catch (_) {}
@@ -95,7 +105,11 @@ class _OrderHistoryTabState extends State<OrderHistoryTab> {
       });
     }
     try {
-      final list = await _api.getHistoryOrders(page: 1, pageSize: _pageSize);
+      final list = await _api.getHistoryOrders(
+        page: 1,
+        pageSize: _pageSize,
+        accountType: widget.accountType,
+      );
       if (!mounted) return;
       setState(() {
         _orders = list;
@@ -119,7 +133,11 @@ class _OrderHistoryTabState extends State<OrderHistoryTab> {
     setState(() => _loadingMore = true);
     try {
       final nextPage = _page + 1;
-      final list = await _api.getHistoryOrders(page: nextPage, pageSize: _pageSize);
+      final list = await _api.getHistoryOrders(
+        page: nextPage,
+        pageSize: _pageSize,
+        accountType: widget.accountType,
+      );
       if (!mounted) return;
       setState(() {
         if (list.isNotEmpty) {

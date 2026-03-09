@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:convert';
 
-import '../core/admin_api_client.dart';
 import '../l10n/admin_strings.dart';
 import '../repo/customer_service_repository.dart';
 
@@ -20,10 +19,6 @@ class _AdminSettingsPanelState extends State<AdminSettingsPanel> {
   final _avatarController = TextEditingController();
   final _welcomeController = TextEditingController();
   final _broadcastController = TextEditingController();
-  final _defaultTradingCashController = TextEditingController();
-  final _defaultLeverageController = TextEditingController();
-  final _maxLeverageController = TextEditingController();
-  final _maintenanceMarginRateController = TextEditingController();
   final _picker = ImagePicker();
 
   String? _systemCsUserId;
@@ -33,11 +28,7 @@ class _AdminSettingsPanelState extends State<AdminSettingsPanel> {
   bool _loading = true;
   String? _loadError;
   bool _saving = false;
-  bool _savingTradingCash = false;
   bool _uploadingAvatar = false;
-  String _defaultProductType = 'spot';
-  String _defaultMarginMode = 'cross';
-  bool _allowShort = true;
   String _userSearch = '';
   _CsSettingsTab _tab = _CsSettingsTab.system;
   Map<String, int> _assignmentStats = const {};
@@ -56,10 +47,6 @@ class _AdminSettingsPanelState extends State<AdminSettingsPanel> {
     _avatarController.dispose();
     _welcomeController.dispose();
     _broadcastController.dispose();
-    _defaultTradingCashController.dispose();
-    _defaultLeverageController.dispose();
-    _maxLeverageController.dispose();
-    _maintenanceMarginRateController.dispose();
     super.dispose();
   }
 
@@ -76,51 +63,11 @@ class _AdminSettingsPanelState extends State<AdminSettingsPanel> {
       final users = await _csRepo.listUsersBasic();
       final staff = await _csRepo.listCustomerServiceStaffBasic();
       final assignmentStats = await _csRepo.getAssignmentStats();
-      double? tradingDefaultCash;
-      int? defaultLeverage;
-      int? maxLeverage;
-      double? maintenanceMarginRate;
-      String? defaultProductType;
-      String? defaultMarginMode;
-      bool? allowShort;
-      try {
-        final config = await _loadTradingConfig();
-        tradingDefaultCash = config.$1;
-        defaultLeverage = config.$2;
-        maxLeverage = config.$3;
-        maintenanceMarginRate = config.$4;
-        defaultProductType = config.$5;
-        defaultMarginMode = config.$6;
-        allowShort = config.$7;
-      } catch (_) {}
       if (!mounted) return;
       setState(() {
         _systemCsUserId = csId;
         _avatarController.text = avatarUrl ?? '';
         _welcomeController.text = welcomeMsg ?? '';
-        if (tradingDefaultCash != null) {
-          _defaultTradingCashController.text =
-              tradingDefaultCash.toStringAsFixed(0);
-        }
-        if (defaultLeverage != null) {
-          _defaultLeverageController.text = '$defaultLeverage';
-        }
-        if (maxLeverage != null) {
-          _maxLeverageController.text = '$maxLeverage';
-        }
-        if (maintenanceMarginRate != null) {
-          _maintenanceMarginRateController.text =
-              (maintenanceMarginRate * 100).toStringAsFixed(2);
-        }
-        if (defaultProductType != null && defaultProductType.isNotEmpty) {
-          _defaultProductType = defaultProductType;
-        }
-        if (defaultMarginMode != null && defaultMarginMode.isNotEmpty) {
-          _defaultMarginMode = defaultMarginMode;
-        }
-        if (allowShort != null) {
-          _allowShort = allowShort;
-        }
         _users = users;
         _csStaff = staff;
         _assignmentStats = assignmentStats;
@@ -136,132 +83,25 @@ class _AdminSettingsPanelState extends State<AdminSettingsPanel> {
     }
   }
 
-  Future<(double?, int?, int?, double?, String?, String?, bool?)> _loadTradingConfig() async {
-    final client = AdminApiClient.instance;
-    if (!client.isAvailable) return (null, null, null, null, null, null, null);
-    final resp = await client.get('/api/admin/trading/config');
-    if (resp.statusCode < 200 || resp.statusCode >= 300) {
-      return (null, null, null, null, null, null, null);
-    }
-    final body = jsonDecode(resp.body);
-    if (body is! Map<String, dynamic>) {
-      return (null, null, null, null, null, null, null);
-    }
-    final raw = body['default_initial_cash_usd'];
-    final cash = raw is num ? raw.toDouble() : double.tryParse('$raw');
-    final defaultLeverage = body['default_leverage'] is num
-        ? (body['default_leverage'] as num).toInt()
-        : int.tryParse('${body['default_leverage']}');
-    final maxLeverage = body['max_leverage'] is num
-        ? (body['max_leverage'] as num).toInt()
-        : int.tryParse('${body['max_leverage']}');
-    final maintenanceMarginRate = body['maintenance_margin_rate'] is num
-        ? (body['maintenance_margin_rate'] as num).toDouble()
-        : double.tryParse('${body['maintenance_margin_rate']}');
-    final defaultProductType = body['default_product_type']?.toString();
-    final defaultMarginMode = body['default_margin_mode']?.toString();
-    final allowShort = body['allow_short'] == true ||
-        '${body['allow_short']}'.toLowerCase() == 'true';
-    return (
-      cash != null && cash > 0 ? cash : null,
-      defaultLeverage,
-      maxLeverage,
-      maintenanceMarginRate,
-      defaultProductType,
-      defaultMarginMode,
-      allowShort,
-    );
-  }
-
-  Future<void> _saveTradingDefaultCash() async {
-    if (_savingTradingCash) return;
-    final text = _defaultTradingCashController.text.trim();
-    final n = double.tryParse(text);
-    final defaultLeverage = int.tryParse(_defaultLeverageController.text.trim());
-    final maxLeverage = int.tryParse(_maxLeverageController.text.trim());
-    final maintenanceMarginRatePercent =
-        double.tryParse(_maintenanceMarginRateController.text.trim());
-    if (n == null || n <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('初始资金必须是大于 0 的数字')),
-      );
-      return;
-    }
-    if (defaultLeverage == null || defaultLeverage <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('默认杠杆必须是大于 0 的整数')),
-      );
-      return;
-    }
-    if (maxLeverage == null || maxLeverage < defaultLeverage) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('最大杠杆不能小于默认杠杆')),
-      );
-      return;
-    }
-    if (maintenanceMarginRatePercent == null ||
-        maintenanceMarginRatePercent <= 0 ||
-        maintenanceMarginRatePercent >= 100) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('维持保证金率请输入 0 到 100 之间的数字')),
-      );
-      return;
-    }
-    setState(() => _savingTradingCash = true);
-    try {
-      final resp = await AdminApiClient.instance.patch(
-        '/api/admin/trading/config',
-        body: {
-          'default_initial_cash_usd': n,
-          'default_product_type': _defaultProductType,
-          'default_margin_mode': _defaultMarginMode,
-          'default_leverage': defaultLeverage,
-          'max_leverage': maxLeverage,
-          'allow_short': _allowShort,
-          'maintenance_margin_rate': maintenanceMarginRatePercent / 100,
-        },
-      );
-      if (!mounted) return;
-      if (resp.statusCode >= 200 && resp.statusCode < 300) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('模拟盘默认初始资金已保存')),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('保存失败：${resp.statusCode} ${resp.body}'),
-            backgroundColor: Colors.red.shade700,
-          ),
-        );
-      }
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('保存失败：$e'),
-          backgroundColor: Colors.red.shade700,
-        ),
-      );
-    } finally {
-      if (mounted) setState(() => _savingTradingCash = false);
-    }
-  }
-
   Future<void> _saveSystemCs(String? userId) async {
     if (_saving) return;
     setState(() => _saving = true);
     try {
       await _csRepo.setSystemCustomerServiceUserId(userId ?? '');
       await _csRepo.setCustomerServiceAvatarUrl(
-        _avatarController.text.trim().isEmpty ? null : _avatarController.text.trim(),
+        _avatarController.text.trim().isEmpty
+            ? null
+            : _avatarController.text.trim(),
       );
       await _csRepo.setCustomerServiceWelcomeMessage(
-        _welcomeController.text.trim().isEmpty ? null : _welcomeController.text.trim(),
+        _welcomeController.text.trim().isEmpty
+            ? null
+            : _welcomeController.text.trim(),
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(AdminStrings.adminSaved)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(AdminStrings.adminSaved)));
       setState(() {
         _systemCsUserId = userId;
         _saving = false;
@@ -289,9 +129,9 @@ class _AdminSettingsPanelState extends State<AdminSettingsPanel> {
     try {
       await _csRepo.setUserRole(userId, 'customer_service');
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(AdminStrings.adminSaved)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(AdminStrings.adminSaved)));
       _load();
     } catch (e) {
       if (!mounted) return;
@@ -314,12 +154,14 @@ class _AdminSettingsPanelState extends State<AdminSettingsPanel> {
     try {
       final bytes = await picked.readAsBytes();
       final ext = picked.name.split('.').last.toLowerCase();
-      final safeExt = ['jpg', 'jpeg', 'png', 'webp'].contains(ext) ? ext : 'jpg';
+      final safeExt = ['jpg', 'jpeg', 'png', 'webp'].contains(ext)
+          ? ext
+          : 'jpg';
       final contentType = safeExt == 'png'
           ? 'image/png'
           : safeExt == 'webp'
-              ? 'image/webp'
-              : 'image/jpeg';
+          ? 'image/webp'
+          : 'image/jpeg';
       final url = await _csRepo.uploadCustomerServiceAvatar(
         contentBase64: base64Encode(bytes),
         contentType: contentType,
@@ -331,9 +173,9 @@ class _AdminSettingsPanelState extends State<AdminSettingsPanel> {
         _avatarController.text = url;
         _uploadingAvatar = false;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(AdminStrings.adminSaved)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(AdminStrings.adminSaved)));
     } catch (e) {
       if (!mounted) return;
       setState(() => _uploadingAvatar = false);
@@ -379,10 +221,7 @@ class _AdminSettingsPanelState extends State<AdminSettingsPanel> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('$e'),
-          backgroundColor: Colors.red.shade700,
-        ),
+        SnackBar(content: Text('$e'), backgroundColor: Colors.red.shade700),
       );
     } finally {
       if (mounted) setState(() => _broadcasting = false);
@@ -395,9 +234,9 @@ class _AdminSettingsPanelState extends State<AdminSettingsPanel> {
     try {
       await _csRepo.setUserRole(userId, 'user');
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(AdminStrings.adminSaved)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(AdminStrings.adminSaved)));
       _load();
     } catch (e) {
       if (!mounted) return;
@@ -424,28 +263,74 @@ class _AdminSettingsPanelState extends State<AdminSettingsPanel> {
   List<Map<String, dynamic>> get _filteredUsers {
     final q = _userSearch.trim().toLowerCase();
     if (q.isEmpty) return _users;
-    return _users.where((u) {
-      final name = _userLabel(u).toLowerCase();
-      final email = (u['email']?.toString() ?? '').toLowerCase();
-      final sid = (u['short_id']?.toString() ?? '').toLowerCase();
-      return name.contains(q) || email.contains(q) || sid.contains(q);
-    }).toList(growable: false);
+    return _users
+        .where((u) {
+          final name = _userLabel(u).toLowerCase();
+          final email = (u['email']?.toString() ?? '').toLowerCase();
+          final sid = (u['short_id']?.toString() ?? '').toLowerCase();
+          return name.contains(q) || email.contains(q) || sid.contains(q);
+        })
+        .toList(growable: false);
   }
 
   Widget _buildTabs() {
+    IconData iconOf(_CsSettingsTab t) {
+      switch (t) {
+        case _CsSettingsTab.system:
+          return Icons.verified_user_outlined;
+        case _CsSettingsTab.staff:
+          return Icons.support_agent_outlined;
+        case _CsSettingsTab.assignment:
+          return Icons.account_tree_outlined;
+        case _CsSettingsTab.broadcast:
+          return Icons.campaign_outlined;
+      }
+    }
+
     return Wrap(
-      spacing: 8,
-      runSpacing: 8,
+      spacing: 10,
+      runSpacing: 10,
       children: _CsSettingsTab.values.map((tab) {
         final selected = _tab == tab;
-        return ChoiceChip(
-          label: Text(_tabLabel(tab)),
-          selected: selected,
-          onSelected: (_) => setState(() => _tab = tab),
-          selectedColor: _accent.withValues(alpha: 0.25),
-          labelStyle: TextStyle(
-            color: selected ? _accent : Colors.white.withValues(alpha: 0.9),
-            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+        return InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () => setState(() => _tab = tab),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 140),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: selected
+                  ? _accent.withValues(alpha: 0.2)
+                  : Colors.white.withValues(alpha: 0.02),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: selected
+                    ? _accent.withValues(alpha: 0.8)
+                    : Colors.white.withValues(alpha: 0.2),
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  iconOf(tab),
+                  size: 16,
+                  color: selected
+                      ? _accent
+                      : Colors.white.withValues(alpha: 0.8),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  _tabLabel(tab),
+                  style: TextStyle(
+                    color: selected
+                        ? _accent
+                        : Colors.white.withValues(alpha: 0.9),
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
           ),
         );
       }).toList(),
@@ -468,14 +353,68 @@ class _AdminSettingsPanelState extends State<AdminSettingsPanel> {
   Widget _buildSystemSection() {
     final current = _users.firstWhere(
       (u) => u['user_id'] == _systemCsUserId,
-      orElse: () => {'user_id': _systemCsUserId, 'display_name': _systemCsUserId},
+      orElse: () => {
+        'user_id': _systemCsUserId,
+        'display_name': _systemCsUserId,
+      },
     );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildRow(AdminStrings.adminCsSystemAccount, _systemCsUserId != null && _systemCsUserId!.isNotEmpty ? _userLabel(current) : AdminStrings.adminCsNotConfigured),
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.03),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+          ),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 18,
+                backgroundColor: _accent.withValues(alpha: 0.2),
+                child: const Icon(
+                  Icons.support_agent,
+                  color: _accent,
+                  size: 18,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      AdminStrings.adminCsSystemAccount,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.7),
+                        fontSize: 12,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      _systemCsUserId != null && _systemCsUserId!.isNotEmpty
+                          ? _userLabel(current)
+                          : AdminStrings.adminCsNotConfigured,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
         const SizedBox(height: 8),
-        Text(AdminStrings.adminCsSystemAccountHint, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xFF6C6F77))),
+        Text(
+          AdminStrings.adminCsSystemAccountHint,
+          style: Theme.of(
+            context,
+          ).textTheme.bodySmall?.copyWith(color: const Color(0xFF6C6F77)),
+        ),
         const SizedBox(height: 12),
         TextField(
           decoration: const InputDecoration(
@@ -500,7 +439,7 @@ class _AdminSettingsPanelState extends State<AdminSettingsPanel> {
             );
           }).toList(),
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 16),
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -518,7 +457,14 @@ class _AdminSettingsPanelState extends State<AdminSettingsPanel> {
             FilledButton.icon(
               onPressed: _uploadingAvatar ? null : _uploadAvatar,
               icon: _uploadingAvatar
-                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.black,
+                      ),
+                    )
                   : const Icon(Icons.upload_file, size: 20),
               label: Text(AdminStrings.adminCsUploadAvatar),
             ),
@@ -538,37 +484,79 @@ class _AdminSettingsPanelState extends State<AdminSettingsPanel> {
         const SizedBox(height: 12),
         FilledButton(
           onPressed: _saving ? null : () => _saveSystemCs(_systemCsUserId),
-          child: _saving ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black)) : Text(AdminStrings.commonSave),
+          child: _saving
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.black,
+                  ),
+                )
+              : Text(AdminStrings.commonSave),
         ),
       ],
     );
   }
 
   Widget _buildStaffSection() {
-    final candidateUsers = _filteredUsers.where((u) => !_csStaff.any((s) => s['user_id'] == u['user_id'])).toList(growable: false);
+    final candidateUsers = _filteredUsers
+        .where((u) => !_csStaff.any((s) => s['user_id'] == u['user_id']))
+        .toList(growable: false);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(AdminStrings.adminCsStaffHint, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xFF6C6F77))),
+        Row(
+          children: [
+            _statBadge('客服人数', '${_csStaff.length}'),
+            const SizedBox(width: 10),
+            _statBadge('可添加用户', '${candidateUsers.length}'),
+          ],
+        ),
         const SizedBox(height: 10),
-        ..._csStaff.map((u) {
-          final uid = u['user_id']?.toString() ?? '';
-          return ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: CircleAvatar(
-              radius: 20,
-              backgroundColor: _accent.withValues(alpha: 0.2),
-              child: Text(_userLabel(u).isNotEmpty ? _userLabel(u)[0].toUpperCase() : '?', style: const TextStyle(color: _accent)),
-            ),
-            title: Text(_userLabel(u)),
-            subtitle: Text(uid),
-            trailing: IconButton(
-              icon: const Icon(Icons.remove_circle_outline, color: Colors.red),
-              onPressed: _saving ? null : () => _removeCsStaff(uid),
-              tooltip: AdminStrings.adminRemoveCsStaff,
-            ),
-          );
-        }),
+        Text(
+          AdminStrings.adminCsStaffHint,
+          style: Theme.of(
+            context,
+          ).textTheme.bodySmall?.copyWith(color: const Color(0xFF6C6F77)),
+        ),
+        const SizedBox(height: 10),
+        Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+            color: Colors.white.withValues(alpha: 0.02),
+          ),
+          child: Column(
+            children: _csStaff.map((u) {
+              final uid = u['user_id']?.toString() ?? '';
+              return ListTile(
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                leading: CircleAvatar(
+                  radius: 20,
+                  backgroundColor: _accent.withValues(alpha: 0.2),
+                  child: Text(
+                    _userLabel(u).isNotEmpty
+                        ? _userLabel(u)[0].toUpperCase()
+                        : '?',
+                    style: const TextStyle(color: _accent),
+                  ),
+                ),
+                title: Text(_userLabel(u)),
+                subtitle: Text(uid),
+                trailing: IconButton(
+                  icon: const Icon(
+                    Icons.remove_circle_outline,
+                    color: Colors.red,
+                  ),
+                  onPressed: _saving ? null : () => _removeCsStaff(uid),
+                  tooltip: AdminStrings.adminRemoveCsStaff,
+                ),
+              );
+            }).toList(),
+          ),
+        ),
         const SizedBox(height: 8),
         const Text('添加客服人员'),
         const SizedBox(height: 8),
@@ -600,22 +588,71 @@ class _AdminSettingsPanelState extends State<AdminSettingsPanel> {
     final staffMap = {
       for (final s in _csStaff) s['user_id']?.toString() ?? '': _userLabel(s),
     };
-    final entries = _assignmentStats.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+    final entries = _assignmentStats.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('当前规则：优先已有绑定；否则按在线客服池哈希分配；无人在线时回退系统客服。', style: Theme.of(context).textTheme.bodyMedium),
+        Row(
+          children: [
+            _statBadge('参与分配客服', '${entries.length}'),
+            const SizedBox(width: 10),
+            _statBadge(
+              '累计分配用户',
+              '${entries.fold<int>(0, (sum, e) => sum + e.value)}',
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Text(
+          '当前规则：优先已有绑定；否则按在线客服池哈希分配；无人在线时回退系统客服。',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
         const SizedBox(height: 12),
         if (entries.isEmpty)
-          Text('暂无分配数据', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xFF6C6F77)))
+          Text(
+            '暂无分配数据',
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: const Color(0xFF6C6F77)),
+          )
         else
-          ...entries.map((e) => ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.support_agent_outlined, color: _accent),
-                title: Text(staffMap[e.key] ?? e.key),
-                subtitle: Text(e.key),
-                trailing: Text('${e.value} 人', style: const TextStyle(fontWeight: FontWeight.w700)),
-              )),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: DataTable(
+              columns: const [
+                DataColumn(label: Text('客服')),
+                DataColumn(label: Text('用户ID')),
+                DataColumn(label: Text('分配人数')),
+              ],
+              rows: entries
+                  .map(
+                    (e) => DataRow(
+                      cells: [
+                        DataCell(Text(staffMap[e.key] ?? e.key)),
+                        DataCell(
+                          Text(
+                            e.key,
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.7),
+                            ),
+                          ),
+                        ),
+                        DataCell(
+                          Text(
+                            '${e.value} 人',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: _accent,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                  .toList(),
+            ),
+          ),
       ],
     );
   }
@@ -624,7 +661,36 @@ class _AdminSettingsPanelState extends State<AdminSettingsPanel> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(AdminStrings.adminCsBroadcastHint, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xFF6C6F77))),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.03),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.info_outline, color: _accent, size: 16),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '该消息会发送给已绑定系统客服会话的用户，请避免在高峰期频繁群发。',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.75),
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          AdminStrings.adminCsBroadcastHint,
+          style: Theme.of(
+            context,
+          ).textTheme.bodySmall?.copyWith(color: const Color(0xFF6C6F77)),
+        ),
         const SizedBox(height: 10),
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -643,7 +709,14 @@ class _AdminSettingsPanelState extends State<AdminSettingsPanel> {
             FilledButton.icon(
               onPressed: _broadcasting ? null : _doBroadcast,
               icon: _broadcasting
-                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.black,
+                      ),
+                    )
                   : const Icon(Icons.send, size: 20),
               label: Text(AdminStrings.adminCsBroadcastSend),
             ),
@@ -674,184 +747,157 @@ class _AdminSettingsPanelState extends State<AdminSettingsPanel> {
         Text(
           AdminStrings.adminSettings,
           style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                color: _accent,
-                fontWeight: FontWeight.w600,
-              ),
+            color: _accent,
+            fontWeight: FontWeight.w600,
+          ),
         ),
         const SizedBox(height: 8),
         Text(
           AdminStrings.adminSettingsDesc,
           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
-              ),
+            color: Theme.of(
+              context,
+            ).colorScheme.onSurface.withValues(alpha: 0.7),
+          ),
         ),
         const SizedBox(height: 24),
         Text(
-          '交易模拟盘配置',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(color: _accent),
+          '交易参数已迁移到「交易管理」页进行统一设置。',
+          style: Theme.of(
+            context,
+          ).textTheme.bodySmall?.copyWith(color: Colors.white70),
         ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children: [
-            SizedBox(
-              width: 240,
-              child: TextField(
-                controller: _defaultTradingCashController,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                decoration: const InputDecoration(
-                  labelText: '交易员默认初始资金 (USD)',
-                  hintText: '1000000',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ),
-            SizedBox(
-              width: 180,
-              child: DropdownButtonFormField<String>(
-                initialValue: _defaultProductType,
-                decoration: const InputDecoration(
-                  labelText: '默认产品类型',
-                  border: OutlineInputBorder(),
-                ),
-                items: const [
-                  DropdownMenuItem(value: 'spot', child: Text('现货 spot')),
-                  DropdownMenuItem(value: 'perpetual', child: Text('永续 perpetual')),
-                  DropdownMenuItem(value: 'future', child: Text('期货 future')),
-                ],
-                onChanged: (value) {
-                  if (value != null) {
-                    setState(() => _defaultProductType = value);
-                  }
-                },
-              ),
-            ),
-            SizedBox(
-              width: 180,
-              child: DropdownButtonFormField<String>(
-                initialValue: _defaultMarginMode,
-                decoration: const InputDecoration(
-                  labelText: '默认保证金模式',
-                  border: OutlineInputBorder(),
-                ),
-                items: const [
-                  DropdownMenuItem(value: 'cross', child: Text('全仓 cross')),
-                  DropdownMenuItem(value: 'isolated', child: Text('逐仓 isolated')),
-                ],
-                onChanged: (value) {
-                  if (value != null) {
-                    setState(() => _defaultMarginMode = value);
-                  }
-                },
-              ),
-            ),
-            SizedBox(
-              width: 140,
-              child: TextField(
-                controller: _defaultLeverageController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: '默认杠杆',
-                  hintText: '5',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ),
-            SizedBox(
-              width: 140,
-              child: TextField(
-                controller: _maxLeverageController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: '最大杠杆',
-                  hintText: '50',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ),
-            SizedBox(
-              width: 180,
-              child: TextField(
-                controller: _maintenanceMarginRateController,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(
-                  labelText: '维持保证金率 (%)',
-                  hintText: '0.50',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ),
-            SizedBox(
-              width: 180,
-              child: SwitchListTile(
-                value: _allowShort,
-                onChanged: (value) => setState(() => _allowShort = value),
-                title: const Text('允许做空'),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  side: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
-                ),
-              ),
-            ),
-            FilledButton(
-              onPressed: _savingTradingCash ? null : _saveTradingDefaultCash,
-              child: _savingTradingCash
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.black,
-                      ),
-                    )
-                  : const Text('保存'),
-            ),
-          ],
-        ),
-        const SizedBox(height: 24),
-        Text(
-          AdminStrings.adminCsConfig,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(color: _accent),
-        ),
-        const SizedBox(height: 8),
-        _buildTabs(),
         const SizedBox(height: 12),
-        if (_loading)
-          const Center(child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator(color: Color(0xFFD4AF37))))
-        else if (_loadError != null)
-          Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
+        _sectionCard(
+          title: AdminStrings.adminCsConfig,
+          subtitle: '系统客服账号、客服人员、分配规则与群发管理',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
                 children: [
-                  Icon(Icons.error_outline, size: 48, color: Theme.of(context).colorScheme.error),
-                  const SizedBox(height: 12),
-                  Text(_loadError!, textAlign: TextAlign.center, style: Theme.of(context).textTheme.bodySmall),
-                  const SizedBox(height: 16),
-                  FilledButton.icon(onPressed: _load, icon: const Icon(Icons.refresh, size: 18), label: Text(AdminStrings.commonRetry)),
+                  _statBadge(
+                    '系统客服',
+                    (_systemCsUserId?.isNotEmpty ?? false) ? '已配置' : '未配置',
+                  ),
+                  const SizedBox(width: 10),
+                  _statBadge('客服人员', '${_csStaff.length} 人'),
+                  const SizedBox(width: 10),
+                  _statBadge(
+                    '总分配',
+                    '${_assignmentStats.values.fold<int>(0, (s, v) => s + v)} 人',
+                  ),
                 ],
               ),
-            ),
-          )
-        else ...[_buildCurrentTabBody()],
+              const SizedBox(height: 12),
+              _buildTabs(),
+              const SizedBox(height: 12),
+              if (_loading)
+                const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(32),
+                    child: CircularProgressIndicator(color: Color(0xFFD4AF37)),
+                  ),
+                )
+              else if (_loadError != null)
+                Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.error_outline,
+                          size: 48,
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          _loadError!,
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                        const SizedBox(height: 16),
+                        FilledButton.icon(
+                          onPressed: _load,
+                          icon: const Icon(Icons.refresh, size: 18),
+                          label: Text(AdminStrings.commonRetry),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              else
+                _buildCurrentTabBody(),
+            ],
+          ),
+        ),
       ],
     );
   }
 
-  Widget _buildRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Row(
+  Widget _sectionCard({
+    required String title,
+    required String subtitle,
+    required Widget child,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        color: Colors.white.withValues(alpha: 0.02),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+      ),
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(width: 120, child: Text(label, style: const TextStyle(color: Color(0xFF6C6F77), fontSize: 13))),
-          Expanded(child: Text(value, style: const TextStyle(fontSize: 13))),
+          Text(
+            title,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              color: _accent,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.6),
+              fontSize: 12,
+            ),
+          ),
+          const SizedBox(height: 12),
+          child,
         ],
+      ),
+    );
+  }
+
+  Widget _statBadge(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(10),
+        color: Colors.white.withValues(alpha: 0.03),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+      ),
+      child: RichText(
+        text: TextSpan(
+          style: const TextStyle(fontSize: 12),
+          children: [
+            TextSpan(
+              text: '$label  ',
+              style: TextStyle(color: Colors.white.withValues(alpha: 0.7)),
+            ),
+            TextSpan(
+              text: value,
+              style: const TextStyle(
+                color: _accent,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

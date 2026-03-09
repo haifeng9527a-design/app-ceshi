@@ -157,12 +157,12 @@ class TradingSummaryStrip extends StatelessWidget {
         style: const TextStyle(color: TradingUi.textMuted, fontSize: 12),
       );
     }
+    // 顺序：总资产 → 可用资金 → 市值（已移除挂单）
     return Row(
       children: [
-        Expanded(child: _item(AppLocalizations.of(context)!.tradingSummaryAvailable, s.cashAvailable)),
         Expanded(child: _item(AppLocalizations.of(context)!.tradingSummaryEquity, s.equity)),
+        Expanded(child: _item(AppLocalizations.of(context)!.tradingSummaryAvailableFunds, s.cashAvailable)),
         Expanded(child: _item(AppLocalizations.of(context)!.tradingSummaryMarketValue, s.marketValue)),
-        Expanded(child: _item(AppLocalizations.of(context)!.tradingSummaryOpenOrders, s.openOrders.toDouble(), isInt: true)),
       ],
     );
   }

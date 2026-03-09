@@ -345,11 +345,17 @@ async function handleCandles(req, res, polygonKey, twelveKey) {
       list = (bars || []).map((b) => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));
     } catch (_) {}
   }
-  // Polygon 无数据时用 Twelve 兜底（仅默认范围；带 fromMs/toMs 时不再请求 Twelve）
-  if (list.length === 0 && twelveKey && !hasRange) {
+  // Polygon 无数据时用 Twelve 兜底（含美股分钟级，Polygon 可能无权限）
+  const useTwelve = list.length === 0 && twelveKey;
+  if (useTwelve) {
     const twelveSymbol = r.polygon || r.twelve;
     const tdInterval = ['1day', '1week', '1month', '1year', '1h', '30min', '15min', '5min', '1min'].includes(interval) ? interval : '1day';
-    const outputsize = (tdInterval === '1day' || tdInterval === '1week' || tdInterval === '1month' || tdInterval === '1year') ? 600 : 120;
+    let outputsize = (tdInterval === '1day' || tdInterval === '1week' || tdInterval === '1month' || tdInterval === '1year') ? 600 : 120;
+    if (hasRange && ['1min', '5min', '15min', '30min', '1h'].includes(tdInterval)) {
+      const days = (toMs - fromMs) / (24 * 60 * 60 * 1000);
+      const barsPerDay = tdInterval === '1min' ? 24 * 60 : tdInterval === '5min' ? 24 * 12 : tdInterval === '15min' ? 24 * 4 : tdInterval === '30min' ? 48 : 24;
+      outputsize = Math.min(5000, Math.max(120, Math.ceil(days * barsPerDay)));
+    }
     try {
       const bars = await twelveData.getTimeSeries(twelveKey, twelveSymbol, tdInterval, outputsize);
       list = (bars || []).map((b) => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));

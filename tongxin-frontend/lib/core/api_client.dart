@@ -13,6 +13,8 @@ class ApiClient {
   ApiClient._();
   static final ApiClient instance = ApiClient._();
   static const int _networkErrorStatusCode = 599;
+  final Map<String, Future<http.Response>> _inflightGetRequests =
+      <String, Future<http.Response>>{};
 
   String? get _baseUrl {
     final url = dotenv.env['TONGXIN_API_URL']?.trim();
@@ -30,30 +32,36 @@ class ApiClient {
       }
       if (body != null) {
         final str = body is String ? body : jsonEncode(body);
-        debugPrint('[ApiClient] body: ${str.length > 500 ? '${str.substring(0, 500)}...' : str}');
+        debugPrint(
+            '[ApiClient] body: ${str.length > 500 ? '${str.substring(0, 500)}...' : str}');
       }
     }
   }
 
-  void _logDuration(String method, String path, Duration duration, int statusCode) {
+  void _logDuration(
+      String method, String path, Duration duration, int statusCode) {
     if (kDebugMode) {
-      debugPrint('[ApiClient] $method $path → ${statusCode} (${duration.inMilliseconds}ms)');
+      debugPrint(
+          '[ApiClient] $method $path → ${statusCode} (${duration.inMilliseconds}ms)');
     }
   }
 
   /// [forceRefresh] 为 true 时强制刷新 Token，用于 401 重试
-  Future<Map<String, String>> _headers({bool withAuth = true, bool forceRefresh = false}) async {
+  Future<Map<String, String>> _headers(
+      {bool withAuth = true, bool forceRefresh = false}) async {
     final headers = <String, String>{
       'Content-Type': 'application/json',
       'Accept': 'application/json',
     };
     if (withAuth && FirebaseBootstrap.isReady) {
       try {
-        final token = await FirebaseAuth.instance.currentUser?.getIdToken(forceRefresh);
+        final token =
+            await FirebaseAuth.instance.currentUser?.getIdToken(forceRefresh);
         if (token != null && token.isNotEmpty) {
           headers['Authorization'] = 'Bearer $token';
         } else if (kDebugMode) {
-          debugPrint('[ApiClient] 未获取到 Token，currentUser=${FirebaseAuth.instance.currentUser?.uid}');
+          debugPrint(
+              '[ApiClient] 未获取到 Token，currentUser=${FirebaseAuth.instance.currentUser?.uid}');
         }
       } catch (e) {
         if (kDebugMode) debugPrint('[ApiClient] getIdToken 失败: $e');
@@ -76,22 +84,39 @@ class ApiClient {
     if (queryParameters != null && queryParameters.isNotEmpty) {
       uri = uri.replace(queryParameters: queryParameters);
     }
-    _logRequest('GET', uri);
-    try {
-      var resp = await http
-          .get(uri, headers: await _headers(withAuth: withAuth))
-          .timeout(timeout ?? const Duration(seconds: 15));
-      // 401 时尝试强制刷新 Token 并重试一次
-      if (resp.statusCode == 401 && withAuth && FirebaseBootstrap.isReady) {
-        resp = await http
-            .get(uri, headers: await _headers(withAuth: true, forceRefresh: true))
-            .timeout(timeout ?? const Duration(seconds: 15));
-      }
-      return resp;
-    } catch (e) {
-      if (kDebugMode) debugPrint('[ApiClient GET $path] $e');
-      return http.Response('{"error":"${e.toString()}"}', _networkErrorStatusCode);
+    final effectiveTimeout = timeout ?? const Duration(seconds: 15);
+    final requestKey =
+        '${withAuth ? 'auth' : 'anon'}|${effectiveTimeout.inMilliseconds}|${uri.toString()}';
+    final inflight = _inflightGetRequests[requestKey];
+    if (inflight != null) {
+      if (kDebugMode)
+        debugPrint('[ApiClient] GET dedup hit: ${uri.toString()}');
+      return inflight;
     }
+    _logRequest('GET', uri);
+    final future = () async {
+      try {
+        var resp = await http
+            .get(uri, headers: await _headers(withAuth: withAuth))
+            .timeout(effectiveTimeout);
+        // 401 时尝试强制刷新 Token 并重试一次
+        if (resp.statusCode == 401 && withAuth && FirebaseBootstrap.isReady) {
+          resp = await http
+              .get(uri,
+                  headers: await _headers(withAuth: true, forceRefresh: true))
+              .timeout(effectiveTimeout);
+        }
+        return resp;
+      } catch (e) {
+        if (kDebugMode) debugPrint('[ApiClient GET $path] $e');
+        return http.Response(
+            '{"error":"${e.toString()}"}', _networkErrorStatusCode);
+      } finally {
+        _inflightGetRequests.remove(requestKey);
+      }
+    }();
+    _inflightGetRequests[requestKey] = future;
+    return future;
   }
 
   Future<http.Response> post(
@@ -129,7 +154,8 @@ class ApiClient {
       return resp;
     } catch (e) {
       if (kDebugMode) debugPrint('[ApiClient POST $path] $e');
-      return http.Response('{"error":"${e.toString()}"}', _networkErrorStatusCode);
+      return http.Response(
+          '{"error":"${e.toString()}"}', _networkErrorStatusCode);
     }
   }
 
@@ -168,7 +194,8 @@ class ApiClient {
       return resp;
     } catch (e) {
       if (kDebugMode) debugPrint('[ApiClient PUT $path] $e');
-      return http.Response('{"error":"${e.toString()}"}', _networkErrorStatusCode);
+      return http.Response(
+          '{"error":"${e.toString()}"}', _networkErrorStatusCode);
     }
   }
 
@@ -207,7 +234,8 @@ class ApiClient {
       return resp;
     } catch (e) {
       if (kDebugMode) debugPrint('[ApiClient PATCH $path] $e');
-      return http.Response('{"error":"${e.toString()}"}', _networkErrorStatusCode);
+      return http.Response(
+          '{"error":"${e.toString()}"}', _networkErrorStatusCode);
     }
   }
 
@@ -229,7 +257,8 @@ class ApiClient {
           .timeout(timeout ?? const Duration(seconds: 15));
       if (resp.statusCode == 401 && withAuth && FirebaseBootstrap.isReady) {
         resp = await http
-            .delete(uri, headers: await _headers(withAuth: true, forceRefresh: true))
+            .delete(uri,
+                headers: await _headers(withAuth: true, forceRefresh: true))
             .timeout(timeout ?? const Duration(seconds: 15));
       }
       stopwatch.stop();
@@ -237,7 +266,8 @@ class ApiClient {
       return resp;
     } catch (e) {
       if (kDebugMode) debugPrint('[ApiClient DELETE $path] $e');
-      return http.Response('{"error":"${e.toString()}"}', _networkErrorStatusCode);
+      return http.Response(
+          '{"error":"${e.toString()}"}', _networkErrorStatusCode);
     }
   }
 
@@ -278,7 +308,8 @@ class ApiClient {
       return resp;
     } catch (e) {
       if (kDebugMode) debugPrint('[ApiClient UPLOAD $path] $e');
-      return http.Response('{"error":"${e.toString()}"}', _networkErrorStatusCode);
+      return http.Response(
+          '{"error":"${e.toString()}"}', _networkErrorStatusCode);
     }
   }
 }

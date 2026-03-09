@@ -12,8 +12,39 @@ class MessagesRepository {
   MessagesRepository();
 
   bool get _useApi => ApiClient.instance.isAvailable;
+  static final Map<String, Timer> _conversationFallbackTimers =
+      <String, Timer>{};
+  static final Map<String, StreamSubscription<String>> _conversationWsSubs =
+      <String, StreamSubscription<String>>{};
+  static final Set<String> _conversationSyncInFlight = <String>{};
 
-  Stream<List<Conversation>> watchConversations({required String userId}) async* {
+  void _ensureConversationSyncLoop(String userId) {
+    if (userId.isEmpty || !_useApi) return;
+    if (_conversationFallbackTimers.containsKey(userId)) return;
+    Future<void> tick() async {
+      if (_conversationSyncInFlight.contains(userId)) return;
+      _conversationSyncInFlight.add(userId);
+      try {
+        await ChatSyncService.instance.syncConversations(userId);
+      } finally {
+        _conversationSyncInFlight.remove(userId);
+      }
+    }
+
+    unawaited(ChatWebSocketService.instance.connectIfNeeded(userId));
+    tick();
+    // WebSocket 推送为主，固定轮询降级为兜底
+    _conversationWsSubs[userId] ??= ChatWebSocketService
+        .instance.newMessageSignalStream
+        .listen((_) => tick());
+    _conversationFallbackTimers[userId] = Timer.periodic(
+      const Duration(seconds: 90),
+      (_) => tick(),
+    );
+  }
+
+  Stream<List<Conversation>> watchConversations(
+      {required String userId}) async* {
     if (userId.isEmpty) {
       yield [];
       return;
@@ -22,19 +53,9 @@ class MessagesRepository {
       yield [];
       return;
     }
-    // 启动时拉取一次与本地合并
-    await ChatSyncService.instance.syncConversations(userId);
-    // 每 5 秒同步一次
-    final syncTimer = Stream.periodic(const Duration(seconds: 5), (_) {});
-    final syncSub = syncTimer.listen((_) {
-      ChatSyncService.instance.syncConversations(userId);
-    });
-    try {
-      await for (final list in ChatDb.instance.watchConversations(userId)) {
-        yield list;
-      }
-    } finally {
-      await syncSub.cancel();
+    _ensureConversationSyncLoop(userId);
+    await for (final list in ChatDb.instance.watchConversations(userId)) {
+      yield list;
     }
   }
 
@@ -47,16 +68,22 @@ class MessagesRepository {
     required String conversationId,
     required String currentUserId,
   }) async {
-    if (conversationId.isEmpty || currentUserId.isEmpty || !_useApi) return null;
-    return MessagesApi.instance.getConversationById(conversationId, currentUserId);
+    if (conversationId.isEmpty || currentUserId.isEmpty || !_useApi) {
+      return null;
+    }
+    return MessagesApi.instance
+        .getConversationById(conversationId, currentUserId);
   }
 
   Future<List<String>> findDirectConversationIds({
     required String currentUserId,
     required String friendId,
   }) async {
-    if (currentUserId.isEmpty || friendId.isEmpty || !_useApi) return const <String>[];
-    return MessagesApi.instance.findDirectConversationIds(currentUserId, friendId);
+    if (currentUserId.isEmpty || friendId.isEmpty || !_useApi) {
+      return const <String>[];
+    }
+    return MessagesApi.instance
+        .findDirectConversationIds(currentUserId, friendId);
   }
 
   Future<void> removeConversationForUser({
@@ -65,7 +92,8 @@ class MessagesRepository {
     String? leaveUserName,
   }) async {
     if (conversationId.isEmpty || userId.isEmpty || !_useApi) return;
-    await MessagesApi.instance.removeConversationForUser(conversationId, leaveUserName: leaveUserName);
+    await MessagesApi.instance.removeConversationForUser(conversationId,
+        leaveUserName: leaveUserName);
   }
 
   Stream<List<ChatMessage>> watchMessages({
@@ -86,10 +114,10 @@ class MessagesRepository {
       currentUserId: currentUserId,
     );
     ChatWebSocketService.instance.subscribe([conversationId]);
-    // WebSocket 连接时：30 秒兜底同步；未连接时：2 秒轮询
+    // WebSocket 连接时：30 秒兜底同步；未连接时：10 秒轮询
     final interval = ChatWebSocketService.instance.isConnected
         ? const Duration(seconds: 30)
-        : const Duration(seconds: 2);
+        : const Duration(seconds: 10);
     final syncTimer = Stream.periodic(interval, (_) {});
     final syncSub = syncTimer.listen((_) {
       ChatSyncService.instance.syncMessages(
@@ -163,7 +191,8 @@ class MessagesRepository {
         replyToSenderName: replyToSenderName,
         replyToContent: replyToContent,
       );
-      ChatSyncService.instance.syncMessages(conversationId: conversationId, currentUserId: senderId);
+      ChatSyncService.instance.syncMessages(
+          conversationId: conversationId, currentUserId: senderId);
     }
   }
 
@@ -221,7 +250,9 @@ class MessagesRepository {
     if (!_useApi) throw StateError('API 未配置');
     final conv = await MessagesApi.instance.createGroupConversation(
       currentUserId: currentUserId,
-      title: title.trim().isEmpty ? (defaultTitleWhenEmpty ?? 'Group(${memberUserIds.length + 1})') : title.trim(),
+      title: title.trim().isEmpty
+          ? (defaultTitleWhenEmpty ?? 'Group(${memberUserIds.length + 1})')
+          : title.trim(),
       memberUserIds: memberUserIds,
     );
     if (conv != null) return conv;
@@ -317,7 +348,8 @@ class MessagesRepository {
     String? leaveUserName,
   }) async {
     if (!_useApi || conversationId.isEmpty || userId.isEmpty) return;
-    await MessagesApi.instance.removeConversationForUser(conversationId, leaveUserName: leaveUserName);
+    await MessagesApi.instance.removeConversationForUser(conversationId,
+        leaveUserName: leaveUserName);
   }
 
   Future<void> dismissGroup({required String conversationId}) async {
@@ -346,7 +378,8 @@ class MessagesRepository {
     required String friendName,
   }) async {
     if (!_useApi) throw StateError('API 未配置');
-    final conv = await MessagesApi.instance.createOrGetDirectConversation(currentUserId, friendId);
+    final conv = await MessagesApi.instance
+        .createOrGetDirectConversation(currentUserId, friendId);
     if (conv != null) return conv;
     throw StateError('创建会话失败');
   }

@@ -122,6 +122,26 @@ enum ProductType {
   future,
 }
 
+enum TradingAccountType {
+  spot,
+  contract,
+}
+
+extension TradingAccountTypeX on TradingAccountType {
+  String get wireValue => this == TradingAccountType.contract ? 'contract' : 'spot';
+}
+
+TradingAccountType tradingAccountTypeFromWire(String? value) {
+  return (value ?? '').toLowerCase() == 'contract'
+      ? TradingAccountType.contract
+      : TradingAccountType.spot;
+}
+
+extension ProductTypeTradingAccountX on ProductType {
+  TradingAccountType get tradingAccountType =>
+      this == ProductType.spot ? TradingAccountType.spot : TradingAccountType.contract;
+}
+
 enum PositionSide {
   long,
   short,

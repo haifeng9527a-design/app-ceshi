@@ -56,17 +56,22 @@ class ChatWebSocketService {
   bool _disposed = false;
   bool _isConnecting = false;
   final Set<String> _marketSymbols = {};
-  final _marketQuoteController = StreamController<MarketQuoteUpdate>.broadcast();
+  final _marketQuoteController =
+      StreamController<MarketQuoteUpdate>.broadcast();
   final _callInvitationController =
       StreamController<Map<String, dynamic>>.broadcast();
+  final _newMessageSignalController = StreamController<String>.broadcast();
 
   bool get isConnected => _channel != null;
   Set<String> get subscribedConversationIds => Set<String>.from(_subscribedIds);
 
   /// 行情推送流（通过 chat WebSocket 复用，后端 ingestors 写入时推送）
-  Stream<MarketQuoteUpdate> get marketQuoteStream => _marketQuoteController.stream;
+  Stream<MarketQuoteUpdate> get marketQuoteStream =>
+      _marketQuoteController.stream;
   Stream<Map<String, dynamic>> get callInvitationStream =>
       _callInvitationController.stream;
+  Stream<String> get newMessageSignalStream =>
+      _newMessageSignalController.stream;
 
   String? get _wsBaseUrl {
     final url = dotenv.env['TONGXIN_API_URL']?.trim();
@@ -158,7 +163,10 @@ class ChatWebSocketService {
       );
       _reconnectAttempts = 0;
       _startHeartbeat(generation);
-      if (kDebugMode) debugPrint('[ChatWs] 连接成功 uid=${user.uid.length > 12 ? user.uid.substring(0, 12) : user.uid}');
+      if (kDebugMode) {
+        debugPrint(
+            '[ChatWs] 连接成功 uid=${user.uid.length > 12 ? user.uid.substring(0, 12) : user.uid}');
+      }
       // 重连后服务端订阅状态已丢失，这里强制重发一次。
       if (_subscribedIds.isNotEmpty) _sendSubscribe(force: true);
       if (_marketSymbols.isNotEmpty) _sendMarketSubscribe();
@@ -178,8 +186,11 @@ class ChatWebSocketService {
 
   void _startHeartbeat(int generation) {
     _heartbeatTimer?.cancel();
-    _heartbeatTimer = Timer.periodic(const Duration(milliseconds: _heartbeatIntervalMs), (_) {
-      if (_channel == null || _disposed || generation != _connectionGeneration) {
+    _heartbeatTimer =
+        Timer.periodic(const Duration(milliseconds: _heartbeatIntervalMs), (_) {
+      if (_channel == null ||
+          _disposed ||
+          generation != _connectionGeneration) {
         return;
       }
       try {
@@ -197,8 +208,11 @@ class ChatWebSocketService {
     if (_disposed || _reconnectTimer != null) return;
     if (generation != _connectionGeneration) return;
     _reconnectAttempts++;
-    final delayMs = (_reconnectAttempts * 2 * 1000).clamp(2000, _maxReconnectDelayMs);
-    if (kDebugMode) debugPrint('[ChatWs] ${delayMs}ms 后重连 (第 $_reconnectAttempts 次)');
+    final delayMs =
+        (_reconnectAttempts * 2 * 1000).clamp(2000, _maxReconnectDelayMs);
+    if (kDebugMode) {
+      debugPrint('[ChatWs] ${delayMs}ms 后重连 (第 $_reconnectAttempts 次)');
+    }
     late final Timer timer;
     timer = Timer(Duration(milliseconds: delayMs), () {
       if (!identical(_reconnectTimer, timer)) return;
@@ -223,14 +237,25 @@ class ChatWebSocketService {
           final convId = (m['conversation_id'] ?? '').toString();
           final sender = (m['sender_id'] ?? '').toString();
           final content = (m['content'] ?? '').toString();
-          final preview = content.length > 20 ? '${content.substring(0, 20)}...' : content;
-          if (kDebugMode) debugPrint('[ChatWs] 收到新消息 conv=${convId.length > 8 ? convId.substring(0, 8) : convId} sender=${sender.length > 12 ? sender.substring(0, 12) : sender} content=$preview');
+          final preview =
+              content.length > 20 ? '${content.substring(0, 20)}...' : content;
+          if (kDebugMode) {
+            debugPrint(
+                '[ChatWs] 收到新消息 conv=${convId.length > 8 ? convId.substring(0, 8) : convId} sender=${sender.length > 12 ? sender.substring(0, 12) : sender} content=$preview');
+          }
+          if (convId.isNotEmpty && !_newMessageSignalController.isClosed) {
+            _newMessageSignalController.add(convId);
+          }
           _handleNewMessage(m); // 不 await，避免阻塞
         }
       } else if (type == 'market_quote') {
         final sym = decoded['symbol']?.toString().trim().toUpperCase();
         final price = (decoded['price'] as num?)?.toDouble();
-        if (sym != null && sym.isNotEmpty && price != null && price > 0 && !_marketQuoteController.isClosed) {
+        if (sym != null &&
+            sym.isNotEmpty &&
+            price != null &&
+            price > 0 &&
+            !_marketQuoteController.isClosed) {
           if (kDebugMode && _marketSymbols.contains(sym)) {
             debugPrint('[ChatWs] 收到行情 $sym=$price');
           }
@@ -375,16 +400,21 @@ class ChatWebSocketService {
           'content': content,
           'message_type': messageType,
           if (replyToMessageId != null) 'reply_to_message_id': replyToMessageId,
-          if (replyToSenderName != null) 'reply_to_sender_name': replyToSenderName,
+          if (replyToSenderName != null)
+            'reply_to_sender_name': replyToSenderName,
           if (replyToContent != null) 'reply_to_content': replyToContent,
         };
         if (mediaUrl != null) map['media_url'] = mediaUrl;
         if (durationMs != null) map['duration_ms'] = durationMs;
         _channel!.sink.add(_encode(map));
         if (kDebugMode) {
-          final preview = content.length > 20 ? '${content.substring(0, 20)}...' : content;
-          final convPreview = conversationId.length > 8 ? conversationId.substring(0, 8) : conversationId;
-          debugPrint('[ChatWs] 已发送 conv=$convPreview type=$messageType content=$preview');
+          final preview =
+              content.length > 20 ? '${content.substring(0, 20)}...' : content;
+          final convPreview = conversationId.length > 8
+              ? conversationId.substring(0, 8)
+              : conversationId;
+          debugPrint(
+              '[ChatWs] 已发送 conv=$convPreview type=$messageType content=$preview');
         }
 
         // 发送成功立即写入本地数据库，不等待服务器返回
@@ -443,5 +473,6 @@ class ChatWebSocketService {
     disconnect();
     _callInvitationController.close();
     _marketQuoteController.close();
+    _newMessageSignalController.close();
   }
 }

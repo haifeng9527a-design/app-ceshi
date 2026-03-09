@@ -1250,6 +1250,7 @@ class MarketRepository {
   }
 
   /// K 线/分时聚合（自定义时间范围；symbol 经 SymbolResolver 转 Polygon 格式如 I:SPX）
+  /// 有后端代理时优先走后端（后端 Polygon 权限更全，可获取股票分钟级数据）
   Future<List<ChartCandle>> getAggregates(
     String symbol, {
     required int multiplier,
@@ -1257,6 +1258,22 @@ class MarketRepository {
     required int fromMs,
     required int toMs,
   }) async {
+    if (useBackend && _backend != null) {
+      final interval = _aggregatesToInterval(multiplier, timespan);
+      final list = await _backend!.getCandles(
+        symbol.trim(),
+        interval,
+        fromMs: fromMs,
+        toMs: toMs,
+        onError: (_) {},
+      );
+      if (list.isEmpty) return [];
+      final startSec = fromMs / 1000.0;
+      final endSec = toMs / 1000.0;
+      return list
+          .where((c) => c.time >= startSec && c.time <= endSec)
+          .toList();
+    }
     final resolved = SymbolResolver.forPolygon(symbol.trim());
     final bars = await _polygon.getAggregates(
         resolved.isEmpty ? symbol : resolved,
@@ -1266,6 +1283,19 @@ class MarketRepository {
         toMs: toMs);
     if (bars == null || bars.isEmpty) return [];
     return bars.map((b) => ChartCandle.fromBar(b)).toList();
+  }
+
+  static String _aggregatesToInterval(int multiplier, String timespan) {
+    if (timespan == 'minute') {
+      if (multiplier == 1) return '1min';
+      if (multiplier == 5) return '5min';
+      if (multiplier == 15) return '15min';
+      if (multiplier == 30) return '30min';
+      return '5min';
+    }
+    if (timespan == 'hour') return '1h';
+    if (timespan == 'day') return '1day';
+    return '1day';
   }
 
   /// 财务比率（市盈率等），仅后端代理时可用

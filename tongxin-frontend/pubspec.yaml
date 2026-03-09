@@ -66,4 +66,5 @@ flutter:
   assets:
     - .env
     - assets/
+    - assets/trading/coin_orbit.png
     - assets/us_tickers_fallback.json

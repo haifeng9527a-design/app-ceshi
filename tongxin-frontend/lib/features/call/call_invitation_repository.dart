@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
@@ -91,7 +92,8 @@ class CallInvitationRepository {
   /// 若未配置或请求失败，返回 null，客户端将使用空字符串（仅当控制台未开启 Token 鉴权时有效）。
   Future<String?> fetchAgoraToken(String channelId, {int? uid}) async {
     if (SupabaseBootstrap.isReady) {
-      final authToken = await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      final authToken =
+          await FirebaseAuth.instance.currentUser?.getIdToken(true);
       if (authToken != null && authToken.isNotEmpty) {
         try {
           final client = SupabaseBootstrap.clientOrNull;
@@ -106,7 +108,8 @@ class CallInvitationRepository {
               final token = data?['token']?.toString();
               if (token != null && token.isNotEmpty) return token;
             } else {
-              print('[TH_CALL] get_agora_token 返回异常 status=${res.status} data=${res.data}');
+              print(
+                  '[TH_CALL] get_agora_token 返回异常 status=${res.status} data=${res.data}');
             }
           }
         } catch (e) {
@@ -135,7 +138,8 @@ class CallInvitationRepository {
   }) async {
     if (peerUserId.isEmpty) return [];
     if (!_useApi) return [];
-    final list = await MiscApi.instance.getCallRecords(peerUserId, limit: limit);
+    final list =
+        await MiscApi.instance.getCallRecords(peerUserId, limit: limit);
     return list.map((m) {
       final row = Map<String, dynamic>.from(m);
       final createdAt = row['created_at']?.toString();
@@ -162,7 +166,8 @@ class CallInvitationRepository {
   }
 
   /// 被叫：轮询「发给我且 status=ringing、2 分钟内」的最新一条邀请（Realtime 不推送时的兜底）
-  Future<Map<String, dynamic>?> fetchLatestRingingInvitation(String myUserId) async {
+  Future<Map<String, dynamic>?> fetchLatestRingingInvitation(
+      String myUserId) async {
     if (!_useApi) return null;
     return MiscApi.instance.getLatestRingingInvitation();
   }
@@ -170,23 +175,41 @@ class CallInvitationRepository {
   /// 监听单条邀请状态变化（主叫监听被叫拒绝；被叫弹窗监听主叫取消）
   Stream<String?> watchInvitationStatus(String invitationId) {
     if (!_useApi) return Stream.value(null);
-    return Stream.periodic(const Duration(seconds: 2), (_) => null)
-        .asyncMap((_) => getStatus(invitationId));
+    return (() async* {
+      var nextDelaySeconds = 5;
+      while (true) {
+        final status = await getStatus(invitationId);
+        yield status;
+        if (status == null) {
+          nextDelaySeconds = math.min(30, nextDelaySeconds * 2);
+        } else {
+          nextDelaySeconds = 5;
+        }
+        await Future<void>.delayed(Duration(seconds: nextDelaySeconds));
+      }
+    })();
   }
 
   /// 被叫：postgres_changes 订阅 INSERT + 轮询兜底（Realtime 不推送时仍能收到来电）
   Stream<Map<String, dynamic>> watchIncomingInvitations(String myUserId) {
     if (!_useApi) return const Stream.empty();
     final emittedIds = <String>{};
-    return Stream.periodic(const Duration(seconds: 2), (_) => null)
-        .asyncMap((_) => fetchLatestRingingInvitation(myUserId))
-        .where((m) => m != null && m.isNotEmpty)
-        .map((m) => m!)
-        .where((inv) {
+    return (() async* {
+      var nextDelaySeconds = 5;
+      while (true) {
+        final inv = await fetchLatestRingingInvitation(myUserId);
+        if (inv != null && inv.isNotEmpty) {
           final id = inv['id']?.toString();
-          if (id == null || id.isEmpty || emittedIds.contains(id)) return false;
-          emittedIds.add(id);
-          return true;
-        });
+          if (id != null && id.isNotEmpty && !emittedIds.contains(id)) {
+            emittedIds.add(id);
+            yield inv;
+          }
+          nextDelaySeconds = 5;
+        } else {
+          nextDelaySeconds = math.min(30, nextDelaySeconds * 2);
+        }
+        await Future<void>.delayed(Duration(seconds: nextDelaySeconds));
+      }
+    })();
   }
 }

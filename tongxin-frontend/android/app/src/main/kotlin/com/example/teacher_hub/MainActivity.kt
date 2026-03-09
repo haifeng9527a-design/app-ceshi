@@ -1,16 +1,21 @@
 package com.example.teacher_hub
 
+import android.app.KeyguardManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
 import android.app.NotificationManager
+import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import com.example.teacher_hub.call.IncomingCallService
+import org.json.JSONObject
 
 /**
  * 主 Activity：支持锁屏显示来电，并捕获个推通知点击冷启动时的 payload。
@@ -33,7 +38,38 @@ class MainActivity : FlutterActivity() {
     private fun handleCallActionIntent(intent: Intent?) {
         if (intent == null) return
         val action = intent.getStringExtra("action") ?: return
+        prepareIncomingCallWindow()
         when (action) {
+            "show_incoming_call" -> {
+                val invitationId = intent.getStringExtra("invitation_id") ?: ""
+                val channelId = intent.getStringExtra("channel_id") ?: ""
+                val callType = intent.getStringExtra("call_type") ?: "voice"
+                val callerName = intent.getStringExtra("caller_name") ?: "对方"
+                val avatarUrl = intent.getStringExtra("avatar_url")
+                if (invitationId.isNotEmpty() && channelId.isNotEmpty()) {
+                    val data = mutableMapOf(
+                        "invitationId" to invitationId,
+                        "channelId" to channelId,
+                        "callType" to callType,
+                        "fromUserName" to callerName,
+                    )
+                    if (!avatarUrl.isNullOrBlank()) {
+                        data["fromAvatarUrl"] = avatarUrl
+                    }
+                    PendingIncomingCallHolder.data = data
+                    LaunchPayloadHolder.payload = JSONObject(
+                        mapOf(
+                            "messageType" to "call_invitation",
+                            "invitationId" to invitationId,
+                            "channelId" to channelId,
+                            "callType" to callType,
+                            "fromUserName" to callerName,
+                            "fromAvatarUrl" to avatarUrl,
+                        )
+                    ).toString()
+                    Log.d(TAG, "Queued pending incoming call invitationId=$invitationId")
+                }
+            }
             "answer_call" -> {
                 stopService(Intent(this, IncomingCallService::class.java))
                 val invitationId = intent.getStringExtra("invitation_id") ?: ""
@@ -56,6 +92,46 @@ class MainActivity : FlutterActivity() {
                     PendingCallDeclineHolder.invitationId = invitationId
                 }
             }
+        }
+    }
+
+    private fun prepareIncomingCallWindow() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+        } else {
+            @Suppress("DEPRECATION")
+            window.addFlags(
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+                    WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
+                    WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
+            )
+        }
+        val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && keyguardManager != null) {
+            try {
+                keyguardManager.requestDismissKeyguard(this, null)
+            } catch (e: Exception) {
+                Log.w(TAG, "requestDismissKeyguard failed", e)
+            }
+        }
+        wakeScreenIfNeeded()
+    }
+
+    private fun wakeScreenIfNeeded() {
+        try {
+            val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return
+            @Suppress("DEPRECATION")
+            val wakeLock = pm.newWakeLock(
+                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
+                    PowerManager.ACQUIRE_CAUSES_WAKEUP or
+                    PowerManager.ON_AFTER_RELEASE,
+                "$TAG:incoming_call"
+            )
+            wakeLock.acquire(3000L)
+        } catch (e: Exception) {
+            Log.w(TAG, "wakeScreenIfNeeded failed", e)
         }
     }
 
@@ -139,6 +215,11 @@ class MainActivity : FlutterActivity() {
                     PendingCallDeclineHolder.invitationId = null
                     result.success(id)
                 }
+                "getPendingIncomingCall" -> {
+                    val data = PendingIncomingCallHolder.data
+                    PendingIncomingCallHolder.data = null
+                    result.success(data)
+                }
                 "dismissIncomingCall" -> {
                     stopService(Intent(this, IncomingCallService::class.java))
                     result.success(true)
@@ -214,4 +295,9 @@ object PendingCallAnswerHolder {
 object PendingCallDeclineHolder {
     @Volatile
     var invitationId: String? = null
+}
+
+object PendingIncomingCallHolder {
+    @Volatile
+    var data: Map<String, String>? = null
 }

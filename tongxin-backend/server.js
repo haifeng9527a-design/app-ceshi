@@ -32,6 +32,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const polygonKey = process.env.POLYGON_API_KEY?.trim() || null;
 const twelveKey = process.env.TWELVE_DATA_API_KEY?.trim() || null;
+const enableBackgroundJobs = String(process.env.ENABLE_BACKGROUND_JOBS || 'false').trim().toLowerCase() === 'true';
 
 app.use(cors());
 // 举报截图走 base64 上传，默认 100kb 会触发 PayloadTooLargeError
@@ -97,17 +98,21 @@ registerWatchlistRoutes(app, requireAuth);
 registerTradingRoutes(app, requireAuth);
 registerAdminAuthRoutes(app);
 registerAdminConfigRoutes(app);
-startTradingMatchScheduler();
-if (polygonKey) {
-  startRefreshScheduler(polygonKey);
-  startRotationScheduler(polygonKey);
-  startStockRealtimeIngestor(polygonKey);
-}
-if (twelveKey) {
-  startForexScheduler(twelveKey);
-  startForexRealtimeIngestor(twelveKey);
-  startCryptoScheduler(twelveKey);
-  startCryptoRealtimeIngestor(twelveKey);
+if (enableBackgroundJobs) {
+  startTradingMatchScheduler();
+  if (polygonKey) {
+    startRefreshScheduler(polygonKey);
+    startRotationScheduler(polygonKey);
+    startStockRealtimeIngestor(polygonKey);
+  }
+  if (twelveKey) {
+    startForexScheduler(twelveKey);
+    startForexRealtimeIngestor(twelveKey);
+    startCryptoScheduler(twelveKey);
+    startCryptoRealtimeIngestor(twelveKey);
+  }
+} else {
+  console.log('[backend] background jobs disabled (ENABLE_BACKGROUND_JOBS=false)');
 }
 
 const httpServer = app.listen(PORT, '0.0.0.0', () => {

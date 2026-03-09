@@ -9,12 +9,31 @@ class TradingApiClient {
   static final TradingApiClient instance = TradingApiClient._();
 
   final ApiClient _api = ApiClient.instance;
+  static const Duration _readTimeout = Duration(seconds: 45);
 
-  Future<List<Order>> getOpenOrders({int page = 1, int pageSize = 100}) async {
+  Map<String, String> _queryWithAccountType(
+    Map<String, String> base,
+    TradingAccountType? accountType,
+  ) {
+    final next = <String, String>{...base};
+    if (accountType != null) {
+      next['account_type'] = accountType.wireValue;
+    }
+    return next;
+  }
+
+  Future<List<Order>> getOpenOrders({
+    int page = 1,
+    int pageSize = 100,
+    TradingAccountType? accountType,
+  }) async {
     final resp = await _api.get(
       'api/trading/orders/open',
-      queryParameters: {'page': '$page', 'page_size': '$pageSize'},
-      timeout: const Duration(seconds: 15),
+      queryParameters: _queryWithAccountType(
+        {'page': '$page', 'page_size': '$pageSize'},
+        accountType,
+      ),
+      timeout: _readTimeout,
     );
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
       throw Exception(_extractError(resp.body, fallback: '加载当日委托失败'));
@@ -24,11 +43,18 @@ class TradingApiClient {
     return body.whereType<Map<String, dynamic>>().map(_toOrder).toList();
   }
 
-  Future<List<Order>> getHistoryOrders({int page = 1, int pageSize = 200}) async {
+  Future<List<Order>> getHistoryOrders({
+    int page = 1,
+    int pageSize = 200,
+    TradingAccountType? accountType,
+  }) async {
     final resp = await _api.get(
       'api/trading/orders/history',
-      queryParameters: {'page': '$page', 'page_size': '$pageSize'},
-      timeout: const Duration(seconds: 15),
+      queryParameters: _queryWithAccountType(
+        {'page': '$page', 'page_size': '$pageSize'},
+        accountType,
+      ),
+      timeout: _readTimeout,
     );
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
       throw Exception(_extractError(resp.body, fallback: '加载历史委托失败'));
@@ -41,7 +67,7 @@ class TradingApiClient {
   Future<void> cancelOrder(String orderId) async {
     final resp = await _api.post(
       'api/trading/orders/$orderId/cancel',
-      timeout: const Duration(seconds: 15),
+      timeout: const Duration(seconds: 20),
     );
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
       throw Exception(_extractError(resp.body, fallback: '撤单失败'));
@@ -87,7 +113,7 @@ class TradingApiClient {
     final resp = await _api.post(
       'api/trading/orders',
       body: payload,
-      timeout: const Duration(seconds: 20),
+      timeout: const Duration(seconds: 30),
     );
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
       throw Exception(_extractError(resp.body, fallback: '下单失败'));
@@ -99,11 +125,18 @@ class TradingApiClient {
     return _toOrder(body);
   }
 
-  Future<List<OrderFill>> getFills({int page = 1, int pageSize = 100}) async {
+  Future<List<OrderFill>> getFills({
+    int page = 1,
+    int pageSize = 100,
+    TradingAccountType? accountType,
+  }) async {
     final resp = await _api.get(
       'api/trading/fills',
-      queryParameters: {'page': '$page', 'page_size': '$pageSize'},
-      timeout: const Duration(seconds: 15),
+      queryParameters: _queryWithAccountType(
+        {'page': '$page', 'page_size': '$pageSize'},
+        accountType,
+      ),
+      timeout: _readTimeout,
     );
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
       throw Exception(_extractError(resp.body, fallback: '加载成交记录失败'));
@@ -113,24 +146,37 @@ class TradingApiClient {
     return body.whereType<Map<String, dynamic>>().map(_toFill).toList();
   }
 
-  Future<List<TeacherPosition>> getPositions({int page = 1, int pageSize = 50}) async {
+  Future<List<TeacherPosition>> getPositions({
+    int page = 1,
+    int pageSize = 50,
+    TradingAccountType? accountType,
+  }) async {
     final resp = await _api.get(
       'api/trading/positions',
-      queryParameters: {'page': '$page', 'page_size': '$pageSize'},
-      timeout: const Duration(seconds: 15),
+      queryParameters: _queryWithAccountType(
+        {'page': '$page', 'page_size': '$pageSize'},
+        accountType,
+      ),
+      timeout: _readTimeout,
     );
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
       throw Exception(_extractError(resp.body, fallback: '加载持仓失败'));
     }
     final body = jsonDecode(resp.body);
     if (body is! List) return const [];
-    return body.whereType<Map<String, dynamic>>().map(TeacherPosition.fromMap).toList();
+    return body
+        .whereType<Map<String, dynamic>>()
+        .map(TeacherPosition.fromMap)
+        .toList();
   }
 
-  Future<TradingAccountSummary> getSummary() async {
+  Future<TradingAccountSummary> getSummary({
+    TradingAccountType? accountType,
+  }) async {
     final resp = await _api.get(
       'api/trading/summary',
-      timeout: const Duration(seconds: 15),
+      queryParameters: _queryWithAccountType(const {}, accountType),
+      timeout: _readTimeout,
     );
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
       throw Exception(_extractError(resp.body, fallback: '加载账户摘要失败'));
@@ -145,7 +191,7 @@ class TradingApiClient {
   Future<TradingRuntimeConfig> getRuntimeConfig() async {
     final resp = await _api.get(
       'api/trading/runtime-config',
-      timeout: const Duration(seconds: 15),
+      timeout: _readTimeout,
     );
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
       throw Exception(_extractError(resp.body, fallback: '加载交易配置失败'));
@@ -157,10 +203,13 @@ class TradingApiClient {
     return TradingRuntimeConfig.fromJson(body);
   }
 
-  Future<TradingAccount> getAccount() async {
+  Future<TradingAccount> getAccount({
+    TradingAccountType? accountType,
+  }) async {
     final resp = await _api.get(
       'api/trading/account',
-      timeout: const Duration(seconds: 15),
+      queryParameters: _queryWithAccountType(const {}, accountType),
+      timeout: _readTimeout,
     );
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
       throw Exception(_extractError(resp.body, fallback: '加载交易账户失败'));
@@ -172,18 +221,47 @@ class TradingApiClient {
     return TradingAccount.fromJson(body);
   }
 
-  Future<List<TradingLedgerEntry>> getLedger({int page = 1, int pageSize = 200}) async {
+  Future<List<TradingLedgerEntry>> getLedger({
+    int page = 1,
+    int pageSize = 200,
+    TradingAccountType? accountType,
+  }) async {
     final resp = await _api.get(
       'api/trading/ledger',
-      queryParameters: {'page': '$page', 'page_size': '$pageSize'},
-      timeout: const Duration(seconds: 15),
+      queryParameters: _queryWithAccountType(
+        {'page': '$page', 'page_size': '$pageSize'},
+        accountType,
+      ),
+      timeout: _readTimeout,
     );
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
       throw Exception(_extractError(resp.body, fallback: '加载账户流水失败'));
     }
     final body = jsonDecode(resp.body);
     if (body is! List) return const [];
-    return body.whereType<Map<String, dynamic>>().map(TradingLedgerEntry.fromJson).toList();
+    return body
+        .whereType<Map<String, dynamic>>()
+        .map(TradingLedgerEntry.fromJson)
+        .toList();
+  }
+
+  Future<void> transferFunds({
+    required TradingAccountType fromAccountType,
+    required TradingAccountType toAccountType,
+    required double amount,
+  }) async {
+    final resp = await _api.post(
+      'api/trading/accounts/transfer',
+      body: {
+        'from_account_type': fromAccountType.wireValue,
+        'to_account_type': toAccountType.wireValue,
+        'amount': amount,
+      },
+      timeout: const Duration(seconds: 30),
+    );
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw Exception(_extractError(resp.body, fallback: '资金划转失败'));
+    }
   }
 
   static String _extractError(String body, {required String fallback}) {
@@ -214,13 +292,11 @@ class TradingApiClient {
           : productTypeRaw == 'perpetual'
               ? ProductType.perpetual
               : ProductType.spot,
-      positionSide: positionSideRaw == 'short'
-          ? PositionSide.short
-          : PositionSide.long,
+      positionSide:
+          positionSideRaw == 'short' ? PositionSide.short : PositionSide.long,
       positionAction: m['position_action']?.toString(),
-      marginMode: marginModeRaw == 'isolated'
-          ? MarginMode.isolated
-          : MarginMode.cross,
+      marginMode:
+          marginModeRaw == 'isolated' ? MarginMode.isolated : MarginMode.cross,
       leverage: (m['leverage'] as num?)?.toDouble() ?? 1,
       side: sideRaw == 'sell' ? OrderSide.sell : OrderSide.buy,
       type: typeRaw == 'market' ? OrderType.market : OrderType.limit,
@@ -228,7 +304,8 @@ class TradingApiClient {
       quantity: (m['quantity'] as num?)?.toDouble() ?? 0,
       filledQuantity: (m['filled_quantity'] as num?)?.toDouble() ?? 0,
       status: _toOrderStatus(statusRaw),
-      createdAt: DateTime.tryParse((m['created_at'] ?? '').toString()) ?? DateTime.now(),
+      createdAt: DateTime.tryParse((m['created_at'] ?? '').toString()) ??
+          DateTime.now(),
       updatedAt: DateTime.tryParse((m['updated_at'] ?? '').toString()),
     );
   }
@@ -250,19 +327,19 @@ class TradingApiClient {
           : productTypeRaw == 'perpetual'
               ? ProductType.perpetual
               : ProductType.spot,
-      positionSide: positionSideRaw == 'short'
-          ? PositionSide.short
-          : PositionSide.long,
-      marginMode: marginModeRaw == 'isolated'
-          ? MarginMode.isolated
-          : MarginMode.cross,
+      positionSide:
+          positionSideRaw == 'short' ? PositionSide.short : PositionSide.long,
+      marginMode:
+          marginModeRaw == 'isolated' ? MarginMode.isolated : MarginMode.cross,
       leverage: (m['leverage'] as num?)?.toDouble() ?? 1,
       side: sideRaw == 'sell' ? OrderSide.sell : OrderSide.buy,
       price: (m['fill_price'] as num?)?.toDouble() ?? 0,
       quantity: (m['fill_quantity'] as num?)?.toDouble() ?? 0,
       notional: (m['fill_notional'] as num?)?.toDouble() ?? 0,
-      realizedPnl: realizedPnlRaw != null ? (realizedPnlRaw as num).toDouble() : null,
-      filledAt: DateTime.tryParse((m['fill_time'] ?? '').toString()) ?? DateTime.now(),
+      realizedPnl:
+          realizedPnlRaw != null ? (realizedPnlRaw as num).toDouble() : null,
+      filledAt: DateTime.tryParse((m['fill_time'] ?? '').toString()) ??
+          DateTime.now(),
     );
   }
 
@@ -326,7 +403,8 @@ class TradingAccountSummary {
       marketValue: (account['market_value'] as num?)?.toDouble() ?? 0,
       equity: (account['equity'] as num?)?.toDouble() ?? 0,
       usedMargin: (account['used_margin'] as num?)?.toDouble() ?? 0,
-      maintenanceMargin: (account['maintenance_margin'] as num?)?.toDouble() ?? 0,
+      maintenanceMargin:
+          (account['maintenance_margin'] as num?)?.toDouble() ?? 0,
       marginBalance: (account['margin_balance'] as num?)?.toDouble() ?? 0,
       accountType: (account['account_type'] ?? 'spot').toString(),
       marginMode: (account['margin_mode'] ?? 'cross').toString(),
@@ -357,18 +435,20 @@ class TradingRuntimeConfig {
   final double maintenanceMarginRate;
 
   factory TradingRuntimeConfig.fromJson(Map<String, dynamic> m) {
-    final product = (m['default_product_type'] ?? 'spot').toString().toLowerCase();
-    final margin = (m['default_margin_mode'] ?? 'cross').toString().toLowerCase();
+    final product =
+        (m['default_product_type'] ?? 'spot').toString().toLowerCase();
+    final margin =
+        (m['default_margin_mode'] ?? 'cross').toString().toLowerCase();
     return TradingRuntimeConfig(
-      defaultInitialCashUsd: (m['default_initial_cash_usd'] as num?)?.toDouble() ?? 1000000,
+      defaultInitialCashUsd:
+          (m['default_initial_cash_usd'] as num?)?.toDouble() ?? 1000000,
       defaultProductType: product == 'future'
           ? ProductType.future
           : product == 'perpetual'
               ? ProductType.perpetual
               : ProductType.spot,
-      defaultMarginMode: margin == 'isolated'
-          ? MarginMode.isolated
-          : MarginMode.cross,
+      defaultMarginMode:
+          margin == 'isolated' ? MarginMode.isolated : MarginMode.cross,
       defaultLeverage: (m['default_leverage'] as num?)?.toDouble() ?? 5,
       maxLeverage: (m['max_leverage'] as num?)?.toDouble() ?? 50,
       allowShort: m['allow_short'] == true ||
@@ -412,8 +492,10 @@ class TradingAccount {
   final double cashAvailable;
   final double cashFrozen;
   final double marketValue;
+
   /// 现货持仓市值（不含合约名义价值）
   final double spotMarketValue;
+
   /// 合约持仓名义价值
   final double contractNotional;
   final double realizedPnl;
@@ -499,7 +581,8 @@ class TradingLedgerEntry {
       entryType: (m['entry_type'] ?? '').toString(),
       amount: (m['amount'] as num?)?.toDouble() ?? 0,
       balanceAfter: (m['balance_after'] as num?)?.toDouble() ?? 0,
-      createdAt: DateTime.tryParse((m['created_at'] ?? '').toString()) ?? DateTime.now(),
+      createdAt: DateTime.tryParse((m['created_at'] ?? '').toString()) ??
+          DateTime.now(),
       orderId: m['order_id']?.toString(),
       symbol: m['symbol']?.toString(),
       assetClass: m['asset_class']?.toString(),
@@ -509,9 +592,8 @@ class TradingLedgerEntry {
               ? ProductType.perpetual
               : ProductType.spot,
       side: m['side']?.toString(),
-      positionSide: positionSideRaw == 'short'
-          ? PositionSide.short
-          : PositionSide.long,
+      positionSide:
+          positionSideRaw == 'short' ? PositionSide.short : PositionSide.long,
       note: m['note']?.toString(),
     );
   }

@@ -10,6 +10,7 @@ import '../trading/account_ledger_tab.dart';
 import '../trading/market_trade_tab.dart';
 import '../trading/order_history_tab.dart';
 import '../trading/orders_tab.dart';
+import '../trading/trading_models.dart';
 import '../trading/trading_ui.dart';
 import 'teacher_models.dart';
 import 'teacher_public_page.dart';
@@ -27,6 +28,7 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
   final _repository = TeacherRepository();
   TabController? _tabController;
   int _activeTradingTabIndex = 0;
+  TradingAccountType _selectedTradingAccountType = TradingAccountType.spot;
   final Set<int> _loadedTradingTabs = <int>{0};
   final _realNameController = TextEditingController();
   final _titleController = TextEditingController();
@@ -124,6 +126,7 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
     if (approved) {
       _tabController = TabController(length: 6, vsync: this);
       _activeTradingTabIndex = 0;
+      _selectedTradingAccountType = TradingAccountType.spot;
       _loadedTradingTabs
         ..clear()
         ..add(0);
@@ -150,6 +153,54 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
     });
   }
 
+  Widget _buildTradingAccountSwitcher() {
+    Widget chip(TradingAccountType type, String label) {
+      final selected = _selectedTradingAccountType == type;
+      return ChoiceChip(
+        label: Text(label),
+        selected: selected,
+        onSelected: (_) {
+          if (_selectedTradingAccountType == type) return;
+          setState(() => _selectedTradingAccountType = type);
+        },
+        labelStyle: TextStyle(
+          color: selected ? TradingUi.pageBg : Colors.white,
+          fontWeight: FontWeight.w700,
+          fontSize: 12,
+        ),
+        selectedColor: TradingUi.accent,
+        backgroundColor: TradingUi.surface,
+        side: BorderSide(
+          color: selected ? TradingUi.accent : TradingUi.border,
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+        showCheckmark: false,
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      child: Row(
+        children: [
+          const Icon(Icons.account_balance_wallet_outlined, color: TradingUi.accent, size: 18),
+          const SizedBox(width: 8),
+          const Text(
+            '交易账户',
+            style: TextStyle(
+              color: TradingUi.accent,
+              fontWeight: FontWeight.w700,
+              fontSize: 14,
+            ),
+          ),
+          const SizedBox(width: 12),
+          chip(TradingAccountType.spot, '现货账户'),
+          const SizedBox(width: 8),
+          chip(TradingAccountType.contract, '合约账户'),
+        ],
+      ),
+    );
+  }
+
   Widget _buildTradingTabChild(int index, String userId) {
     if (!_loadedTradingTabs.contains(index)) {
       return const SizedBox.shrink();
@@ -165,21 +216,25 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
       case 2:
         return OrdersTab(
           teacherId: userId,
+          accountType: _selectedTradingAccountType,
           isActive: _activeTradingTabIndex == 2,
         );
       case 3:
         return OrderHistoryTab(
           teacherId: userId,
+          accountType: _selectedTradingAccountType,
           isActive: _activeTradingTabIndex == 3,
         );
       case 4:
         return FillsAndPositionsTab(
           teacherId: userId,
+          accountType: _selectedTradingAccountType,
           isActive: _activeTradingTabIndex == 4,
         );
       case 5:
         return AccountLedgerTab(
           teacherId: userId,
+          accountType: _selectedTradingAccountType,
           isActive: _activeTradingTabIndex == 5,
         );
       default:
@@ -615,10 +670,17 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
               decoration: const BoxDecoration(
                 color: TradingUi.pageBg,
               ),
-              child: TabBarView(
-                controller: _tabController!,
+              child: Column(
                 children: [
-                  for (var i = 0; i < 6; i++) _buildTradingTabChild(i, user.uid),
+                  if (_activeTradingTabIndex >= 2) _buildTradingAccountSwitcher(),
+                  Expanded(
+                    child: TabBarView(
+                      controller: _tabController!,
+                      children: [
+                        for (var i = 0; i < 6; i++) _buildTradingTabChild(i, user.uid),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             )

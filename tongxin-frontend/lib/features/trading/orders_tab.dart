@@ -11,9 +11,15 @@ import 'trading_ui.dart';
 /// 当日委托 Tab：委托列表（标的、方向、委托价/量、已成交、状态、时间、撤单）
 /// 数据先 mock，接口就绪后替换为 API
 class OrdersTab extends StatefulWidget {
-  const OrdersTab({super.key, required this.teacherId, this.isActive = false});
+  const OrdersTab({
+    super.key,
+    required this.teacherId,
+    required this.accountType,
+    this.isActive = false,
+  });
 
   final String teacherId;
+  final TradingAccountType accountType;
   final bool isActive;
 
   @override
@@ -48,6 +54,10 @@ class _OrdersTabState extends State<OrdersTab> {
   @override
   void didUpdateWidget(covariant OrdersTab oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.accountType != widget.accountType) {
+      _loadOrders(showLoading: true);
+      _loadSummary();
+    }
     if (oldWidget.isActive != widget.isActive) {
       _syncPolling();
     }
@@ -72,7 +82,7 @@ class _OrdersTabState extends State<OrdersTab> {
 
   Future<void> _loadSummary() async {
     try {
-      final s = await _api.getSummary();
+      final s = await _api.getSummary(accountType: widget.accountType);
       if (!mounted) return;
       setState(() => _summary = s);
     } catch (_) {}
@@ -94,7 +104,11 @@ class _OrdersTabState extends State<OrdersTab> {
       });
     }
     try {
-      final list = await _api.getOpenOrders(page: 1, pageSize: _pageSize);
+      final list = await _api.getOpenOrders(
+        page: 1,
+        pageSize: _pageSize,
+        accountType: widget.accountType,
+      );
       if (!mounted) return;
       setState(() {
         _orders = list;
@@ -118,7 +132,11 @@ class _OrdersTabState extends State<OrdersTab> {
     setState(() => _loadingMore = true);
     try {
       final nextPage = _page + 1;
-      final list = await _api.getOpenOrders(page: nextPage, pageSize: _pageSize);
+      final list = await _api.getOpenOrders(
+        page: nextPage,
+        pageSize: _pageSize,
+        accountType: widget.accountType,
+      );
       if (!mounted) return;
       setState(() {
         if (list.isNotEmpty) {

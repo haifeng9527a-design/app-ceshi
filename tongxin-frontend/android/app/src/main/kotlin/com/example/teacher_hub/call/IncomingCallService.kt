@@ -23,6 +23,22 @@ class IncomingCallService : Service() {
         val invitationId = intent?.getStringExtra(EXTRA_INVITATION_ID) ?: ""
         val channelId = intent?.getStringExtra(EXTRA_CHANNEL_ID) ?: ""
         val callType = intent?.getStringExtra(EXTRA_CALL_TYPE) ?: "voice"
+        val avatarUrl = intent?.getStringExtra(EXTRA_AVATAR_URL)
+        val baseRequestCode = stableRequestCode(invitationId)
+
+        val showUiIntent = Intent(this, MainActivity::class.java).apply {
+            putExtra("action", "show_incoming_call")
+            putExtra(EXTRA_INVITATION_ID, invitationId)
+            putExtra(EXTRA_CHANNEL_ID, channelId)
+            putExtra(EXTRA_CALL_TYPE, callType)
+            putExtra(EXTRA_CALLER_NAME, callerName)
+            putExtra(EXTRA_AVATAR_URL, avatarUrl)
+            addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP
+            )
+        }
 
         val answerIntent = Intent(this, MainActivity::class.java).apply {
             putExtra("action", "answer_call")
@@ -30,22 +46,37 @@ class IncomingCallService : Service() {
             putExtra(EXTRA_CHANNEL_ID, channelId)
             putExtra(EXTRA_CALL_TYPE, callType)
             putExtra(EXTRA_CALLER_NAME, callerName)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP
+            )
         }
 
         val declineIntent = Intent(this, MainActivity::class.java).apply {
             putExtra("action", "decline_call")
             putExtra(EXTRA_INVITATION_ID, invitationId)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP
+            )
         }
 
+        val showUiPendingIntent = PendingIntent.getActivity(
+            this,
+            baseRequestCode,
+            showUiIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
         val answerPendingIntent = PendingIntent.getActivity(
-            this, 0, answerIntent,
+            this, baseRequestCode + 1, answerIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
         val declinePendingIntent = PendingIntent.getActivity(
-            this, 1, declineIntent,
+            this, baseRequestCode + 2, declineIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
@@ -58,6 +89,7 @@ class IncomingCallService : Service() {
             ).apply {
                 description = "语音/视频来电提醒"
                 setSound(null, null)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
             (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
                 .createNotificationChannel(channel)
@@ -72,7 +104,10 @@ class IncomingCallService : Service() {
                 .setContentTitle("来电")
                 .setContentText(callerName)
                 .setCategory(Notification.CATEGORY_CALL)
+                .setVisibility(Notification.VISIBILITY_PUBLIC)
                 .setOngoing(true)
+                .setContentIntent(showUiPendingIntent)
+                .setFullScreenIntent(showUiPendingIntent, true)
                 .setStyle(
                     Notification.CallStyle.forIncomingCall(
                         person,
@@ -87,7 +122,10 @@ class IncomingCallService : Service() {
                 .setContentTitle("来电")
                 .setContentText(callerName)
                 .setCategory(NotificationCompat.CATEGORY_CALL)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .setOngoing(true)
+                .setContentIntent(showUiPendingIntent)
+                .setFullScreenIntent(showUiPendingIntent, true)
                 .addAction(0, "接听", answerPendingIntent)
                 .addAction(0, "拒绝", declinePendingIntent)
                 .setPriority(NotificationCompat.PRIORITY_MAX)
@@ -111,5 +149,11 @@ class IncomingCallService : Service() {
         const val EXTRA_INVITATION_ID = "invitation_id"
         const val EXTRA_CHANNEL_ID = "channel_id"
         const val EXTRA_CALL_TYPE = "call_type"
+        const val EXTRA_AVATAR_URL = "avatar_url"
+
+        private fun stableRequestCode(invitationId: String): Int {
+            val raw = invitationId.hashCode()
+            return if (raw == Int.MIN_VALUE) 10000 else kotlin.math.abs(raw)
+        }
     }
 }

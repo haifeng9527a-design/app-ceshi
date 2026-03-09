@@ -11,9 +11,13 @@ const APP_CONFIG_DEFAULT_LEVERAGE_KEY = 'trading_default_leverage';
 const APP_CONFIG_MAX_LEVERAGE_KEY = 'trading_max_leverage';
 const APP_CONFIG_ALLOW_SHORT_KEY = 'trading_allow_short';
 const APP_CONFIG_MAINTENANCE_MARGIN_RATE_KEY = 'trading_maintenance_margin_rate';
+const APP_CONFIG_FORCED_LIQ_RATIO_KEY = 'trading_forced_liquidation_ratio';
 const DEFAULT_MAINTENANCE_MARGIN_RATE = Number.isFinite(Number(process.env.TRADING_MAINTENANCE_MARGIN_RATE))
   ? Number(process.env.TRADING_MAINTENANCE_MARGIN_RATE)
   : 0.005;
+const DEFAULT_FORCED_LIQ_RATIO = Number.isFinite(Number(process.env.TRADING_FORCED_LIQ_RATIO))
+  ? Number(process.env.TRADING_FORCED_LIQ_RATIO)
+  : 0.95;
 
 function num(v, fallback = 0) {
   const n = Number(v);
@@ -69,8 +73,52 @@ function normalizeMarginMode(v) {
   return s === 'isolated' ? 'isolated' : 'cross';
 }
 
+function normalizeTradingAccountType(v) {
+  const s = String(v || '').trim().toLowerCase();
+  return s === 'contract' ? 'contract' : 'spot';
+}
+
+function currencyForAccountType(accountType) {
+  return normalizeTradingAccountType(accountType) === 'spot' ? 'USDT' : 'USD';
+}
+
 function isContractProduct(productType) {
   return productType === 'perpetual' || productType === 'future';
+}
+
+function accountTypeForProductType(productType) {
+  return isContractProduct(productType) ? 'contract' : 'spot';
+}
+
+function splitInitialCash(totalCash) {
+  const total = Math.max(0, num(totalCash, DEFAULT_INITIAL_CASH_USD));
+  const contract = total / 2;
+  const spot = total - contract;
+  return { spot, contract };
+}
+
+function buildTradingAccountSeed({ teacherId, accountType, initialCash, config }) {
+  const normalizedType = normalizeTradingAccountType(accountType);
+  const isContract = normalizedType === 'contract';
+  return {
+    teacher_id: teacherId,
+    currency: currencyForAccountType(normalizedType),
+    account_type: normalizedType,
+    margin_mode: isContract ? config.default_margin_mode : 'cross',
+    leverage: isContract ? config.default_leverage : 1,
+    initial_cash: initialCash,
+    cash_balance: initialCash,
+    cash_available: initialCash,
+    cash_frozen: 0,
+    market_value: 0,
+    used_margin: 0,
+    maintenance_margin: 0,
+    margin_balance: initialCash,
+    realized_pnl: 0,
+    unrealized_pnl: 0,
+    equity: initialCash,
+    updated_at: nowIso(),
+  };
 }
 
 function validatePositionIntent({ side, productType, positionSide, positionAction }) {
@@ -181,6 +229,7 @@ async function getTradingConfig(sb) {
     APP_CONFIG_MAX_LEVERAGE_KEY,
     APP_CONFIG_ALLOW_SHORT_KEY,
     APP_CONFIG_MAINTENANCE_MARGIN_RATE_KEY,
+    APP_CONFIG_FORCED_LIQ_RATIO_KEY,
   ];
   const { data, error } = await sb
     .from('app_config')
@@ -193,6 +242,10 @@ async function getTradingConfig(sb) {
   const maintenanceMarginRate = Math.min(
     0.5,
     Math.max(0.0001, num(map.get(APP_CONFIG_MAINTENANCE_MARGIN_RATE_KEY), DEFAULT_MAINTENANCE_MARGIN_RATE)),
+  );
+  const forcedLiqRatio = Math.min(
+    5,
+    Math.max(0.1, num(map.get(APP_CONFIG_FORCED_LIQ_RATIO_KEY), DEFAULT_FORCED_LIQ_RATIO)),
   );
   const defaultProductRaw = String(map.get(APP_CONFIG_DEFAULT_PRODUCT_TYPE_KEY) || 'spot')
     .trim()
@@ -210,54 +263,210 @@ async function getTradingConfig(sb) {
     max_leverage: maxLeverage,
     allow_short: parseBooleanConfig(map.get(APP_CONFIG_ALLOW_SHORT_KEY), true),
     maintenance_margin_rate: maintenanceMarginRate,
+    forced_liquidation_ratio: forcedLiqRatio,
   };
 }
 
-async function getTradingSummaryFromDb(sb, teacherId) {
-  const { data, error } = await sb.rpc('get_teacher_trading_summary', {
-    p_teacher_id: teacherId,
+function shouldLiquidateByRisk({
+  account,
+  position,
+  markPrice,
+  tradingConfig,
+}) {
+  const marginBalance = Math.max(0, num(account?.margin_balance, num(account?.equity)));
+  if (!(marginBalance > 0)) return true;
+  const maintenanceFromPosition = Math.max(0, num(position?.maintenance_margin));
+  let maintenanceMargin = maintenanceFromPosition;
+  if (!(maintenanceMargin > 0)) {
+    const qty = Math.max(0, num(position?.buy_shares));
+    const contractSize = Math.max(1, num(position?.contract_size, 1));
+    const multiplier = Math.max(1, num(position?.multiplier, 1));
+    const notional = calcNotional({
+      price: markPrice,
+      quantity: qty,
+      contractSize,
+      multiplier,
+    });
+    maintenanceMargin = calcMaintenanceMargin(notional, tradingConfig.maintenance_margin_rate);
+  }
+  if (!(maintenanceMargin > 0)) return false;
+  const riskRatio = maintenanceMargin / marginBalance;
+  return riskRatio >= Math.max(0.1, num(tradingConfig?.forced_liquidation_ratio, DEFAULT_FORCED_LIQ_RATIO));
+}
+
+async function getTradingAccounts(sb, teacherId) {
+  const { data, error } = await sb
+    .from('teacher_trading_accounts')
+    .select('*')
+    .eq('teacher_id', teacherId)
+    .order('account_type', { ascending: true });
+  if (error) throw new Error(error.message);
+  return data || [];
+}
+
+async function ensureTradingAccounts(sb, teacherId) {
+  const existed = await getTradingAccounts(sb, teacherId);
+  const config = await getTradingConfig(sb);
+  const byType = new Map(
+    existed.map((row) => [normalizeTradingAccountType(row.account_type), row]),
+  );
+  const inserts = [];
+  if (!byType.has('spot') && !byType.has('contract')) {
+    const split = splitInitialCash(config.default_initial_cash_usd);
+    inserts.push(buildTradingAccountSeed({
+      teacherId,
+      accountType: 'spot',
+      initialCash: split.spot,
+      config,
+    }));
+    inserts.push(buildTradingAccountSeed({
+      teacherId,
+      accountType: 'contract',
+      initialCash: split.contract,
+      config,
+    }));
+  } else {
+    if (!byType.has('spot')) {
+      inserts.push(buildTradingAccountSeed({
+        teacherId,
+        accountType: 'spot',
+        initialCash: 0,
+        config,
+      }));
+    }
+    if (!byType.has('contract')) {
+      inserts.push(buildTradingAccountSeed({
+        teacherId,
+        accountType: 'contract',
+        initialCash: 0,
+        config,
+      }));
+    }
+  }
+  if (inserts.length > 0) {
+    const { error: insertErr } = await sb
+      .from('teacher_trading_accounts')
+      .insert(inserts);
+    if (insertErr) throw new Error(insertErr.message);
+  }
+  const finalRows = await getTradingAccounts(sb, teacherId);
+  const normalizedRows = [];
+  for (const row of finalRows) {
+    const accountType = normalizeTradingAccountType(row.account_type);
+    const wantedCurrency = currencyForAccountType(accountType);
+    const currentCurrency = String(row.currency || '').trim().toUpperCase();
+    if (currentCurrency !== wantedCurrency) {
+      const { error: currencyErr } = await sb
+        .from('teacher_trading_accounts')
+        .update({
+          currency: wantedCurrency,
+          updated_at: nowIso(),
+        })
+        .eq('teacher_id', teacherId)
+        .eq('account_type', accountType);
+      if (currencyErr) throw new Error(currencyErr.message);
+      normalizedRows.push({
+        ...row,
+        currency: wantedCurrency,
+      });
+      continue;
+    }
+    normalizedRows.push(row);
+  }
+  return normalizedRows.sort((a, b) => {
+    const aType = normalizeTradingAccountType(a.account_type);
+    const bType = normalizeTradingAccountType(b.account_type);
+    return aType.localeCompare(bType);
   });
+}
+
+async function ensureTradingAccount(sb, teacherId, accountType = 'spot') {
+  const wanted = normalizeTradingAccountType(accountType);
+  const accounts = await ensureTradingAccounts(sb, teacherId);
+  const existed = accounts.find(
+    (row) => normalizeTradingAccountType(row.account_type) === wanted,
+  );
+  if (existed) return existed;
+
+  throw new Error(`missing trading account: ${wanted}`);
+}
+
+function resolveRowAccountType(row, fallbackProductType = null) {
+  const direct = String(row?.account_type || '').trim().toLowerCase();
+  if (direct === 'spot' || direct === 'contract') return direct;
+  if (row?.product_type || fallbackProductType) {
+    return accountTypeForProductType(
+      normalizeProductType(row?.product_type || fallbackProductType),
+    );
+  }
+  return 'spot';
+}
+
+function readRequestedAccountType(query) {
+  const raw = String(query?.account_type || '').trim().toLowerCase();
+  if (raw === 'spot' || raw === 'contract') return raw;
+  return null;
+}
+
+function resolveAccountForRow(accounts, row, fallbackProductType = null) {
+  const accountId = String(row?.account_id || '').trim();
+  if (accountId) {
+    const matched = accounts.find((item) => String(item.id || '') === accountId);
+    if (matched) return matched;
+  }
+  const accountType = resolveRowAccountType(row, fallbackProductType);
+  return accounts.find(
+    (item) => normalizeTradingAccountType(item.account_type) === accountType,
+  ) || null;
+}
+
+async function getTradingSummaryFromDb(sb, teacherId, accountType = null) {
+  const wanted = accountType ? normalizeTradingAccountType(accountType) : null;
+  let { data, error } = await sb.rpc('get_teacher_trading_summary', {
+    p_teacher_id: teacherId,
+    p_account_type: wanted,
+  });
+  if (error && /does not exist|function/i.test(String(error.message || ''))) {
+    ({ data, error } = await sb.rpc('get_teacher_trading_summary', {
+      p_teacher_id: teacherId,
+    }));
+  }
   if (error) throw new Error(error.message);
   if (!data || typeof data !== 'object') {
     throw new Error('trading summary rpc returned empty payload');
   }
-  return data;
-}
-
-async function ensureTradingAccount(sb, teacherId) {
-  const { data: existed, error: qErr } = await sb
+  if (!wanted) return data;
+  const payload = data;
+  const account = payload.account && typeof payload.account === 'object' ? payload.account : null;
+  const accountTypeInPayload = normalizeTradingAccountType(account?.account_type);
+  if (account && accountTypeInPayload === wanted) return payload;
+  const { data: rows, error: rowsErr } = await sb
     .from('teacher_trading_accounts')
     .select('*')
     .eq('teacher_id', teacherId)
-    .maybeSingle();
-  if (qErr) throw new Error(qErr.message);
-  if (existed) return existed;
-
-  const config = await getTradingConfig(sb);
-  const initialCash = config.default_initial_cash_usd;
-  const defaultProductType = config.default_product_type;
-  const row = {
-    teacher_id: teacherId,
-    currency: 'USD',
-    account_type: defaultProductType === 'spot' ? 'spot' : 'contract',
-    margin_mode: defaultProductType === 'spot' ? 'cross' : config.default_margin_mode,
-    leverage: defaultProductType === 'spot' ? 1 : config.default_leverage,
-    initial_cash: initialCash,
-    cash_balance: initialCash,
-    cash_available: initialCash,
-    cash_frozen: 0,
-    market_value: 0,
-    used_margin: 0,
-    maintenance_margin: 0,
-    margin_balance: initialCash,
-    realized_pnl: 0,
-    unrealized_pnl: 0,
-    equity: initialCash,
-    updated_at: nowIso(),
+    .eq('account_type', wanted)
+    .limit(1);
+  if (rowsErr) throw new Error(rowsErr.message);
+  const selected = (rows && rows[0]) || null;
+  const counts = await Promise.all([
+    sb.from('teacher_orders').select('*', { count: 'exact', head: true })
+      .eq('teacher_id', teacherId)
+      .eq('account_type', wanted)
+      .in('status', ['pending', 'partial']),
+    sb.from('teacher_positions').select('*', { count: 'exact', head: true })
+      .eq('teacher_id', teacherId)
+      .eq('account_type', wanted)
+      .eq('is_history', false),
+  ]);
+  if (counts[0].error) throw new Error(counts[0].error.message);
+  if (counts[1].error) throw new Error(counts[1].error.message);
+  return {
+    ...payload,
+    account: selected || account || {},
+    selected_account_type: wanted,
+    open_orders: counts[0].count || 0,
+    positions: counts[1].count || 0,
   };
-  const { data: inserted, error: iErr } = await sb.from('teacher_trading_accounts').insert(row).select('*').single();
-  if (iErr) throw new Error(iErr.message);
-  return inserted;
 }
 
 async function getLatestPriceBySymbol(symbol, assetClassHint = null) {
@@ -283,6 +492,10 @@ async function getLatestPriceBySymbol(symbol, assetClassHint = null) {
 async function createLedger(sb, payload) {
   const row = {
     teacher_id: payload.teacher_id,
+    account_id: payload.account_id || null,
+    account_type: normalizeTradingAccountType(
+      payload.account_type || accountTypeForProductType(payload.product_type),
+    ),
     entry_type: payload.entry_type,
     amount: num(payload.amount),
     balance_after: num(payload.balance_after),
@@ -302,14 +515,21 @@ async function createLedger(sb, payload) {
 async function getOpenPosition(sb, teacherId, symbol, options = {}) {
   const productType = normalizeProductType(options.productType || 'spot');
   const positionSide = normalizePositionSide(options.positionSide || 'long');
+  const accountType = normalizeTradingAccountType(
+    options.accountType || accountTypeForProductType(productType),
+  );
   let query = sb
     .from('teacher_positions')
     .select('*')
     .eq('teacher_id', teacherId)
     .eq('asset', symbol)
     .eq('is_history', false)
+    .eq('account_type', accountType)
     .eq('product_type', productType)
     .eq('position_side', positionSide);
+  if (options.accountId) {
+    query = query.eq('account_id', options.accountId);
+  }
   const { data, error } = await query.maybeSingle();
   if (error) throw new Error(error.message);
   return data || null;
@@ -318,24 +538,32 @@ async function getOpenPosition(sb, teacherId, symbol, options = {}) {
 async function getReservedSellQty(sb, teacherId, symbol, options = {}) {
   const productType = normalizeProductType(options.productType || 'spot');
   const positionSide = normalizePositionSide(options.positionSide || 'long');
+  const accountType = normalizeTradingAccountType(
+    options.accountType || accountTypeForProductType(productType),
+  );
   const closingSide = isContractProduct(productType) && positionSide === 'short'
     ? 'buy'
     : 'sell';
-  const { data, error } = await sb
+  let query = sb
     .from('teacher_orders')
     .select('remaining_quantity')
     .eq('teacher_id', teacherId)
+    .eq('account_type', accountType)
     .eq('symbol', symbol)
     .eq('product_type', productType)
     .eq('position_side', positionSide)
     .eq('side', closingSide)
     .in('status', ['pending', 'partial']);
+  if (options.accountId) {
+    query = query.eq('account_id', options.accountId);
+  }
+  const { data, error } = await query;
   if (error) throw new Error(error.message);
   return (data || []).reduce((acc, row) => acc + num(row.remaining_quantity), 0);
 }
 
 async function recomputeAccountSnapshot(sb, teacherId) {
-  const account = await ensureTradingAccount(sb, teacherId);
+  const accounts = await ensureTradingAccounts(sb, teacherId);
   const tradingConfig = await getTradingConfig(sb);
   const { data: positions, error: pErr } = await sb
     .from('teacher_positions')
@@ -359,15 +587,20 @@ async function recomputeAccountSnapshot(sb, teacherId) {
     if (price != null) priceMap.set(s, price);
   }
 
-  let marketValue = 0;
-  let unrealized = 0;
-  let usedMargin = 0;
-  let maintenanceMargin = 0;
-  let spotMarketValue = 0;
-  let contractUnrealized = 0;
-  let hasContractPosition = false;
-  let dominantMarginMode = String(account.margin_mode || 'cross');
-  let dominantLeverage = Math.max(1, num(account.leverage, 1));
+  const statsByAccountId = new Map();
+  for (const account of accounts) {
+    statsByAccountId.set(String(account.id), {
+      marketValue: 0,
+      unrealized: 0,
+      usedMargin: 0,
+      maintenanceMargin: 0,
+      spotMarketValue: 0,
+      contractUnrealized: 0,
+      hasContractPosition: false,
+      dominantMarginMode: normalizeMarginMode(account.margin_mode),
+      dominantLeverage: Math.max(1, num(account.leverage, 1)),
+    });
+  }
   const positionUpdates = [];
   for (const p of posList) {
     const qty = num(p.buy_shares);
@@ -403,17 +636,22 @@ async function recomputeAccountSnapshot(sb, teacherId) {
           maintenanceMarginRate: tradingConfig.maintenance_margin_rate,
         })
       : null;
-    marketValue += positionMarketValue;
-    unrealized += positionUnrealized;
-    usedMargin += nextUsedMargin;
-    maintenanceMargin += nextMaintenanceMargin;
+    const account = resolveAccountForRow(accounts, p, productType);
+    if (!account) continue;
+    const accountId = String(account.id);
+    const accountStats = statsByAccountId.get(accountId);
+    if (!accountStats) continue;
+    accountStats.marketValue += positionMarketValue;
+    accountStats.unrealized += positionUnrealized;
+    accountStats.usedMargin += nextUsedMargin;
+    accountStats.maintenanceMargin += nextMaintenanceMargin;
     if (isContractProduct(productType)) {
-      hasContractPosition = true;
-      dominantMarginMode = normalizeMarginMode(p.margin_mode);
-      dominantLeverage = Math.max(dominantLeverage, leverage);
-      contractUnrealized += positionUnrealized;
+      accountStats.hasContractPosition = true;
+      accountStats.dominantMarginMode = normalizeMarginMode(p.margin_mode);
+      accountStats.dominantLeverage = Math.max(accountStats.dominantLeverage, leverage);
+      accountStats.contractUnrealized += positionUnrealized;
     } else {
-      spotMarketValue += positionMarketValue;
+      accountStats.spotMarketValue += positionMarketValue;
     }
     if (p.id) {
       positionUpdates.push({
@@ -447,30 +685,66 @@ async function recomputeAccountSnapshot(sb, teacherId) {
     if (posErr) throw new Error(posErr.message);
   }
 
-  const cashAvailable = num(account.cash_available);
-  const cashFrozen = num(account.cash_frozen);
-  const equity = cashAvailable + cashFrozen + usedMargin + spotMarketValue + contractUnrealized;
-  const updated = {
-    market_value: marketValue,
-    used_margin: usedMargin,
-    maintenance_margin: maintenanceMargin,
-    margin_balance: equity,
-    unrealized_pnl: unrealized,
-    equity,
-    account_type: hasContractPosition ? 'contract' : 'spot',
-    margin_mode: hasContractPosition ? dominantMarginMode : 'cross',
-    leverage: hasContractPosition ? dominantLeverage : 1,
-    updated_at: nowIso(),
-  };
-  const { data: acc2, error: uErr } = await sb
-    .from('teacher_trading_accounts')
-    .update(updated)
-    .eq('teacher_id', teacherId)
-    .select('*')
-    .single();
-  if (uErr) throw new Error(uErr.message);
+  const updatedAccounts = [];
+  for (const account of accounts) {
+    const accountId = String(account.id);
+    const stats = statsByAccountId.get(accountId) || {
+      marketValue: 0,
+      unrealized: 0,
+      usedMargin: 0,
+      maintenanceMargin: 0,
+      spotMarketValue: 0,
+      contractUnrealized: 0,
+      hasContractPosition: false,
+      dominantMarginMode: normalizeMarginMode(account.margin_mode),
+      dominantLeverage: Math.max(1, num(account.leverage, 1)),
+    };
+    const cashBalance = num(account.cash_balance);
+    const cashFrozen = num(account.cash_frozen);
+    const cashAvailable = Math.max(0, cashBalance - cashFrozen - stats.usedMargin);
+    const equity = cashAvailable + cashFrozen + stats.usedMargin + stats.spotMarketValue + stats.contractUnrealized;
+    const updated = {
+      cash_available: cashAvailable,
+      market_value: stats.marketValue,
+      used_margin: stats.usedMargin,
+      maintenance_margin: stats.maintenanceMargin,
+      margin_balance: equity,
+      unrealized_pnl: stats.unrealized,
+      equity,
+      margin_mode: normalizeTradingAccountType(account.account_type) === 'contract'
+        ? stats.dominantMarginMode
+        : 'cross',
+      leverage: normalizeTradingAccountType(account.account_type) === 'contract'
+        ? stats.dominantLeverage
+        : 1,
+      updated_at: nowIso(),
+    };
+    const { data: updatedRows, error: uErr } = await sb
+      .from('teacher_trading_accounts')
+      .update(updated)
+      .eq('id', accountId)
+      .select('*');
+    if (uErr) throw new Error(uErr.message);
+    if (!Array.isArray(updatedRows) || updatedRows.length === 0) {
+      throw new Error(
+        `recompute account snapshot affected no rows (teacher_id=${teacherId}, account_id=${accountId}, account_type=${normalizeTradingAccountType(account.account_type)})`,
+      );
+    }
+    if (updatedRows.length > 1) {
+      console.warn(
+        '[trading] recomputeAccountSnapshot matched multiple accounts',
+        {
+          teacherId,
+          accountId,
+          accountType: normalizeTradingAccountType(account.account_type),
+          affectedRows: updatedRows.length,
+        },
+      );
+    }
+    updatedAccounts.push(updatedRows[0]);
+  }
   return {
-    account: acc2,
+    accounts: updatedAccounts,
     positions: posList,
   };
 }
@@ -487,18 +761,17 @@ async function executeOrderFullFill(sb, order) {
   const contractSize = num(order.contract_size, 1);
   const multiplier = num(order.multiplier, 1);
   const settlementAsset = String(order.settlement_asset || 'USD');
+  const accountType = normalizeTradingAccountType(
+    order.account_type || accountTypeForProductType(productType),
+  );
   const qty = num(order.remaining_quantity, num(order.quantity));
   if (qty <= 0) return;
 
   const fillPrice = num(order.fill_price_target, num(order.limit_price));
   if (fillPrice <= 0) throw new Error('fill price invalid');
 
-  const { data: account, error: aErr } = await sb
-    .from('teacher_trading_accounts')
-    .select('*')
-    .eq('teacher_id', teacherId)
-    .single();
-  if (aErr) throw new Error(aErr.message);
+  const account = await ensureTradingAccount(sb, teacherId, accountType);
+  const accountId = String(account.id || '');
   const tradingConfig = await getTradingConfig(sb);
   const frozen = num(order.frozen_cash);
   const fillNotional = calcNotional({
@@ -508,6 +781,8 @@ async function executeOrderFullFill(sb, order) {
     multiplier,
   });
   const position = await getOpenPosition(sb, teacherId, symbol, {
+    accountId,
+    accountType,
     productType,
     positionSide,
   });
@@ -532,7 +807,7 @@ async function executeOrderFullFill(sb, order) {
           maintenance_margin: nextMaintenance,
           updated_at: now,
         })
-        .eq('teacher_id', teacherId);
+        .eq('id', accountId);
       if (upAccErr) throw new Error(upAccErr.message);
 
       if (position) {
@@ -587,6 +862,8 @@ async function executeOrderFullFill(sb, order) {
         if (upPosErr) throw new Error(upPosErr.message);
       } else {
         const { error: insPosErr } = await sb.from('teacher_positions').insert({
+          account_id: accountId,
+          account_type: accountType,
           teacher_id: teacherId,
           asset: symbol,
           asset_class: assetClass,
@@ -623,6 +900,8 @@ async function executeOrderFullFill(sb, order) {
       }
 
       await createLedger(sb, {
+        account_id: accountId,
+        account_type: accountType,
         teacher_id: teacherId,
         entry_type: order.side === 'buy' ? 'order_filled_buy' : 'order_filled_sell',
         amount: 0,
@@ -669,7 +948,7 @@ async function executeOrderFullFill(sb, order) {
           maintenance_margin: nextMaintenance,
           updated_at: now,
         })
-        .eq('teacher_id', teacherId);
+        .eq('id', accountId);
       if (upAccErr) throw new Error(upAccErr.message);
 
       if (remain > 0) {
@@ -726,6 +1005,8 @@ async function executeOrderFullFill(sb, order) {
       const { error: insHistoryErr } = await sb
         .from('teacher_positions')
         .insert({
+          account_id: accountId,
+          account_type: accountType,
           teacher_id: teacherId,
           asset: symbol,
           asset_class: assetClass,
@@ -760,6 +1041,8 @@ async function executeOrderFullFill(sb, order) {
       if (insHistoryErr) throw new Error(insHistoryErr.message);
 
       await createLedger(sb, {
+        account_id: accountId,
+        account_type: accountType,
         teacher_id: teacherId,
         entry_type: order.side === 'buy' ? 'order_filled_buy' : 'order_filled_sell',
         amount: realized,
@@ -787,7 +1070,7 @@ async function executeOrderFullFill(sb, order) {
         cash_available: cashAvailable,
         updated_at: now,
       })
-      .eq('teacher_id', teacherId);
+      .eq('id', accountId);
     if (upAccErr) throw new Error(upAccErr.message);
 
     if (position) {
@@ -820,6 +1103,8 @@ async function executeOrderFullFill(sb, order) {
       if (upPosErr) throw new Error(upPosErr.message);
     } else {
       const { error: insPosErr } = await sb.from('teacher_positions').insert({
+        account_id: accountId,
+        account_type: accountType,
         teacher_id: teacherId,
         asset: symbol,
         asset_class: assetClass,
@@ -845,6 +1130,8 @@ async function executeOrderFullFill(sb, order) {
     }
 
     await createLedger(sb, {
+      account_id: accountId,
+      account_type: accountType,
       teacher_id: teacherId,
       entry_type: 'order_filled_buy',
       amount: -cost,
@@ -879,7 +1166,7 @@ async function executeOrderFullFill(sb, order) {
         realized_pnl: realizedPnl,
         updated_at: now,
       })
-      .eq('teacher_id', teacherId);
+      .eq('id', accountId);
     if (upAccErr) throw new Error(upAccErr.message);
 
     if (remain > 0) {
@@ -914,6 +1201,8 @@ async function executeOrderFullFill(sb, order) {
     const { error: insHistoryErr } = await sb
       .from('teacher_positions')
       .insert({
+        account_id: accountId,
+        account_type: accountType,
         teacher_id: teacherId,
         asset: symbol,
         asset_class: assetClass,
@@ -958,6 +1247,8 @@ async function executeOrderFullFill(sb, order) {
     }
 
     await createLedger(sb, {
+      account_id: accountId,
+      account_type: accountType,
       teacher_id: teacherId,
       entry_type: 'order_filled_sell',
       amount: proceeds,
@@ -973,6 +1264,8 @@ async function executeOrderFullFill(sb, order) {
   }
 
   const fillRow = {
+    account_id: accountId,
+    account_type: accountType,
     order_id: order.id,
     teacher_id: teacherId,
     symbol,
@@ -1048,6 +1341,9 @@ async function liquidateContractPosition(sb, position, markPrice) {
   const cost = num(position.cost_price, num(position.buy_price));
   const usedMargin = num(position.used_margin);
   const maintenanceMargin = num(position.maintenance_margin);
+  const accountType = normalizeTradingAccountType(
+    position.account_type || accountTypeForProductType(position.product_type),
+  );
   const realized = calcContractUnrealized(
     markPrice,
     cost,
@@ -1058,12 +1354,8 @@ async function liquidateContractPosition(sb, position, markPrice) {
   );
   const now = nowIso();
 
-  const { data: account, error: accErr } = await sb
-    .from('teacher_trading_accounts')
-    .select('*')
-    .eq('teacher_id', teacherId)
-    .single();
-  if (accErr) throw new Error(accErr.message);
+  const account = await ensureTradingAccount(sb, teacherId, accountType);
+  const accountId = String(account.id || '');
 
   const nextCashBalance = num(account.cash_balance) + realized;
   const nextCashAvailable = Math.max(0, num(account.cash_available) + usedMargin + realized);
@@ -1081,7 +1373,7 @@ async function liquidateContractPosition(sb, position, markPrice) {
       realized_pnl: nextRealizedPnl,
       updated_at: now,
     })
-    .eq('teacher_id', teacherId);
+    .eq('id', accountId);
   if (upAccErr) throw new Error(upAccErr.message);
 
   const pnlRatio = cost > 0
@@ -1090,6 +1382,8 @@ async function liquidateContractPosition(sb, position, markPrice) {
   const { error: insHistoryErr } = await sb
     .from('teacher_positions')
     .insert({
+      account_id: accountId,
+      account_type: accountType,
       teacher_id: teacherId,
       asset: symbol,
       asset_class: position.asset_class || position.asset_type || null,
@@ -1125,6 +1419,8 @@ async function liquidateContractPosition(sb, position, markPrice) {
   if (delPosErr) throw new Error(delPosErr.message);
 
   await createLedger(sb, {
+    account_id: accountId,
+    account_type: accountType,
     teacher_id: teacherId,
     entry_type: 'position_liquidated',
     amount: realized,
@@ -1156,8 +1452,108 @@ async function liquidateContractPosition(sb, position, markPrice) {
   }
 }
 
+async function forceCloseSpotPosition(sb, position, markPrice) {
+  const teacherId = String(position.teacher_id || '').trim();
+  const symbol = String(position.asset || position.symbol || '').trim().toUpperCase();
+  if (!teacherId || !symbol) {
+    throw new Error('invalid position payload');
+  }
+  const qty = num(position.buy_shares);
+  if (!(qty > 0)) {
+    throw new Error('position quantity invalid');
+  }
+  const accountType = normalizeTradingAccountType(
+    position.account_type || accountTypeForProductType(position.product_type),
+  );
+  const account = await ensureTradingAccount(sb, teacherId, accountType);
+  const accountId = String(account.id || '');
+  const contractSize = Math.max(1, num(position.contract_size, 1));
+  const multiplier = Math.max(1, num(position.multiplier, 1));
+  const cost = num(position.cost_price, num(position.buy_price));
+  const proceeds = calcNotional({
+    price: markPrice,
+    quantity: qty,
+    contractSize,
+    multiplier,
+  });
+  const realized = (markPrice - cost) * qty * contractSize * multiplier;
+  const now = nowIso();
+
+  const nextCashBalance = num(account.cash_balance) + proceeds;
+  const nextCashAvailable = num(account.cash_available) + proceeds;
+  const nextRealizedPnl = num(account.realized_pnl) + realized;
+
+  const { error: upAccErr } = await sb
+    .from('teacher_trading_accounts')
+    .update({
+      cash_balance: nextCashBalance,
+      cash_available: nextCashAvailable,
+      realized_pnl: nextRealizedPnl,
+      updated_at: now,
+    })
+    .eq('id', accountId);
+  if (upAccErr) throw new Error(upAccErr.message);
+
+  const pnlRatio = cost > 0 ? ((markPrice - cost) / cost) * 100 : 0;
+  const { error: insHistoryErr } = await sb
+    .from('teacher_positions')
+    .insert({
+      account_id: accountId,
+      account_type: accountType,
+      teacher_id: teacherId,
+      asset: symbol,
+      asset_class: position.asset_class || position.asset_type || 'stock',
+      product_type: position.product_type || 'spot',
+      position_side: position.position_side || 'long',
+      position_action: 'close',
+      margin_mode: position.margin_mode || 'cross',
+      leverage: Math.max(1, num(position.leverage, 1)),
+      contract_size: contractSize,
+      multiplier,
+      settlement_asset: position.settlement_asset || 'USDT',
+      buy_time: position.buy_time || now,
+      buy_shares: qty,
+      buy_price: cost,
+      cost_price: cost,
+      current_price: markPrice,
+      mark_price: markPrice,
+      sell_time: now,
+      sell_price: markPrice,
+      pnl_amount: realized,
+      pnl_ratio: pnlRatio,
+      is_history: true,
+    });
+  if (insHistoryErr) throw new Error(insHistoryErr.message);
+
+  const { error: delPosErr } = await sb
+    .from('teacher_positions')
+    .delete()
+    .eq('id', position.id);
+  if (delPosErr) throw new Error(delPosErr.message);
+
+  await createLedger(sb, {
+    account_id: accountId,
+    account_type: accountType,
+    teacher_id: teacherId,
+    entry_type: 'admin_force_close',
+    amount: proceeds,
+    balance_after: nextCashBalance,
+    symbol,
+    asset_class: position.asset_class || position.asset_type || 'stock',
+    product_type: position.product_type || 'spot',
+    side: 'sell',
+    position_side: position.position_side || 'long',
+    note: `admin force close spot ${qty}@${markPrice}`,
+  });
+}
+
 async function tryLiquidateAllPositions(sb) {
   const tradingConfig = await getTradingConfig(sb);
+  const accounts = await sb
+    .from('teacher_trading_accounts')
+    .select('*');
+  if (accounts.error) throw new Error(accounts.error.message);
+  const accountMap = new Map((accounts.data || []).map((row) => [String(row.id || ''), row]));
   const { data: positions, error } = await sb
     .from('teacher_positions')
     .select('*')
@@ -1183,7 +1579,15 @@ async function tryLiquidateAllPositions(sb) {
         maintenanceMarginRate: tradingConfig.maintenance_margin_rate,
       });
     }
-    if (!shouldLiquidatePosition(positionSide, markPrice, liquidationPrice)) {
+    const account = accountMap.get(String(position.account_id || '')) || null;
+    const shouldByPrice = shouldLiquidatePosition(positionSide, markPrice, liquidationPrice);
+    const shouldByRisk = shouldLiquidateByRisk({
+      account,
+      position,
+      markPrice,
+      tradingConfig,
+    });
+    if (!shouldByPrice && !shouldByRisk) {
       continue;
     }
     await liquidateContractPosition(sb, position, markPrice);
@@ -1192,6 +1596,12 @@ async function tryLiquidateAllPositions(sb) {
 
 async function tryLiquidateTeacherPositions(sb, teacherId) {
   const tradingConfig = await getTradingConfig(sb);
+  const { data: accountRows, error: accountErr } = await sb
+    .from('teacher_trading_accounts')
+    .select('*')
+    .eq('teacher_id', teacherId);
+  if (accountErr) throw new Error(accountErr.message);
+  const accountMap = new Map((accountRows || []).map((row) => [String(row.id || ''), row]));
   const { data: positions, error } = await sb
     .from('teacher_positions')
     .select('*')
@@ -1218,7 +1628,15 @@ async function tryLiquidateTeacherPositions(sb, teacherId) {
         maintenanceMarginRate: tradingConfig.maintenance_margin_rate,
       });
     }
-    if (!shouldLiquidatePosition(positionSide, markPrice, liquidationPrice)) {
+    const account = accountMap.get(String(position.account_id || '')) || null;
+    const shouldByPrice = shouldLiquidatePosition(positionSide, markPrice, liquidationPrice);
+    const shouldByRisk = shouldLiquidateByRisk({
+      account,
+      position,
+      markPrice,
+      tradingConfig,
+    });
+    if (!shouldByPrice && !shouldByRisk) {
       continue;
     }
     await liquidateContractPosition(sb, position, markPrice);
@@ -1314,6 +1732,10 @@ function registerTradingRoutes(app, requireAuth) {
         0.5,
         Math.max(0.0001, num(req.body?.maintenance_margin_rate, DEFAULT_MAINTENANCE_MARGIN_RATE)),
       );
+      const forcedLiqRatio = Math.min(
+        5,
+        Math.max(0.1, num(req.body?.forced_liquidation_ratio, DEFAULT_FORCED_LIQ_RATIO)),
+      );
       const defaultProductType = String(req.body?.default_product_type || 'spot').trim().toLowerCase();
       const defaultMarginMode = String(req.body?.default_margin_mode || 'cross').trim().toLowerCase();
       const allowShort = parseBooleanConfig(req.body?.allow_short, true);
@@ -1334,6 +1756,7 @@ function registerTradingRoutes(app, requireAuth) {
         { key: APP_CONFIG_MAX_LEVERAGE_KEY, value: String(maxLeverage), updated_at: nowIso() },
         { key: APP_CONFIG_ALLOW_SHORT_KEY, value: allowShort ? 'true' : 'false', updated_at: nowIso() },
         { key: APP_CONFIG_MAINTENANCE_MARGIN_RATE_KEY, value: String(maintenanceMarginRate), updated_at: nowIso() },
+        { key: APP_CONFIG_FORCED_LIQ_RATIO_KEY, value: String(forcedLiqRatio), updated_at: nowIso() },
       ];
       const { error } = await sb.from('app_config').upsert(rows, { onConflict: 'key' });
       if (error) return res.status(502).json({ error: error.message });
@@ -1354,30 +1777,6 @@ function registerTradingRoutes(app, requireAuth) {
     if (!(amount > 0)) return res.status(400).json({ error: 'initial_cash_usd 必须大于 0' });
     try {
       const config = await getTradingConfig(sb);
-      const defaultProductType = config.default_product_type;
-      const { error: accErr } = await sb
-        .from('teacher_trading_accounts')
-        .upsert({
-          teacher_id: teacherId,
-          currency: 'USD',
-          account_type: defaultProductType === 'spot' ? 'spot' : 'contract',
-          margin_mode: defaultProductType === 'spot' ? 'cross' : config.default_margin_mode,
-          leverage: defaultProductType === 'spot' ? 1 : config.default_leverage,
-          initial_cash: amount,
-          cash_balance: amount,
-          cash_available: amount,
-          cash_frozen: 0,
-          market_value: 0,
-          used_margin: 0,
-          maintenance_margin: 0,
-          margin_balance: amount,
-          realized_pnl: 0,
-          unrealized_pnl: 0,
-          equity: amount,
-          updated_at: nowIso(),
-        }, { onConflict: 'teacher_id' });
-      if (accErr) return res.status(502).json({ error: accErr.message });
-
       if (clearHistory) {
         await sb.from('teacher_orders').delete().eq('teacher_id', teacherId);
         await sb.from('teacher_order_fills').delete().eq('teacher_id', teacherId);
@@ -1388,14 +1787,221 @@ function registerTradingRoutes(app, requireAuth) {
         await sb.from('teacher_positions').delete().eq('teacher_id', teacherId).eq('is_history', false);
       }
 
+      const split = splitInitialCash(amount);
+      const rows = [
+        buildTradingAccountSeed({
+          teacherId,
+          accountType: 'spot',
+          initialCash: split.spot,
+          config,
+        }),
+        buildTradingAccountSeed({
+          teacherId,
+          accountType: 'contract',
+          initialCash: split.contract,
+          config,
+        }),
+      ];
+      const { error: accErr } = await sb
+        .from('teacher_trading_accounts')
+        .upsert(rows, { onConflict: 'teacher_id,account_type' });
+      if (accErr) return res.status(502).json({ error: accErr.message });
+
+      const accounts = await ensureTradingAccounts(sb, teacherId);
+      for (const account of accounts) {
+        await createLedger(sb, {
+          teacher_id: teacherId,
+          account_id: account.id,
+          account_type: account.account_type,
+          entry_type: 'account_reset',
+          amount: num(account.initial_cash),
+          balance_after: num(account.initial_cash),
+          note: clearHistory
+            ? `admin reset ${account.account_type} account (clear history)`
+            : `admin reset ${account.account_type} account (keep history)`,
+        });
+      }
+      return res.json({ ok: true, clear_history: clearHistory });
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message || e) });
+    }
+  });
+
+  app.get('/api/admin/trading/users/:teacherId/overview', requireAuth, async (req, res) => {
+    const sb = supabaseClient.getClient();
+    if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
+    if (!(await ensureAdmin(req, res, sb))) return;
+    const teacherId = String(req.params.teacherId || '').trim();
+    if (!teacherId) return res.status(400).json({ error: 'missing teacherId' });
+    try {
+      await ensureTradingAccounts(sb, teacherId);
+      const requestedAccountType = readRequestedAccountType(req.query);
+      const summary = await getTradingSummaryFromDb(sb, teacherId, requestedAccountType);
+      return res.json(summary);
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message || e) });
+    }
+  });
+
+  app.get('/api/admin/trading/users/:teacherId/positions', requireAuth, async (req, res) => {
+    const sb = supabaseClient.getClient();
+    if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
+    if (!(await ensureAdmin(req, res, sb))) return;
+    const teacherId = String(req.params.teacherId || '').trim();
+    if (!teacherId) return res.status(400).json({ error: 'missing teacherId' });
+    const { pageSize, offset } = getPagination(req.query, {
+      pageSize: 50,
+      maxPageSize: 500,
+    });
+    try {
+      const requestedAccountType = readRequestedAccountType(req.query);
+      const includeHistory = String(req.query?.include_history || 'false').trim().toLowerCase() === 'true';
+      let query = sb
+        .from('teacher_positions')
+        .select('*')
+        .eq('teacher_id', teacherId)
+        .eq('is_history', includeHistory)
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false });
+      if (requestedAccountType) query = query.eq('account_type', requestedAccountType);
+      const { data, error } = await query.range(offset, offset + pageSize - 1);
+      if (error) return res.status(502).json({ error: error.message });
+      return res.json(data || []);
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message || e) });
+    }
+  });
+
+  app.post('/api/admin/trading/users/:teacherId/positions/:positionId/close', requireAuth, async (req, res) => {
+    const sb = supabaseClient.getClient();
+    if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
+    if (!(await ensureAdmin(req, res, sb))) return;
+    const teacherId = String(req.params.teacherId || '').trim();
+    const positionId = String(req.params.positionId || '').trim();
+    if (!teacherId) return res.status(400).json({ error: 'missing teacherId' });
+    if (!positionId) return res.status(400).json({ error: 'missing positionId' });
+    try {
+      const { data: position, error: posErr } = await sb
+        .from('teacher_positions')
+        .select('*')
+        .eq('id', positionId)
+        .eq('teacher_id', teacherId)
+        .eq('is_history', false)
+        .maybeSingle();
+      if (posErr) return res.status(502).json({ error: posErr.message });
+      if (!position) return res.status(404).json({ error: 'position not found' });
+      const symbol = String(position.asset || position.symbol || '').trim().toUpperCase();
+      const markPriceRaw = await getLatestPriceBySymbol(
+        symbol,
+        position.asset_class || position.asset_type || null,
+      );
+      const markPrice = num(markPriceRaw, num(position.current_price, num(position.cost_price)));
+      if (!(markPrice > 0)) {
+        return res.status(400).json({ error: '行情不可用，无法平仓' });
+      }
+      const productType = normalizeProductType(
+        position.product_type,
+        position.asset_class || position.asset_type || null,
+      );
+      if (isContractProduct(productType)) {
+        await liquidateContractPosition(sb, position, markPrice);
+      } else {
+        await forceCloseSpotPosition(sb, position, markPrice);
+      }
+      await recomputeAccountSnapshot(sb, teacherId);
+      return res.json({
+        ok: true,
+        teacher_id: teacherId,
+        position_id: positionId,
+        symbol,
+        mark_price: markPrice,
+      });
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message || e) });
+    }
+  });
+
+  app.get('/api/admin/trading/users/:teacherId/ledger', requireAuth, async (req, res) => {
+    const sb = supabaseClient.getClient();
+    if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
+    if (!(await ensureAdmin(req, res, sb))) return;
+    const teacherId = String(req.params.teacherId || '').trim();
+    if (!teacherId) return res.status(400).json({ error: 'missing teacherId' });
+    const { pageSize, offset } = getPagination(req.query, {
+      pageSize: 100,
+      maxPageSize: 500,
+    });
+    try {
+      const requestedAccountType = readRequestedAccountType(req.query);
+      let query = sb
+        .from('teacher_account_ledger')
+        .select('*')
+        .eq('teacher_id', teacherId)
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false });
+      if (requestedAccountType) query = query.eq('account_type', requestedAccountType);
+      const { data, error } = await query.range(offset, offset + pageSize - 1);
+      if (error) return res.status(502).json({ error: error.message });
+      return res.json(data || []);
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message || e) });
+    }
+  });
+
+  app.post('/api/admin/trading/users/:teacherId/adjust-balance', requireAuth, async (req, res) => {
+    const sb = supabaseClient.getClient();
+    if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
+    if (!(await ensureAdmin(req, res, sb))) return;
+    const teacherId = String(req.params.teacherId || '').trim();
+    if (!teacherId) return res.status(400).json({ error: 'missing teacherId' });
+    try {
+      const accountType = normalizeTradingAccountType(req.body?.account_type || 'spot');
+      const delta = num(req.body?.amount);
+      const note = String(req.body?.note || '').trim();
+      if (!(delta !== 0)) {
+        return res.status(400).json({ error: 'amount 不能为 0' });
+      }
+      await ensureTradingAccounts(sb, teacherId);
+      const account = await ensureTradingAccount(sb, teacherId, accountType);
+      const currentAvailable = num(account.cash_available);
+      const currentBalance = num(account.cash_balance);
+      if (delta < 0 && currentAvailable < Math.abs(delta)) {
+        return res.status(400).json({ error: '可用资金不足，无法下分' });
+      }
+      const nextBalance = currentBalance + delta;
+      const nextAvailable = currentAvailable + delta;
+      if (nextBalance < 0 || nextAvailable < 0) {
+        return res.status(400).json({ error: '调整后资金不能为负数' });
+      }
+      const now = nowIso();
+      const { data: updatedRows, error: upErr } = await sb
+        .from('teacher_trading_accounts')
+        .update({
+          cash_balance: nextBalance,
+          cash_available: nextAvailable,
+          updated_at: now,
+        })
+        .eq('id', account.id)
+        .select('*');
+      if (upErr) return res.status(502).json({ error: upErr.message });
+      const updated = Array.isArray(updatedRows) && updatedRows.length > 0 ? updatedRows[0] : null;
       await createLedger(sb, {
         teacher_id: teacherId,
-        entry_type: 'account_reset',
-        amount,
-        balance_after: amount,
-        note: clearHistory ? 'admin reset account (clear history)' : 'admin reset account (keep history)',
+        account_id: account.id,
+        account_type: accountType,
+        entry_type: delta > 0 ? 'admin_adjust_in' : 'admin_adjust_out',
+        amount: delta,
+        balance_after: nextBalance,
+        note: note || (delta > 0 ? 'admin 上分' : 'admin 下分'),
       });
-      return res.json({ ok: true, clear_history: clearHistory });
+      await recomputeAccountSnapshot(sb, teacherId);
+      return res.json({
+        ok: true,
+        teacher_id: teacherId,
+        account_type: accountType,
+        amount: delta,
+        account: updated || account,
+      });
     } catch (e) {
       return res.status(502).json({ error: String(e.message || e) });
     }
@@ -1407,10 +2013,12 @@ function registerTradingRoutes(app, requireAuth) {
     if (!uid) return res.status(401).json({ error: '未鉴权' });
     if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
     try {
-      await ensureTradingAccount(sb, uid);
-      await tryMatchPendingOrders(sb, uid);
-      await tryLiquidateTeacherPositions(sb, uid);
-      const summary = await getTradingSummaryFromDb(sb, uid);
+      const requestedAccountType = readRequestedAccountType(req.query);
+      await ensureTradingAccounts(sb, uid);
+      const summary = await getTradingSummaryFromDb(sb, uid, requestedAccountType);
+      if (req.query?.include_accounts === 'true') {
+        return res.json(summary);
+      }
       return res.json(summary.account || {});
     } catch (e) {
       return res.status(502).json({ error: String(e.message || e) });
@@ -1423,10 +2031,9 @@ function registerTradingRoutes(app, requireAuth) {
     if (!uid) return res.status(401).json({ error: '未鉴权' });
     if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
     try {
-      await ensureTradingAccount(sb, uid);
-      await tryMatchPendingOrders(sb, uid);
-      await tryLiquidateTeacherPositions(sb, uid);
-      return res.json(await getTradingSummaryFromDb(sb, uid));
+      const requestedAccountType = readRequestedAccountType(req.query);
+      await ensureTradingAccounts(sb, uid);
+      return res.json(await getTradingSummaryFromDb(sb, uid, requestedAccountType));
     } catch (e) {
       return res.status(502).json({ error: String(e.message || e) });
     }
@@ -1454,18 +2061,19 @@ function registerTradingRoutes(app, requireAuth) {
       maxPageSize: 200,
     });
     try {
-      await ensureTradingAccount(sb, uid);
-      await tryMatchPendingOrders(sb, uid);
-      await tryLiquidateTeacherPositions(sb, uid);
-      await recomputeAccountSnapshot(sb, uid);
-      const { data, error } = await sb
+      const requestedAccountType = readRequestedAccountType(req.query);
+      await ensureTradingAccounts(sb, uid);
+      let query = sb
         .from('teacher_positions')
         .select('*')
         .eq('teacher_id', uid)
         .eq('is_history', false)
         .order('created_at', { ascending: false })
-        .order('id', { ascending: false })
-        .range(offset, offset + pageSize - 1);
+        .order('id', { ascending: false });
+      if (requestedAccountType) {
+        query = query.eq('account_type', requestedAccountType);
+      }
+      const { data, error } = await query.range(offset, offset + pageSize - 1);
       if (error) return res.status(502).json({ error: error.message });
       return res.json(data || []);
     } catch (e) {
@@ -1483,13 +2091,17 @@ function registerTradingRoutes(app, requireAuth) {
       maxPageSize: 500,
     });
     try {
-      const { data, error } = await sb
+      const requestedAccountType = readRequestedAccountType(req.query);
+      let query = sb
         .from('teacher_order_fills')
         .select('*')
         .eq('teacher_id', uid)
         .order('fill_time', { ascending: false })
-        .order('id', { ascending: false })
-        .range(offset, offset + pageSize - 1);
+        .order('id', { ascending: false });
+      if (requestedAccountType) {
+        query = query.eq('account_type', requestedAccountType);
+      }
+      const { data, error } = await query.range(offset, offset + pageSize - 1);
       if (error) return res.status(502).json({ error: error.message });
       return res.json(data || []);
     } catch (e) {
@@ -1507,14 +2119,18 @@ function registerTradingRoutes(app, requireAuth) {
       maxPageSize: 500,
     });
     try {
-      await ensureTradingAccount(sb, uid);
-      const { data, error } = await sb
+      const requestedAccountType = readRequestedAccountType(req.query);
+      await ensureTradingAccounts(sb, uid);
+      let query = sb
         .from('teacher_account_ledger')
         .select('*')
         .eq('teacher_id', uid)
         .order('created_at', { ascending: false })
-        .order('id', { ascending: false })
-        .range(offset, offset + pageSize - 1);
+        .order('id', { ascending: false });
+      if (requestedAccountType) {
+        query = query.eq('account_type', requestedAccountType);
+      }
+      const { data, error } = await query.range(offset, offset + pageSize - 1);
       if (error) return res.status(502).json({ error: error.message });
       return res.json(data || []);
     } catch (e) {
@@ -1532,17 +2148,19 @@ function registerTradingRoutes(app, requireAuth) {
       maxPageSize: 500,
     });
     try {
-      await ensureTradingAccount(sb, uid);
-      await tryMatchPendingOrders(sb, uid);
-      await tryLiquidateTeacherPositions(sb, uid);
-      const { data, error } = await sb
+      const requestedAccountType = readRequestedAccountType(req.query);
+      await ensureTradingAccounts(sb, uid);
+      let query = sb
         .from('teacher_orders')
         .select('*')
         .eq('teacher_id', uid)
         .in('status', ['pending', 'partial'])
         .order('created_at', { ascending: false })
-        .order('id', { ascending: false })
-        .range(offset, offset + pageSize - 1);
+        .order('id', { ascending: false });
+      if (requestedAccountType) {
+        query = query.eq('account_type', requestedAccountType);
+      }
+      const { data, error } = await query.range(offset, offset + pageSize - 1);
       if (error) return res.status(502).json({ error: error.message });
       return res.json(data || []);
     } catch (e) {
@@ -1560,17 +2178,19 @@ function registerTradingRoutes(app, requireAuth) {
       maxPageSize: 500,
     });
     try {
-      await ensureTradingAccount(sb, uid);
-      await tryMatchPendingOrders(sb, uid);
-      await tryLiquidateTeacherPositions(sb, uid);
-      const { data, error } = await sb
+      const requestedAccountType = readRequestedAccountType(req.query);
+      await ensureTradingAccounts(sb, uid);
+      let query = sb
         .from('teacher_orders')
         .select('*')
         .eq('teacher_id', uid)
         .not('status', 'in', '(pending,partial)')
         .order('created_at', { ascending: false })
-        .order('id', { ascending: false })
-        .range(offset, offset + pageSize - 1);
+        .order('id', { ascending: false });
+      if (requestedAccountType) {
+        query = query.eq('account_type', requestedAccountType);
+      }
+      const { data, error } = await query.range(offset, offset + pageSize - 1);
       if (error) return res.status(502).json({ error: error.message });
       return res.json(data || []);
     } catch (e) {
@@ -1642,10 +2262,9 @@ function registerTradingRoutes(app, requireAuth) {
           return res.status(400).json({ error: '现货交易杠杆必须为 1' });
         }
       }
-      const account = await ensureTradingAccount(sb, uid);
-      await tryMatchPendingOrders(sb, uid);
-      await tryLiquidateTeacherPositions(sb, uid);
-      await recomputeAccountSnapshot(sb, uid);
+      const accountType = accountTypeForProductType(productType);
+      await ensureTradingAccounts(sb, uid);
+      const account = await ensureTradingAccount(sb, uid, accountType);
       const markPrice = await getLatestPriceBySymbol(symbol, assetClass);
       const checkPrice = orderType === 'market' ? markPrice : limitPrice;
       if (!(checkPrice > 0)) {
@@ -1666,11 +2285,15 @@ function registerTradingRoutes(app, requireAuth) {
         }
       } else if (!isContractProduct(productType)) {
         const pos = await getOpenPosition(sb, uid, symbol, {
+          accountId: account.id,
+          accountType,
           productType,
           positionSide,
         });
         const totalQty = num(pos?.buy_shares);
         const reserved = await getReservedSellQty(sb, uid, symbol, {
+          accountId: account.id,
+          accountType,
           productType,
           positionSide,
         });
@@ -1693,11 +2316,15 @@ function registerTradingRoutes(app, requireAuth) {
           }
         } else {
           const pos = await getOpenPosition(sb, uid, symbol, {
+            accountId: account.id,
+            accountType,
             productType,
             positionSide,
           });
           const totalQty = num(pos?.buy_shares);
           const reserved = await getReservedSellQty(sb, uid, symbol, {
+            accountId: account.id,
+            accountType,
             productType,
             positionSide,
           });
@@ -1710,6 +2337,8 @@ function registerTradingRoutes(app, requireAuth) {
       }
 
       const orderRow = {
+        account_id: account.id,
+        account_type: accountType,
         teacher_id: uid,
         symbol,
         asset_type: assetClass,
@@ -1754,9 +2383,11 @@ function registerTradingRoutes(app, requireAuth) {
             cash_frozen: cashFrozen,
             updated_at: nowIso(),
           })
-          .eq('teacher_id', uid);
+          .eq('id', account.id);
         if (upAccErr) return res.status(502).json({ error: upAccErr.message });
         await createLedger(sb, {
+          account_id: account.id,
+          account_type: accountType,
           teacher_id: uid,
           entry_type: 'order_cash_frozen',
           amount: -frozenCash,
@@ -1781,7 +2412,6 @@ function registerTradingRoutes(app, requireAuth) {
         await executeOrderFullFill(sb, { ...inserted, fill_price_target: markPrice || limitPrice });
       }
 
-      await recomputeAccountSnapshot(sb, uid);
       const { data: finalOrder, error: finalErr } = await sb
         .from('teacher_orders')
         .select('*')
@@ -1813,14 +2443,10 @@ function registerTradingRoutes(app, requireAuth) {
       if (order.status !== 'pending' && order.status !== 'partial') {
         return res.status(400).json({ error: 'order cannot cancel' });
       }
-      if (order.side === 'buy') {
-        const { data: acc, error: aErr } = await sb
-          .from('teacher_trading_accounts')
-          .select('*')
-          .eq('teacher_id', uid)
-          .single();
-        if (aErr) return res.status(502).json({ error: aErr.message });
-        const frozen = num(order.frozen_cash);
+      const frozen = num(order.frozen_cash);
+      if (frozen > 0) {
+        const accountType = resolveRowAccountType(order);
+        const acc = await ensureTradingAccount(sb, uid, accountType);
         const cashFrozen = Math.max(0, num(acc.cash_frozen) - frozen);
         const cashAvailable = num(acc.cash_available) + frozen;
         const { error: upAccErr } = await sb
@@ -1830,9 +2456,11 @@ function registerTradingRoutes(app, requireAuth) {
             cash_available: cashAvailable,
             updated_at: nowIso(),
           })
-          .eq('teacher_id', uid);
+          .eq('id', acc.id);
         if (upAccErr) return res.status(502).json({ error: upAccErr.message });
         await createLedger(sb, {
+          account_id: acc.id,
+          account_type: accountType,
           teacher_id: uid,
           entry_type: 'order_cancel_unfreeze',
           amount: frozen,
@@ -1855,8 +2483,83 @@ function registerTradingRoutes(app, requireAuth) {
         .eq('id', id)
         .eq('teacher_id', uid);
       if (upOrderErr) return res.status(502).json({ error: upOrderErr.message });
-      await recomputeAccountSnapshot(sb, uid);
       return res.json({ ok: true });
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message || e) });
+    }
+  });
+
+  app.post('/api/trading/accounts/transfer', requireAuth, async (req, res) => {
+    const sb = supabaseClient.getClient();
+    const uid = req.firebaseUid;
+    if (!uid) return res.status(401).json({ error: '未鉴权' });
+    if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
+    try {
+      const fromType = normalizeTradingAccountType(req.body?.from_account_type);
+      const toType = normalizeTradingAccountType(req.body?.to_account_type);
+      const amount = num(req.body?.amount);
+      if (fromType === toType) {
+        return res.status(400).json({ error: '转出账户和转入账户不能相同' });
+      }
+      if (!(amount > 0)) {
+        return res.status(400).json({ error: 'amount 必须大于 0' });
+      }
+      await ensureTradingAccounts(sb, uid);
+      const fromAcc = await ensureTradingAccount(sb, uid, fromType);
+      const toAcc = await ensureTradingAccount(sb, uid, toType);
+      const fromAvailable = num(fromAcc.cash_available);
+      if (fromAvailable < amount) {
+        return res.status(400).json({ error: '转出账户可用资金不足' });
+      }
+      const now = nowIso();
+      const fromNextAvailable = fromAvailable - amount;
+      const fromNextBalance = num(fromAcc.cash_balance) - amount;
+      const toNextAvailable = num(toAcc.cash_available) + amount;
+      const toNextBalance = num(toAcc.cash_balance) + amount;
+      const { error: fromErr } = await sb
+        .from('teacher_trading_accounts')
+        .update({
+          cash_available: fromNextAvailable,
+          cash_balance: fromNextBalance,
+          updated_at: now,
+        })
+        .eq('id', fromAcc.id);
+      if (fromErr) return res.status(502).json({ error: fromErr.message });
+      const { error: toErr } = await sb
+        .from('teacher_trading_accounts')
+        .update({
+          cash_available: toNextAvailable,
+          cash_balance: toNextBalance,
+          updated_at: now,
+        })
+        .eq('id', toAcc.id);
+      if (toErr) return res.status(502).json({ error: toErr.message });
+
+      await createLedger(sb, {
+        account_id: fromAcc.id,
+        account_type: fromType,
+        teacher_id: uid,
+        entry_type: 'account_transfer_out',
+        amount: -amount,
+        balance_after: fromNextBalance,
+        note: `transfer to ${toType}`,
+      });
+      await createLedger(sb, {
+        account_id: toAcc.id,
+        account_type: toType,
+        teacher_id: uid,
+        entry_type: 'account_transfer_in',
+        amount,
+        balance_after: toNextBalance,
+        note: `transfer from ${fromType}`,
+      });
+
+      return res.json({
+        ok: true,
+        from_account_type: fromType,
+        to_account_type: toType,
+        amount,
+      });
     } catch (e) {
       return res.status(502).json({ error: String(e.message || e) });
     }

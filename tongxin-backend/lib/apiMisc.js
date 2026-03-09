@@ -774,7 +774,7 @@ function registerMiscRoutes(app, requireAuth) {
   });
 
   /** GET /api/call-invitations/:id — 查询邀请状态 */
-  app.get('/api/call-invitations/:id', requireAuth, async (req, res) => {
+  app.get('/api/call-invitations/:id([0-9a-fA-F-]{36})', requireAuth, async (req, res) => {
     const { id } = req.params;
     if (!id) return res.status(400).json({ error: 'missing id' });
     const sb = supabase();
@@ -816,7 +816,7 @@ function registerMiscRoutes(app, requireAuth) {
   });
 
   /** PATCH /api/call-invitations/:id/status — 更新通话状态 */
-  app.patch('/api/call-invitations/:id/status', requireAuth, async (req, res) => {
+  app.patch('/api/call-invitations/:id([0-9a-fA-F-]{36})/status', requireAuth, async (req, res) => {
     const uid = req.firebaseUid;
     if (!uid) return res.status(401).json({ error: '未鉴权' });
     const { id } = req.params;

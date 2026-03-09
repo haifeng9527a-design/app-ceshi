@@ -14,9 +14,15 @@ import 'trading_ui.dart';
 /// 成交与持仓 Tab：成交记录列表 + 当前持仓（可点持仓快捷卖出）
 /// 成交记录先 mock，持仓来自 Supabase
 class FillsAndPositionsTab extends StatefulWidget {
-  const FillsAndPositionsTab({super.key, required this.teacherId, this.isActive = false});
+  const FillsAndPositionsTab({
+    super.key,
+    required this.teacherId,
+    required this.accountType,
+    this.isActive = false,
+  });
 
   final String teacherId;
+  final TradingAccountType accountType;
   final bool isActive;
 
   @override
@@ -58,6 +64,9 @@ class _FillsAndPositionsTabState extends State<FillsAndPositionsTab> {
   @override
   void didUpdateWidget(covariant FillsAndPositionsTab oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.accountType != widget.accountType) {
+      _loadData(showLoading: true);
+    }
     if (oldWidget.isActive != widget.isActive) {
       _syncPolling();
     }
@@ -87,7 +96,7 @@ class _FillsAndPositionsTabState extends State<FillsAndPositionsTab> {
 
   Future<void> _refreshSummaryOnly() async {
     try {
-      final summary = await _api.getSummary();
+      final summary = await _api.getSummary(accountType: widget.accountType);
       if (!mounted) return;
       setState(() => _summary = summary);
     } catch (_) {}
@@ -126,9 +135,17 @@ class _FillsAndPositionsTabState extends State<FillsAndPositionsTab> {
       });
     }
     try {
-      final fills = await _api.getFills(page: 1, pageSize: _pageSize);
-      final positions = await _api.getPositions(page: 1, pageSize: _pageSize);
-      final summary = await _api.getSummary();
+      final fills = await _api.getFills(
+        page: 1,
+        pageSize: _pageSize,
+        accountType: widget.accountType,
+      );
+      final positions = await _api.getPositions(
+        page: 1,
+        pageSize: _pageSize,
+        accountType: widget.accountType,
+      );
+      final summary = await _api.getSummary(accountType: widget.accountType);
       if (!mounted) return;
       setState(() {
         _fills = fills;
@@ -161,10 +178,18 @@ class _FillsAndPositionsTabState extends State<FillsAndPositionsTab> {
       final nextPositionsPage = _positionsPage + 1;
       final futures = await Future.wait([
         _hasMoreFills
-            ? _api.getFills(page: nextFillsPage, pageSize: _pageSize)
+            ? _api.getFills(
+                page: nextFillsPage,
+                pageSize: _pageSize,
+                accountType: widget.accountType,
+              )
             : Future.value(const <OrderFill>[]),
         _hasMorePositions
-            ? _api.getPositions(page: nextPositionsPage, pageSize: _pageSize)
+            ? _api.getPositions(
+                page: nextPositionsPage,
+                pageSize: _pageSize,
+                accountType: widget.accountType,
+              )
             : Future.value(const <TeacherPosition>[]),
       ]);
       final moreFills = futures[0] as List<OrderFill>;

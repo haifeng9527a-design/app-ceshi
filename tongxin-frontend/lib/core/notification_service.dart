@@ -667,49 +667,88 @@ class NotificationService {
     }
   }
 
-  static void _openIncomingCallIfNeeded(Map<String, dynamic> data) {
+  static void _openIncomingCallIfNeeded(
+    Map<String, dynamic> data, {
+    bool showAndroidService = true,
+  }) {
     final invitationId = data['invitationId']?.toString();
     final channelId = data['channelId']?.toString();
     if (invitationId == null || invitationId.isEmpty || channelId == null || channelId.isEmpty) return;
     final fromUserName = data['fromUserName']?.toString().trim() ?? '对方';
     final callType = data['callType']?.toString() ?? 'voice';
+    final fromAvatarUrl = data['fromAvatarUrl']?.toString().trim();
 
     // Android: 尝试 ForegroundService CallStyle（后台弹出来电）+ 有 context 时显示 Flutter 弹窗
     if (!kIsWeb && Platform.isAndroid) {
-      _showIncomingCallViaService(
-        caller: fromUserName,
+      if (showAndroidService) {
+        _showIncomingCallViaService(
+          caller: fromUserName,
+          invitationId: invitationId,
+          channelId: channelId,
+          callType: callType,
+        );
+      }
+      _showIncomingCallDialogWhenReady(
         invitationId: invitationId,
         channelId: channelId,
+        fromUserName: fromUserName,
         callType: callType,
+        fromAvatarUrl: fromAvatarUrl,
+        fallbackToNotification: !showAndroidService,
       );
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        final ctx = navigatorKey.currentContext;
-        if (ctx != null) {
-          showIncomingCallDialog(
-            context: ctx,
-            invitationId: invitationId,
-            fromUserName: fromUserName,
-            channelId: channelId,
-            callType: callType,
-            fromAvatarUrl: data['fromAvatarUrl']?.toString().trim(),
-          );
-        }
-      });
       return;
     }
 
     // iOS/其他: Flutter 来电弹窗
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    _showIncomingCallDialogWhenReady(
+      invitationId: invitationId,
+      channelId: channelId,
+      fromUserName: fromUserName,
+      callType: callType,
+      fromAvatarUrl: fromAvatarUrl,
+    );
+  }
+
+  static void _showIncomingCallDialogWhenReady({
+    required String invitationId,
+    required String channelId,
+    required String fromUserName,
+    required String callType,
+    String? fromAvatarUrl,
+    bool fallbackToNotification = false,
+  }) {
+    void attemptShow(int remaining) {
       final ctx = navigatorKey.currentContext;
-      if (ctx == null) return;
-      showIncomingCallDialog(
-        context: ctx,
-        invitationId: invitationId,
-        fromUserName: fromUserName,
-        channelId: channelId,
-        callType: callType,
-        fromAvatarUrl: data['fromAvatarUrl']?.toString().trim(),
-      );
+      if (ctx != null) {
+        showIncomingCallDialog(
+          context: ctx,
+          invitationId: invitationId,
+          fromUserName: fromUserName,
+          channelId: channelId,
+          callType: callType,
+          fromAvatarUrl: fromAvatarUrl,
+        );
+        return;
+      }
+      if (remaining <= 0) {
+        debugPrint('[来电] navigator context 未就绪，无法直接显示接听界面');
+        if (fallbackToNotification) {
+          showIncomingCallFallbackNotification(
+            invitationId: invitationId,
+            channelId: channelId,
+            fromUserName: fromUserName,
+            callType: callType,
+          );
+        }
+        return;
+      }
+      Future.delayed(const Duration(milliseconds: 250), () {
+        attemptShow(remaining - 1);
+      });
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      attemptShow(12);
     });
   }
 
@@ -746,6 +785,19 @@ class NotificationService {
   static Future<void> checkPendingCallAnswerAndDecline() async {
     if (kIsWeb || !Platform.isAndroid) return;
     try {
+      final pendingIncoming = await _callChannel
+          .invokeMethod<Map<dynamic, dynamic>>('getPendingIncomingCall');
+      if (pendingIncoming != null && pendingIncoming.isNotEmpty) {
+        final data = pendingIncoming.map(
+          (key, value) => MapEntry(key.toString(), value?.toString()),
+        );
+        final invitationId = data['invitationId'] ?? '';
+        final channelId = data['channelId'] ?? '';
+        if (invitationId.isNotEmpty && channelId.isNotEmpty) {
+          debugPrint('[来电] 检测到原生待处理来电，补弹 Flutter 接听界面');
+          _openIncomingCallIfNeeded(data, showAndroidService: false);
+        }
+      }
       final declineId = await _callChannel.invokeMethod<String>('getPendingCallDecline');
       if (declineId != null && declineId.isNotEmpty) {
         await CallInvitationRepository().updateStatus(declineId, 'rejected');

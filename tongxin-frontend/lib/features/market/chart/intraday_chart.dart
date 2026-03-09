@@ -68,20 +68,22 @@ class IntradayChart extends StatelessWidget {
   }
 
   /// 时间轴刻度：按真实时间整点/半点取点，映射到最近 K 线索引，首格显示日期其余 HH:mm
-  List<({int index, String label})> _buildTimeAxisTicks() {
-    if (candles.isEmpty) return [];
-    final t0 = candles.first.time;
-    final t1 = candles.last.time;
+  /// [candlesForTicks] 用于采样的数据时传入 plotCandles，保证索引与图表一致
+  List<({int index, String label})> _buildTimeAxisTicks([List<ChartCandle>? candlesForTicks]) {
+    final c = candlesForTicks ?? candles;
+    if (c.isEmpty) return [];
+    final t0 = c.first.time;
+    final t1 = c.last.time;
     if (periodLabel == '1D') {
       final indices = <int>[0];
-      final step = (candles.length - 1) / 4;
+      final step = (c.length - 1) / 4;
       for (var i = 1; i <= 4; i++) {
-        indices.add((i * step).floor().clamp(0, candles.length - 1));
+        indices.add((i * step).floor().clamp(0, c.length - 1));
       }
       final seen = <int>{};
       return indices.where((i) => seen.add(i)).map((i) {
-        final d = DateTime.fromMillisecondsSinceEpoch((candles[i].time * 1000).toInt());
-        final label = i == 0 ? '${d.month.toString().padLeft(2, '0')}/${d.day.toString().padLeft(2, '0')}' : _formatTime(candles[i].time);
+        final d = DateTime.fromMillisecondsSinceEpoch((c[i].time * 1000).toInt());
+        final label = i == 0 ? '${d.month.toString().padLeft(2, '0')}/${d.day.toString().padLeft(2, '0')}' : _formatTime(c[i].time);
         return (index: i, label: label);
       }).toList();
     }
@@ -96,15 +98,15 @@ class IntradayChart extends StatelessWidget {
       targets.add(t0.round());
       if (t1Sec != t0.round()) targets.add(t1Sec);
     }
-    final n = candles.length;
+    final n = c.length;
     final result = <({int index, String label})>[];
     int? lastIndex;
     int? lastDay;
     for (final targetSec in targets) {
       var best = 0;
-      var bestDiff = (candles[0].time - targetSec).abs();
+      var bestDiff = (c[0].time - targetSec).abs();
       for (var i = 1; i < n; i++) {
-        final d = (candles[i].time - targetSec).abs();
+        final d = (c[i].time - targetSec).abs();
         if (d < bestDiff) {
           bestDiff = d;
           best = i;
@@ -112,11 +114,11 @@ class IntradayChart extends StatelessWidget {
       }
       if (lastIndex != null && best == lastIndex) continue;
       lastIndex = best;
-      final d = DateTime.fromMillisecondsSinceEpoch((candles[best].time * 1000).toInt());
+      final d = DateTime.fromMillisecondsSinceEpoch((c[best].time * 1000).toInt());
       final day = d.day;
       final label = result.isEmpty
           ? '${d.month.toString().padLeft(2, '0')}/${d.day.toString().padLeft(2, '0')}'
-          : (lastDay != null && day != lastDay ? '${d.month.toString().padLeft(2, '0')}/${d.day.toString().padLeft(2, '0')}\n${_formatTime(candles[best].time)}' : _formatTime(candles[best].time));
+          : (lastDay != null && day != lastDay ? '${d.month.toString().padLeft(2, '0')}/${d.day.toString().padLeft(2, '0')}\n${_formatTime(c[best].time)}' : _formatTime(c[best].time));
       lastDay = day;
       result.add((index: best, label: label));
     }
@@ -255,6 +257,21 @@ class IntradayChart extends StatelessWidget {
     }
 
     final closes = plotCandles.map((c) => c.close).toList();
+    // 分时图点数过多时采样，使折线更平滑、不显杂乱
+    const maxPoints = 120;
+    final List<ChartCandle> sampledCandles;
+    final List<double> sampledCloses;
+    if (plotCandles.length > maxPoints) {
+      final step = plotCandles.length / maxPoints;
+      sampledCandles = List.generate(maxPoints, (i) {
+        final idx = (i * step).floor().clamp(0, plotCandles.length - 1);
+        return plotCandles[idx];
+      });
+      sampledCloses = sampledCandles.map((c) => c.close).toList();
+    } else {
+      sampledCandles = plotCandles;
+      sampledCloses = closes;
+    }
     double minY = closes.reduce((a, b) => a < b ? a : b);
     double maxY = closes.reduce((a, b) => a > b ? a : b);
     if (currentPrice != null) {
@@ -263,13 +280,13 @@ class IntradayChart extends StatelessWidget {
     }
     // 异常值处理：若极值（如 API 错误数据、0 等）导致 Y 轴范围过大，会压缩正常波动呈「垂直暴跌」状
     // 用 2%/98% 分位数限制范围，并过滤绘制用的价格，避免异常点拉出垂直线
-    List<double> plotCloses = closes;
+    List<double> plotCloses = sampledCloses;
     double yFloor = minY;
     double yCeil = maxY;
-    if (closes.length >= 10 && basePrice > 0) {
-      final sorted = List<double>.from(closes)..sort();
-      final p2 = sorted[(closes.length * 0.02).floor().clamp(0, closes.length - 1)];
-      final p98 = sorted[(closes.length * 0.98).floor().clamp(0, closes.length - 1)];
+    if (plotCloses.length >= 10 && basePrice > 0) {
+      final sorted = List<double>.from(plotCloses)..sort();
+      final p2 = sorted[(plotCloses.length * 0.02).floor().clamp(0, plotCloses.length - 1)];
+      final p98 = sorted[(plotCloses.length * 0.98).floor().clamp(0, plotCloses.length - 1)];
       final midRange = (p98 - p2).clamp(0.001 * basePrice, double.infinity);
       yFloor = p2 - midRange * 0.2;
       yCeil = p98 + midRange * 0.2;
@@ -277,19 +294,20 @@ class IntradayChart extends StatelessWidget {
       if (minY < yFloor) minY = yFloor;
       if (maxY > yCeil) maxY = yCeil;
       // 过滤绘制：异常点用前一点替代，避免折线出现垂直暴跌
-      plotCloses = <double>[];
-      for (var i = 0; i < closes.length; i++) {
-        final v = closes[i];
-        final prev = i > 0 ? plotCloses[i - 1] : v;
-        plotCloses.add((v < yFloor || v > yCeil) ? prev : v);
+      final filtered = <double>[];
+      for (var i = 0; i < plotCloses.length; i++) {
+        final v = plotCloses[i];
+        final prev = i > 0 ? filtered[i - 1] : v;
+        filtered.add((v < yFloor || v > yCeil) ? prev : v);
       }
+      plotCloses = filtered;
     }
     final range = (maxY - minY).clamp(0.01, double.infinity);
     final minYPlot = minY - range * 0.05;
     final maxYPlot = maxY + range * 0.05;
 
-    final dayRanges = (!useSessionMode && plotCandles.length > 1)
-        ? _multiDayDayRanges(plotCandles)
+    final dayRanges = (!useSessionMode && sampledCandles.length > 1)
+        ? _multiDayDayRanges(sampledCandles)
         : <({int start, int end})>[];
     final useEqualDayWidth = dayRanges.length > 1;
     final dayCount = dayRanges.length;
@@ -298,12 +316,12 @@ class IntradayChart extends StatelessWidget {
     List<double>? spotXFractionsComputed;
     double maxXComputed = 0;
 
-    if (useSessionMode && sessionLen > 0 && plotCandles.isNotEmpty) {
+    if (useSessionMode && sessionLen > 0 && sampledCandles.isNotEmpty) {
       // 按会话时间(9:30-16:00)映射 X，数据只占 0～dataEndX，右侧预留空白（与主流看盘软件一致）
-      final lastTime = plotCandles.last.time;
+      final lastTime = sampledCandles.last.time;
       dataEndX = ((lastTime - sessionStartSec) / sessionLen).clamp(0.0, 1.0);
-      for (var i = 0; i < plotCandles.length; i++) {
-        final c = plotCandles[i];
+      for (var i = 0; i < sampledCandles.length; i++) {
+        final c = sampledCandles[i];
         final x = ((c.time - sessionStartSec) / sessionLen).clamp(0.0, 1.0);
         spots.add(FlSpot(x, plotCloses[i]));
       }
@@ -316,9 +334,9 @@ class IntradayChart extends StatelessWidget {
         spots.add(FlSpot(dataEndX.clamp(0.0, 1.0), sanePrice));
       }
       maxXComputed = 1.0;
-      spotXFractionsComputed = plotCandles.map((c) => ((c.time - sessionStartSec) / sessionLen).clamp(0.0, 1.0)).toList();
+      spotXFractionsComputed = sampledCandles.map((c) => ((c.time - sessionStartSec) / sessionLen).clamp(0.0, 1.0)).toList();
     } else if (useEqualDayWidth) {
-      for (var i = 0; i < plotCandles.length; i++) {
+      for (var i = 0; i < sampledCandles.length; i++) {
         var d = 0;
         for (; d < dayRanges.length; d++) {
           if (i >= dayRanges[d].start && i <= dayRanges[d].end) break;
@@ -341,7 +359,7 @@ class IntradayChart extends StatelessWidget {
       }
       maxXComputed = 1.0;
       spotXFractionsComputed = <double>[];
-      for (var i = 0; i < plotCandles.length; i++) {
+      for (var i = 0; i < sampledCandles.length; i++) {
         var d = 0;
         for (; d < dayRanges.length; d++) {
           if (i >= dayRanges[d].start && i <= dayRanges[d].end) break;
@@ -354,7 +372,7 @@ class IntradayChart extends StatelessWidget {
         spotXFractionsComputed.add((d + localJ / count) / dayCount);
       }
     } else {
-      for (var i = 0; i < plotCandles.length; i++) {
+      for (var i = 0; i < sampledCandles.length; i++) {
         spots.add(FlSpot(i.toDouble(), plotCloses[i]));
       }
       if (currentPrice != null) {
@@ -364,34 +382,34 @@ class IntradayChart extends StatelessWidget {
             ? (cp < yFloor || cp > yCeil ? lastPlot : cp)
             : cp;
         spots.add(FlSpot(
-            plotCandles.isEmpty ? 0.0 : (plotCandles.length - 1).toDouble() + 1,
+            sampledCandles.isEmpty ? 0.0 : (sampledCandles.length - 1).toDouble() + 1,
             sanePrice));
       }
-      maxXComputed = (spots.length <= 1 ? 1.0 : (plotCandles.length - 1).toDouble());
+      maxXComputed = (spots.length <= 1 ? 1.0 : (sampledCandles.length - 1).toDouble());
     }
     if (spots.isEmpty) return const SizedBox.shrink();
 
-    final List<double>? spotXFractions = (useSessionMode && sessionLen > 0 && plotCandles.isNotEmpty) || useEqualDayWidth
+    final List<double>? spotXFractions = (useSessionMode && sessionLen > 0 && sampledCandles.isNotEmpty) || useEqualDayWidth
         ? spotXFractionsComputed
         : null;
 
-    final lastClose = plotCandles.isNotEmpty ? plotCandles.last.close : currentPrice;
-    final firstOpen = plotCandles.isNotEmpty ? plotCandles.first.open : currentPrice;
+    final lastClose = sampledCandles.isNotEmpty ? sampledCandles.last.close : currentPrice;
+    final firstOpen = sampledCandles.isNotEmpty ? sampledCandles.first.open : currentPrice;
     final maxX = useSessionMode ? 1.0 : maxXComputed;
 
     // 均价线（橙色）：VWAP 或简单均线
     final avgSpots = <FlSpot>[];
-    if (plotCandles.isNotEmpty) {
+    if (sampledCandles.isNotEmpty) {
       var sumV = 0.0;
       var sumVw = 0.0;
-      for (var i = 0; i < plotCandles.length; i++) {
-        final c = plotCandles[i];
+      for (var i = 0; i < sampledCandles.length; i++) {
+        final c = sampledCandles[i];
         final v = (c.volume ?? 0).toDouble();
         sumV += v;
         sumVw += c.close * v;
         final avg = sumV > 0 ? sumVw / sumV : (sumVw / (i + 1));
         double x;
-        if (useSessionMode && plotCandles.isNotEmpty && sessionLen > 0) {
+        if (useSessionMode && sampledCandles.isNotEmpty && sessionLen > 0) {
           x = ((c.time - sessionStartSec) / sessionLen).clamp(0.0, 1.0);
         } else if (useEqualDayWidth) {
           var d = 0;
@@ -427,11 +445,11 @@ class IntradayChart extends StatelessWidget {
       highlightTickIndex = best;
     }
 
-    final multiDayTicks = (!useSessionMode && plotCandles.length > 1)
-        ? _multiDayBoundaryTicks(plotCandles)
+    final multiDayTicks = (!useSessionMode && sampledCandles.length > 1)
+        ? _multiDayBoundaryTicks(sampledCandles)
         : <({int index, String label})>[];
-    final dayBoundaryIndices = (!useSessionMode && plotCandles.length > 1 && !useEqualDayWidth)
-        ? _multiDayBoundaryIndices(plotCandles)
+    final dayBoundaryIndices = (!useSessionMode && sampledCandles.length > 1 && !useEqualDayWidth)
+        ? _multiDayBoundaryIndices(sampledCandles)
         : <int>[];
     // 按天平均分配时：分隔线在 x = 1/N, 2/N, ...；时间轴刻度在 0, 1/N, 2/N, ...
     final dayBoundaryXFractions = useEqualDayWidth && dayCount > 1
@@ -449,7 +467,7 @@ class IntradayChart extends StatelessWidget {
         final contentWidth = availableWidth;
         // 限制总高度不超过可用空间，避免 BOTTOM OVERFLOWED
         const volumeOverhead = 4.0;
-        final maxTotalH = (constraints.maxHeight - 60).clamp(100.0, double.infinity);
+        final maxTotalH = constraints.maxHeight.clamp(100.0, double.infinity);
         final totalNeeded = chartHeight + totalBottom;
         final scale = totalNeeded > 0 && maxTotalH < totalNeeded ? maxTotalH / totalNeeded : 1.0;
         final effectiveChartH = (chartHeight * scale).clamp(80.0, double.infinity);
@@ -463,7 +481,7 @@ class IntradayChart extends StatelessWidget {
           sessionEndSec: sessionEndSec,
           sessionLen: sessionLen,
           dataEndX: dataEndX,
-          plotCandles: plotCandles,
+          plotCandles: sampledCandles,
           spotXFractions: spotXFractions,
           spots: spots,
           avgSpots: avgSpots,
@@ -571,9 +589,10 @@ class IntradayChart extends StatelessWidget {
                               lineBarsData: [
                                 LineChartBarData(
                                   spots: spots,
-                                  isCurved: false,
+                                  isCurved: true,
+                                  curveSmoothness: 0.2,
                                   color: lineColor,
-                                  barWidth: 2.2,
+                                  barWidth: 2.8,
                                   dotData: FlDotData(
                                     show: true,
                                     checkToShowDot: (FlSpot spot, LineChartBarData barData) {
@@ -619,7 +638,7 @@ class IntradayChart extends StatelessWidget {
                                 show: true,
                                 drawVerticalLine: false,
                                 horizontalInterval: (maxYPlot - minYPlot) / 4,
-                                getDrawingHorizontalLine: (_) => const FlLine(color: ChartTheme.gridLine, strokeWidth: 1),
+                                getDrawingHorizontalLine: (_) => FlLine(color: ChartTheme.gridLine.withValues(alpha: 0.4), strokeWidth: 0.8),
                               ),
                               titlesData: const FlTitlesData(show: false),
                               borderData: FlBorderData(show: false),
@@ -747,7 +766,7 @@ class IntradayChart extends StatelessWidget {
                               }).toList(),
                             );
                           }
-                          final ticks = _buildTimeAxisTicks();
+                          final ticks = _buildTimeAxisTicks(plotCandles);
                           if (ticks.isEmpty) return const SizedBox.shrink();
                           final maxIdx = (plotCandles.length - 1).clamp(1, 0x7fffffff);
                           const labelW = 44.0;

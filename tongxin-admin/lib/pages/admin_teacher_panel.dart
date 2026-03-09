@@ -16,11 +16,13 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
   final _api = AdminApiClient.instance;
   String? _selectedTeacherId;
   TeacherProfile? _selectedProfile;
+
   /// 筛选：all | pending | approved | rejected | frozen | blocked
   String _statusFilter = 'all';
 
   List<TeacherProfile> _rawItems = [];
   bool _loading = true;
+
   /// 仅存错误文案，避免在 Web 上把 FirebaseException 等对象放入 State 导致 TypeError
   String? _loadError;
   bool _batchSelectMode = false;
@@ -61,7 +63,9 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
       }
       final rows = jsonDecode(resp.body) as List<dynamic>;
       final list = rows
-          .map((e) => TeacherProfile.fromMap(Map<String, dynamic>.from(e as Map)))
+          .map(
+            (e) => TeacherProfile.fromMap(Map<String, dynamic>.from(e as Map)),
+          )
           .toList();
       if (!mounted) return;
       setState(() {
@@ -155,14 +159,17 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
       'updated_at': DateTime.now().toIso8601String(),
     };
     try {
-      final resp = await _api.put('api/admin/teachers/$teacherId/profile', body: payload);
+      final resp = await _api.put(
+        'api/admin/teachers/$teacherId/profile',
+        body: payload,
+      );
       if (resp.statusCode != 200) {
         throw StateError('保存失败(${resp.statusCode})：${resp.body}');
       }
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(AdminStrings.adminProfileSaved)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(AdminStrings.adminProfileSaved)));
       _loadTeachers();
     } catch (e) {
       if (!mounted) return;
@@ -175,17 +182,29 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
     }
   }
 
-  static const List<String> _statusOrder = ['pending', 'rejected', 'approved', 'frozen', 'blocked'];
+  static const List<String> _statusOrder = [
+    'pending',
+    'rejected',
+    'approved',
+    'frozen',
+    'blocked',
+  ];
 
   String _getStatusLabel(BuildContext context, String status) {
     // AdminStrings used directly
     switch (status) {
-      case 'pending': return AdminStrings.adminPending;
-      case 'approved': return AdminStrings.adminApproved;
-      case 'rejected': return AdminStrings.adminRejected;
-      case 'frozen': return AdminStrings.adminFrozen;
-      case 'blocked': return AdminStrings.adminBlocked;
-      default: return status;
+      case 'pending':
+        return AdminStrings.adminPending;
+      case 'approved':
+        return AdminStrings.adminApproved;
+      case 'rejected':
+        return AdminStrings.adminRejected;
+      case 'frozen':
+        return AdminStrings.adminFrozen;
+      case 'blocked':
+        return AdminStrings.adminBlocked;
+      default:
+        return status;
     }
   }
 
@@ -210,9 +229,11 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
 
   List<TeacherProfile> _selectedApprovedTeachers(List<TeacherProfile> items) {
     return items
-        .where((e) =>
-            _selectedBatchTeacherIds.contains(e.userId) &&
-            (e.status ?? '').toLowerCase() == 'approved')
+        .where(
+          (e) =>
+              _selectedBatchTeacherIds.contains(e.userId) &&
+              (e.status ?? '').toLowerCase() == 'approved',
+        )
         .toList(growable: false);
   }
 
@@ -230,7 +251,10 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
       if (status == 'frozen' && frozenUntil != null) {
         payload['frozen_until'] = frozenUntil.toIso8601String();
       }
-      final resp = await _api.patch('api/admin/teachers/$teacherId/status', body: payload);
+      final resp = await _api.patch(
+        'api/admin/teachers/$teacherId/status',
+        body: payload,
+      );
       if (resp.statusCode != 200) {
         throw StateError('状态更新失败(${resp.statusCode})：${resp.body}');
       }
@@ -276,7 +300,9 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
               const SizedBox(height: 10),
               TextField(
                 controller: controller,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
                 decoration: const InputDecoration(
                   border: OutlineInputBorder(),
                   hintText: '1000000',
@@ -286,7 +312,8 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
               CheckboxListTile(
                 contentPadding: EdgeInsets.zero,
                 value: clearHistory,
-                onChanged: (v) => setDialogState(() => clearHistory = v ?? true),
+                onChanged: (v) =>
+                    setDialogState(() => clearHistory = v ?? true),
                 title: const Text('清空历史数据（订单/成交/流水）'),
               ),
             ],
@@ -350,7 +377,146 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
     }
   }
 
-  Future<void> _batchResetTradingAccountCash(List<TeacherProfile> targets) async {
+  Future<({String accountType, double amount, String note})?>
+  _showAdjustBalanceDialog() async {
+    String accountType = 'spot';
+    bool isIncrease = true;
+    final amountController = TextEditingController(text: '1000');
+    final noteController = TextEditingController();
+    final result =
+        await showDialog<({String accountType, double amount, String note})>(
+          context: context,
+          builder: (ctx) => StatefulBuilder(
+            builder: (ctx, setDialogState) => AlertDialog(
+              title: const Text('账户上分/下分'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  DropdownButtonFormField<String>(
+                    initialValue: accountType,
+                    decoration: const InputDecoration(
+                      labelText: '账户类型',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'spot',
+                        child: Text('现货账户 (USDT)'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'contract',
+                        child: Text('合约账户 (USD)'),
+                      ),
+                    ],
+                    onChanged: (v) {
+                      if (v != null) setDialogState(() => accountType = v);
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                  DropdownButtonFormField<bool>(
+                    initialValue: isIncrease,
+                    decoration: const InputDecoration(
+                      labelText: '操作类型',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: true, child: Text('上分（加资金）')),
+                      DropdownMenuItem(value: false, child: Text('下分（减资金）')),
+                    ],
+                    onChanged: (v) {
+                      if (v != null) setDialogState(() => isIncrease = v);
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: amountController,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      labelText: '金额',
+                      hintText: '1000',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: noteController,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      labelText: '备注（可选）',
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: Text(AdminStrings.commonCancel),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    final amountRaw = double.tryParse(
+                      amountController.text.trim(),
+                    );
+                    if (amountRaw == null || amountRaw <= 0) return;
+                    final amount = isIncrease ? amountRaw : -amountRaw;
+                    Navigator.of(ctx).pop((
+                      accountType: accountType,
+                      amount: amount,
+                      note: noteController.text.trim(),
+                    ));
+                  },
+                  child: const Text('确认'),
+                ),
+              ],
+            ),
+          ),
+        );
+    return result;
+  }
+
+  Future<void> _adjustTradingBalance() async {
+    final teacherId = _selectedTeacherId;
+    if (teacherId == null || teacherId.isEmpty) return;
+    final options = await _showAdjustBalanceDialog();
+    if (options == null) return;
+    try {
+      final resp = await _api.post(
+        'api/admin/trading/users/$teacherId/adjust-balance',
+        body: {
+          'account_type': options.accountType,
+          'amount': options.amount,
+          'note': options.note,
+        },
+      );
+      if (resp.statusCode != 200) {
+        throw StateError('调账失败(${resp.statusCode})：${resp.body}');
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '已${options.amount >= 0 ? '上分' : '下分'} ${options.amount.abs().toStringAsFixed(2)} '
+            '${options.accountType == 'spot' ? 'USDT' : 'USD'}',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('调账失败: $e'),
+          backgroundColor: Colors.red.shade700,
+        ),
+      );
+    }
+  }
+
+  Future<void> _batchResetTradingAccountCash(
+    List<TeacherProfile> targets,
+  ) async {
     if (targets.isEmpty) return;
     final options = await _showResetAccountDialog(
       title: '批量重置模拟盘资金',
@@ -406,18 +572,25 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
         return;
     }
     try {
-      await _api.post('api/admin/notifications/send-push', body: {
-        'receiverId': userId,
-        'title': title,
-        'body': body,
-        'messageType': 'trader_application',
-      });
+      await _api.post(
+        'api/admin/notifications/send-push',
+        body: {
+          'receiverId': userId,
+          'title': title,
+          'body': body,
+          'messageType': 'trader_application',
+        },
+      );
     } catch (_) {
       // 推送失败不阻塞状态更新，仅忽略
     }
   }
 
-  Future<void> _confirmStatus(String status, String actionName, String message) async {
+  Future<void> _confirmStatus(
+    String status,
+    String actionName,
+    String message,
+  ) async {
     final ok = await showDialog<bool>(
       context: context,
       useRootNavigator: true,
@@ -447,45 +620,45 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
       context: context,
       useRootNavigator: true,
       builder: (ctx) => AlertDialog(
-          title: Text(AdminStrings.adminFreezeDuration),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(AdminStrings.adminSelectFreezeDuration),
-              const SizedBox(height: 16),
-              SizedBox(
-                height: 48,
-                child: FilledButton(
-                  onPressed: () => navigator.pop(7),
-                  child: Text(AdminStrings.adminDays7),
-                ),
+        title: Text(AdminStrings.adminFreezeDuration),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(AdminStrings.adminSelectFreezeDuration),
+            const SizedBox(height: 16),
+            SizedBox(
+              height: 48,
+              child: FilledButton(
+                onPressed: () => navigator.pop(7),
+                child: Text(AdminStrings.adminDays7),
               ),
-              const SizedBox(height: 8),
-              SizedBox(
-                height: 48,
-                child: FilledButton(
-                  onPressed: () => navigator.pop(30),
-                  child: Text(AdminStrings.adminDays30),
-                ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 48,
+              child: FilledButton(
+                onPressed: () => navigator.pop(30),
+                child: Text(AdminStrings.adminDays30),
               ),
-              const SizedBox(height: 8),
-              SizedBox(
-                height: 48,
-                child: FilledButton(
-                  onPressed: () => navigator.pop(90),
-                  child: Text(AdminStrings.adminDays90),
-                ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 48,
+              child: FilledButton(
+                onPressed: () => navigator.pop(90),
+                child: Text(AdminStrings.adminDays90),
               ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => navigator.pop(),
-              child: Text(AdminStrings.commonCancel),
             ),
           ],
         ),
+        actions: [
+          TextButton(
+            onPressed: () => navigator.pop(),
+            child: Text(AdminStrings.commonCancel),
+          ),
+        ],
+      ),
     );
     if (days != null && days > 0) {
       final until = DateTime.now().add(Duration(days: days));
@@ -507,15 +680,21 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
       children: [
         TextField(
           controller: titleController,
-          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelTitle),
+          decoration: InputDecoration(
+            labelText: AdminStrings.adminFormLabelTitle,
+          ),
         ),
         TextField(
           controller: summaryController,
-          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelSummary),
+          decoration: InputDecoration(
+            labelText: AdminStrings.adminFormLabelSummary,
+          ),
         ),
         TextField(
           controller: contentController,
-          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelContent),
+          decoration: InputDecoration(
+            labelText: AdminStrings.adminFormLabelContent,
+          ),
           maxLines: 3,
         ),
       ],
@@ -524,19 +703,22 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
       return;
     }
     try {
-      final resp = await _api.post('api/admin/teachers/$teacherId/strategies', body: {
-        'title': titleController.text.trim(),
-        'summary': summaryController.text.trim(),
-        'content': contentController.text.trim(),
-        'status': 'published',
-      });
+      final resp = await _api.post(
+        'api/admin/teachers/$teacherId/strategies',
+        body: {
+          'title': titleController.text.trim(),
+          'summary': summaryController.text.trim(),
+          'content': contentController.text.trim(),
+          'status': 'published',
+        },
+      );
       if (resp.statusCode != 200) {
         throw StateError('新增策略失败(${resp.statusCode})：${resp.body}');
       }
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(AdminStrings.adminSaved)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(AdminStrings.adminSaved)));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -568,39 +750,57 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
       children: [
         TextField(
           controller: assetController,
-          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelAsset),
+          decoration: InputDecoration(
+            labelText: AdminStrings.adminFormLabelAsset,
+          ),
         ),
         TextField(
           controller: buyTimeController,
-          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelBuyTime),
+          decoration: InputDecoration(
+            labelText: AdminStrings.adminFormLabelBuyTime,
+          ),
         ),
         TextField(
           controller: buySharesController,
-          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelBuyShares),
+          decoration: InputDecoration(
+            labelText: AdminStrings.adminFormLabelBuyShares,
+          ),
         ),
         TextField(
           controller: buyPriceController,
-          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelBuyPrice),
+          decoration: InputDecoration(
+            labelText: AdminStrings.adminFormLabelBuyPrice,
+          ),
         ),
         TextField(
           controller: sellTimeController,
-          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelSellTime),
+          decoration: InputDecoration(
+            labelText: AdminStrings.adminFormLabelSellTime,
+          ),
         ),
         TextField(
           controller: sellSharesController,
-          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelSellShares),
+          decoration: InputDecoration(
+            labelText: AdminStrings.adminFormLabelSellShares,
+          ),
         ),
         TextField(
           controller: sellPriceController,
-          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelSellPrice),
+          decoration: InputDecoration(
+            labelText: AdminStrings.adminFormLabelSellPrice,
+          ),
         ),
         TextField(
           controller: pnlRatioController,
-          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelPnlRatio),
+          decoration: InputDecoration(
+            labelText: AdminStrings.adminFormLabelPnlRatio,
+          ),
         ),
         TextField(
           controller: pnlAmountController,
-          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelPnlAmount),
+          decoration: InputDecoration(
+            labelText: AdminStrings.adminFormLabelPnlAmount,
+          ),
         ),
       ],
     );
@@ -608,24 +808,27 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
       return;
     }
     try {
-      final resp = await _api.post('api/admin/teachers/$teacherId/trade-records', body: {
-        'asset': assetController.text.trim(),
-        'buy_time': _toTime(buyTimeController.text),
-        'buy_shares': _toNum(buySharesController.text),
-        'buy_price': _toNum(buyPriceController.text),
-        'sell_time': _toTime(sellTimeController.text),
-        'sell_shares': _toNum(sellSharesController.text),
-        'sell_price': _toNum(sellPriceController.text),
-        'pnl_ratio': _toNum(pnlRatioController.text),
-        'pnl_amount': _toNum(pnlAmountController.text),
-      });
+      final resp = await _api.post(
+        'api/admin/teachers/$teacherId/trade-records',
+        body: {
+          'asset': assetController.text.trim(),
+          'buy_time': _toTime(buyTimeController.text),
+          'buy_shares': _toNum(buySharesController.text),
+          'buy_price': _toNum(buyPriceController.text),
+          'sell_time': _toTime(sellTimeController.text),
+          'sell_shares': _toNum(sellSharesController.text),
+          'sell_price': _toNum(sellPriceController.text),
+          'pnl_ratio': _toNum(pnlRatioController.text),
+          'pnl_amount': _toNum(pnlAmountController.text),
+        },
+      );
       if (resp.statusCode != 200) {
         throw StateError('新增交易记录失败(${resp.statusCode})：${resp.body}');
       }
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(AdminStrings.adminSaved)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(AdminStrings.adminSaved)));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -657,55 +860,79 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
     final children = <Widget>[
       TextField(
         controller: assetController,
-        decoration: InputDecoration(labelText: AdminStrings.adminFormLabelAsset),
+        decoration: InputDecoration(
+          labelText: AdminStrings.adminFormLabelAsset,
+        ),
       ),
       TextField(
         controller: buyTimeController,
-        decoration: InputDecoration(labelText: AdminStrings.adminFormLabelBuyTime),
+        decoration: InputDecoration(
+          labelText: AdminStrings.adminFormLabelBuyTime,
+        ),
       ),
       TextField(
         controller: buySharesController,
-        decoration: InputDecoration(labelText: AdminStrings.adminFormLabelBuyShares),
+        decoration: InputDecoration(
+          labelText: AdminStrings.adminFormLabelBuyShares,
+        ),
       ),
       TextField(
         controller: buyPriceController,
-        decoration: InputDecoration(labelText: AdminStrings.adminFormLabelBuyPrice),
+        decoration: InputDecoration(
+          labelText: AdminStrings.adminFormLabelBuyPrice,
+        ),
       ),
       TextField(
         controller: costPriceController,
-        decoration: InputDecoration(labelText: AdminStrings.adminFormLabelCostPrice),
+        decoration: InputDecoration(
+          labelText: AdminStrings.adminFormLabelCostPrice,
+        ),
       ),
       TextField(
         controller: currentPriceController,
-        decoration: InputDecoration(labelText: AdminStrings.adminFormLabelCurrentPrice),
+        decoration: InputDecoration(
+          labelText: AdminStrings.adminFormLabelCurrentPrice,
+        ),
       ),
       TextField(
         controller: floatingPnlController,
-        decoration: InputDecoration(labelText: AdminStrings.adminFormLabelFloatingPnl),
+        decoration: InputDecoration(
+          labelText: AdminStrings.adminFormLabelFloatingPnl,
+        ),
       ),
       TextField(
         controller: pnlRatioController,
-        decoration: InputDecoration(labelText: AdminStrings.adminFormLabelPnlRatio),
+        decoration: InputDecoration(
+          labelText: AdminStrings.adminFormLabelPnlRatio,
+        ),
       ),
       TextField(
         controller: pnlAmountController,
-        decoration: InputDecoration(labelText: AdminStrings.adminFormLabelPnlAmount),
+        decoration: InputDecoration(
+          labelText: AdminStrings.adminFormLabelPnlAmount,
+        ),
       ),
     ];
     if (isHistory) {
       children.addAll([
         TextField(
           controller: sellTimeController,
-          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelSellTimeHistory),
+          decoration: InputDecoration(
+            labelText: AdminStrings.adminFormLabelSellTimeHistory,
+          ),
         ),
         TextField(
           controller: sellPriceController,
-          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelSellPriceHistory),
+          decoration: InputDecoration(
+            labelText: AdminStrings.adminFormLabelSellPriceHistory,
+          ),
         ),
       ]);
     }
     final confirmed = await _simpleDialog(
-      title: isHistory ? AdminStrings.adminAddHistoryPosition : AdminStrings.adminAddCurrentPosition,
+      title: isHistory
+          ? AdminStrings.adminAddHistoryPosition
+          : AdminStrings.adminAddCurrentPosition,
       children: children,
     );
     if (confirmed != true) {
@@ -730,14 +957,17 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
       payload['sell_price'] = _toNum(sellPriceController.text);
     }
     try {
-      final resp = await _api.post('api/admin/teachers/$teacherId/positions', body: payload);
+      final resp = await _api.post(
+        'api/admin/teachers/$teacherId/positions',
+        body: payload,
+      );
       if (resp.statusCode != 200) {
         throw StateError('新增持仓失败(${resp.statusCode})：${resp.body}');
       }
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(AdminStrings.adminSaved)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(AdminStrings.adminSaved)));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -763,15 +993,21 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
       children: [
         TextField(
           controller: userController,
-          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelUserName),
+          decoration: InputDecoration(
+            labelText: AdminStrings.adminFormLabelUserName,
+          ),
         ),
         TextField(
           controller: contentController,
-          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelContent),
+          decoration: InputDecoration(
+            labelText: AdminStrings.adminFormLabelContent,
+          ),
         ),
         TextField(
           controller: timeController,
-          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelTime),
+          decoration: InputDecoration(
+            labelText: AdminStrings.adminFormLabelTime,
+          ),
         ),
       ],
     );
@@ -779,18 +1015,21 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
       return;
     }
     try {
-      final resp = await _api.post('api/admin/teachers/$teacherId/comments', body: {
-        'user_name': userController.text.trim(),
-        'content': contentController.text.trim(),
-        'comment_time': _toTime(timeController.text),
-      });
+      final resp = await _api.post(
+        'api/admin/teachers/$teacherId/comments',
+        body: {
+          'user_name': userController.text.trim(),
+          'content': contentController.text.trim(),
+          'comment_time': _toTime(timeController.text),
+        },
+      );
       if (resp.statusCode != 200) {
         throw StateError('新增评论失败(${resp.statusCode})：${resp.body}');
       }
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(AdminStrings.adminSaved)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(AdminStrings.adminSaved)));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -816,15 +1055,21 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
       children: [
         TextField(
           controller: titleController,
-          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelTitle),
+          decoration: InputDecoration(
+            labelText: AdminStrings.adminFormLabelTitle,
+          ),
         ),
         TextField(
           controller: summaryController,
-          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelSummary),
+          decoration: InputDecoration(
+            labelText: AdminStrings.adminFormLabelSummary,
+          ),
         ),
         TextField(
           controller: timeController,
-          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelTime),
+          decoration: InputDecoration(
+            labelText: AdminStrings.adminFormLabelTime,
+          ),
         ),
       ],
     );
@@ -832,18 +1077,21 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
       return;
     }
     try {
-      final resp = await _api.post('api/admin/teachers/$teacherId/articles', body: {
-        'title': titleController.text.trim(),
-        'summary': summaryController.text.trim(),
-        'article_time': _toTime(timeController.text),
-      });
+      final resp = await _api.post(
+        'api/admin/teachers/$teacherId/articles',
+        body: {
+          'title': titleController.text.trim(),
+          'summary': summaryController.text.trim(),
+          'article_time': _toTime(timeController.text),
+        },
+      );
       if (resp.statusCode != 200) {
         throw StateError('新增文章失败(${resp.statusCode})：${resp.body}');
       }
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(AdminStrings.adminSaved)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(AdminStrings.adminSaved)));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -869,15 +1117,21 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
       children: [
         TextField(
           controller: titleController,
-          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelTitle),
+          decoration: InputDecoration(
+            labelText: AdminStrings.adminFormLabelTitle,
+          ),
         ),
         TextField(
           controller: timeController,
-          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelTimeSchedule),
+          decoration: InputDecoration(
+            labelText: AdminStrings.adminFormLabelTimeSchedule,
+          ),
         ),
         TextField(
           controller: locationController,
-          decoration: InputDecoration(labelText: AdminStrings.adminFormLabelLocation),
+          decoration: InputDecoration(
+            labelText: AdminStrings.adminFormLabelLocation,
+          ),
         ),
       ],
     );
@@ -885,18 +1139,21 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
       return;
     }
     try {
-      final resp = await _api.post('api/admin/teachers/$teacherId/schedules', body: {
-        'title': titleController.text.trim(),
-        'schedule_time': _toTime(timeController.text),
-        'location': locationController.text.trim(),
-      });
+      final resp = await _api.post(
+        'api/admin/teachers/$teacherId/schedules',
+        body: {
+          'title': titleController.text.trim(),
+          'schedule_time': _toTime(timeController.text),
+          'location': locationController.text.trim(),
+        },
+      );
       if (resp.statusCode != 200) {
         throw StateError('新增日程失败(${resp.statusCode})：${resp.body}');
       }
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(AdminStrings.adminSaved)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(AdminStrings.adminSaved)));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -914,445 +1171,551 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
     final rawItems = _rawItems;
     final filtered = _statusFilter == 'all'
         ? rawItems
-        : rawItems.where((e) => (e.status ?? 'pending') == _statusFilter).toList();
+        : rawItems
+              .where((e) => (e.status ?? 'pending') == _statusFilter)
+              .toList();
     final items = _sortByStatus(filtered);
     return Row(
-          children: [
-            SizedBox(
-              width: 320,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
-                    child: Row(
-                      children: [
-                        Text(
-                          AdminStrings.adminAllTeachers,
-                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                color: const Color(0xFFD4AF37),
-                                fontWeight: FontWeight.w600,
-                              ),
+      children: [
+        SizedBox(
+          width: 320,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+                child: Row(
+                  children: [
+                    Text(
+                      AdminStrings.adminAllTeachers,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: const Color(0xFFD4AF37),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      AdminStrings.adminTeachersCount(_rawItems.length),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.onSurface.withOpacity(0.6),
+                      ),
+                    ),
+                    if (_batchSelectMode) ...[
+                      const SizedBox(width: 8),
+                      Text(
+                        '已勾选 ${_selectedBatchTeacherIds.length}',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: const Color(0xFFD4AF37),
+                          fontWeight: FontWeight.w600,
                         ),
-                        const SizedBox(width: 8),
-                        Text(
-                          AdminStrings.adminTeachersCount(_rawItems.length),
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
-                              ),
+                      ),
+                    ],
+                    const Spacer(),
+                    IconButton(
+                      icon: Icon(
+                        _batchSelectMode
+                            ? Icons.check_box
+                            : Icons.check_box_outline_blank,
+                      ),
+                      onPressed: _loading
+                          ? null
+                          : () {
+                              setState(() {
+                                _batchSelectMode = !_batchSelectMode;
+                                if (!_batchSelectMode) {
+                                  _selectedBatchTeacherIds.clear();
+                                }
+                              });
+                            },
+                      tooltip: _batchSelectMode ? '退出勾选模式' : '进入勾选模式',
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.currency_exchange),
+                      onPressed: _loading
+                          ? null
+                          : () async {
+                              final allApproved = _approvedTeachers(items);
+                              final selectedApproved =
+                                  _selectedApprovedTeachers(items);
+                              if (allApproved.isEmpty) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('当前筛选下没有已通过的交易员可批量重置'),
+                                  ),
+                                );
+                                return;
+                              }
+                              List<TeacherProfile> targets = allApproved;
+                              if (selectedApproved.isNotEmpty) {
+                                final scope =
+                                    await showDialog<String>(
+                                      context: context,
+                                      builder: (ctx) => AlertDialog(
+                                        title: const Text('选择批量重置范围'),
+                                        content: const Text('请选择对哪些交易员执行批量重置'),
+                                        actions: [
+                                          TextButton(
+                                            onPressed: () => Navigator.of(
+                                              ctx,
+                                            ).pop('selected'),
+                                            child: Text(
+                                              '仅勾选项（${selectedApproved.length}）',
+                                            ),
+                                          ),
+                                          FilledButton(
+                                            onPressed: () =>
+                                                Navigator.of(ctx).pop('all'),
+                                            child: Text(
+                                              '当前筛选全部（${allApproved.length}）',
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ) ??
+                                    'all';
+                                targets = scope == 'selected'
+                                    ? selectedApproved
+                                    : allApproved;
+                              }
+                              _batchResetTradingAccountCash(targets);
+                            },
+                      tooltip: '批量重置资金',
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.refresh),
+                      onPressed: _loading ? null : _loadTeachers,
+                      tooltip: AdminStrings.adminRefreshList,
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+                child: Text(
+                  AdminStrings.adminFilterByStatus,
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.onSurface.withOpacity(0.7),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                child: DropdownButtonFormField<String>(
+                  value: _statusFilter,
+                  decoration: const InputDecoration(
+                    isDense: true,
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                  ),
+                  items: [
+                    DropdownMenuItem(
+                      value: 'all',
+                      child: Text(AdminStrings.adminAll),
+                    ),
+                    DropdownMenuItem(
+                      value: 'pending',
+                      child: Text(AdminStrings.adminPendingJustApplied),
+                    ),
+                    DropdownMenuItem(
+                      value: 'approved',
+                      child: Text(AdminStrings.adminApproved),
+                    ),
+                    DropdownMenuItem(
+                      value: 'rejected',
+                      child: Text(AdminStrings.adminRejected),
+                    ),
+                    DropdownMenuItem(
+                      value: 'frozen',
+                      child: Text(AdminStrings.adminFrozen),
+                    ),
+                    DropdownMenuItem(
+                      value: 'blocked',
+                      child: Text(AdminStrings.adminBlocked),
+                    ),
+                  ],
+                  onChanged: (v) {
+                    if (v != null) setState(() => _statusFilter = v);
+                  },
+                ),
+              ),
+              Expanded(
+                child: _loading
+                    ? const Center(
+                        child: CircularProgressIndicator(
+                          color: Color(0xFFD4AF37),
                         ),
-                        if (_batchSelectMode) ...[
-                          const SizedBox(width: 8),
+                      )
+                    : _loadError != null
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.error_outline,
+                                size: 48,
+                                color: Theme.of(context).colorScheme.error,
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                AdminStrings.adminLoadFailed,
+                                style: Theme.of(context).textTheme.titleSmall,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                _loadError ?? '',
+                                style: Theme.of(context).textTheme.bodySmall,
+                                textAlign: TextAlign.center,
+                                maxLines: 3,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 16),
+                              FilledButton.icon(
+                                onPressed: _loadTeachers,
+                                icon: const Icon(Icons.refresh, size: 18),
+                                label: Text(AdminStrings.commonRetry),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    : items.isEmpty
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.people_outline,
+                                size: 56,
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurface.withOpacity(0.4),
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                _statusFilter == 'all'
+                                    ? AdminStrings.adminNoTeachersData
+                                    : AdminStrings.adminNoMatchingData,
+                                style: Theme.of(context).textTheme.bodyMedium
+                                    ?.copyWith(
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.onSurface.withOpacity(0.7),
+                                    ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                _statusFilter == 'all'
+                                    ? AdminStrings.adminConfirmTableData
+                                    : AdminStrings.adminTrySwitchAll,
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.onSurface.withOpacity(0.5),
+                                    ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    : ListView.separated(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        itemCount: items.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
+                        itemBuilder: (context, index) {
+                          final item = items[index];
+                          final name =
+                              item.displayName?.trim().isNotEmpty == true
+                              ? item.displayName!
+                              : (item.realName?.trim().isNotEmpty == true
+                                    ? item.realName!
+                                    : AdminStrings.adminTeacherDefault);
+                          final status = item.status ?? 'pending';
+                          final checked = _selectedBatchTeacherIds.contains(
+                            item.userId,
+                          );
+                          return ListTile(
+                            tileColor: _selectedTeacherId == item.userId
+                                ? const Color(0xFF1A1C20)
+                                : null,
+                            leading: _batchSelectMode
+                                ? Checkbox(
+                                    value: checked,
+                                    onChanged: (v) {
+                                      setState(() {
+                                        if (v == true) {
+                                          _selectedBatchTeacherIds.add(
+                                            item.userId,
+                                          );
+                                        } else {
+                                          _selectedBatchTeacherIds.remove(
+                                            item.userId,
+                                          );
+                                        }
+                                      });
+                                    },
+                                  )
+                                : null,
+                            title: Text(name),
+                            subtitle: Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: _StatusChip(status: status),
+                            ),
+                            onTap: () {
+                              if (_batchSelectMode) {
+                                setState(() {
+                                  if (checked) {
+                                    _selectedBatchTeacherIds.remove(
+                                      item.userId,
+                                    );
+                                  } else {
+                                    _selectedBatchTeacherIds.add(item.userId);
+                                  }
+                                });
+                              } else {
+                                _loadProfile(item);
+                              }
+                            },
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        ),
+        const VerticalDivider(width: 1),
+        Expanded(
+          child: _selectedProfile == null
+              ? Center(child: Text(AdminStrings.adminSelectTeacher))
+              : ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: [
+                    _buildCurrentStatusBar(
+                      context,
+                      _selectedProfile!.status ?? 'pending',
+                    ),
+                    if (_selectedProfile!.status == 'frozen' &&
+                        _selectedProfile!.frozenUntil != null) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.shade900.withOpacity(0.3),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          AdminStrings.adminFrozenUntilLabel(
+                            _formatDate(_selectedProfile!.frozenUntil!),
+                          ),
+                          style: TextStyle(color: Colors.blue.shade200),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFD4AF37).withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: const Color(0xFFD4AF37).withOpacity(0.4),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
                           Text(
-                            '已勾选 ${_selectedBatchTeacherIds.length}',
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            AdminStrings.adminActionsByStatus,
+                            style: Theme.of(context).textTheme.titleSmall
+                                ?.copyWith(
                                   color: const Color(0xFFD4AF37),
                                   fontWeight: FontWeight.w600,
                                 ),
                           ),
+                          const SizedBox(height: 10),
+                          _buildActionButtons(context),
                         ],
-                        const Spacer(),
-                        IconButton(
-                          icon: Icon(
-                            _batchSelectMode
-                                ? Icons.check_box
-                                : Icons.check_box_outline_blank,
-                          ),
-                          onPressed: _loading
-                              ? null
-                              : () {
-                                  setState(() {
-                                    _batchSelectMode = !_batchSelectMode;
-                                    if (!_batchSelectMode) {
-                                      _selectedBatchTeacherIds.clear();
-                                    }
-                                  });
-                                },
-                          tooltip: _batchSelectMode ? '退出勾选模式' : '进入勾选模式',
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.currency_exchange),
-                          onPressed: _loading
-                              ? null
-                              : () async {
-                                  final allApproved = _approvedTeachers(items);
-                                  final selectedApproved =
-                                      _selectedApprovedTeachers(items);
-                                  if (allApproved.isEmpty) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text('当前筛选下没有已通过的交易员可批量重置'),
-                                      ),
-                                    );
-                                    return;
-                                  }
-                                  List<TeacherProfile> targets = allApproved;
-                                  if (selectedApproved.isNotEmpty) {
-                                    final scope =
-                                        await showDialog<String>(
-                                          context: context,
-                                          builder: (ctx) => AlertDialog(
-                                            title: const Text('选择批量重置范围'),
-                                            content: const Text(
-                                              '请选择对哪些交易员执行批量重置',
-                                            ),
-                                            actions: [
-                                              TextButton(
-                                                onPressed: () =>
-                                                    Navigator.of(ctx).pop('selected'),
-                                                child: Text(
-                                                  '仅勾选项（${selectedApproved.length}）',
-                                                ),
-                                              ),
-                                              FilledButton(
-                                                onPressed: () =>
-                                                    Navigator.of(ctx).pop('all'),
-                                                child: Text(
-                                                  '当前筛选全部（${allApproved.length}）',
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ) ??
-                                        'all';
-                                    targets = scope == 'selected'
-                                        ? selectedApproved
-                                        : allApproved;
-                                  }
-                                  _batchResetTradingAccountCash(targets);
-                                },
-                          tooltip: '批量重置资金',
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.refresh),
-                          onPressed: _loading ? null : _loadTeachers,
-                          tooltip: AdminStrings.adminRefreshList,
-                        ),
-                      ],
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
-                    child: Text(
-                      AdminStrings.adminFilterByStatus,
-                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
-                          ),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                    child: DropdownButtonFormField<String>(
-                      value: _statusFilter,
-                      decoration: const InputDecoration(
-                        isDense: true,
-                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       ),
-                      items: [
-                        DropdownMenuItem(value: 'all', child: Text(AdminStrings.adminAll)),
-                        DropdownMenuItem(value: 'pending', child: Text(AdminStrings.adminPendingJustApplied)),
-                        DropdownMenuItem(value: 'approved', child: Text(AdminStrings.adminApproved)),
-                        DropdownMenuItem(value: 'rejected', child: Text(AdminStrings.adminRejected)),
-                        DropdownMenuItem(value: 'frozen', child: Text(AdminStrings.adminFrozen)),
-                        DropdownMenuItem(value: 'blocked', child: Text(AdminStrings.adminBlocked)),
-                      ],
-                      onChanged: (v) {
-                        if (v != null) setState(() => _statusFilter = v);
-                      },
                     ),
-                  ),
-                  Expanded(
-                    child: _loading
-                        ? const Center(child: CircularProgressIndicator(color: Color(0xFFD4AF37)))
-                        : _loadError != null
-                            ? Center(
-                                child: Padding(
-                                  padding: const EdgeInsets.all(24),
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(Icons.error_outline, size: 48, color: Theme.of(context).colorScheme.error),
-                                      const SizedBox(height: 12),
-                                      Text(
-                                        AdminStrings.adminLoadFailed,
-                                        style: Theme.of(context).textTheme.titleSmall,
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        _loadError ?? '',
-                                        style: Theme.of(context).textTheme.bodySmall,
-                                        textAlign: TextAlign.center,
-                                        maxLines: 3,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      const SizedBox(height: 16),
-                                      FilledButton.icon(
-                                        onPressed: _loadTeachers,
-                                        icon: const Icon(Icons.refresh, size: 18),
-                                        label: Text(AdminStrings.commonRetry),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              )
-                            : items.isEmpty
-                                ? Center(
-                                    child: Padding(
-                                      padding: const EdgeInsets.all(24),
-                                      child: Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(
-                                            Icons.people_outline,
-                                            size: 56,
-                                            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
-                                          ),
-                                          const SizedBox(height: 12),
-                                          Text(
-                                            _statusFilter == 'all' ? AdminStrings.adminNoTeachersData : AdminStrings.adminNoMatchingData,
-                                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
-                                                ),
-                                          ),
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            _statusFilter == 'all'
-                                                ? AdminStrings.adminConfirmTableData
-                                                : AdminStrings.adminTrySwitchAll,
-                                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
-                                                ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  )
-                                : ListView.separated(
-                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                    itemCount: items.length,
-                                    separatorBuilder: (_, __) => const SizedBox(height: 8),
-                                    itemBuilder: (context, index) {
-                                      final item = items[index];
-                                      final name = item.displayName?.trim().isNotEmpty == true
-                                          ? item.displayName!
-                                          : (item.realName?.trim().isNotEmpty == true
-                                              ? item.realName!
-                                              : AdminStrings.adminTeacherDefault);
-                                      final status = item.status ?? 'pending';
-                                      final checked = _selectedBatchTeacherIds
-                                          .contains(item.userId);
-                                      return ListTile(
-                                        tileColor: _selectedTeacherId == item.userId
-                                            ? const Color(0xFF1A1C20)
-                                            : null,
-                                        leading: _batchSelectMode
-                                            ? Checkbox(
-                                                value: checked,
-                                                onChanged: (v) {
-                                                  setState(() {
-                                                    if (v == true) {
-                                                      _selectedBatchTeacherIds
-                                                          .add(item.userId);
-                                                    } else {
-                                                      _selectedBatchTeacherIds
-                                                          .remove(item.userId);
-                                                    }
-                                                  });
-                                                },
-                                              )
-                                            : null,
-                                        title: Text(name),
-                                        subtitle: Padding(
-                                          padding: const EdgeInsets.only(top: 4),
-                                          child: _StatusChip(status: status),
-                                        ),
-                                        onTap: () {
-                                          if (_batchSelectMode) {
-                                            setState(() {
-                                              if (checked) {
-                                                _selectedBatchTeacherIds
-                                                    .remove(item.userId);
-                                              } else {
-                                                _selectedBatchTeacherIds
-                                                    .add(item.userId);
-                                              }
-                                            });
-                                          } else {
-                                            _loadProfile(item);
-                                          }
-                                        },
-                                      );
-                                    },
-                                  ),
-                  ),
-                ],
-              ),
-            ),
-            const VerticalDivider(width: 1),
-            Expanded(
-              child: _selectedProfile == null
-                  ? Center(child: Text(AdminStrings.adminSelectTeacher))
-                  : ListView(
-                      padding: const EdgeInsets.all(16),
+                    const SizedBox(height: 16),
+                    _buildSectionTitle(AdminStrings.adminBasicInfo),
+                    _textField(
+                      _displayNameController,
+                      AdminStrings.adminDisplayName,
+                    ),
+                    _textField(_realNameController, AdminStrings.adminRealName),
+                    _textField(
+                      _titleController,
+                      AdminStrings.adminTitlePosition,
+                    ),
+                    _textField(_orgController, AdminStrings.adminOrg),
+                    _textField(
+                      _bioController,
+                      AdminStrings.adminBio,
+                      maxLines: 3,
+                    ),
+                    _textField(_tagsController, AdminStrings.adminTags),
+                    const SizedBox(height: 16),
+                    _buildSectionTitle(AdminStrings.adminReviewCredentials),
+                    _readOnlyRow(
+                      AdminStrings.adminLicenseNo,
+                      _selectedProfile!.licenseNo,
+                    ),
+                    _readOnlyRow(
+                      AdminStrings.adminCertifications,
+                      _selectedProfile!.certifications,
+                    ),
+                    _readOnlyRow(
+                      AdminStrings.adminMarkets,
+                      _selectedProfile!.markets,
+                    ),
+                    _readOnlyRow(
+                      AdminStrings.adminStyle,
+                      _selectedProfile!.style,
+                    ),
+                    _readOnlyRow(
+                      AdminStrings.adminBroker,
+                      _selectedProfile!.broker,
+                    ),
+                    _readOnlyRow(
+                      AdminStrings.adminCountry,
+                      _selectedProfile!.country,
+                    ),
+                    _readOnlyRow(
+                      AdminStrings.adminCity,
+                      _selectedProfile!.city,
+                    ),
+                    _readOnlyRow(
+                      AdminStrings.adminYearsExperience,
+                      _selectedProfile!.yearsExperience?.toString(),
+                    ),
+                    if (_selectedProfile!.trackRecord != null &&
+                        _selectedProfile!.trackRecord!.trim().isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              AdminStrings.adminPerformanceLabel,
+                              style: Theme.of(context).textTheme.labelLarge,
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _selectedProfile!.trackRecord!,
+                              style: Theme.of(context).textTheme.bodyMedium,
+                              maxLines: 5,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                    const SizedBox(height: 8),
+                    Text(
+                      AdminStrings.adminIdPhotoLabel,
+                      style: Theme.of(context).textTheme.labelLarge,
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
                       children: [
-                        _buildCurrentStatusBar(context, _selectedProfile!.status ?? 'pending'),
-                        if (_selectedProfile!.status == 'frozen' &&
-                            _selectedProfile!.frozenUntil != null) ...[
-                          const SizedBox(height: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: Colors.blue.shade900.withOpacity(0.3),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              AdminStrings.adminFrozenUntilLabel(_formatDate(_selectedProfile!.frozenUntil!)),
-                              style: TextStyle(color: Colors.blue.shade200),
-                            ),
-                          ),
-                        ],
-                        const SizedBox(height: 16),
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFD4AF37).withOpacity(0.08),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: const Color(0xFFD4AF37).withOpacity(0.4)),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                AdminStrings.adminActionsByStatus,
-                                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                                      color: const Color(0xFFD4AF37),
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                              ),
-                              const SizedBox(height: 10),
-                              _buildActionButtons(context),
-                            ],
-                          ),
+                        _photoCard(
+                          context,
+                          AdminStrings.adminIdPhoto,
+                          _selectedProfile!.idPhotoUrl,
                         ),
-                        const SizedBox(height: 16),
-                        _buildSectionTitle(AdminStrings.adminBasicInfo),
-                        _textField(_displayNameController, AdminStrings.adminDisplayName),
-                        _textField(_realNameController, AdminStrings.adminRealName),
-                        _textField(_titleController, AdminStrings.adminTitlePosition),
-                        _textField(_orgController, AdminStrings.adminOrg),
-                        _textField(_bioController, AdminStrings.adminBio, maxLines: 3),
-                        _textField(_tagsController, AdminStrings.adminTags),
-                        const SizedBox(height: 16),
-                        _buildSectionTitle(AdminStrings.adminReviewCredentials),
-                        _readOnlyRow(AdminStrings.adminLicenseNo, _selectedProfile!.licenseNo),
-                        _readOnlyRow(AdminStrings.adminCertifications, _selectedProfile!.certifications),
-                        _readOnlyRow(AdminStrings.adminMarkets, _selectedProfile!.markets),
-                        _readOnlyRow(AdminStrings.adminStyle, _selectedProfile!.style),
-                        _readOnlyRow(AdminStrings.adminBroker, _selectedProfile!.broker),
-                        _readOnlyRow(AdminStrings.adminCountry, _selectedProfile!.country),
-                        _readOnlyRow(AdminStrings.adminCity, _selectedProfile!.city),
-                        _readOnlyRow(AdminStrings.adminYearsExperience, _selectedProfile!.yearsExperience?.toString()),
-                        if (_selectedProfile!.trackRecord != null &&
-                            _selectedProfile!.trackRecord!.trim().isNotEmpty)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(AdminStrings.adminPerformanceLabel,
-                                    style: Theme.of(context).textTheme.labelLarge),
-                                const SizedBox(height: 4),
-                                Text(
-                                  _selectedProfile!.trackRecord!,
-                                  style: Theme.of(context).textTheme.bodyMedium,
-                                  maxLines: 5,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ],
-                            ),
-                          ),
-                        const SizedBox(height: 8),
-                        Text(AdminStrings.adminIdPhotoLabel,
-                            style: Theme.of(context).textTheme.labelLarge),
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 12,
-                          runSpacing: 12,
-                          children: [
-                            _photoCard(
-                              context,
-                              AdminStrings.adminIdPhoto,
-                              _selectedProfile!.idPhotoUrl,
-                            ),
-                            _photoCard(
-                              context,
-                              AdminStrings.adminLicensePhoto,
-                              _selectedProfile!.licensePhotoUrl,
-                            ),
-                            _photoCard(
-                              context,
-                              AdminStrings.adminCertificationPhoto,
-                              _selectedProfile!.certificationPhotoUrl,
-                            ),
-                          ],
+                        _photoCard(
+                          context,
+                          AdminStrings.adminLicensePhoto,
+                          _selectedProfile!.licensePhotoUrl,
                         ),
-                        const SizedBox(height: 12),
-                        _buildSectionTitle(AdminStrings.adminPerformanceSection),
-                        _textField(_winsController, AdminStrings.adminWins),
-                        _textField(_lossesController, AdminStrings.adminLosses),
-                        _textField(_ratingController, AdminStrings.adminRating),
-                        _textField(_todayStrategyController, AdminStrings.adminTodayStrategy,
-                            maxLines: 3),
-                        _textField(_pnlCurrentController, AdminStrings.adminPnlCurrent),
-                        _textField(_pnlMonthController, AdminStrings.adminPnlMonth),
-                        _textField(_pnlYearController, AdminStrings.adminPnlYear),
-                        _textField(_pnlTotalController, AdminStrings.adminPnlTotal),
-                        const SizedBox(height: 12),
-                        FilledButton(
-                          onPressed: _saveProfile,
-                          child: Text(AdminStrings.adminSaveProfile),
-                        ),
-                        const SizedBox(height: 20),
-                        _buildSectionTitle(AdminStrings.adminContentManagement),
-                        Wrap(
-                          spacing: 12,
-                          runSpacing: 12,
-                          children: [
-                            OutlinedButton(
-                              onPressed: _addStrategy,
-                              child: Text(AdminStrings.adminAddStrategy),
-                            ),
-                            OutlinedButton(
-                              onPressed: _addTradeRecord,
-                              child: Text(AdminStrings.adminAddTradeRecord),
-                            ),
-                            OutlinedButton(
-                              onPressed: () => _addPosition(isHistory: false),
-                              child: Text(AdminStrings.adminAddCurrentPosition),
-                            ),
-                            OutlinedButton(
-                              onPressed: () => _addPosition(isHistory: true),
-                              child: Text(AdminStrings.adminAddHistoryPosition),
-                            ),
-                            OutlinedButton(
-                              onPressed: _addComment,
-                              child: Text(AdminStrings.adminAddComment),
-                            ),
-                            OutlinedButton(
-                              onPressed: _addArticle,
-                              child: Text(AdminStrings.adminAddArticle),
-                            ),
-                            OutlinedButton(
-                              onPressed: _addSchedule,
-                              child: Text(AdminStrings.adminAddSchedule),
-                            ),
-                          ],
+                        _photoCard(
+                          context,
+                          AdminStrings.adminCertificationPhoto,
+                          _selectedProfile!.certificationPhotoUrl,
                         ),
                       ],
                     ),
-            ),
-          ],
-        );
+                    const SizedBox(height: 12),
+                    _buildSectionTitle(AdminStrings.adminPerformanceSection),
+                    _textField(_winsController, AdminStrings.adminWins),
+                    _textField(_lossesController, AdminStrings.adminLosses),
+                    _textField(_ratingController, AdminStrings.adminRating),
+                    _textField(
+                      _todayStrategyController,
+                      AdminStrings.adminTodayStrategy,
+                      maxLines: 3,
+                    ),
+                    _textField(
+                      _pnlCurrentController,
+                      AdminStrings.adminPnlCurrent,
+                    ),
+                    _textField(_pnlMonthController, AdminStrings.adminPnlMonth),
+                    _textField(_pnlYearController, AdminStrings.adminPnlYear),
+                    _textField(_pnlTotalController, AdminStrings.adminPnlTotal),
+                    const SizedBox(height: 12),
+                    FilledButton(
+                      onPressed: _saveProfile,
+                      child: Text(AdminStrings.adminSaveProfile),
+                    ),
+                    const SizedBox(height: 20),
+                    _buildSectionTitle(AdminStrings.adminContentManagement),
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      children: [
+                        OutlinedButton(
+                          onPressed: _addStrategy,
+                          child: Text(AdminStrings.adminAddStrategy),
+                        ),
+                        OutlinedButton(
+                          onPressed: _addTradeRecord,
+                          child: Text(AdminStrings.adminAddTradeRecord),
+                        ),
+                        OutlinedButton(
+                          onPressed: () => _addPosition(isHistory: false),
+                          child: Text(AdminStrings.adminAddCurrentPosition),
+                        ),
+                        OutlinedButton(
+                          onPressed: () => _addPosition(isHistory: true),
+                          child: Text(AdminStrings.adminAddHistoryPosition),
+                        ),
+                        OutlinedButton(
+                          onPressed: _addComment,
+                          child: Text(AdminStrings.adminAddComment),
+                        ),
+                        OutlinedButton(
+                          onPressed: _addArticle,
+                          child: Text(AdminStrings.adminAddArticle),
+                        ),
+                        OutlinedButton(
+                          onPressed: _addSchedule,
+                          child: Text(AdminStrings.adminAddSchedule),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+        ),
+      ],
+    );
   }
 
   Widget _readOnlyRow(String label, String? value) {
@@ -1366,8 +1729,8 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
             child: Text(
               label,
               style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
-                  ),
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+              ),
             ),
           ),
           Expanded(
@@ -1395,9 +1758,9 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
           const SizedBox(height: 8),
           Text(
             label,
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: const Color(0xFFD4AF37),
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.labelSmall?.copyWith(color: const Color(0xFFD4AF37)),
           ),
           const SizedBox(height: 6),
           InkWell(
@@ -1407,13 +1770,19 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
                       context: context,
                       builder: (_) => Dialog(
                         child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 520, maxHeight: 420),
+                          constraints: const BoxConstraints(
+                            maxWidth: 520,
+                            maxHeight: 420,
+                          ),
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Padding(
                                 padding: const EdgeInsets.all(8),
-                                child: Text(label, style: Theme.of(context).textTheme.titleSmall),
+                                child: Text(
+                                  label,
+                                  style: Theme.of(context).textTheme.titleSmall,
+                                ),
                               ),
                               SizedBox(
                                 height: 360,
@@ -1421,11 +1790,10 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
                                   child: Image.network(
                                     url,
                                     fit: BoxFit.contain,
-                                    errorBuilder: (_, __, ___) =>
-                                        Padding(
-                                          padding: const EdgeInsets.all(24),
-                                          child: Text(AdminStrings.adminLoadFailed),
-                                        ),
+                                    errorBuilder: (_, __, ___) => Padding(
+                                      padding: const EdgeInsets.all(24),
+                                      child: Text(AdminStrings.adminLoadFailed),
+                                    ),
                                   ),
                                 ),
                               ),
@@ -1450,12 +1818,16 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
                       child: Image.network(
                         url,
                         fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) =>
-                            const Center(child: Icon(Icons.broken_image_outlined)),
+                        errorBuilder: (_, __, ___) => const Center(
+                          child: Icon(Icons.broken_image_outlined),
+                        ),
                       ),
                     )
                   : Center(
-                      child: Text(AdminStrings.adminNotUploaded, style: const TextStyle(fontSize: 12)),
+                      child: Text(
+                        AdminStrings.adminNotUploaded,
+                        style: const TextStyle(fontSize: 12),
+                      ),
                     ),
             ),
           ),
@@ -1479,9 +1851,9 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
         children: [
           Text(
             AdminStrings.adminReviewActions,
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  color: const Color(0xFFD4AF37),
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.titleSmall?.copyWith(color: const Color(0xFFD4AF37)),
           ),
           const SizedBox(height: 8),
           Row(
@@ -1492,7 +1864,11 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
               ),
               const SizedBox(width: 10),
               OutlinedButton(
-                onPressed: () => _confirmStatus('rejected', AdminStrings.adminReject, AdminStrings.adminConfirmReject),
+                onPressed: () => _confirmStatus(
+                  'rejected',
+                  AdminStrings.adminReject,
+                  AdminStrings.adminConfirmReject,
+                ),
                 child: Text(AdminStrings.adminReject),
               ),
             ],
@@ -1506,9 +1882,9 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
         children: [
           Text(
             AdminStrings.adminDispose,
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  color: const Color(0xFFD4AF37),
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.titleSmall?.copyWith(color: const Color(0xFFD4AF37)),
           ),
           const SizedBox(height: 8),
           Wrap(
@@ -1526,7 +1902,11 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
               ),
               const SizedBox(width: 10),
               OutlinedButton.icon(
-                onPressed: () => _confirmStatus('blocked', AdminStrings.adminBan, AdminStrings.adminConfirmBlock),
+                onPressed: () => _confirmStatus(
+                  'blocked',
+                  AdminStrings.adminBan,
+                  AdminStrings.adminConfirmBlock,
+                ),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: Colors.red.shade300,
                   side: BorderSide(color: Colors.red.shade300),
@@ -1543,6 +1923,15 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
                 icon: const Icon(Icons.account_balance_wallet, size: 18),
                 label: const Text('重置模拟盘资金'),
               ),
+              OutlinedButton.icon(
+                onPressed: _adjustTradingBalance,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFFD4AF37),
+                  side: const BorderSide(color: Color(0xFFD4AF37)),
+                ),
+                icon: const Icon(Icons.currency_exchange, size: 18),
+                label: const Text('账户上分/下分'),
+              ),
             ],
           ),
         ],
@@ -1554,9 +1943,9 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
         children: [
           Text(
             AdminStrings.adminReviewActionsShort,
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  color: const Color(0xFFD4AF37),
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.titleSmall?.copyWith(color: const Color(0xFFD4AF37)),
           ),
           const SizedBox(height: 8),
           Row(
@@ -1581,9 +1970,9 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
         children: [
           Text(
             AdminStrings.adminDispose,
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  color: const Color(0xFFD4AF37),
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.titleSmall?.copyWith(color: const Color(0xFFD4AF37)),
           ),
           const SizedBox(height: 8),
           SizedBox(
@@ -1607,6 +1996,15 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
               label: const Text('重置模拟盘资金'),
             ),
           ),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 44,
+            child: OutlinedButton.icon(
+              onPressed: _adjustTradingBalance,
+              icon: const Icon(Icons.currency_exchange, size: 18),
+              label: const Text('账户上分/下分'),
+            ),
+          ),
         ],
       );
     }
@@ -1616,9 +2014,9 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
         children: [
           Text(
             AdminStrings.adminDispose,
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  color: const Color(0xFFD4AF37),
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.titleSmall?.copyWith(color: const Color(0xFFD4AF37)),
           ),
           const SizedBox(height: 8),
           SizedBox(
@@ -1642,6 +2040,15 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
               label: const Text('重置模拟盘资金'),
             ),
           ),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 44,
+            child: OutlinedButton.icon(
+              onPressed: _adjustTradingBalance,
+              icon: const Icon(Icons.currency_exchange, size: 18),
+              label: const Text('账户上分/下分'),
+            ),
+          ),
         ],
       );
     }
@@ -1657,12 +2064,18 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
   Widget _buildCurrentStatusBar(BuildContext context, String status) {
     final label = _getStatusLabel(context, status);
     Color bgColor;
-    if (status == 'pending') bgColor = Colors.orange.shade900;
-    else if (status == 'approved') bgColor = Colors.green.shade900;
-    else if (status == 'rejected') bgColor = Colors.grey.shade800;
-    else if (status == 'frozen') bgColor = Colors.blue.shade900;
-    else if (status == 'blocked') bgColor = Colors.red.shade900;
-    else bgColor = Colors.grey.shade800;
+    if (status == 'pending')
+      bgColor = Colors.orange.shade900;
+    else if (status == 'approved')
+      bgColor = Colors.green.shade900;
+    else if (status == 'rejected')
+      bgColor = Colors.grey.shade800;
+    else if (status == 'frozen')
+      bgColor = Colors.blue.shade900;
+    else if (status == 'blocked')
+      bgColor = Colors.red.shade900;
+    else
+      bgColor = Colors.grey.shade800;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
@@ -1675,16 +2088,16 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
           Text(
             AdminStrings.adminCurrentStatus,
             style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.8),
-                ),
+              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.8),
+            ),
           ),
           const SizedBox(width: 8),
           Text(
             label,
             style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  color: const Color(0xFFD4AF37),
-                  fontWeight: FontWeight.w600,
-                ),
+              color: const Color(0xFFD4AF37),
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ],
       ),
@@ -1694,15 +2107,15 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
   Widget _buildSectionTitle(String text) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
-      child: Text(
-        text,
-        style: Theme.of(context).textTheme.titleMedium,
-      ),
+      child: Text(text, style: Theme.of(context).textTheme.titleMedium),
     );
   }
 
-  Widget _textField(TextEditingController controller, String label,
-      {int maxLines = 1}) {
+  Widget _textField(
+    TextEditingController controller,
+    String label, {
+    int maxLines = 1,
+  }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: TextField(
@@ -1722,9 +2135,7 @@ class _AdminTeacherPanelState extends State<AdminTeacherPanel> {
       builder: (context) {
         return AlertDialog(
           title: Text(title),
-          content: SingleChildScrollView(
-            child: Column(children: children),
-          ),
+          content: SingleChildScrollView(child: Column(children: children)),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
@@ -1768,20 +2179,37 @@ class _StatusChip extends StatelessWidget {
     // AdminStrings used directly
     String label;
     switch (status) {
-      case 'pending': label = AdminStrings.adminPending; break;
-      case 'approved': label = AdminStrings.adminApproved; break;
-      case 'rejected': label = AdminStrings.adminRejected; break;
-      case 'frozen': label = AdminStrings.adminFrozen; break;
-      case 'blocked': label = AdminStrings.adminBlocked; break;
-      default: label = status;
+      case 'pending':
+        label = AdminStrings.adminPending;
+        break;
+      case 'approved':
+        label = AdminStrings.adminApproved;
+        break;
+      case 'rejected':
+        label = AdminStrings.adminRejected;
+        break;
+      case 'frozen':
+        label = AdminStrings.adminFrozen;
+        break;
+      case 'blocked':
+        label = AdminStrings.adminBlocked;
+        break;
+      default:
+        label = status;
     }
     Color color;
-    if (status == 'pending') color = Colors.orange;
-    else if (status == 'approved') color = Colors.green;
-    else if (status == 'rejected') color = Colors.grey;
-    else if (status == 'frozen') color = Colors.blue;
-    else if (status == 'blocked') color = Colors.red;
-    else color = Colors.grey;
+    if (status == 'pending')
+      color = Colors.orange;
+    else if (status == 'approved')
+      color = Colors.green;
+    else if (status == 'rejected')
+      color = Colors.grey;
+    else if (status == 'frozen')
+      color = Colors.blue;
+    else if (status == 'blocked')
+      color = Colors.red;
+    else
+      color = Colors.grey;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
