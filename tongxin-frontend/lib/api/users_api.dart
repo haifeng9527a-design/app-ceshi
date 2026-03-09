@@ -49,9 +49,17 @@ class UsersApi {
   }
 
   /// POST /api/device-tokens
-  Future<void> saveDeviceToken({required String token, required String platform}) async {
+  Future<void> saveDeviceToken({
+    required String token,
+    required String platform,
+    Map<String, dynamic>? metadata,
+  }) async {
     if (!_api.isAvailable) return;
-    await _api.post('api/device-tokens', body: {'token': token, 'platform': platform});
+    await _api.post('api/device-tokens', body: {
+      'token': token,
+      'platform': platform,
+      if (metadata != null) ...metadata,
+    });
   }
 
   /// GET /api/user-profiles/batch

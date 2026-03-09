@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:io';
 
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -11,7 +13,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_app_badger/flutter_app_badger.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:getuiflut/getuiflut.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../features/call/agora_call_page.dart';
 import '../features/call/agora_config.dart';
@@ -43,10 +47,8 @@ class NotificationService {
   /// Android ForegroundService + CallStyle 来电通道（华为/小米/Android 12+ 后台弹出来电）
   static const _callChannel = MethodChannel('teacherhub.call');
 
-  /// 当前正在看的会话 ID（在聊天详情页时设置），用于前台收到该会话消息时不弹通知
-  static String? _currentConversationId;
-
   static bool _initialized = false;
+  static const String _pushDeviceIdPrefsKey = 'push_device_id';
 
   /// 是否已完成推送初始化（用于应用恢复时若未初始化则重试）
   static bool get isInitialized => _initialized;
@@ -57,7 +59,8 @@ class NotificationService {
 
   /// 聊天详情页在 initState 时调用，dispose 时传 null
   static void setCurrentConversationId(String? conversationId) {
-    _currentConversationId = conversationId;
+    // 保留调用点，后续如需恢复按会话过滤通知可直接接回。
+    final _ = conversationId;
   }
 
   /// Android 14+ 是否已授予「全屏意图」权限，未授予时来电只显示横幅不弹全屏接听界面
@@ -315,13 +318,6 @@ class NotificationService {
       return;
     }
 
-    final conversationId = data['conversationId']?.toString().trim() ?? '';
-    if (conversationId.isNotEmpty && conversationId == _currentConversationId) {
-      try {
-        await refreshBadgeFromUnread();
-      } catch (_) {}
-      return;
-    }
     final notification = message.notification;
     String title = notification?.title ?? '新消息';
     String body = notification?.body ?? '';
@@ -371,6 +367,81 @@ class NotificationService {
     await _saveDeviceToken(token: token, platform: 'fcm');
   }
 
+  static Future<String> _getOrCreatePushDeviceId() async {
+    final prefs = await SharedPreferences.getInstance();
+    final existing = prefs.getString(_pushDeviceIdPrefsKey)?.trim();
+    if (existing != null && existing.isNotEmpty) return existing;
+    final random = math.Random.secure();
+    final generated =
+        'push-${DateTime.now().microsecondsSinceEpoch}-${random.nextInt(1 << 32)}';
+    await prefs.setString(_pushDeviceIdPrefsKey, generated);
+    return generated;
+  }
+
+  static String _guessPreferredPushProvider({
+    required String registeredPlatform,
+    String? manufacturer,
+    String? brand,
+  }) {
+    final m = (manufacturer ?? '').toLowerCase();
+    final b = (brand ?? '').toLowerCase();
+    final isHuaweiLike = m.contains('huawei') ||
+        m.contains('honor') ||
+        b.contains('huawei') ||
+        b.contains('honor');
+    if (registeredPlatform == 'getui') return 'getui';
+    if (registeredPlatform == 'fcm' && !isHuaweiLike) return 'fcm';
+    return isHuaweiLike ? 'getui' : registeredPlatform;
+  }
+
+  static Future<Map<String, dynamic>> _buildDeviceTokenMetadata(
+      String platform) async {
+    final package = await PackageInfo.fromPlatform();
+    final deviceId = await _getOrCreatePushDeviceId();
+    String? manufacturer;
+    String? brand;
+    String? model;
+    String? osName = Platform.operatingSystem;
+    String? osVersion = Platform.operatingSystemVersion;
+
+    if (!kIsWeb) {
+      final deviceInfo = DeviceInfoPlugin();
+      if (Platform.isAndroid) {
+        final info = await deviceInfo.androidInfo;
+        manufacturer = info.manufacturer.trim();
+        brand = info.brand.trim();
+        model = info.model.trim();
+        osName = 'android';
+        osVersion = info.version.release;
+      } else if (Platform.isIOS) {
+        final info = await deviceInfo.iosInfo;
+        manufacturer = 'apple';
+        brand = 'apple';
+        model = info.utsname.machine.trim();
+        osName = 'ios';
+        osVersion = info.systemVersion.trim();
+      }
+    }
+
+    return {
+      'device_id': deviceId,
+      'manufacturer': manufacturer,
+      'brand': brand,
+      'model': model,
+      'os_name': osName,
+      'os_version': osVersion,
+      'app_version': package.version,
+      'app_build': package.buildNumber,
+      'preferred_push_provider': _guessPreferredPushProvider(
+        registeredPlatform: platform,
+        manufacturer: manufacturer,
+        brand: brand,
+      ),
+      'supports_fcm': Platform.isAndroid || Platform.isIOS,
+      'supports_getui': Platform.isAndroid,
+    };
+  }
+
   static Future<void> _saveDeviceToken({
     required String token,
     required String platform,
@@ -385,7 +456,17 @@ class NotificationService {
       return;
     }
     debugPrint('[通知] 保存 device_token 走后端: platform=$platform userId=$userId');
-    await UsersApi.instance.saveDeviceToken(token: token, platform: platform);
+    try {
+      final metadata = await _buildDeviceTokenMetadata(platform);
+      await UsersApi.instance.saveDeviceToken(
+        token: token,
+        platform: platform,
+        metadata: metadata,
+      );
+    } catch (e) {
+      debugPrint('[通知] 采集设备信息失败，降级为基础 token 保存: $e');
+      await UsersApi.instance.saveDeviceToken(token: token, platform: platform);
+    }
   }
 
   static Future<void> _initGetui() async {
@@ -490,19 +571,8 @@ class NotificationService {
           if (d is Map<String, dynamic>) decodedPayload = d;
         } catch (_) {}
       }
-      // 来电类：不参与「当前会话不弹通知」逻辑，且使用来电渠道
+      // 来电类使用来电渠道；普通消息在前台/会话页也继续显示系统通知。
       final isCallInvitation = decodedPayload?['messageType']?.toString() == 'call_invitation';
-      if (!isCallInvitation) {
-        final conversationId = decodedPayload?['conversationId']?.toString().trim();
-        if (conversationId != null &&
-            conversationId.isNotEmpty &&
-            conversationId == _currentConversationId) {
-          try {
-            await refreshBadgeFromUnread();
-          } catch (_) {}
-          return;
-        }
-      }
       String title = '新消息';
       String body = '你收到一条新消息';
       if (message['title'] is String) title = message['title'] as String;

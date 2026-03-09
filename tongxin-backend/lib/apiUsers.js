@@ -4,6 +4,75 @@
  */
 const supabaseClient = require('./supabaseClient');
 
+function normalizeNullableString(value, maxLen = 255) {
+  if (value == null) return null;
+  const s = String(value).trim();
+  if (!s) return null;
+  return s.slice(0, maxLen);
+}
+
+function normalizeNullableBool(value) {
+  if (value === true || value === false) return value;
+  if (value == null) return null;
+  const s = String(value).trim().toLowerCase();
+  if (!s) return null;
+  if (['true', '1', 'yes'].includes(s)) return true;
+  if (['false', '0', 'no'].includes(s)) return false;
+  return null;
+}
+
+async function saveLegacyDeviceToken(sb, payload) {
+  const platform = String(payload.platform || 'unknown').trim();
+  const { data: existing, error: selectError } = await sb
+    .from('device_tokens')
+    .select('user_id, platform')
+    .eq('user_id', payload.user_id)
+    .eq('platform', platform)
+    .limit(1)
+    .maybeSingle();
+  if (selectError) throw new Error(selectError.message);
+  if (existing) {
+    const { error } = await sb
+      .from('device_tokens')
+      .update(payload)
+      .eq('user_id', payload.user_id)
+      .eq('platform', platform);
+    if (error) throw new Error(error.message);
+    return;
+  }
+  const { error } = await sb.from('device_tokens').insert(payload);
+  if (error) throw new Error(error.message);
+}
+
+async function saveDeviceAwareToken(sb, payload) {
+  const deviceId = String(payload.device_id || '').trim();
+  if (!deviceId) {
+    await saveLegacyDeviceToken(sb, payload);
+    return;
+  }
+  const { data: existing, error: selectError } = await sb
+    .from('device_tokens')
+    .select('user_id, device_id, platform')
+    .eq('user_id', payload.user_id)
+    .eq('device_id', deviceId)
+    .eq('platform', payload.platform)
+    .limit(1)
+    .maybeSingle();
+  if (selectError) throw new Error(selectError.message);
+  if (existing) {
+    const { error } = await sb
+      .from('device_tokens')
+      .update(payload)
+      .eq('user_id', payload.user_id)
+      .eq('device_id', deviceId)
+      .eq('platform', payload.platform);
+    if (error) throw new Error(error.message);
+    return;
+  }
+  const { error } = await sb.from('device_tokens').insert(payload);
+  if (error) throw new Error(error.message);
+}
+
 async function isAdminUser(sb, uid) {
   const { data, error } = await sb.from('user_profiles').select('role').eq('user_id', uid).maybeSingle();
   if (error) throw new Error(error.message);
@@ -330,18 +399,57 @@ function registerUserRoutes(app, requireAuth) {
   app.post('/api/device-tokens', requireAuth, async (req, res) => {
     const uid = req.firebaseUid;
     if (!uid) return res.status(401).json({ error: '未鉴权' });
-    const { token, platform } = req.body || {};
+    const {
+      token,
+      platform,
+      device_id,
+      manufacturer,
+      brand,
+      model,
+      os_name,
+      os_version,
+      app_version,
+      app_build,
+      preferred_push_provider,
+      supports_fcm,
+      supports_getui,
+    } = req.body || {};
     if (!token || typeof token !== 'string') return res.status(400).json({ error: 'missing token' });
     const sb = supabase();
     if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
     try {
-      const { error } = await sb.from('device_tokens').upsert({
+      const nowIso = new Date().toISOString();
+      const basePayload = {
         user_id: uid,
         token: token.trim(),
         platform: (platform || 'unknown').toString().trim(),
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'user_id,platform' });
-      if (error) return res.status(502).json({ error: error.message });
+        updated_at: nowIso,
+      };
+      const deviceAwarePayload = {
+        ...basePayload,
+        device_id: normalizeNullableString(device_id, 128),
+        manufacturer: normalizeNullableString(manufacturer),
+        brand: normalizeNullableString(brand),
+        model: normalizeNullableString(model),
+        os_name: normalizeNullableString(os_name, 64),
+        os_version: normalizeNullableString(os_version, 128),
+        app_version: normalizeNullableString(app_version, 64),
+        app_build: normalizeNullableString(app_build, 64),
+        preferred_push_provider: normalizeNullableString(preferred_push_provider, 32),
+        supports_fcm: normalizeNullableBool(supports_fcm),
+        supports_getui: normalizeNullableBool(supports_getui),
+      };
+
+      try {
+        await saveDeviceAwareToken(sb, deviceAwarePayload);
+      } catch (deviceAwareError) {
+        console.warn('[api/device-tokens] device-aware save failed, fallback to legacy schema:', deviceAwareError.message);
+        try {
+          await saveLegacyDeviceToken(sb, basePayload);
+        } catch (legacyError) {
+          return res.status(502).json({ error: String(legacyError.message || legacyError) });
+        }
+      }
       res.json({ ok: true });
     } catch (e) {
       res.status(502).json({ error: String(e.message || e) });

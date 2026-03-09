@@ -22,6 +22,23 @@ type ServiceAccount = {
   private_key: string;
 };
 
+type DeviceTokenRow = {
+  token: string;
+  platform: string;
+  device_id?: string | null;
+  manufacturer?: string | null;
+  brand?: string | null;
+  model?: string | null;
+  os_name?: string | null;
+  os_version?: string | null;
+  app_version?: string | null;
+  app_build?: string | null;
+  preferred_push_provider?: string | null;
+  supports_fcm?: boolean | null;
+  supports_getui?: boolean | null;
+  updated_at?: string | null;
+};
+
 const supabaseUrl = Deno.env.get("SB_URL") ?? "";
 const supabaseKey = Deno.env.get("SB_SERVICE_ROLE_KEY") ?? "";
 const serviceAccountBase64 =
@@ -97,6 +114,87 @@ async function getGetuiToken(): Promise<string> {
   return json.data.token as string;
 }
 
+function normalizeProvider(platform: string | null | undefined): "fcm" | "getui" {
+  return String(platform || "").trim().toLowerCase() === "getui" ? "getui" : "fcm";
+}
+
+function parseTime(value: string | null | undefined): number {
+  if (!value) return 0;
+  const ts = Date.parse(value);
+  return Number.isFinite(ts) ? ts : 0;
+}
+
+function isHuaweiLike(row: DeviceTokenRow): boolean {
+  const manufacturer = String(row.manufacturer || "").toLowerCase();
+  const brand = String(row.brand || "").toLowerCase();
+  return manufacturer.includes("huawei") ||
+    manufacturer.includes("honor") ||
+    brand.includes("huawei") ||
+    brand.includes("honor");
+}
+
+function choosePreferredProvider(rows: DeviceTokenRow[]): "fcm" | "getui" {
+  const explicit = rows
+    .map((row) => String(row.preferred_push_provider || "").trim().toLowerCase())
+    .find((value) => value === "fcm" || value === "getui");
+  if (explicit === "fcm" || explicit === "getui") return explicit;
+  const hasFcm = rows.some((row) => normalizeProvider(row.platform) === "fcm");
+  const hasGetui = rows.some((row) => normalizeProvider(row.platform) === "getui");
+  if (hasFcm && hasGetui) {
+    return rows.some(isHuaweiLike) ? "getui" : "fcm";
+  }
+  return hasGetui ? "getui" : "fcm";
+}
+
+function selectLatestPerProvider(rows: DeviceTokenRow[]): DeviceTokenRow[] {
+  const map = new Map<string, DeviceTokenRow>();
+  for (const row of rows) {
+    const provider = normalizeProvider(row.platform);
+    const existing = map.get(provider);
+    if (!existing || parseTime(row.updated_at) >= parseTime(existing.updated_at)) {
+      map.set(provider, row);
+    }
+  }
+  return Array.from(map.values());
+}
+
+function buildDeliveryRows(rows: DeviceTokenRow[]): DeviceTokenRow[] {
+  const delivery: DeviceTokenRow[] = [];
+  const grouped = new Map<string, DeviceTokenRow[]>();
+  const legacyRows: DeviceTokenRow[] = [];
+
+  for (const row of rows) {
+    const token = String(row.token || "").trim();
+    if (!token) continue;
+    const deviceId = String(row.device_id || "").trim();
+    if (!deviceId) {
+      legacyRows.push(row);
+      continue;
+    }
+    const list = grouped.get(deviceId) || [];
+    list.push(row);
+    grouped.set(deviceId, list);
+  }
+
+  for (const rowsForDevice of grouped.values()) {
+    const perProvider = selectLatestPerProvider(rowsForDevice);
+    const preferred = choosePreferredProvider(perProvider);
+    delivery.push(
+      ...perProvider.filter((row) => normalizeProvider(row.platform) === preferred),
+    );
+  }
+
+  // 兼容旧表结构：没有 device_id 时，按 token 逐条发，避免“有 FCM 就压掉个推”。
+  delivery.push(...legacyRows);
+
+  const dedup = new Map<string, DeviceTokenRow>();
+  for (const row of delivery) {
+    const provider = normalizeProvider(row.platform);
+    dedup.set(`${provider}:${row.token}`, row);
+  }
+  return Array.from(dedup.values());
+}
+
 serve(async (req) => {
   if (req.method !== "POST") {
     return new Response("Method not allowed", { status: 405 });
@@ -113,13 +211,26 @@ serve(async (req) => {
     );
   }
 
-  const { data: tokens, error } = await supabase
-    .from("device_tokens")
-    .select("token,platform")
-    .eq("user_id", body.receiverId);
-
-  if (error) {
-    return new Response(error.message, { status: 500 });
+  let tokens: DeviceTokenRow[] | null = null;
+  {
+    const detailed = await supabase
+      .from("device_tokens")
+      .select(
+        "token,platform,device_id,manufacturer,brand,model,os_name,os_version,app_version,app_build,preferred_push_provider,supports_fcm,supports_getui,updated_at",
+      )
+      .eq("user_id", body.receiverId);
+    if (!detailed.error) {
+      tokens = (detailed.data || []) as DeviceTokenRow[];
+    } else {
+      const legacy = await supabase
+        .from("device_tokens")
+        .select("token,platform,updated_at")
+        .eq("user_id", body.receiverId);
+      if (legacy.error) {
+        return new Response(legacy.error.message, { status: 500 });
+      }
+      tokens = (legacy.data || []) as DeviceTokenRow[];
+    }
   }
 
   if (!tokens || tokens.length === 0) {
@@ -146,14 +257,11 @@ serve(async (req) => {
   const badgeStr = String(badgeCount);
 
   const results: Array<{ platform: string; result: string }> = [];
-  const fcmTokens = tokens.filter((row) => row.platform !== "getui");
-  const getuiTokens = tokens.filter((row) => row.platform === "getui");
+  const deliveryRows = buildDeliveryRows(tokens);
+  const fcmTokens = deliveryRows.filter((row) => normalizeProvider(row.platform) === "fcm");
+  const getuiTokens = deliveryRows.filter((row) => normalizeProvider(row.platform) === "getui");
 
-  // 每个用户只选一个通道（有 FCM 就不发个推），避免同设备 FCM+个推 导致两条；同一通道下发给该用户所有 token（多设备都能收到）
-  const useFcm = fcmTokens.length > 0;
-  const useGetui = !useFcm && getuiTokens.length > 0;
-
-  if (useFcm) {
+  if (fcmTokens.length > 0) {
     if (!serviceAccountBase64) {
       results.push({
         platform: "fcm",
@@ -219,8 +327,7 @@ serve(async (req) => {
     }
   }
 
-  // 个推：仅当该用户没有 FCM token 时才走个推
-  if (useGetui) {
+  if (getuiTokens.length > 0) {
     try {
       const token = await getGetuiToken();
       const isCall = body.invitationId != null && body.invitationId !== "";
