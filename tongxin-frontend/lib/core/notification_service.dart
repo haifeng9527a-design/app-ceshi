@@ -488,9 +488,11 @@ class NotificationService {
       },
       onNotificationMessageArrived: (dynamic msg) async {
         debugPrint('[通知] 个推 onNotificationMessageArrived 收到');
-        if (msg is Map<String, dynamic>) {
-          await _showGetuiLocalNotification(msg);
-        }
+        // 个推 notification 到达时，系统通常已经展示了通知栏；
+        // 这里不再二次本地 show，避免同一条消息重复弹出。
+        try {
+          await refreshBadgeFromUnread();
+        } catch (_) {}
       },
       onNotificationMessageClicked: (message) async {
         final payload = _extractGetuiPayload(message);
