@@ -1,22 +1,53 @@
 import 'package:flutter/foundation.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class FirebaseBootstrap {
   static bool isReady = false;
+  static const String _fallbackApiKey = 'AIzaSyDtLh40QWY0oF1p3ka2vz9sto3OK1btkj0';
+  static const String _fallbackAppId = '1:130160287801:ios:1c9a74150046fd9c26ade8';
+  static const String _fallbackMessagingSenderId = '130160287801';
+  static const String _fallbackProjectId = 'cesium-29c23';
+  static const String _fallbackAuthDomain = 'cesium-29c23.firebaseapp.com';
+  static const String _fallbackStorageBucket = 'cesium-29c23.firebasestorage.app';
+
+  static String _webConfigValue(
+    String key, {
+    String fallback = '',
+  }) {
+    final fromDotenv = dotenv.env[key]?.trim();
+    if (fromDotenv != null && fromDotenv.isNotEmpty) return fromDotenv;
+    return fallback;
+  }
 
   static Future<void> init() async {
     try {
       if (kIsWeb) {
-        const apiKey = String.fromEnvironment('FIREBASE_API_KEY');
-        const appId = String.fromEnvironment('FIREBASE_APP_ID');
-        const messagingSenderId =
-            String.fromEnvironment('FIREBASE_MESSAGING_SENDER_ID');
-        const projectId = String.fromEnvironment('FIREBASE_PROJECT_ID');
-        const authDomain = String.fromEnvironment('FIREBASE_AUTH_DOMAIN');
-        const storageBucket =
-            String.fromEnvironment('FIREBASE_STORAGE_BUCKET');
-        const measurementId =
-            String.fromEnvironment('FIREBASE_MEASUREMENT_ID');
+        final apiKey = _webConfigValue(
+          'FIREBASE_API_KEY',
+          fallback: _fallbackApiKey,
+        );
+        final appId = _webConfigValue(
+          'FIREBASE_APP_ID',
+          fallback: _fallbackAppId,
+        );
+        final messagingSenderId = _webConfigValue(
+          'FIREBASE_MESSAGING_SENDER_ID',
+          fallback: _fallbackMessagingSenderId,
+        );
+        final projectId = _webConfigValue(
+          'FIREBASE_PROJECT_ID',
+          fallback: _fallbackProjectId,
+        );
+        final authDomain = _webConfigValue(
+          'FIREBASE_AUTH_DOMAIN',
+          fallback: _fallbackAuthDomain,
+        );
+        final storageBucket = _webConfigValue(
+          'FIREBASE_STORAGE_BUCKET',
+          fallback: _fallbackStorageBucket,
+        );
+        final measurementId = _webConfigValue('FIREBASE_MEASUREMENT_ID');
         if (apiKey.isEmpty ||
             appId.isEmpty ||
             messagingSenderId.isEmpty ||

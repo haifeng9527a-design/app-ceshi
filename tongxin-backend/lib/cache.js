@@ -13,6 +13,7 @@ const DEFAULT_TTL_MS = {
   ratios: 10 * 60 * 1000,   // 10min
   dividends: 60 * 60 * 1000, // 1h
   splits: 60 * 60 * 1000,   // 1h
+  news: 5 * 60 * 1000,      // 5min
 };
 
 function get(key) {

@@ -15,13 +15,16 @@
 复制 `.env.example` 为 `.env`，配置：
 
 ```env
+TONGXIN_API_URL=https://your-backend.example.com
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_ANON_KEY=your-anon-key
-ADMIN_USERNAME=admin
-ADMIN_PASSWORD=admin123
+# 仅首次初始化管理员时需要，用于调用 /api/admin/auth/bootstrap
+ADMIN_API_KEY=your-bootstrap-key
 ```
 
 与 tongxin-frontend 共用同一 Supabase 项目。
+
+管理员日常登录改为账号密码换取会话令牌，不再依赖前端对所有请求统一附带 `x-admin-key`。
 
 ## 运行
 

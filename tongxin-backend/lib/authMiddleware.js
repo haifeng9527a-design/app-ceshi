@@ -7,8 +7,22 @@ let admin = null;
 let auth = null;
 const supabaseClient = require('./supabaseClient');
 const restrictionGuard = require('./restrictionGuard');
+const { attachAdminSession } = require('./adminSession');
 const restrictionCache = new Map();
 const RESTRICTION_CACHE_MS = 30 * 1000;
+const ADMIN_SESSION_ALLOWED_PATHS = [
+  /^\/api\/admin(?:\/|$)/,
+  /^\/api\/reports(?:\/|$)/,
+  /^\/api\/config(?:\/|$)/,
+  /^\/api\/customer-service(?:\/|$)/,
+  /^\/api\/user-profiles\/batch$/,
+  /^\/api\/users\/[^/]+\/role$/,
+];
+const ADMIN_KEY_ALLOWED_PATHS = [
+  /^\/api\/admin\/auth\/bootstrap$/,
+  /^\/api\/market\/snapshots$/,
+  /^\/api\/tickers-upsert$/,
+];
 
 function initFirebase() {
   if (admin) return auth != null;
@@ -44,6 +58,16 @@ function isAuthConfigured() {
   return initFirebase() && auth != null;
 }
 
+function isAdminKeyRequestAllowed(req) {
+  const path = String(req.path || req.originalUrl || '').split('?')[0];
+  return ADMIN_KEY_ALLOWED_PATHS.some((pattern) => pattern.test(path));
+}
+
+function isAdminSessionRequestAllowed(req) {
+  const path = String(req.path || req.originalUrl || '').split('?')[0];
+  return ADMIN_SESSION_ALLOWED_PATHS.some((pattern) => pattern.test(path));
+}
+
 /**
  * 可选鉴权：有 token 则验证并设置 req.firebaseUid，无 token 则 req.firebaseUid = null
  */
@@ -67,9 +91,15 @@ async function optionalAuth(req, res, next) {
  * 必须鉴权：无有效 token 则 401
  */
 async function requireAuth(req, res, next) {
+  if (isAdminSessionRequestAllowed(req)) {
+    const adminSession = attachAdminSession(req);
+    if (adminSession) {
+      return next();
+    }
+  }
   const adminKey = process.env.ADMIN_API_KEY?.trim();
   const requestAdminKey = (req.headers['x-admin-key'] || '').toString().trim();
-  if (adminKey && requestAdminKey && requestAdminKey === adminKey) {
+  if (adminKey && requestAdminKey && requestAdminKey === adminKey && isAdminKeyRequestAllowed(req)) {
     req.firebaseUid = 'admin_api_key';
     req.isAdminByKey = true;
     return next();

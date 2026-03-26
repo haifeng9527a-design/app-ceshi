@@ -29,7 +29,7 @@ Future<void> openWebUserPage(BuildContext context) async {
   if (!valid) {
     if (context.mounted) {
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        const SnackBar(content: Text('WEBVIEW_USER_PAGE_URL 无效')),
+        SnackBar(content: Text(I18nExtra.webViewUserPageUrlInvalid(context))),
       );
     }
     return;

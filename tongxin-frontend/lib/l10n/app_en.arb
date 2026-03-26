@@ -99,6 +99,11 @@
   "profilePrivacyPolicySubtitle": "View privacy policy and terms",
   "profileReport": "Report",
   "profileReportSubtitle": "Report violations or users",
+  "profileUserTradingCenterMenuTitle": "User Trading Center",
+  "profileUserTradingCenterMenuSubtitle": "Open user trading center via WebView",
+  "profileUserTradingCenterHiddenMenuTitle": "User Trading Center",
+  "profileUserTradingCenterHiddenMenuSubtitle": "Current version is not supported. Please use the link below.",
+  "profileLinkPrefix": "Link: ",
   "profilePrivacyPolicyContent": "We respect and protect your privacy. Information we collect is used only to provide and improve our services. See the full privacy policy on the app store or our website.",
   "profileReportContent": "To report violations or users, please use in-app feedback or contact support. We will process your report as soon as possible.",
   "reportPageTitle": "Report User",
@@ -296,6 +301,10 @@
   "teachersPublish": "Publish",
   "teachersStrategyPublished": "Strategy published, will show in Today's Strategy",
   "teachersPublishFailed": "Publish failed",
+  "teachersDeleteStrategy": "Delete strategy",
+  "teachersDeleteStrategyConfirm": "Delete this strategy? This action cannot be undone.",
+  "teachersStrategyDeleted": "Strategy deleted",
+  "teachersDeleteStrategyFailed": "Failed to delete strategy",
   "teachersUploadTradeRecord": "Upload trade record",
   "teachersVarietyLabel": "Symbol",
   "teachersDirectionLabel": "Direction (buy/sell)",
@@ -447,6 +456,7 @@
   "authSendVerificationEmail": "Send verification email",
   "authSendVerificationEmailCooldown": "Send verification email ({seconds}s)",
   "authFirebaseConfigHint": "Firebase not configured. Add google-services.json / GoogleService-Info.plist first.",
+  "authFirebaseConfigHintWeb": "Web login is not configured yet. Firebase sign-in is currently unavailable on the web app.",
   "authVerificationSent": "Verification email sent. Please verify and log in again.",
   "authFillNameEmailPassword": "Please fill name, email and both passwords",
   "authPasswordMismatch": "Passwords do not match",
@@ -1340,5 +1350,225 @@
       }
     }
   },
-  "teachersStatusOpenAfterApproval": "Strategy publishing will be available after approval"
+  "teachersStatusOpenAfterApproval": "Strategy publishing will be available after approval",
+  "teachersTradingAccount": "Trading Account",
+  "teachersSpotAccount": "Spot Account",
+  "teachersContractAccount": "Contract Account",
+  "tradingSpotBuy": "Spot Buy",
+  "tradingSpotSell": "Spot Sell",
+  "tradingOpenLong": "Open Long",
+  "tradingCloseLong": "Close Long",
+  "tradingOpenShort": "Open Short",
+  "tradingCloseShort": "Close Short",
+  "tradingProductSpot": "Spot",
+  "tradingProductPerpetual": "Perpetual",
+  "tradingProductFuture": "Futures",
+  "tradingPositionLong": "Long",
+  "tradingPositionShort": "Short",
+  "tradingMarginCross": "Cross",
+  "tradingMarginIsolated": "Isolated",
+  "tradingNoMatchedSymbol": "No matching symbol found",
+  "tradingPickSymbol": "Select symbol (\"{query}\")",
+  "@tradingPickSymbol": {
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  },
+  "tradingOrderPlaced": "Order placed",
+  "tradingMode": "Trading Mode",
+  "tradingMaintenanceRate": "Maintenance margin rate {rate}%",
+  "@tradingMaintenanceRate": {
+    "placeholders": {
+      "rate": {
+        "type": "String"
+      }
+    }
+  },
+  "tradingPositionDirection": "Position Direction",
+  "tradingMarginMode": "Margin Mode",
+  "tradingLeverage": "Leverage",
+  "tradingMargin": "Margin",
+  "tradingLeverageWithMax": "Leverage {leverage}x / Max {max}x",
+  "@tradingLeverageWithMax": {
+    "placeholders": {
+      "leverage": {
+        "type": "String"
+      },
+      "max": {
+        "type": "String"
+      }
+    }
+  },
+  "tradingAvailableFunds": "Available Funds",
+  "tradingEstimatedOccupied": "Estimated Used",
+  "tradingEstimatedMargin": "Estimated Margin",
+  "tradingInsufficientFunds": "Insufficient available funds",
+  "tradingInsufficientMargin": "Insufficient available margin",
+  "tradingNeedAndCurrent": "{label} (need {need}, current {current})",
+  "@tradingNeedAndCurrent": {
+    "placeholders": {
+      "label": {
+        "type": "String"
+      },
+      "need": {
+        "type": "String"
+      },
+      "current": {
+        "type": "String"
+      }
+    }
+  },
+  "tradingTransferFunds": "Account Transfer",
+  "tradingTransferFromTo": "Transfer from {from} to {to}",
+  "@tradingTransferFromTo": {
+    "placeholders": {
+      "from": {
+        "type": "String"
+      },
+      "to": {
+        "type": "String"
+      }
+    }
+  },
+  "tradingTransferAmount": "Transfer Amount",
+  "tradingEnterValidTransferAmount": "Please enter a valid transfer amount",
+  "tradingInsufficientAvailableFunds": "Insufficient available funds",
+  "tradingTransferSuccess": "Transfer completed",
+  "tradingLedgerTypePositionLiquidated": "Forced Liquidation",
+  "tradingLedgerTypeTransferOut": "Transfer Out",
+  "tradingLedgerTypeTransferIn": "Transfer In",
+  "tradingLedgerCsvHeader": "Time,Entry Type,Symbol,Asset Class,Product Type,Side,Position Side,Amount{suffix},Balance After{suffix},Note",
+  "@tradingLedgerCsvHeader": {
+    "placeholders": {
+      "suffix": {
+        "type": "String"
+      }
+    }
+  },
+  "tradingLoadMore": "Load more",
+  "tradingViewDetails": "View details",
+  "tradingSellableQuantity": "Sellable Qty",
+  "tradingClosableQuantity": "Closable Qty",
+  "tradingAssetGeneric": "Asset",
+  "reportSelectFromFriends": "Select from friends",
+  "reportNoFriendsYet": "No friends yet",
+  "reportSelectFriendHint": "Select a friend",
+  "reportInvalidTargetUser": "Report failed: invalid target user",
+  "reportScreenshotUploadFailed": "Report failed: screenshot upload failed",
+  "rankingsBoardWeekly": "Weekly",
+  "rankingsBoardMonthly": "Monthly",
+  "rankingsBoardQuarterly": "Quarterly",
+  "rankingsBoardYearly": "Yearly",
+  "rankingsBoardAllTime": "All Time",
+  "rankingsTop10": "Top 10",
+  "tradingLeverageX": "{value}x",
+  "@tradingLeverageX": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "tradingNotionalValue": "Notional {value}",
+  "@tradingNotionalValue": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "tradingPositionHolding": "Position",
+  "tradingLiquidationPrice": "Liq. Price",
+  "tradingCloseQuantityExceeded": "{label} insufficient, max closable now: {max}",
+  "@tradingCloseQuantityExceeded": {
+    "placeholders": {
+      "label": {
+        "type": "String"
+      },
+      "max": {
+        "type": "String"
+      }
+    }
+  },
+  "tradingEnterValidCloseQuantity": "Enter a valid {action} quantity",
+  "@tradingEnterValidCloseQuantity": {
+    "placeholders": {
+      "action": {
+        "type": "String"
+      }
+    }
+  },
+  "tradingEnterValidLimitPriceFor": "Enter a valid limit price for {action}",
+  "@tradingEnterValidLimitPriceFor": {
+    "placeholders": {
+      "action": {
+        "type": "String"
+      }
+    }
+  },
+  "tradingCurrentAndFloating": "Current {current}   Floating {floating}",
+  "@tradingCurrentAndFloating": {
+    "placeholders": {
+      "current": {
+        "type": "String"
+      },
+      "floating": {
+        "type": "String"
+      }
+    }
+  },
+  "tradingPriceForAction": "{action} price",
+  "@tradingPriceForAction": {
+    "placeholders": {
+      "action": {
+        "type": "String"
+      }
+    }
+  },
+  "tradingConfirmAction": "Confirm {action}",
+  "@tradingConfirmAction": {
+    "placeholders": {
+      "action": {
+        "type": "String"
+      }
+    }
+  },
+  "tradingQuantityWord": "Qty",
+  "dashboardEyebrowMentor": "Featured Mentors",
+  "dashboardTitleMentor": "Browse first, then follow with confidence",
+  "dashboardActionViewAll": "View all",
+  "dashboardEyebrowRanking": "Monthly Rankings",
+  "dashboardTitleRanking": "Check Top 3 first, then dive deeper",
+  "dashboardActionFullRanking": "Full rankings",
+  "dashboardEyebrowNews": "Hot News",
+  "dashboardTitleNews": "English market highlights at a glance",
+  "dashboardActionMoreNews": "More news",
+  "dashboardHeroTitle": "Understand rankings before following",
+  "dashboardHeroSubtitle": "Home combines ranking insights, mentor entry points, and market snapshots to help you make clearer follow decisions in less time.",
+  "dashboardHeroActionViewRanking": "View rankings",
+  "dashboardHeroMetricDimensionLabel": "Ranking dimensions",
+  "dashboardHeroMetricDimensionValue": "5 types",
+  "dashboardHeroMetricCountLabel": "Displayed count",
+  "dashboardHeroMetricCountValue": "Top10",
+  "dashboardHeroMetricUpdateLabel": "Update frequency",
+  "dashboardHeroMetricUpdateValue": "Realtime",
+  "dashboardQuickMarketTitle": "Market",
+  "dashboardQuickMarketSubtitle": "Indices, highlights, and watchlist",
+  "dashboardQuickMentorTitle": "Mentor Center",
+  "dashboardQuickMentorSubtitle": "Review profiles before following",
+  "dashboardQuickRankingTitle": "Rankings",
+  "dashboardQuickRankingSubtitle": "Quickly find Top traders",
+  "dashboardQuickMessageTitle": "Messages",
+  "dashboardQuickMessageSubtitle": "Conversations and system notices",
+  "dashboardTrust1": "Real returns visualized",
+  "dashboardTrust2": "Mentor strategies traceable",
+  "dashboardTrust3": "Clearer ranking entry",
+  "dashboardTrust4": "More direct message reach",
+  "dashboardMentorFallbackTitle": "Trading Mentor",
+  "dashboardMentorTip": "Tap to view mentor profile. Strategy center is for friends only.",
+  "dashboardNoHotNews": "No hot news yet",
+  "teachersStrategyMaxNineImages": "Up to 9 images per post",
+  "teachersStrategyExceedNineIgnored": "Extra images were ignored (max 9)"
 }

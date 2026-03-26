@@ -4,12 +4,32 @@
  */
 const supabaseClient = require('./supabaseClient');
 const restrictionGuard = require('./restrictionGuard');
+const { triggerChatMessagePush } = require('./chatPush');
+const { broadcastNewMessage } = require('./chatWebSocket');
 
 function registerMessageRoutes(app, requireAuth) {
   const supabase = () => supabaseClient.getClient();
   if (!supabase()) {
     console.warn('[apiMessages] Supabase 未配置，消息接口不可用');
     return;
+  }
+
+  async function insertMessageAndBroadcast(sb, row, { push = false } = {}) {
+    const { data: inserted, error } = await sb
+      .from('chat_messages')
+      .insert(row)
+      .select('*')
+      .single();
+    if (error) throw new Error(error.message);
+    broadcastNewMessage(inserted);
+    if (push) {
+      triggerChatMessagePush(sb, inserted).catch((e) => {
+        console.warn(
+          `[apiMessages] send_push failed conv=${row?.conversation_id?.slice?.(0, 8) || '-'} error=${e?.message || e}`,
+        );
+      });
+    }
+    return inserted;
   }
 
   async function getConversationMemberRole(sb, conversationId, uid) {
@@ -164,8 +184,7 @@ function registerMessageRoutes(app, requireAuth) {
         reply_to_sender_name: reply_to_sender_name || null,
         reply_to_content: reply_to_content || null,
       };
-      const { data: inserted, error } = await sb.from('chat_messages').insert(row).select('*').single();
-      if (error) return res.status(502).json({ error: error.message });
+      const inserted = await insertMessageAndBroadcast(sb, row, { push: true });
       res.json({ id: inserted.id, created_at: inserted.created_at });
     } catch (e) {
       res.status(502).json({ error: String(e.message || e) });
@@ -318,12 +337,14 @@ function registerMessageRoutes(app, requireAuth) {
     const sb = supabase();
     if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
     try {
+      const memberRole = await ensureConversationMember(res, sb, id, uid);
+      if (!memberRole) return;
       const { data: convo } = await sb.from('chat_conversations').select('type').eq('id', id).maybeSingle();
       if (convo?.type === 'group') {
         const name = (leaveUserName || '某用户').toString().trim();
         const { data: profile } = await sb.from('user_profiles').select('display_name').eq('user_id', uid).maybeSingle();
         const senderName = profile?.display_name || name;
-        await sb.from('chat_messages').insert({
+        await insertMessageAndBroadcast(sb, {
           conversation_id: id,
           sender_id: uid,
           sender_name: senderName,
@@ -383,7 +404,7 @@ function registerMessageRoutes(app, requireAuth) {
         const name = (nameMap[userId] || '新成员').trim();
         const { data: profile } = await sb.from('user_profiles').select('display_name').eq('user_id', userId).maybeSingle();
         const senderName = profile?.display_name || name;
-        await sb.from('chat_messages').insert({
+        await insertMessageAndBroadcast(sb, {
           conversation_id: id,
           sender_id: userId,
           sender_name: senderName,
@@ -413,7 +434,7 @@ function registerMessageRoutes(app, requireAuth) {
       await sb.from('chat_members').delete().eq('conversation_id', id).eq('user_id', userId);
       const name = (leaveUserName || '某用户').toString().trim();
       const { data: profile } = await sb.from('user_profiles').select('display_name').eq('user_id', userId).maybeSingle();
-      await sb.from('chat_messages').insert({
+      await insertMessageAndBroadcast(sb, {
         conversation_id: id,
         sender_id: userId,
         sender_name: profile?.display_name || name,

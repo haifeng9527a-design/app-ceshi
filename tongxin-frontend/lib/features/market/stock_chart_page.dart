@@ -830,7 +830,7 @@ class _StockChartPageState extends State<StockChartPage>
                     SizedBox(
                       height: detailPanelHeight,
                       child: BottomDetailTabs(
-                        symbol: widget.symbol,
+                        symbol: _effectiveSymbol,
                         currentPrice: _currentPrice,
                         overlayIndicator: _overlayIndicator,
                         subChartIndicator: _subChartIndicator,

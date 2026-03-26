@@ -5,6 +5,7 @@ import '../../core/models.dart';
 import '../../l10n/app_localizations.dart';
 import '../auth/login_page.dart';
 import '../teachers/teacher_repository.dart';
+import 'strategy_image_preview.dart';
 
 /// 展示完整投资策略弹窗，含评论列表与发表
 void showStrategyDialog(
@@ -13,19 +14,38 @@ void showStrategyDialog(
   List<Comment> comments, {
   required String teacherId,
   String? strategyId,
+  List<String>? imageUrls,
   required String currentUserId,
   required TeacherRepository repo,
   required void Function(String userName, String content) onCommentPosted,
   bool initialShowComments = false,
 }) {
   final screenW = MediaQuery.of(context).size.width;
-  final maxW = (screenW > 420) ? 400.0 : (screenW - 40);
+  final isDesktop = screenW >= 960;
+  final double maxW;
+  if (isDesktop) {
+    final available = screenW - 96;
+    if (available > 1180) {
+      maxW = 1180;
+    } else if (available < 960) {
+      maxW = 960;
+    } else {
+      maxW = available;
+    }
+  } else if (screenW > 640) {
+    maxW = 720;
+  } else {
+    maxW = screenW - 32;
+  }
   showDialog(
     context: context,
     barrierColor: Colors.black54,
     builder: (context) => Dialog(
       backgroundColor: Colors.transparent,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
+      insetPadding: EdgeInsets.symmetric(
+        horizontal: isDesktop ? 40 : 16,
+        vertical: isDesktop ? 24 : 32,
+      ),
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: maxW),
         child: _StrategyDialogContent(
@@ -33,6 +53,7 @@ void showStrategyDialog(
           comments: comments,
           teacherId: teacherId,
           strategyId: strategyId,
+          imageUrls: imageUrls,
           currentUserId: currentUserId,
           repo: repo,
           onCommentPosted: onCommentPosted,
@@ -49,6 +70,7 @@ class _StrategyDialogContent extends StatefulWidget {
     required this.comments,
     required this.teacherId,
     this.strategyId,
+    this.imageUrls,
     required this.currentUserId,
     required this.repo,
     required this.onCommentPosted,
@@ -59,6 +81,7 @@ class _StrategyDialogContent extends StatefulWidget {
   final List<Comment> comments;
   final String teacherId;
   final String? strategyId;
+  final List<String>? imageUrls;
   final String currentUserId;
   final TeacherRepository repo;
   final void Function(String userName, String content) onCommentPosted;
@@ -85,262 +108,567 @@ class _StrategyDialogContentState extends State<_StrategyDialogContent> {
     const accent = Color(0xFFD4AF37);
     const bgCard = Color(0xFF0B0C0E);
     const radius = 24.0;
+    final media = MediaQuery.of(context);
+    final screenW = media.size.width;
+    final isDesktop = screenW >= 960;
     final merged = [...widget.comments, ...dialogOptimistic]
       ..sort((a, b) => b.date.compareTo(a.date));
-    final maxHeight = MediaQuery.of(context).size.height * 0.75;
+    final allImageUrls = (widget.imageUrls ?? const <String>[])
+        .where((u) => u.trim().isNotEmpty)
+        .toList(growable: false);
+    final maxHeight = media.size.height * (isDesktop ? 0.84 : 0.75);
 
-            /// 抖音式：父评论倒序，回复紧贴父评论下方、正序；默认只显示 1 条回复，可展开
-            List<Widget> buildThreadedComments(
-              List<Comment> list,
-              void Function(Comment) onReplyTap,
-            ) {
-              final topLevel = list.where((c) => c.replyToCommentId == null).toList()
-                ..sort((a, b) => b.date.compareTo(a.date));
-              final widgets = <Widget>[];
-              for (final parent in topLevel) {
-                widgets.add(_CommentItem(
-                  comment: parent,
-                  onReplyTap: onReplyTap,
-                  isReply: false,
-                ));
-                final descendantIds = <String>{parent.id};
-                var changed = true;
-                while (changed) {
-                  changed = false;
-                  for (final c in list) {
-                    if (c.replyToCommentId != null &&
-                        descendantIds.contains(c.replyToCommentId) &&
-                        !descendantIds.contains(c.id)) {
-                      descendantIds.add(c.id);
-                      changed = true;
-                    }
-                  }
-                }
-                final replies = list
-                    .where((c) =>
-                        c.replyToCommentId != null &&
-                        descendantIds.contains(c.replyToCommentId))
-                    .toList()
-                  ..sort((a, b) => a.date.compareTo(b.date));
-                final isExpanded = expandedReplies.contains(parent.id);
-                final showCount = replies.length <= 1 ? replies.length : (isExpanded ? replies.length : 1);
-                for (var i = 0; i < showCount; i++) {
-                  widgets.add(_CommentItem(
-                    comment: replies[i],
-                    onReplyTap: onReplyTap,
-                    isReply: true,
-                  ));
-                }
-                if (replies.length > 1) {
-                  widgets.add(
-                    GestureDetector(
-                      onTap: () {
-                        setState(() {
-                          if (isExpanded) {
-                            expandedReplies.remove(parent.id);
-                          } else {
-                            expandedReplies.add(parent.id);
-                          }
-                        });
-                      },
-                      child: Padding(
-                        padding: const EdgeInsets.only(left: 78, bottom: 12),
-                        child: Text(
-                          isExpanded ? AppLocalizations.of(context)!.featuredCollapse : AppLocalizations.of(context)!.featuredExpandReplies(replies.length - 1),
-                          style: TextStyle(
-                            color: accent.withOpacity(0.9),
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ),
-                    ),
-                  );
-                }
-              }
-              return widgets;
+    /// 抖音式：父评论倒序，回复紧贴父评论下方、正序；默认只显示 1 条回复，可展开
+    List<Widget> buildThreadedComments(
+      List<Comment> list,
+      void Function(Comment) onReplyTap,
+    ) {
+      final topLevel = list.where((c) => c.replyToCommentId == null).toList()
+        ..sort((a, b) => b.date.compareTo(a.date));
+      final widgets = <Widget>[];
+      for (final parent in topLevel) {
+        widgets.add(_CommentItem(
+          comment: parent,
+          onReplyTap: onReplyTap,
+          isReply: false,
+        ));
+        final descendantIds = <String>{parent.id};
+        var changed = true;
+        while (changed) {
+          changed = false;
+          for (final c in list) {
+            if (c.replyToCommentId != null &&
+                descendantIds.contains(c.replyToCommentId) &&
+                !descendantIds.contains(c.id)) {
+              descendantIds.add(c.id);
+              changed = true;
             }
+          }
+        }
+        final replies = list
+            .where((c) =>
+                c.replyToCommentId != null &&
+                descendantIds.contains(c.replyToCommentId))
+            .toList()
+          ..sort((a, b) => a.date.compareTo(b.date));
+        final isExpanded = expandedReplies.contains(parent.id);
+        final showCount =
+            replies.length <= 1 ? replies.length : (isExpanded ? replies.length : 1);
+        for (var i = 0; i < showCount; i++) {
+          widgets.add(_CommentItem(
+            comment: replies[i],
+            onReplyTap: onReplyTap,
+            isReply: true,
+          ));
+        }
+        if (replies.length > 1) {
+          widgets.add(
+            GestureDetector(
+              onTap: () {
+                setState(() {
+                  if (isExpanded) {
+                    expandedReplies.remove(parent.id);
+                  } else {
+                    expandedReplies.add(parent.id);
+                  }
+                });
+              },
+              child: Padding(
+                padding: const EdgeInsets.only(left: 78, bottom: 12),
+                child: Text(
+                  isExpanded
+                      ? AppLocalizations.of(context)!.featuredCollapse
+                      : AppLocalizations.of(context)!.featuredExpandReplies(
+                          replies.length - 1,
+                        ),
+                  style: TextStyle(
+                    color: accent.withOpacity(0.9),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ),
+          );
+        }
+      }
+      return widgets;
+    }
 
-            return ClipRRect(
-              borderRadius: BorderRadius.circular(radius),
-              child: Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  Container(
-                    height: maxHeight,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(radius),
-                      gradient: const LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [Color(0xFF1A1C21), Color(0xFF0D0E11)],
+    void handleReplyTap(Comment c) {
+      setState(() {
+        showComments = true;
+        replyToComment = c;
+      });
+    }
+
+    void handlePosted(String userName, String content, {Comment? replyTo}) {
+      widget.onCommentPosted(userName, content);
+      setState(() => replyToComment = null);
+      final now = DateTime.now();
+      final date =
+          '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} '
+          '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+      dialogOptimistic.add(
+        Comment(
+          id: 'local-${now.millisecondsSinceEpoch}',
+          userName: userName,
+          content: content,
+          date: date,
+          replyToCommentId: replyTo?.id,
+          replyToContent: replyTo != null
+              ? (replyTo.content.length > 50
+                  ? '${replyTo.content.substring(0, 50)}…'
+                  : replyTo.content)
+              : null,
+        ),
+      );
+      setState(() {});
+    }
+
+    Widget buildCommentComposer() {
+      return AnimatedPadding(
+        duration: const Duration(milliseconds: 200),
+        padding: EdgeInsets.only(bottom: media.viewInsets.bottom),
+        child: _CommentForm(
+          teacherId: widget.teacherId,
+          strategyId: widget.strategyId,
+          currentUserId: widget.currentUserId,
+          repo: widget.repo,
+          replyToComment: replyToComment,
+          onReplyConsumed: () => setState(() => replyToComment = null),
+          onPosted: handlePosted,
+        ),
+      );
+    }
+
+    Widget buildCommentThread() {
+      return merged.isEmpty
+          ? _EmptyHint(text: AppLocalizations.of(context)!.featuredNoComments)
+          : SingleChildScrollView(
+              padding: const EdgeInsets.only(top: 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                widthFactor: 1,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: buildThreadedComments(merged, handleReplyTap),
+                ),
+              ),
+            );
+    }
+
+    Widget buildStrategyBody() {
+      return SingleChildScrollView(
+        padding: EdgeInsets.zero,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (allImageUrls.isNotEmpty) ...[
+              Container(
+                width: double.infinity,
+                padding: EdgeInsets.all(isDesktop ? 12 : 0),
+                decoration: isDesktop
+                    ? BoxDecoration(
+                        color: Colors.white.withOpacity(0.03),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: Colors.white.withOpacity(0.06)),
+                      )
+                    : null,
+                child: StrategyImagePreviewGrid(
+                  imageUrls: allImageUrls,
+                  spacing: 10,
+                  borderRadius: isDesktop ? 16 : 12,
+                  onImageTap: (i) => showStrategyImageViewer(
+                    context,
+                    imageUrls: allImageUrls,
+                    initialIndex: i,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+            Container(
+              width: double.infinity,
+              padding: EdgeInsets.all(isDesktop ? 22 : 18),
+              decoration: BoxDecoration(
+                color: bgCard,
+                borderRadius: BorderRadius.circular(isDesktop ? 20 : 16),
+                border: Border.all(color: accent.withOpacity(0.15), width: 0.5),
+              ),
+              child: Text(
+                widget.text,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Colors.white.withOpacity(0.9),
+                  height: 1.8,
+                  fontSize: isDesktop ? 16 : 15,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (isDesktop) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(radius),
+        child: Container(
+          height: maxHeight,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(radius),
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFF1A1C21), Color(0xFF0D0E11)],
+            ),
+            border: Border.all(color: accent.withOpacity(0.6), width: 1.5),
+            boxShadow: [
+              BoxShadow(
+                color: accent.withOpacity(0.15),
+                blurRadius: 24,
+                spreadRadius: -4,
+                offset: const Offset(0, 8),
+              ),
+              BoxShadow(
+                color: Colors.black.withOpacity(0.5),
+                blurRadius: 32,
+                spreadRadius: -8,
+                offset: const Offset(0, 12),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(28, 28, 28, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: accent.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: accent.withOpacity(0.4)),
                       ),
-                      border: Border.all(color: accent.withOpacity(0.6), width: 1.5),
-                      boxShadow: [
-                        BoxShadow(
-                          color: accent.withOpacity(0.15),
-                          blurRadius: 24,
-                          spreadRadius: -4,
-                          offset: const Offset(0, 8),
-                        ),
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.5),
-                          blurRadius: 32,
-                          spreadRadius: -8,
-                          offset: const Offset(0, 12),
-                        ),
-                      ],
+                      child: const Icon(Icons.trending_up, color: accent, size: 24),
                     ),
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+                    const SizedBox(width: 14),
+                    Expanded(
                       child: Column(
-                        mainAxisSize: MainAxisSize.max,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(10),
-                                decoration: BoxDecoration(
-                                  color: accent.withOpacity(0.15),
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: accent.withOpacity(0.4)),
-                                ),
-                                child: const Icon(Icons.trending_up, color: accent, size: 22),
-                              ),
-                              const SizedBox(width: 12),
-                              Text(
-                                AppLocalizations.of(context)!.strategiesFullStrategy,
-                                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w600,
-                                  letterSpacing: 0.5,
-                                ),
-                              ),
-                              const Spacer(),
-                              IconButton(
-                                onPressed: () => Navigator.of(context).pop(),
-                                icon: Icon(Icons.close, color: Colors.white70, size: 22),
-                                style: IconButton.styleFrom(
-                                  backgroundColor: Colors.white.withOpacity(0.08),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 16),
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(18),
-                            decoration: BoxDecoration(
-                              color: bgCard,
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: accent.withOpacity(0.15), width: 0.5),
-                            ),
-                            child: Text(
-                              widget.text,
-                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                color: Colors.white.withOpacity(0.9),
-                                height: 1.7,
-                                fontSize: 15,
-                              ),
+                          Text(
+                            AppLocalizations.of(context)!.strategiesFullStrategy,
+                            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.4,
                             ),
                           ),
-                          const SizedBox(height: 16),
-                          Row(
-                            children: [
-                              TextButton.icon(
-                                onPressed: () {
-                                  setState(() => showComments = !showComments);
-                                },
-                                icon: Icon(
-                                  showComments ? Icons.expand_less : Icons.expand_more,
-                                  color: accent,
-                                  size: 20,
-                                ),
-                                label: Text(
-                                  showComments ? AppLocalizations.of(context)!.featuredHideComments : AppLocalizations.of(context)!.featuredViewComments,
-                                  style: TextStyle(
-                                    color: accent.withOpacity(0.95),
-                                    fontWeight: FontWeight.w500,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                              ),
-                              const Spacer(),
-                              Text(
-                                AppLocalizations.of(context)!.featuredCommentsCount(merged.length),
-                                style: TextStyle(
-                                  color: Colors.white.withOpacity(0.5),
-                                  fontSize: 13,
-                                ),
-                              ),
-                            ],
+                          const SizedBox(height: 4),
+                          Text(
+                            AppLocalizations.of(context)!.featuredCommentsCount(merged.length),
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.55),
+                              fontSize: 13,
+                            ),
                           ),
-                          if (showComments) ...[
-                            SizedBox(height: 20, child: Divider(height: 1, color: Colors.white.withOpacity(0.08))),
-                            Expanded(
-                              child: SingleChildScrollView(
-                                padding: const EdgeInsets.only(top: 8),
-                                child: merged.isEmpty
-                                    ? _EmptyHint(text: AppLocalizations.of(context)!.featuredNoComments)
-                                    : Align(
-                                        alignment: Alignment.centerLeft,
-                                        widthFactor: 1,
-                                        child: Column(
-                                          mainAxisSize: MainAxisSize.min,
-                                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                                          children: buildThreadedComments(merged, (c) {
-                                            setState(() {
-                                              showComments = true;
-                                              replyToComment = c;
-                                            });
-                                          }),
-                                        ),
-                                      ),
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                          ],
-                          if (showComments)
-                            AnimatedPadding(
-                              duration: const Duration(milliseconds: 200),
-                              padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-                            child: _CommentForm(
-                              teacherId: widget.teacherId,
-                              strategyId: widget.strategyId,
-                              currentUserId: widget.currentUserId,
-                              repo: widget.repo,
-                                replyToComment: replyToComment,
-                                onReplyConsumed: () => setState(() => replyToComment = null),
-                                onPosted: (userName, content, {Comment? replyTo}) {
-                                  widget.onCommentPosted(userName, content);
-                                  setState(() => replyToComment = null);
-                                  final now = DateTime.now();
-                                  final date = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} '
-                                      '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
-                                  dialogOptimistic.add(Comment(
-                                    id: 'local-${now.millisecondsSinceEpoch}',
-                                    userName: userName,
-                                    content: content,
-                                    date: date,
-                                    replyToCommentId: replyTo?.id,
-                                    replyToContent: replyTo != null
-                                        ? (replyTo.content.length > 50
-                                            ? '${replyTo.content.substring(0, 50)}…'
-                                            : replyTo.content)
-                                        : null,
-                                  ));
-                                  setState(() {});
-                                },
-                              ),
-                            ),
                         ],
                       ),
+                    ),
+                    TextButton.icon(
+                      onPressed: () => setState(() => showComments = !showComments),
+                      icon: Icon(
+                        showComments ? Icons.forum_outlined : Icons.chat_bubble_outline,
+                        color: accent,
+                        size: 18,
+                      ),
+                      label: Text(
+                        showComments
+                            ? AppLocalizations.of(context)!.featuredHideComments
+                            : AppLocalizations.of(context)!.featuredViewComments,
+                        style: const TextStyle(color: accent),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close, color: Colors.white70, size: 22),
+                      style: IconButton.styleFrom(
+                        backgroundColor: Colors.white.withOpacity(0.08),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 22),
+                Expanded(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.all(18),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.025),
+                            borderRadius: BorderRadius.circular(22),
+                            border: Border.all(color: Colors.white.withOpacity(0.05)),
+                          ),
+                          child: buildStrategyBody(),
+                        ),
+                      ),
+                      if (showComments) ...[
+                        const SizedBox(width: 24),
+                        SizedBox(
+                          width: 360,
+                          child: Container(
+                            padding: const EdgeInsets.all(18),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.025),
+                              borderRadius: BorderRadius.circular(22),
+                              border: Border.all(color: Colors.white.withOpacity(0.05)),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Text(
+                                      AppLocalizations.of(context)!.featuredViewComments,
+                                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    const Spacer(),
+                                    Text(
+                                      AppLocalizations.of(context)!.featuredCommentsCount(
+                                        merged.length,
+                                      ),
+                                      style: TextStyle(
+                                        color: Colors.white.withOpacity(0.55),
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                SizedBox(
+                                  height: 20,
+                                  child: Divider(
+                                    height: 1,
+                                    color: Colors.white.withOpacity(0.08),
+                                  ),
+                                ),
+                                Expanded(child: buildCommentThread()),
+                                const SizedBox(height: 12),
+                                buildCommentComposer(),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(radius),
+      child: Container(
+        height: maxHeight,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(radius),
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF1A1C21), Color(0xFF0D0E11)],
+          ),
+          border: Border.all(color: accent.withOpacity(0.6), width: 1.5),
+          boxShadow: [
+            BoxShadow(
+              color: accent.withOpacity(0.15),
+              blurRadius: 24,
+              spreadRadius: -4,
+              offset: const Offset(0, 8),
+            ),
+            BoxShadow(
+              color: Colors.black.withOpacity(0.5),
+              blurRadius: 32,
+              spreadRadius: -8,
+              offset: const Offset(0, 12),
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: accent.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: accent.withOpacity(0.4)),
+                    ),
+                    child: const Icon(Icons.trending_up, color: accent, size: 22),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    AppLocalizations.of(context)!.strategiesFullStrategy,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close, color: Colors.white70, size: 22),
+                    style: IconButton.styleFrom(
+                      backgroundColor: Colors.white.withOpacity(0.08),
                     ),
                   ),
                 ],
               ),
-            );
+              const SizedBox(height: 16),
+              Expanded(child: buildStrategyBody()),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  TextButton.icon(
+                    onPressed: () => setState(() => showComments = !showComments),
+                    icon: Icon(
+                      showComments ? Icons.expand_less : Icons.expand_more,
+                      color: accent,
+                      size: 20,
+                    ),
+                    label: Text(
+                      showComments
+                          ? AppLocalizations.of(context)!.featuredHideComments
+                          : AppLocalizations.of(context)!.featuredViewComments,
+                      style: TextStyle(
+                        color: accent.withOpacity(0.95),
+                        fontWeight: FontWeight.w500,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    AppLocalizations.of(context)!.featuredCommentsCount(merged.length),
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.5),
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
+              ),
+              if (showComments) ...[
+                SizedBox(
+                  height: 20,
+                  child: Divider(height: 1, color: Colors.white.withOpacity(0.08)),
+                ),
+                Expanded(child: buildCommentThread()),
+                const SizedBox(height: 8),
+                buildCommentComposer(),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+Future<void> showStrategyImageViewer(
+  BuildContext context, {
+  required List<String> imageUrls,
+  int initialIndex = 0,
+}) async {
+  final urls = imageUrls.where((u) => u.trim().isNotEmpty).toList(growable: false);
+  if (urls.isEmpty) return;
+  final start = initialIndex.clamp(0, urls.length - 1);
+  await Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (_) => _StrategyImageViewerPage(
+        imageUrls: urls,
+        initialIndex: start,
+      ),
+      fullscreenDialog: true,
+    ),
+  );
+}
+
+class _StrategyImageViewerPage extends StatefulWidget {
+  const _StrategyImageViewerPage({
+    required this.imageUrls,
+    required this.initialIndex,
+  });
+
+  final List<String> imageUrls;
+  final int initialIndex;
+
+  @override
+  State<_StrategyImageViewerPage> createState() => _StrategyImageViewerPageState();
+}
+
+class _StrategyImageViewerPageState extends State<_StrategyImageViewerPage> {
+  late final PageController _pageController;
+  late int _index;
+
+  @override
+  void initState() {
+    super.initState();
+    _index = widget.initialIndex;
+    _pageController = PageController(initialPage: widget.initialIndex);
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        title: Text('${_index + 1}/${widget.imageUrls.length}'),
+      ),
+      body: PageView.builder(
+        controller: _pageController,
+        itemCount: widget.imageUrls.length,
+        onPageChanged: (i) => setState(() => _index = i),
+        itemBuilder: (_, i) {
+          return Center(
+            child: InteractiveViewer(
+              minScale: 1,
+              maxScale: 4,
+              child: Image.network(
+                widget.imageUrls[i],
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) =>
+                    const Icon(Icons.broken_image_outlined, color: Colors.white54, size: 48),
+              ),
+            ),
+          );
+        },
+      ),
+    );
   }
 }
 

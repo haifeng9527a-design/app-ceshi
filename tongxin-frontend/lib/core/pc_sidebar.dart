@@ -19,14 +19,18 @@ class PcSidebar extends StatefulWidget {
 
   static const double width = 72;
 
-  static List<_NavItem> _items(BuildContext context) => [
-    _NavItem(icon: Icons.dashboard_outlined, tooltip: AppLocalizations.of(context)!.navHome),
+  static List<_NavItem> _primaryItems(BuildContext context) => [
+    _NavItem(icon: Icons.leaderboard_outlined, tooltip: AppLocalizations.of(context)!.navRankings),
     _NavItem(icon: Icons.candlestick_chart_outlined, tooltip: AppLocalizations.of(context)!.navMarket),
     _NavItem(icon: Icons.star_outline, tooltip: AppLocalizations.of(context)!.navWatchlist),
     _NavItem(icon: Icons.chat_bubble_outline, tooltip: AppLocalizations.of(context)!.navMessages),
-    _NavItem(icon: Icons.leaderboard_outlined, tooltip: AppLocalizations.of(context)!.navRankings),
-    _NavItem(icon: Icons.person_outline, tooltip: AppLocalizations.of(context)!.navProfile),
+    _NavItem(icon: Icons.groups_2_outlined, tooltip: AppLocalizations.of(context)!.navFollow),
   ];
+
+  static _NavItem _profileItem(BuildContext context) => _NavItem(
+    icon: Icons.person_outline,
+    tooltip: AppLocalizations.of(context)!.navProfile,
+  );
 
   @override
   State<PcSidebar> createState() => _PcSidebarState();
@@ -46,8 +50,8 @@ class _PcSidebarState extends State<PcSidebar> {
             const SizedBox(height: 20),
             _AppMark(),
             const SizedBox(height: 28),
-            ...List.generate(PcSidebar._items(context).length, (i) {
-              final item = PcSidebar._items(context)[i];
+            ...List.generate(PcSidebar._primaryItems(context).length, (i) {
+              final item = PcSidebar._primaryItems(context)[i];
               final selected = widget.currentIndex == i;
               final hover = _hovered == i;
               final badgeCount = (i == 3) ? widget.messageUnreadCount : 0;
@@ -63,12 +67,12 @@ class _PcSidebarState extends State<PcSidebar> {
             }),
             const Spacer(),
             _NavItemTile(
-              icon: Icons.settings_outlined,
-              tooltip: AppLocalizations.of(context)!.navSettings,
-              selected: false,
-              hover: _hovered == -2,
-              onTap: () {},
-              onHover: (v) => setState(() => _hovered = v ? -2 : -1),
+              icon: PcSidebar._profileItem(context).icon,
+              tooltip: PcSidebar._profileItem(context).tooltip,
+              selected: widget.currentIndex == 5,
+              hover: _hovered == 5,
+              onTap: () => widget.onDestinationSelected(5),
+              onHover: (v) => setState(() => _hovered = v ? 5 : -1),
             ),
             const SizedBox(height: 16),
           ],

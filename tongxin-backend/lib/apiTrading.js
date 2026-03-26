@@ -186,7 +186,7 @@ async function getUserRole(sb, uid) {
 }
 
 async function ensureAdmin(req, res, sb) {
-  if (req.isAdminByKey === true) return true;
+  if (req.isAdminByKey === true || req.isAdminSession === true) return true;
   const uid = req.firebaseUid;
   if (!uid) {
     res.status(401).json({ error: '未鉴权' });

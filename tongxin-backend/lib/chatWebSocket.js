@@ -46,6 +46,14 @@ function broadcastToConversation(conversationId, payload) {
   }
 }
 
+function broadcastNewMessage(record) {
+  if (!record?.conversation_id) return;
+  broadcastToConversation(record.conversation_id, {
+    type: 'new_message',
+    message: record,
+  });
+}
+
 function addUserSocket(userId, ws) {
   if (!userId) return;
   let set = userSockets.get(userId);
@@ -118,12 +126,35 @@ function unsubscribeClient(ws) {
   clientMeta.delete(ws);
 }
 
-function subscribeClient(ws, conversationIds) {
+async function filterConversationIdsForUser(sb, uid, conversationIds) {
+  const ids = [...new Set(
+    (Array.isArray(conversationIds) ? conversationIds : [])
+      .filter((cid) => typeof cid === 'string')
+      .map((cid) => cid.trim())
+      .filter(Boolean),
+  )];
+  if (!uid || ids.length === 0) {
+    return { allowedIds: [], rejectedIds: ids };
+  }
+  const { data, error } = await sb
+    .from('chat_members')
+    .select('conversation_id')
+    .eq('user_id', uid)
+    .in('conversation_id', ids);
+  if (error) {
+    throw new Error(error.message);
+  }
+  const allowedSet = new Set((data || []).map((row) => row.conversation_id).filter(Boolean));
+  const allowedIds = ids.filter((cid) => allowedSet.has(cid));
+  const rejectedIds = ids.filter((cid) => !allowedSet.has(cid));
+  return { allowedIds, rejectedIds };
+}
+
+async function subscribeClient(sb, ws, uid, conversationIds) {
   const meta = clientMeta.get(ws) || { userId: null, conversationIds: new Set(), marketSymbols: new Set() };
   clientMeta.set(ws, meta);
-  const ids = Array.isArray(conversationIds) ? conversationIds : [];
-  for (const cid of ids) {
-    if (!cid || typeof cid !== 'string') continue;
+  const { allowedIds, rejectedIds } = await filterConversationIdsForUser(sb, uid, conversationIds);
+  for (const cid of allowedIds) {
     meta.conversationIds.add(cid);
     let set = conversationSubs.get(cid);
     if (!set) {
@@ -132,6 +163,7 @@ function subscribeClient(ws, conversationIds) {
     }
     set.add(ws);
   }
+  return { allowedIds, rejectedIds };
 }
 
 const MARKET_ALL_KEY = '__ALL__'; // 订阅全部行情时使用
@@ -279,7 +311,13 @@ function createChatWsServer(httpServer) {
         if (type === 'subscribe') {
           const ids = msg.conversation_ids || [];
           console.log(`[chatWs] 收到订阅 uid=${uid?.slice(0, 12)} conversation_ids=[${ids.slice(0, 3).join(',')}${ids.length > 3 ? '...' : ''}]`);
-          subscribeClient(ws, ids);
+          const { allowedIds, rejectedIds } = await subscribeClient(sb, ws, uid, ids);
+          if (allowedIds.length > 0) {
+            ws.send(JSON.stringify({ type: 'subscribed', conversation_ids: allowedIds }));
+          }
+          if (rejectedIds.length > 0) {
+            ws.send(JSON.stringify({ type: 'error', error: 'not member', conversation_ids: rejectedIds }));
+          }
         } else if (type === 'subscribe_market') {
           const symbols = msg.symbols || [];
           const symList = symbols.map((s) => String(s).trim().toUpperCase()).filter(Boolean);
@@ -333,7 +371,7 @@ function createChatWsServer(httpServer) {
           triggerChatMessagePush(sb, inserted).catch((e) => {
             console.warn(`[chatWs] send_push failed conv=${conversation_id?.slice(0, 8)} error=${e?.message || e}`);
           });
-          broadcastToConversation(conversation_id, { type: 'new_message', message: inserted });
+          broadcastNewMessage(inserted);
         }
       } catch (e) {
         try {
@@ -351,24 +389,7 @@ function createChatWsServer(httpServer) {
     broadcastToMarket(sym, { type: 'market_quote', ...update });
   });
 
-  // Supabase Realtime：监听 chat_messages 新插入，推送给订阅了该会话的客户端
-  sb.channel('chat_messages_changes')
-    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages' }, (payload) => {
-      const record = payload?.new;
-      if (!record?.conversation_id) return;
-      const contentPreview = (record.content || '').toString().slice(0, 20);
-      console.log(`[chatWs] Realtime 新消息 conv=${record.conversation_id?.slice(0, 8)} sender=${record.sender_id?.slice(0, 12)} content=${contentPreview}`);
-      broadcastToConversation(record.conversation_id, { type: 'new_message', message: record });
-    })
-    .subscribe((status) => {
-      if (status === 'SUBSCRIBED') {
-        console.log('[chatWs] Supabase Realtime chat_messages subscribed');
-      } else if (status === 'CHANNEL_ERROR') {
-        console.warn('[chatWs] Supabase Realtime 订阅失败，需在 Supabase Dashboard 为 chat_messages 启用 Realtime');
-      }
-    });
-
   return wss;
 }
 
-module.exports = { createChatWsServer, sendToUser };
+module.exports = { createChatWsServer, sendToUser, broadcastNewMessage };

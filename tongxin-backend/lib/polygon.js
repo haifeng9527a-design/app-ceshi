@@ -294,6 +294,61 @@ async function getSplits(apiKey, ticker, limit = 20) {
   }));
 }
 
+function looksLikeAnnouncement(news) {
+  const title = String(news?.title || '').toLowerCase();
+  const summary = String(news?.summary || '').toLowerCase();
+  const source = String(news?.source || '').toLowerCase();
+  const text = `${title} ${summary} ${source}`;
+  return /(announc|press release|sec filing|8-k|dividend|earnings|guidance|merger|acquisition|offering|buyback|approval|results)/i.test(text);
+}
+
+async function getReferenceNews(apiKey, {
+  ticker = null,
+  limit = 20,
+} = {}) {
+  const params = new URLSearchParams();
+  params.set('limit', String(Math.max(1, Math.min(Number(limit) || 20, 50))));
+  params.set('order', 'desc');
+  params.set('sort', 'published_utc');
+  params.set('apiKey', apiKey);
+  if (ticker && String(ticker).trim()) {
+    params.set('ticker', String(ticker).trim().toUpperCase());
+  }
+  const url = `${POLYGON_BASE}/v2/reference/news?${params.toString()}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+  if (res.status !== 200) return [];
+  const data = await res.json();
+  const results = Array.isArray(data?.results) ? data.results : [];
+  return results.map((item) => {
+    const tickers = Array.isArray(item?.tickers)
+      ? item.tickers.map((t) => String(t || '').trim().toUpperCase()).filter(Boolean)
+      : [];
+    const normalized = {
+      id: item?.id || null,
+      title: item?.title || '',
+      summary: item?.description || item?.snippet || '',
+      source: item?.publisher?.name || 'Unknown',
+      url: item?.article_url || '',
+      image_url: item?.image_url || null,
+      published_utc: item?.published_utc || null,
+      tickers,
+      lang: 'en',
+    };
+    return {
+      ...normalized,
+      is_announcement: looksLikeAnnouncement(normalized),
+    };
+  });
+}
+
+async function getAnnouncementNews(apiKey, ticker, limit = 20) {
+  const raw = await getReferenceNews(apiKey, {
+    ticker,
+    limit: Math.max(10, Math.min((Number(limit) || 20) * 3, 60)),
+  });
+  return raw.filter((item) => item.is_announcement).slice(0, Math.max(1, Math.min(Number(limit) || 20, 50)));
+}
+
 const V2_SNAPSHOT_BATCH_SIZE = 250;
 const V3_SNAPSHOT_BATCH_SIZE = 250;
 
@@ -460,4 +515,6 @@ module.exports = {
   getKeyRatios,
   getDividends,
   getSplits,
+  getReferenceNews,
+  getAnnouncementNews,
 };

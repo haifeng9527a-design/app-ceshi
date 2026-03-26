@@ -9,6 +9,7 @@ import '../../core/api_client.dart';
 import '../../core/design/design_tokens.dart';
 import '../../core/firebase_bootstrap.dart';
 import '../../core/layout_mode.dart';
+import '../../core/local_debug_mode.dart';
 import '../../l10n/app_localizations.dart';
 import '../../core/network_error_helper.dart';
 import '../../core/role_badge.dart';
@@ -949,6 +950,13 @@ class _MessagesPageState extends State<MessagesPage> {
             icon: Icons.cloud_off_outlined,
             title: AppLocalizations.of(context)!.messagesApiNotConfigured,
             subtitle: AppLocalizations.of(context)!.messagesConfigureApi,
+            onTap: () {},
+          )
+        else if (_currentUser == null && LocalDebugMode.isEnabled)
+          _ConfigCard(
+            icon: Icons.developer_mode_outlined,
+            title: '本地开发模式',
+            subtitle: '当前 macOS 无签名调试，聊天登录暂不可用。先继续开发无需登录的页面。',
             onTap: () {},
           )
         else if (_currentUser == null)

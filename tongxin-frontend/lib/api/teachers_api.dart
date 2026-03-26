@@ -11,17 +11,27 @@ class TeachersApi {
   TeachersApi._();
   static final TeachersApi instance = TeachersApi._();
   final _api = ApiClient.instance;
+  List<TeacherProfile> _cachedTeachers = const [];
+  List<TeacherProfile> _cachedRankings = const [];
+  final Map<String, List<TeacherStrategy>> _cachedStrategies =
+      <String, List<TeacherStrategy>>{};
+  final Map<String, List<TeacherPosition>> _cachedPositions =
+      <String, List<TeacherPosition>>{};
 
   /// GET /api/teachers — 交易员列表（已通过，非 blocked）
   Future<List<TeacherProfile>> getTeachers() async {
-    if (!_api.isAvailable) return [];
+    if (!_api.isAvailable) return _cachedTeachers;
     final resp = await _api.get('api/teachers');
-    if (resp.statusCode != 200) return [];
+    if (resp.statusCode != 200) return _cachedTeachers;
     try {
       final list = jsonDecode(resp.body) as List? ?? [];
-      return list.map((e) => TeacherProfile.fromMap(Map<String, dynamic>.from(e as Map))).toList();
+      final parsed = list
+          .map((e) => TeacherProfile.fromMap(Map<String, dynamic>.from(e as Map)))
+          .toList();
+      _cachedTeachers = parsed;
+      return parsed;
     } catch (_) {
-      return [];
+      return _cachedTeachers;
     }
   }
 
@@ -32,14 +42,18 @@ class TeachersApi {
 
   /// GET /api/teachers/rankings-real
   Future<List<TeacherProfile>> getRealRankings() async {
-    if (!_api.isAvailable) return [];
+    if (!_api.isAvailable) return _cachedRankings;
     final resp = await _api.get('api/teachers/rankings-real');
-    if (resp.statusCode != 200) return [];
+    if (resp.statusCode != 200) return _cachedRankings;
     try {
       final list = jsonDecode(resp.body) as List? ?? [];
-      return list.map((e) => TeacherProfile.fromMap(Map<String, dynamic>.from(e as Map))).toList();
+      final parsed = list
+          .map((e) => TeacherProfile.fromMap(Map<String, dynamic>.from(e as Map)))
+          .toList();
+      _cachedRankings = parsed;
+      return parsed;
     } catch (_) {
-      return [];
+      return _cachedRankings;
     }
   }
 
@@ -100,17 +114,22 @@ class TeachersApi {
 
   /// GET /api/teachers/:userId/strategies
   Future<List<TeacherStrategy>> getStrategies(String teacherId) async {
-    if (!_api.isAvailable) return [];
+    final cached = _cachedStrategies[teacherId] ?? const <TeacherStrategy>[];
+    if (!_api.isAvailable) return cached;
     final resp = await _api.get('api/teachers/$teacherId/strategies');
     if (resp.statusCode != 200) {
       if (kDebugMode) debugPrint('[TeachersApi] GET strategies => ${resp.statusCode} ${resp.body}');
-      return [];
+      return cached;
     }
     try {
       final list = jsonDecode(resp.body) as List? ?? [];
-      return list.map((e) => TeacherStrategy.fromMap(Map<String, dynamic>.from(e as Map))).toList();
+      final parsed = list
+          .map((e) => TeacherStrategy.fromMap(Map<String, dynamic>.from(e as Map)))
+          .toList();
+      _cachedStrategies[teacherId] = parsed;
+      return parsed;
     } catch (_) {
-      return [];
+      return cached;
     }
   }
 
@@ -274,6 +293,13 @@ class TeachersApi {
     });
   }
 
+  Future<void> deleteStrategy({
+    required String strategyId,
+  }) async {
+    if (!_api.isAvailable) return;
+    await _api.delete('api/teachers/strategies/$strategyId');
+  }
+
   Future<List<TradeRecord>> getTradeRecords(String teacherId) async {
     if (!_api.isAvailable) return [];
     final resp = await _api.get('api/teachers/$teacherId/trade-records');
@@ -292,19 +318,23 @@ class TeachersApi {
     String teacherId, {
     bool history = false,
   }) async {
-    if (!_api.isAvailable) return [];
+    final cacheKey = '$teacherId|$history';
+    final cached = _cachedPositions[cacheKey] ?? const <TeacherPosition>[];
+    if (!_api.isAvailable) return cached;
     final resp = await _api.get(
       'api/teachers/$teacherId/positions',
       queryParameters: {'history': history ? 'true' : 'false'},
     );
-    if (resp.statusCode != 200) return [];
+    if (resp.statusCode != 200) return cached;
     try {
       final list = jsonDecode(resp.body) as List? ?? [];
-      return list
+      final parsed = list
           .map((e) => TeacherPosition.fromMap(Map<String, dynamic>.from(e as Map)))
           .toList();
+      _cachedPositions[cacheKey] = parsed;
+      return parsed;
     } catch (_) {
-      return [];
+      return cached;
     }
   }
 

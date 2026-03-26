@@ -12,15 +12,18 @@ class MessagesRepository {
   MessagesRepository();
 
   bool get _useApi => ApiClient.instance.isAvailable;
-  static final Map<String, Timer> _conversationFallbackTimers =
-      <String, Timer>{};
+  static final Map<String, DateTime> _lastReadAt = <String, DateTime>{};
+  static final Set<String> _markReadInFlight = <String>{};
   static final Map<String, StreamSubscription<String>> _conversationWsSubs =
       <String, StreamSubscription<String>>{};
+  static final Map<String, StreamSubscription<String>> _connectionSubs =
+      <String, StreamSubscription<String>>{};
   static final Set<String> _conversationSyncInFlight = <String>{};
+  static final Set<String> _messageSyncInFlight = <String>{};
+  static final Set<String> _activeMessageWatchKeys = <String>{};
 
   void _ensureConversationSyncLoop(String userId) {
     if (userId.isEmpty || !_useApi) return;
-    if (_conversationFallbackTimers.containsKey(userId)) return;
     Future<void> tick() async {
       if (_conversationSyncInFlight.contains(userId)) return;
       _conversationSyncInFlight.add(userId);
@@ -33,14 +36,48 @@ class MessagesRepository {
 
     unawaited(ChatWebSocketService.instance.connectIfNeeded(userId));
     tick();
-    // WebSocket 推送为主，固定轮询降级为兜底
     _conversationWsSubs[userId] ??= ChatWebSocketService
         .instance.newMessageSignalStream
         .listen((_) => tick());
-    _conversationFallbackTimers[userId] = Timer.periodic(
-      const Duration(seconds: 90),
-      (_) => tick(),
-    );
+    _connectionSubs[userId] ??= ChatWebSocketService
+        .instance.connectionSignalStream
+        .listen((connectedUserId) {
+      if (connectedUserId != userId) return;
+      tick();
+      _resyncActiveMessageStreams(userId);
+    });
+  }
+
+  Future<void> _syncConversationMessages({
+    required String conversationId,
+    required String currentUserId,
+  }) async {
+    final key = '${conversationId}_$currentUserId';
+    if (_messageSyncInFlight.contains(key)) return;
+    _messageSyncInFlight.add(key);
+    try {
+      await ChatSyncService.instance.syncMessages(
+        conversationId: conversationId,
+        currentUserId: currentUserId,
+      );
+    } finally {
+      _messageSyncInFlight.remove(key);
+    }
+  }
+
+  void _resyncActiveMessageStreams(String currentUserId) {
+    for (final key in _activeMessageWatchKeys) {
+      final splitIndex = key.indexOf('_');
+      if (splitIndex <= 0 || splitIndex >= key.length - 1) continue;
+      final conversationId = key.substring(0, splitIndex);
+      final userId = key.substring(splitIndex + 1);
+      if (userId != currentUserId) continue;
+      unawaited(_syncConversationMessages(
+        conversationId: conversationId,
+        currentUserId: currentUserId,
+      ));
+      ChatWebSocketService.instance.subscribe([conversationId]);
+    }
   }
 
   Stream<List<Conversation>> watchConversations(
@@ -108,22 +145,29 @@ class MessagesRepository {
       yield [];
       return;
     }
-    // 启动时拉取一次与本地合并
-    await ChatSyncService.instance.syncMessages(
+    final watchKey = '${conversationId}_$currentUserId';
+    _activeMessageWatchKeys.add(watchKey);
+    await _syncConversationMessages(
       conversationId: conversationId,
       currentUserId: currentUserId,
     );
     ChatWebSocketService.instance.subscribe([conversationId]);
-    // WebSocket 连接时：30 秒兜底同步；未连接时：10 秒轮询
-    final interval = ChatWebSocketService.instance.isConnected
-        ? const Duration(seconds: 30)
-        : const Duration(seconds: 10);
-    final syncTimer = Stream.periodic(interval, (_) {});
-    final syncSub = syncTimer.listen((_) {
-      ChatSyncService.instance.syncMessages(
+    final messageSignalSub = ChatWebSocketService.instance.newMessageSignalStream
+        .listen((changedConversationId) {
+      if (changedConversationId != conversationId) return;
+      unawaited(_syncConversationMessages(
         conversationId: conversationId,
         currentUserId: currentUserId,
-      );
+      ));
+    });
+    final reconnectSub = ChatWebSocketService.instance.connectionSignalStream
+        .listen((connectedUserId) {
+      if (connectedUserId != currentUserId) return;
+      unawaited(_syncConversationMessages(
+        conversationId: conversationId,
+        currentUserId: currentUserId,
+      ));
+      ChatWebSocketService.instance.subscribe([conversationId]);
     });
     try {
       await for (final list in ChatDb.instance.watchMessages(
@@ -133,7 +177,9 @@ class MessagesRepository {
         yield list;
       }
     } finally {
-      await syncSub.cancel();
+      _activeMessageWatchKeys.remove(watchKey);
+      await messageSignalSub.cancel();
+      await reconnectSub.cancel();
     }
   }
 
@@ -234,9 +280,25 @@ class MessagesRepository {
   Future<void> markConversationRead({
     required String conversationId,
     required String userId,
+    bool force = false,
   }) async {
     if (!_useApi) return;
-    await MessagesApi.instance.markConversationRead(conversationId, userId);
+    if (conversationId.isEmpty || userId.isEmpty) return;
+    final key = '${conversationId}_$userId';
+    if (_markReadInFlight.contains(key)) return;
+    final lastAt = _lastReadAt[key];
+    if (!force &&
+        lastAt != null &&
+        DateTime.now().difference(lastAt) < const Duration(seconds: 8)) {
+      return;
+    }
+    _markReadInFlight.add(key);
+    try {
+      await MessagesApi.instance.markConversationRead(conversationId, userId);
+      _lastReadAt[key] = DateTime.now();
+    } finally {
+      _markReadInFlight.remove(key);
+    }
   }
 
   Future<Conversation> createGroupConversation({

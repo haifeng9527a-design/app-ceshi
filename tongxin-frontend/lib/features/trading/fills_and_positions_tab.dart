@@ -254,14 +254,19 @@ class _FillsAndPositionsTabState extends State<FillsAndPositionsTab> {
   }) async {
     final availableQty = p.buyShares ?? 0;
     final isShort = _isShortPosition(p);
-    final closeLabel = _closeActionLabel(p);
+    final closeLabel = _closeActionLabel(context, p);
     if (quantity <= 0) return;
     if (_sellingPositionIds.contains(p.id)) return;
     if (quantity > availableQty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('${_closeQuantityLabel(p)}不足，当前最多可平 ${availableQty.toStringAsFixed(0)}'),
+          content: Text(
+            AppLocalizations.of(context)!.tradingCloseQuantityExceeded(
+              _closeQuantityLabel(context, p),
+              availableQty.toStringAsFixed(0),
+            ),
+          ),
           backgroundColor: Colors.red.shade700,
         ),
       );
@@ -293,7 +298,12 @@ class _FillsAndPositionsTabState extends State<FillsAndPositionsTab> {
       await _loadData();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$closeLabel ${p.asset} 委托已提交')),
+        SnackBar(
+          content: Text(
+            AppLocalizations.of(context)!
+                .tradingBuySellSubmitted(closeLabel, p.asset),
+          ),
+        ),
       );
     } catch (e) {
       if (!mounted) return;
@@ -415,21 +425,31 @@ class _FillsAndPositionsTabState extends State<FillsAndPositionsTab> {
                           spacing: 6,
                           runSpacing: 6,
                           children: [
-                            _fillTag('${_fillAssetClassLabel(f.assetClass)} / ${_fillProductTypeLabel(f.productType)}'),
-                            _fillTag(_fillPositionSideLabel(f.positionSide)),
+                            _fillTag('${_fillAssetClassLabel(context, f.assetClass)} / ${_fillProductTypeLabel(context, f.productType)}'),
+                            _fillTag(_fillPositionSideLabel(context, f.positionSide)),
                             if (f.productType != ProductType.spot)
                               _fillTag(
-                                '${f.leverage.toStringAsFixed(f.leverage.truncateToDouble() == f.leverage ? 0 : 1)}倍',
+                                AppLocalizations.of(context)!.tradingLeverageX(
+                                  f.leverage.toStringAsFixed(
+                                    f.leverage.truncateToDouble() == f.leverage
+                                        ? 0
+                                        : 1,
+                                  ),
+                                ),
                               ),
                             if (f.notional > 0)
-                              _fillTag('成交额 ${f.notional.toStringAsFixed(2)}'),
+                              _fillTag(
+                                AppLocalizations.of(context)!.tradingNotionalValue(
+                                  f.notional.toStringAsFixed(2),
+                                ),
+                              ),
                           ],
                         ),
                       ],
                       if (f.realizedPnl != null) ...[
                         const SizedBox(height: 4),
                         Text(
-                          '盈亏 ${f.realizedPnl! >= 0 ? "+" : ""}${f.realizedPnl!.toStringAsFixed(2)}',
+                          '${AppLocalizations.of(context)!.tradesPnl} ${f.realizedPnl! >= 0 ? "+" : ""}${f.realizedPnl!.toStringAsFixed(2)}',
                           style: TextStyle(
                             color: (f.realizedPnl ?? 0) >= 0 ? Colors.green : Colors.red,
                             fontSize: 13,
@@ -448,7 +468,7 @@ class _FillsAndPositionsTabState extends State<FillsAndPositionsTab> {
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Text(
-                      _fillIntentLabel(f),
+                      _fillIntentLabel(context, f),
                       style: TextStyle(
                         color: f.isBuy ? Colors.green : Colors.red,
                         fontWeight: FontWeight.w600,
@@ -470,7 +490,7 @@ class _FillsAndPositionsTabState extends State<FillsAndPositionsTab> {
                 child: OutlinedButton(
                   onPressed: _loadMore,
                   child: Text(
-                    '加载更多',
+                    AppLocalizations.of(context)!.tradingLoadMore,
                     style: TextStyle(
                       color: Colors.white.withValues(alpha: 0.8),
                       fontSize: 12,
@@ -485,42 +505,49 @@ class _FillsAndPositionsTabState extends State<FillsAndPositionsTab> {
   }
 }
 
-String _fillAssetClassLabel(String? assetClass) {
+String _fillAssetClassLabel(BuildContext context, String? assetClass) {
   return switch (assetClass?.toLowerCase()) {
-    'stock' => '股票',
-    'forex' => '外汇',
-    'crypto' => '加密货币',
-    _ => assetClass ?? '资产',
+    'stock' => AppLocalizations.of(context)!.tradingStock,
+    'forex' => AppLocalizations.of(context)!.tradingForex,
+    'crypto' => AppLocalizations.of(context)!.tradingCrypto,
+    _ => assetClass ?? AppLocalizations.of(context)!.tradingAssetGeneric,
   };
 }
 
-String _fillProductTypeLabel(ProductType type) {
+String _fillProductTypeLabel(BuildContext context, ProductType type) {
   return switch (type) {
-    ProductType.spot => '现货',
-    ProductType.perpetual => '永续',
-    ProductType.future => '期货',
+    ProductType.spot => AppLocalizations.of(context)!.tradingProductSpot,
+    ProductType.perpetual =>
+      AppLocalizations.of(context)!.tradingProductPerpetual,
+    ProductType.future => AppLocalizations.of(context)!.tradingProductFuture,
   };
 }
 
-String _fillPositionSideLabel(PositionSide side) {
-  return side == PositionSide.long ? '做多' : '做空';
+String _fillPositionSideLabel(BuildContext context, PositionSide side) {
+  return side == PositionSide.long
+      ? AppLocalizations.of(context)!.tradingPositionLong
+      : AppLocalizations.of(context)!.tradingPositionShort;
 }
 
-String _positionProductTypeLabel(String productType) {
+String _positionProductTypeLabel(BuildContext context, String productType) {
   return switch (productType.toLowerCase()) {
-    'spot' => '现货',
-    'perpetual' => '永续',
-    'future' => '期货',
+    'spot' => AppLocalizations.of(context)!.tradingProductSpot,
+    'perpetual' => AppLocalizations.of(context)!.tradingProductPerpetual,
+    'future' => AppLocalizations.of(context)!.tradingProductFuture,
     _ => productType,
   };
 }
 
-String _positionPositionSideLabel(String positionSide) {
-  return positionSide.toLowerCase() == 'short' ? '做空' : '做多';
+String _positionPositionSideLabel(BuildContext context, String positionSide) {
+  return positionSide.toLowerCase() == 'short'
+      ? AppLocalizations.of(context)!.tradingPositionShort
+      : AppLocalizations.of(context)!.tradingPositionLong;
 }
 
-String _positionMarginModeLabel(String marginMode) {
-  return marginMode.toLowerCase() == 'isolated' ? '逐仓' : '全仓';
+String _positionMarginModeLabel(BuildContext context, String marginMode) {
+  return marginMode.toLowerCase() == 'isolated'
+      ? AppLocalizations.of(context)!.tradingMarginIsolated
+      : AppLocalizations.of(context)!.tradingMarginCross;
 }
 
 Widget _fillTag(String text) {
@@ -578,25 +605,39 @@ Color _priceColorForPosition(
   return favorable ? Colors.green : Colors.red;
 }
 
-String _closeActionLabel(TeacherPosition position) {
-  if ((position.productType ?? '').toLowerCase() == 'spot') return '卖出';
-  return _isShortPosition(position) ? '平空' : '平多';
+String _closeActionLabel(BuildContext context, TeacherPosition position) {
+  if ((position.productType ?? '').toLowerCase() == 'spot') {
+    return AppLocalizations.of(context)!.tradingSell;
+  }
+  return _isShortPosition(position)
+      ? AppLocalizations.of(context)!.tradingCloseShort
+      : AppLocalizations.of(context)!.tradingCloseLong;
 }
 
-String _closeQuantityLabel(TeacherPosition position) {
-  if ((position.productType ?? '').toLowerCase() == 'spot') return '可卖数量';
-  return '可平数量';
+String _closeQuantityLabel(BuildContext context, TeacherPosition position) {
+  if ((position.productType ?? '').toLowerCase() == 'spot') {
+    return AppLocalizations.of(context)!.tradingSellableQuantity;
+  }
+  return AppLocalizations.of(context)!.tradingClosableQuantity;
 }
 
-String _fillIntentLabel(OrderFill fill) {
+String _fillIntentLabel(BuildContext context, OrderFill fill) {
   if (fill.productType == ProductType.spot) {
-    return fill.isBuy ? '买入' : '卖出';
+    return fill.isBuy
+        ? AppLocalizations.of(context)!.tradingBuy
+        : AppLocalizations.of(context)!.tradingSell;
   }
   final isLong = fill.positionSide == PositionSide.long;
-  if (isLong && fill.side == OrderSide.buy) return '开多';
-  if (isLong && fill.side == OrderSide.sell) return '平多';
-  if (!isLong && fill.side == OrderSide.sell) return '开空';
-  return '平空';
+  if (isLong && fill.side == OrderSide.buy) {
+    return AppLocalizations.of(context)!.tradingOpenLong;
+  }
+  if (isLong && fill.side == OrderSide.sell) {
+    return AppLocalizations.of(context)!.tradingCloseLong;
+  }
+  if (!isLong && fill.side == OrderSide.sell) {
+    return AppLocalizations.of(context)!.tradingOpenShort;
+  }
+  return AppLocalizations.of(context)!.tradingCloseShort;
 }
 
 class _PositionCard extends StatelessWidget {
@@ -682,15 +723,15 @@ class _PositionCard extends StatelessWidget {
                           runSpacing: 6,
                           children: [
                             _miniTag(
-                              '${(position.productType ?? '').toLowerCase() == 'spot' ? l10n.tradesPositionShares : '持仓'} ${qty <= 0 ? "--" : qty.toStringAsFixed(0)}',
+                              '${(position.productType ?? '').toLowerCase() == 'spot' ? l10n.tradesPositionShares : l10n.tradingPositionHolding} ${qty <= 0 ? "--" : qty.toStringAsFixed(0)}',
                             ),
                             if ((position.assetClass ?? '').isNotEmpty)
-                              _miniTag(_fillAssetClassLabel(position.assetClass)),
+                              _miniTag(_fillAssetClassLabel(context, position.assetClass)),
                             if ((position.productType ?? '').isNotEmpty)
-                              _miniTag(_positionProductTypeLabel(position.productType!)),
+                              _miniTag(_positionProductTypeLabel(context, position.productType!)),
                             if ((position.positionSide ?? '').isNotEmpty)
-                              _miniTag(_positionPositionSideLabel(position.positionSide!)),
-                            _miniTag(_closeActionLabel(position)),
+                              _miniTag(_positionPositionSideLabel(context, position.positionSide!)),
+                            _miniTag(_closeActionLabel(context, position)),
                             _miniTag(
                               '${l10n.tradingCurrentPriceLabel} ${current > 0 ? current.toStringAsFixed(2) : "--"}',
                               textColor: priceColor,
@@ -777,8 +818,8 @@ class _PositionCard extends StatelessWidget {
                     if ((position.marginMode ?? '').isNotEmpty)
                       Expanded(
                         child: _metricCell(
-                          '保证金模式',
-                          _positionMarginModeLabel(position.marginMode!),
+                          AppLocalizations.of(context)!.tradingMarginMode,
+                          _positionMarginModeLabel(context, position.marginMode!),
                         ),
                       ),
                     if (position.leverage != null) ...[
@@ -786,8 +827,15 @@ class _PositionCard extends StatelessWidget {
                         const SizedBox(width: 8),
                       Expanded(
                         child: _metricCell(
-                          '杠杆',
-                          '${position.leverage!.toStringAsFixed(position.leverage!.truncateToDouble() == position.leverage! ? 0 : 1)}倍',
+                          AppLocalizations.of(context)!.tradingLeverage,
+                          AppLocalizations.of(context)!.tradingLeverageX(
+                            position.leverage!.toStringAsFixed(
+                              position.leverage!.truncateToDouble() ==
+                                      position.leverage!
+                                  ? 0
+                                  : 1,
+                            ),
+                          ),
                         ),
                       ),
                     ],
@@ -797,7 +845,7 @@ class _PositionCard extends StatelessWidget {
                         const SizedBox(width: 8),
                       Expanded(
                         child: _metricCell(
-                          '强平价',
+                          AppLocalizations.of(context)!.tradingLiquidationPrice,
                           position.liquidationPrice!.toStringAsFixed(2),
                         ),
                       ),
@@ -845,7 +893,7 @@ class _PositionCard extends StatelessWidget {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Text(
-                                _closeActionLabel(position),
+                                _closeActionLabel(context, position),
                                 style: const TextStyle(
                                   color: _accent,
                                   fontWeight: FontWeight.w700,
@@ -1029,26 +1077,43 @@ class _PositionDetailSheetState extends State<_PositionDetailSheet> {
 
   Future<void> _submit() async {
     final available = widget.position.buyShares ?? 0;
-    final closeLabel = _closeActionLabel(widget.position);
+    final closeLabel = _closeActionLabel(context, widget.position);
     final qty = double.tryParse(_qtyController.text.trim());
     final price = double.tryParse(_priceController.text.trim());
     if (qty == null || qty <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('请输入有效$closeLabel数量')),
+        SnackBar(
+          content: Text(
+            AppLocalizations.of(context)!.tradingEnterValidCloseQuantity(
+              closeLabel,
+            ),
+          ),
+        ),
       );
       return;
     }
     if (qty > available) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('${_closeQuantityLabel(widget.position)}不足，最多可平 ${available.toStringAsFixed(0)}'),
+          content: Text(
+            AppLocalizations.of(context)!.tradingCloseQuantityExceeded(
+              _closeQuantityLabel(context, widget.position),
+              available.toStringAsFixed(0),
+            ),
+          ),
         ),
       );
       return;
     }
     if (!_marketOrder && (price == null || price <= 0)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('限价$closeLabel请输入有效价格')),
+        SnackBar(
+          content: Text(
+            AppLocalizations.of(context)!.tradingEnterValidLimitPriceFor(
+              closeLabel,
+            ),
+          ),
+        ),
       );
       return;
     }
@@ -1069,7 +1134,7 @@ class _PositionDetailSheetState extends State<_PositionDetailSheet> {
     final available = widget.position.buyShares ?? 0;
     final cost = widget.position.costPrice ?? widget.position.buyPrice ?? 0;
     final current = _quote?.price ?? widget.position.currentPrice ?? 0;
-    final closeLabel = _closeActionLabel(widget.position);
+    final closeLabel = _closeActionLabel(context, widget.position);
     final floating =
         available > 0 && cost > 0 && current > 0
             ? _floatingPnlForPosition(widget.position, current, cost, available)
@@ -1117,7 +1182,10 @@ class _PositionDetailSheetState extends State<_PositionDetailSheet> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            '现价 ${current > 0 ? current.toStringAsFixed(2) : "--"}   浮盈 ${floating >= 0 ? "+" : ""}${floating.toStringAsFixed(2)}',
+                            AppLocalizations.of(context)!.tradingCurrentAndFloating(
+                              current > 0 ? current.toStringAsFixed(2) : "--",
+                              '${floating >= 0 ? "+" : ""}${floating.toStringAsFixed(2)}',
+                            ),
                             style: TextStyle(
                               color: pnlColor,
                               fontSize: 13,
@@ -1137,7 +1205,7 @@ class _PositionDetailSheetState extends State<_PositionDetailSheet> {
                         borderRadius: BorderRadius.circular(999),
                       ),
                       child: Text(
-                        '${_closeQuantityLabel(widget.position).replaceAll('数量', '')} ${available.toStringAsFixed(0)}',
+                        '${_closeQuantityLabel(context, widget.position).replaceAll(AppLocalizations.of(context)!.tradingQuantityWord, '')} ${available.toStringAsFixed(0)}',
                         style: const TextStyle(
                           color: _accent,
                           fontWeight: FontWeight.w700,
@@ -1160,10 +1228,10 @@ class _PositionDetailSheetState extends State<_PositionDetailSheet> {
                   child: _loadingChart
                       ? const Center(child: CircularProgressIndicator())
                       : _candles.isEmpty
-                          ? const Center(
+                          ? Center(
                               child: Text(
-                                '暂无分时数据',
-                                style: TextStyle(color: Colors.white54),
+                                AppLocalizations.of(context)!.chartNoData,
+                                style: const TextStyle(color: Colors.white54),
                               ),
                             )
                           : IntradayChart(
@@ -1217,7 +1285,7 @@ class _PositionDetailSheetState extends State<_PositionDetailSheet> {
                       children: [
                         Expanded(
                           child: _fieldBox(
-                            label: _closeQuantityLabel(widget.position),
+                            label: _closeQuantityLabel(context, widget.position),
                             child: Text(
                               available.toStringAsFixed(0),
                               style: const TextStyle(
@@ -1262,9 +1330,12 @@ class _PositionDetailSheetState extends State<_PositionDetailSheet> {
                         color: _marketOrder ? Colors.white38 : Colors.white,
                       ),
                       decoration: _inputDecoration(
-                        closeLabel == '卖出'
+                        (widget.position.productType ?? '').toLowerCase() ==
+                                'spot'
                             ? AppLocalizations.of(context)!.tradingSellPrice
-                            : '$closeLabel 价格',
+                            : AppLocalizations.of(context)!.tradingPriceForAction(
+                                closeLabel,
+                              ),
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -1289,7 +1360,11 @@ class _PositionDetailSheetState extends State<_PositionDetailSheet> {
                                   color: Colors.white,
                                 ),
                               )
-                            : Text('确认$closeLabel'),
+                            : Text(
+                                AppLocalizations.of(context)!.tradingConfirmAction(
+                                  closeLabel,
+                                ),
+                              ),
                       ),
                     ),
                   ],

@@ -15,4 +15,10 @@ class I18nExtra {
         ? '未配置 WEBVIEW_USER_PAGE_URL'
         : 'WEBVIEW_USER_PAGE_URL is not configured';
   }
+
+  static String webViewUserPageUrlInvalid(BuildContext context) {
+    return _isZh(context)
+        ? 'WEBVIEW_USER_PAGE_URL 无效'
+        : 'WEBVIEW_USER_PAGE_URL is invalid';
+  }
 }

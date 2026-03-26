@@ -58,18 +58,15 @@ class _ReportPageState extends State<ReportPage> {
   }
 
   String _friendsPickerTitle() {
-    final lang = Localizations.localeOf(context).languageCode.toLowerCase();
-    return lang.startsWith('zh') ? '从好友中选择' : 'Select From Friends';
+    return AppLocalizations.of(context)!.reportSelectFromFriends;
   }
 
   String _friendsPickerEmpty() {
-    final lang = Localizations.localeOf(context).languageCode.toLowerCase();
-    return lang.startsWith('zh') ? '暂无好友' : 'No Friends Yet';
+    return AppLocalizations.of(context)!.reportNoFriendsYet;
   }
 
   String _friendsPickerHint() {
-    final lang = Localizations.localeOf(context).languageCode.toLowerCase();
-    return lang.startsWith('zh') ? '请选择好友' : 'Select a friend';
+    return AppLocalizations.of(context)!.reportSelectFriendHint;
   }
 
   void _subscribeFriends() {
@@ -153,7 +150,7 @@ class _ReportPageState extends State<ReportPage> {
     }
     if (_reportedUser!.userId == uid) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${l10n.reportFailed}: invalid target user')),
+        SnackBar(content: Text(l10n.reportInvalidTargetUser)),
       );
       return;
     }
@@ -168,7 +165,7 @@ class _ReportPageState extends State<ReportPage> {
         );
         if (urls.isEmpty) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('${l10n.reportFailed}: screenshot upload failed')),
+            SnackBar(content: Text(l10n.reportScreenshotUploadFailed)),
           );
           return;
         }

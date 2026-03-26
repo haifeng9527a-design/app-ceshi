@@ -104,6 +104,11 @@
   "profilePrivacyPolicySubtitle": "查看隐私政策与用户协议",
   "profileReport": "举报",
   "profileReportSubtitle": "举报违规内容或用户",
+  "profileUserTradingCenterMenuTitle": "用户交易中心",
+  "profileUserTradingCenterMenuSubtitle": "通过 WebView 打开用户交易中心",
+  "profileUserTradingCenterHiddenMenuTitle": "用户交易中心",
+  "profileUserTradingCenterHiddenMenuSubtitle": "当前版本暂不支持，请访问下方链接",
+  "profileLinkPrefix": "链接：",
   "profilePrivacyPolicyContent": "本应用尊重并保护用户隐私。我们收集的信息仅用于提供和改进服务。详细条款请参阅应用商店或官网的完整隐私政策。",
   "profileReportContent": "如有违规内容或用户，请通过应用内反馈或联系客服举报。我们会尽快处理。",
   "reportPageTitle": "举报用户",
@@ -345,6 +350,10 @@
   "teachersPublish": "发布",
   "teachersStrategyPublished": "策略已发布，将显示在关注页「今日交易策略」",
   "teachersPublishFailed": "发布失败",
+  "teachersDeleteStrategy": "删除策略",
+  "teachersDeleteStrategyConfirm": "确定删除这条策略吗？删除后无法恢复。",
+  "teachersStrategyDeleted": "策略已删除",
+  "teachersDeleteStrategyFailed": "删除策略失败",
   "teachersUploadTradeRecord": "上传交易记录",
   "teachersVarietyLabel": "品种",
   "teachersDirectionLabel": "方向（买/卖）",
@@ -496,6 +505,7 @@
   "authSendVerificationEmail": "发送验证邮件",
   "authSendVerificationEmailCooldown": "发送验证邮件（{seconds}s）",
   "authFirebaseConfigHint": "尚未配置 Firebase，请先添加配置文件（google-services.json / GoogleService-Info.plist）。",
+  "authFirebaseConfigHintWeb": "网页版登录配置未完成，当前 Web 端暂时无法使用 Firebase 登录。",
   "authVerificationSent": "已发送验证邮件，请验证后再登录",
   "authFillNameEmailPassword": "请先填写姓名、邮箱和两次密码",
   "authPasswordMismatch": "两次密码不一致",
@@ -1392,5 +1402,225 @@
       }
     }
   },
-  "teachersStatusOpenAfterApproval": "审核通过后开放策略发布"
+  "teachersStatusOpenAfterApproval": "审核通过后开放策略发布",
+  "teachersTradingAccount": "交易账户",
+  "teachersSpotAccount": "现货账户",
+  "teachersContractAccount": "合约账户",
+  "tradingSpotBuy": "现货买入",
+  "tradingSpotSell": "现货卖出",
+  "tradingOpenLong": "开多",
+  "tradingCloseLong": "平多",
+  "tradingOpenShort": "开空",
+  "tradingCloseShort": "平空",
+  "tradingProductSpot": "现货",
+  "tradingProductPerpetual": "永续",
+  "tradingProductFuture": "期货",
+  "tradingPositionLong": "做多",
+  "tradingPositionShort": "做空",
+  "tradingMarginCross": "全仓",
+  "tradingMarginIsolated": "逐仓",
+  "tradingNoMatchedSymbol": "未找到匹配标的",
+  "tradingPickSymbol": "选择标的（\"{query}\"）",
+  "@tradingPickSymbol": {
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  },
+  "tradingOrderPlaced": "已经委托",
+  "tradingMode": "交易模式",
+  "tradingMaintenanceRate": "当前维持保证金率 {rate}%",
+  "@tradingMaintenanceRate": {
+    "placeholders": {
+      "rate": {
+        "type": "String"
+      }
+    }
+  },
+  "tradingPositionDirection": "持仓方向",
+  "tradingMarginMode": "保证金模式",
+  "tradingLeverage": "杠杆",
+  "tradingMargin": "保证金",
+  "tradingLeverageWithMax": "杠杆 {leverage}x / 上限 {max}x",
+  "@tradingLeverageWithMax": {
+    "placeholders": {
+      "leverage": {
+        "type": "String"
+      },
+      "max": {
+        "type": "String"
+      }
+    }
+  },
+  "tradingAvailableFunds": "可用资金",
+  "tradingEstimatedOccupied": "预计占用",
+  "tradingEstimatedMargin": "预计保证金",
+  "tradingInsufficientFunds": "可用资金不足，无法委托",
+  "tradingInsufficientMargin": "可用保证金不足，无法委托",
+  "tradingNeedAndCurrent": "{label}（需要 {need}，当前 {current}）",
+  "@tradingNeedAndCurrent": {
+    "placeholders": {
+      "label": {
+        "type": "String"
+      },
+      "need": {
+        "type": "String"
+      },
+      "current": {
+        "type": "String"
+      }
+    }
+  },
+  "tradingTransferFunds": "账户划转",
+  "tradingTransferFromTo": "从 {from} 划转到 {to}",
+  "@tradingTransferFromTo": {
+    "placeholders": {
+      "from": {
+        "type": "String"
+      },
+      "to": {
+        "type": "String"
+      }
+    }
+  },
+  "tradingTransferAmount": "划转金额",
+  "tradingEnterValidTransferAmount": "请输入有效划转金额",
+  "tradingInsufficientAvailableFunds": "可用资金不足",
+  "tradingTransferSuccess": "资金划转成功",
+  "tradingLedgerTypePositionLiquidated": "强制平仓",
+  "tradingLedgerTypeTransferOut": "账户划转转出",
+  "tradingLedgerTypeTransferIn": "账户划转转入",
+  "tradingLedgerCsvHeader": "时间,流水类型,标的,资产类型,产品类型,方向,持仓方向,变动金额{suffix},变动后余额{suffix},备注",
+  "@tradingLedgerCsvHeader": {
+    "placeholders": {
+      "suffix": {
+        "type": "String"
+      }
+    }
+  },
+  "tradingLoadMore": "加载更多",
+  "tradingViewDetails": "查看详情",
+  "tradingSellableQuantity": "可卖数量",
+  "tradingClosableQuantity": "可平数量",
+  "tradingAssetGeneric": "资产",
+  "reportSelectFromFriends": "从好友中选择",
+  "reportNoFriendsYet": "暂无好友",
+  "reportSelectFriendHint": "请选择好友",
+  "reportInvalidTargetUser": "举报失败：无效目标用户",
+  "reportScreenshotUploadFailed": "举报失败：截图上传失败",
+  "rankingsBoardWeekly": "周榜",
+  "rankingsBoardMonthly": "月榜",
+  "rankingsBoardQuarterly": "季榜",
+  "rankingsBoardYearly": "年榜",
+  "rankingsBoardAllTime": "总榜",
+  "rankingsTop10": "前10名",
+  "tradingLeverageX": "{value}倍",
+  "@tradingLeverageX": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "tradingNotionalValue": "成交额 {value}",
+  "@tradingNotionalValue": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "tradingPositionHolding": "持仓",
+  "tradingLiquidationPrice": "强平价",
+  "tradingCloseQuantityExceeded": "{label}不足，当前最多可平 {max}",
+  "@tradingCloseQuantityExceeded": {
+    "placeholders": {
+      "label": {
+        "type": "String"
+      },
+      "max": {
+        "type": "String"
+      }
+    }
+  },
+  "tradingEnterValidCloseQuantity": "请输入有效{action}数量",
+  "@tradingEnterValidCloseQuantity": {
+    "placeholders": {
+      "action": {
+        "type": "String"
+      }
+    }
+  },
+  "tradingEnterValidLimitPriceFor": "限价{action}请输入有效价格",
+  "@tradingEnterValidLimitPriceFor": {
+    "placeholders": {
+      "action": {
+        "type": "String"
+      }
+    }
+  },
+  "tradingCurrentAndFloating": "现价 {current}   浮盈 {floating}",
+  "@tradingCurrentAndFloating": {
+    "placeholders": {
+      "current": {
+        "type": "String"
+      },
+      "floating": {
+        "type": "String"
+      }
+    }
+  },
+  "tradingPriceForAction": "{action} 价格",
+  "@tradingPriceForAction": {
+    "placeholders": {
+      "action": {
+        "type": "String"
+      }
+    }
+  },
+  "tradingConfirmAction": "确认{action}",
+  "@tradingConfirmAction": {
+    "placeholders": {
+      "action": {
+        "type": "String"
+      }
+    }
+  },
+  "tradingQuantityWord": "数量",
+  "dashboardEyebrowMentor": "精选导师",
+  "dashboardTitleMentor": "适合先浏览、再决定关注",
+  "dashboardActionViewAll": "查看全部",
+  "dashboardEyebrowRanking": "本月榜单",
+  "dashboardTitleRanking": "先看 Top 3，再决定深入谁",
+  "dashboardActionFullRanking": "完整榜单",
+  "dashboardEyebrowNews": "热点新闻",
+  "dashboardTitleNews": "英文市场热点，快速掌握主线",
+  "dashboardActionMoreNews": "更多新闻",
+  "dashboardHeroTitle": "先看懂榜单，再决定关注",
+  "dashboardHeroSubtitle": "首页聚合榜单解读、导师入口和市场速览，帮助你在更短时间内做出更清晰的关注决策。",
+  "dashboardHeroActionViewRanking": "查看榜单",
+  "dashboardHeroMetricDimensionLabel": "榜单维度",
+  "dashboardHeroMetricDimensionValue": "5类",
+  "dashboardHeroMetricCountLabel": "展示人数",
+  "dashboardHeroMetricCountValue": "Top10",
+  "dashboardHeroMetricUpdateLabel": "更新频率",
+  "dashboardHeroMetricUpdateValue": "实时",
+  "dashboardQuickMarketTitle": "市场行情",
+  "dashboardQuickMarketSubtitle": "指数、热点与自选",
+  "dashboardQuickMentorTitle": "导师中心",
+  "dashboardQuickMentorSubtitle": "先看资料，再决定关注",
+  "dashboardQuickRankingTitle": "榜单排行",
+  "dashboardQuickRankingSubtitle": "快速锁定 Top 交易员",
+  "dashboardQuickMessageTitle": "消息中心",
+  "dashboardQuickMessageSubtitle": "查看会话与系统通知",
+  "dashboardTrust1": "真实收益可视化",
+  "dashboardTrust2": "导师策略可追踪",
+  "dashboardTrust3": "榜单入口更清晰",
+  "dashboardTrust4": "消息触达更直接",
+  "dashboardMentorFallbackTitle": "交易导师",
+  "dashboardMentorTip": "点击查看老师个人资料，交易策略中心仅好友可进入。",
+  "dashboardNoHotNews": "暂无热点新闻",
+  "teachersStrategyMaxNineImages": "最多一次发布 9 张图片",
+  "teachersStrategyExceedNineIgnored": "超出部分已忽略（最多 9 张）"
 }

@@ -147,7 +147,7 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
     _tabController?.removeListener(_handleTradingTabChanged);
     _tabController?.dispose();
     if (approved) {
-      _tabController = TabController(length: 6, vsync: this);
+      _tabController = TabController(length: 5, vsync: this);
       _activeTradingTabIndex = 0;
       _selectedTradingAccountType = TradingAccountType.spot;
       _loadedTradingTabs
@@ -175,6 +175,7 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
   }
 
   Widget _buildTradingAccountSwitcher() {
+    final l10n = AppLocalizations.of(context)!;
     Widget chip(TradingAccountType type, String label) {
       final selected = _selectedTradingAccountType == type;
       return ChoiceChip(
@@ -201,22 +202,37 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
 
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.account_balance_wallet_outlined, color: TradingUi.accent, size: 18),
-          const SizedBox(width: 8),
-          const Text(
-            '交易账户',
-            style: TextStyle(
-              color: TradingUi.accent,
-              fontWeight: FontWeight.w700,
-              fontSize: 14,
-            ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.account_balance_wallet_outlined,
+                color: TradingUi.accent,
+                size: 18,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                l10n.teachersTradingAccount,
+                style: const TextStyle(
+                  color: TradingUi.accent,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 12),
-          chip(TradingAccountType.spot, '现货账户'),
-          const SizedBox(width: 8),
-          chip(TradingAccountType.contract, '合约账户'),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              chip(TradingAccountType.spot, l10n.teachersSpotAccount),
+              chip(TradingAccountType.contract, l10n.teachersContractAccount),
+            ],
+          ),
         ],
       ),
     );
@@ -228,35 +244,33 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
     }
     switch (index) {
       case 0:
-        return _buildStrategiesTab(userId, isActive: _activeTradingTabIndex == 0);
-      case 1:
         return MarketTradeTab(
           teacherId: userId,
+          isActive: _activeTradingTabIndex == 0,
+        );
+      case 1:
+        return OrdersTab(
+          teacherId: userId,
+          accountType: _selectedTradingAccountType,
           isActive: _activeTradingTabIndex == 1,
         );
       case 2:
-        return OrdersTab(
+        return OrderHistoryTab(
           teacherId: userId,
           accountType: _selectedTradingAccountType,
           isActive: _activeTradingTabIndex == 2,
         );
       case 3:
-        return OrderHistoryTab(
+        return FillsAndPositionsTab(
           teacherId: userId,
           accountType: _selectedTradingAccountType,
           isActive: _activeTradingTabIndex == 3,
         );
       case 4:
-        return FillsAndPositionsTab(
-          teacherId: userId,
-          accountType: _selectedTradingAccountType,
-          isActive: _activeTradingTabIndex == 4,
-        );
-      case 5:
         return AccountLedgerTab(
           teacherId: userId,
           accountType: _selectedTradingAccountType,
-          isActive: _activeTradingTabIndex == 5,
+          isActive: _activeTradingTabIndex == 4,
         );
       default:
         return const SizedBox.shrink();
@@ -358,216 +372,6 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
         SnackBar(content: Text('${AppLocalizations.of(context)!.teachersUploadFailed}：$error')),
       );
     }
-  }
-
-  Future<void> _addStrategyDialog() async {
-    final titleController = TextEditingController();
-    final contentController = TextEditingController();
-    final List<XFile> dialogImages = [];
-    final result = await showDialog<(String title, String content, List<XFile> images)?>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            dialogTheme: const DialogThemeData(
-              backgroundColor: Color(0xFF1A1C21),
-            ),
-            colorScheme: const ColorScheme.dark(
-              surface: Color(0xFF1A1C21),
-              onSurface: Colors.white,
-              primary: _accent,
-            ),
-          ),
-          child: AlertDialog(
-            title: Text(AppLocalizations.of(dialogContext)!.teachersPublishStrategy, style: const TextStyle(color: Colors.white)),
-            content: SingleChildScrollView(
-              child: StatefulBuilder(
-                builder: (context, setDialogState) {
-                  final l10n = AppLocalizations.of(dialogContext)!;
-                  return Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      TextField(
-                        controller: titleController,
-                        decoration: InputDecoration(
-                          labelText: l10n.teachersTitleLabel,
-                          labelStyle: const TextStyle(color: Color(0xFF6C6F77)),
-                        ),
-                        style: const TextStyle(color: Colors.white),
-                      ),
-                      TextField(
-                        controller: contentController,
-                        decoration: InputDecoration(
-                          labelText: l10n.teachersStrategyContent,
-                          labelStyle: const TextStyle(color: Color(0xFF6C6F77)),
-                        ),
-                        style: const TextStyle(color: Colors.white),
-                        maxLines: 4,
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Text(
-                            l10n.teachersStrategyImage,
-                            style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.7),
-                              fontSize: 12,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          TextButton.icon(
-                            onPressed: () async {
-                              final picked = await _imagePicker.pickMultiImage(
-                                imageQuality: 85,
-                              );
-                              if (picked.isNotEmpty) {
-                                dialogImages.addAll(picked);
-                                setDialogState(() {});
-                              }
-                            },
-                            icon: const Icon(Icons.add_photo_alternate, size: 20, color: _accent),
-                            label: Text(l10n.teachersAddImage, style: const TextStyle(color: _accent)),
-                          ),
-                        ],
-                      ),
-                      if (dialogImages.isNotEmpty) ...[
-                        const SizedBox(height: 8),
-                        SizedBox(
-                          height: 72,
-                          child: ListView.separated(
-                            scrollDirection: Axis.horizontal,
-                            itemCount: dialogImages.length,
-                            separatorBuilder: (_, __) => const SizedBox(width: 8),
-                            itemBuilder: (context, index) {
-                              final x = dialogImages[index];
-                              return Stack(
-                                clipBehavior: Clip.none,
-                                children: [
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(8),
-                                    child: SizedBox(
-                                      width: 72,
-                                      height: 72,
-                                      child: FutureBuilder<Widget>(
-                                        future: _thumbnailForXFile(x),
-                                        builder: (_, snap) {
-                                          if (snap.hasData) return snap.data!;
-                                          return const ColoredBox(
-                                            color: Color(0xFF2A2C33),
-                                            child: Center(child: Icon(Icons.image, color: _accent)),
-                                          );
-                                        },
-                                      ),
-                                    ),
-                                  ),
-                                  Positioned(
-                                    top: -6,
-                                    right: -6,
-                                    child: IconButton(
-                                      icon: const Icon(Icons.close, color: Colors.white, size: 18),
-                                      style: IconButton.styleFrom(
-                                        backgroundColor: Colors.black54,
-                                        padding: const EdgeInsets.all(4),
-                                        minimumSize: const Size(24, 24),
-                                      ),
-                                      onPressed: () {
-                                        dialogImages.removeAt(index);
-                                        setDialogState(() {});
-                                      },
-                                    ),
-                                  ),
-                                ],
-                              );
-                            },
-                          ),
-                        ),
-                      ],
-                    ],
-                  );
-                },
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(null),
-                child: Text(AppLocalizations.of(dialogContext)!.commonCancel),
-              ),
-              FilledButton(
-                onPressed: () {
-                  final title = titleController.text.trim();
-                  if (title.isEmpty) {
-                    ScaffoldMessenger.of(dialogContext).showSnackBar(
-                      SnackBar(content: Text(AppLocalizations.of(dialogContext)!.teachersFillStrategyTitle)),
-                    );
-                    return;
-                  }
-                  Navigator.of(dialogContext).pop((
-                    title,
-                    contentController.text.trim(),
-                    List<XFile>.from(dialogImages),
-                  ));
-                },
-                child: Text(AppLocalizations.of(dialogContext)!.teachersPublish),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-    titleController.dispose();
-    contentController.dispose();
-    if (result == null) return;
-    final userId = FirebaseAuth.instance.currentUser?.uid ?? '';
-    if (userId.isEmpty) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(AppLocalizations.of(context)!.teachersPleaseLoginFirst)),
-      );
-      return;
-    }
-    try {
-      final List<String> imageUrls = [];
-      for (final x in result.$3) {
-        final bytes = await x.readAsBytes();
-        final name = x.name.isNotEmpty ? x.name : 'image_${DateTime.now().millisecondsSinceEpoch}.jpg';
-        final mime = x.mimeType ?? 'image/jpeg';
-        final url = await _repository.uploadStrategyImage(
-          teacherId: userId,
-          fileName: name,
-          bytes: bytes,
-          contentType: mime,
-        );
-        imageUrls.add(url);
-      }
-      await _repository.addStrategy(
-        teacherId: userId,
-        title: result.$1,
-        summary: '',
-        content: result.$2,
-        imageUrls: imageUrls,
-      );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(AppLocalizations.of(context)!.teachersStrategyPublished)),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${AppLocalizations.of(context)!.teachersPublishFailed}：$e')),
-      );
-    }
-  }
-
-  Future<Widget> _thumbnailForXFile(XFile x) async {
-    final bytes = await x.readAsBytes();
-    return Image.memory(
-      bytes,
-      fit: BoxFit.cover,
-      width: 72,
-      height: 72,
-    );
   }
 
   static const Color _accent = AppColors.primary;
@@ -676,7 +480,6 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
                   fontSize: 14,
                 ),
                 tabs: [
-                  Tab(text: l10n.teachersStrategyTab),
                   Tab(text: l10n.teachersQuoteAndTradeTab),
                   Tab(text: l10n.teachersOrderTab),
                   Tab(text: l10n.teachersHistoryOrderTab),
@@ -697,13 +500,13 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
                   ),
                   child: Column(
                     children: [
-                      if (_activeTradingTabIndex >= 2)
+                      if (_activeTradingTabIndex >= 1)
                         _buildTradingAccountSwitcher(),
                       Expanded(
                         child: TabBarView(
                           controller: _tabController!,
                           children: [
-                            for (var i = 0; i < 6; i++)
+                            for (var i = 0; i < 5; i++)
                               _buildTradingTabChild(i, user.uid),
                           ],
                         ),
@@ -1011,141 +814,6 @@ class _TeacherCenterPageState extends State<TeacherCenterPage>
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildStrategiesTab(String userId, {required bool isActive}) {
-    if (_statusLabel != 'approved') {
-      final status = _statusLabel.toString().trim().toLowerCase();
-      final hint = (status == 'frozen' || status == 'blocked')
-          ? AppLocalizations.of(context)!.teachersStatusCannotPublishHint(
-              status == 'frozen'
-                  ? AppLocalizations.of(context)!.teachersFrozen
-                  : AppLocalizations.of(context)!.teachersBlocked,
-            )
-          : AppLocalizations.of(context)!.teachersStatusOpenAfterApproval;
-      return ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Text(
-            hint,
-            style: const TextStyle(color: AppColors.textTertiary),
-          ),
-        ],
-      );
-    }
-    return StreamBuilder<List<TeacherStrategy>>(
-      stream: isActive
-          ? _repository.watchStrategies(userId)
-          : Stream.value(const <TeacherStrategy>[]),
-      builder: (context, snapshot) {
-        final items = snapshot.data ?? const <TeacherStrategy>[];
-        return ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            Align(
-              alignment: Alignment.centerRight,
-              child: AppButton(
-                onPressed: _addStrategyDialog,
-                label: AppLocalizations.of(context)!.teachersPublishStrategy,
-              ),
-            ),
-            const SizedBox(height: 12),
-            if (items.isEmpty)
-              Text(
-                AppLocalizations.of(context)!.teachersNoStrategy,
-                style: const TextStyle(color: AppColors.textTertiary),
-              )
-            else
-              ...items.map(
-                (item) {
-                  final body = (item.content?.trim().isNotEmpty == true
-                          ? item.content!
-                          : item.summary.trim().isNotEmpty
-                              ? item.summary
-                              : '')
-                      .trim();
-                  final urls = item.imageUrls ?? const [];
-                  return AppCard(
-                    child: ListTile(
-                      title: Text(item.title),
-                      subtitle: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (body.isNotEmpty)
-                            Text(
-                              body,
-                              maxLines: 3,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          if (urls.isNotEmpty) ...[
-                            if (body.isNotEmpty) const SizedBox(height: 6),
-                            SizedBox(
-                              height: 48,
-                              child: ListView.separated(
-                                scrollDirection: Axis.horizontal,
-                                itemCount: urls.length,
-                                separatorBuilder: (_, __) => const SizedBox(width: 6),
-                                itemBuilder: (_, i) => ClipRRect(
-                                  borderRadius: BorderRadius.circular(6),
-                                  child: Image.network(
-                                    urls[i],
-                                    width: 48,
-                                    height: 48,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (_, __, ___) => const SizedBox(
-                                      width: 48,
-                                      height: 48,
-                                      child: Icon(Icons.broken_image_outlined, color: _accent),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                      isThreeLine: body.isNotEmpty || urls.isNotEmpty,
-                      trailing: PopupMenuButton<String>(
-                      onSelected: (value) async {
-                        await _repository.updateStrategyStatus(
-                          strategyId: item.id,
-                          status: value,
-                        );
-                      },
-                      itemBuilder: (context) {
-                        final items = <PopupMenuEntry<String>>[];
-                        final l10n = AppLocalizations.of(context)!;
-                        if (item.status == 'published') {
-                          items.add(
-                            PopupMenuItem(
-                              value: 'draft',
-                              child: Text(l10n.teachersOffline),
-                            ),
-                          );
-                        } else {
-                          items.add(
-                            PopupMenuItem(
-                              value: 'published',
-                              child: Text(l10n.teachersOnline),
-                            ),
-                          );
-                        }
-                        return items;
-                      },
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        child: Text(item.status),
-                      ),
-                    ),
-                  ),
-                );
-                },
-              ),
-          ],
-        );
-      },
     );
   }
 

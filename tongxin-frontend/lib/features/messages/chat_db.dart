@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 
@@ -15,6 +16,8 @@ class ChatDb {
   Database? _db;
   static const int _version = 2;
   static const String _dbName = 'chat_local.db';
+  final Map<String, List<Conversation>> _memoryConversations = {};
+  final Map<String, List<ChatMessage>> _memoryMessages = {};
 
   final Map<String, StreamController<Object?>> _conversationControllers = {};
   final Map<String, StreamController<Object?>> _messageControllers = {};
@@ -91,6 +94,17 @@ class ChatDb {
   /// 合并会话：以服务端为准，先清空该用户会话再插入（已删除的会移除）
   Future<void> upsertConversations(String userId, List<Conversation> list) async {
     if (userId.isEmpty) return;
+    if (kIsWeb) {
+      final sorted = [...list]
+        ..sort((a, b) {
+          final at = a.lastTime ?? DateTime.fromMillisecondsSinceEpoch(0);
+          final bt = b.lastTime ?? DateTime.fromMillisecondsSinceEpoch(0);
+          return bt.compareTo(at);
+        });
+      _memoryConversations[userId] = sorted;
+      _notifyConversations(userId);
+      return;
+    }
     final db = await _getDb();
     await db.delete('conversations', where: 'user_id = ?', whereArgs: [userId]);
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -128,6 +142,19 @@ class ChatDb {
     required List<ChatMessage> list,
   }) async {
     if (conversationId.isEmpty || currentUserId.isEmpty) return;
+    if (kIsWeb) {
+      final key = '${conversationId}_$currentUserId';
+      final existing = [...(_memoryMessages[key] ?? const <ChatMessage>[])];
+      final byId = {for (final m in existing) m.id: m};
+      for (final m in list) {
+        byId[m.id] = m;
+      }
+      final merged = byId.values.toList()
+        ..sort((a, b) => a.time.compareTo(b.time));
+      _memoryMessages[key] = merged;
+      _notifyMessages(conversationId, currentUserId);
+      return;
+    }
     final db = await _getDb();
     final now = DateTime.now();
     final nowStr = now.toIso8601String();
@@ -193,6 +220,20 @@ class ChatDb {
     String? mediaUrl,
   }) async {
     if (conversationId.isEmpty || currentUserId.isEmpty) return;
+    if (kIsWeb) {
+      final key = '${conversationId}_$currentUserId';
+      final current = _memoryMessages[key] ?? const <ChatMessage>[];
+      _memoryMessages[key] = current.where((m) {
+        if (!m.id.startsWith('local-')) return true;
+        if (m.senderId != senderId) return true;
+        if (m.content != content) return true;
+        if (m.messageType != messageType) return true;
+        if ((mediaUrl ?? '') != (m.mediaUrl ?? '')) return true;
+        return false;
+      }).toList(growable: false);
+      _notifyMessages(conversationId, currentUserId);
+      return;
+    }
     final db = await _getDb();
     final args = <dynamic>[conversationId, currentUserId, 'local-%', senderId, content, messageType];
     String where = 'conversation_id = ? AND current_user_id = ? AND id LIKE ? AND sender_id = ? AND content = ? AND message_type = ?';
@@ -213,6 +254,9 @@ class ChatDb {
 
   Future<List<Conversation>> getConversations(String userId) async {
     if (userId.isEmpty) return [];
+    if (kIsWeb) {
+      return [...(_memoryConversations[userId] ?? const <Conversation>[])];
+    }
     final db = await _getDb();
     final rows = await db.query(
       'conversations',
@@ -229,6 +273,12 @@ class ChatDb {
     int limit = 200,
   }) async {
     if (conversationId.isEmpty || currentUserId.isEmpty) return [];
+    if (kIsWeb) {
+      final key = '${conversationId}_$currentUserId';
+      final list = [...(_memoryMessages[key] ?? const <ChatMessage>[])];
+      if (list.length <= limit) return list;
+      return list.sublist(list.length - limit);
+    }
     final db = await _getDb();
     final rows = await db.query(
       'messages',
@@ -322,6 +372,14 @@ class ChatDb {
 
   /// 删除会话（用户主动删除时）
   Future<void> deleteConversation(String userId, String conversationId) async {
+    if (kIsWeb) {
+      final current = [...(_memoryConversations[userId] ?? const <Conversation>[])];
+      current.removeWhere((c) => c.id == conversationId);
+      _memoryConversations[userId] = current;
+      _memoryMessages.remove('${conversationId}_$userId');
+      _notifyConversations(userId);
+      return;
+    }
     final db = await _getDb();
     await db.delete(
       'conversations',
@@ -345,6 +403,8 @@ class ChatDb {
     }
     _conversationControllers.clear();
     _messageControllers.clear();
+    _memoryConversations.clear();
+    _memoryMessages.clear();
     await _db?.close();
     _db = null;
   }

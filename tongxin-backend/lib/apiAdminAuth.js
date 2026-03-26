@@ -2,11 +2,13 @@
  * 后台管理员认证与账号管理
  * - POST /api/admin/auth/login：登录校验，密码错误 5 次锁定
  * - GET/POST/PATCH/DELETE /api/admin/accounts：管理员 CRUD
- * 所有接口需 x-admin-key 鉴权
+ * - POST /api/admin/auth/bootstrap：仅首次初始化时使用 x-admin-key
+ * 账号管理接口改为管理员会话鉴权
  * 密码使用 bcrypt 哈希存储
  */
 const bcrypt = require('bcrypt');
 const supabaseClient = require('./supabaseClient');
+const { createAdminSession, requireAdminSession } = require('./adminSession');
 
 const BCRYPT_ROUNDS = 10;
 const MAX_FAILED_ATTEMPTS = 5;
@@ -36,7 +38,7 @@ function requireAdminKey(req, res, next) {
 }
 
 function registerAdminAuthRoutes(app) {
-  /** POST /api/admin/auth/bootstrap — 首次部署：若表为空则从 env 创建默认管理员 */
+  /** POST /api/admin/auth/bootstrap — 首次部署：若表为空则从 env 创建首个管理员 */
   app.post('/api/admin/auth/bootstrap', requireAdminKey, async (req, res) => {
     const sb = supabaseClient.getClient();
     if (!sb) return res.status(503).json({ error: '数据库未配置' });
@@ -45,9 +47,14 @@ function registerAdminAuthRoutes(app) {
     if (countErr) return res.status(502).json({ error: countErr.message });
     if (count > 0) return res.json({ success: true, message: '已有管理员，跳过' });
 
-    const username = (process.env.ADMIN_USERNAME || 'admin').toString().trim();
-    const password = (process.env.ADMIN_PASSWORD || 'admin123').toString();
-    if (!username || !password) return res.status(400).json({ error: '请配置 ADMIN_USERNAME 和 ADMIN_PASSWORD' });
+    const username = (process.env.ADMIN_USERNAME || '').toString().trim();
+    const password = (process.env.ADMIN_PASSWORD || '').toString();
+    if (!username || !password) {
+      return res.status(400).json({ error: '请显式配置 ADMIN_USERNAME 和 ADMIN_PASSWORD' });
+    }
+    if (password.length < 8) {
+      return res.status(400).json({ error: 'ADMIN_PASSWORD 至少需要 8 位' });
+    }
 
     const passwordHash = hashPassword(password);
     const { data, error } = await sb
@@ -61,7 +68,7 @@ function registerAdminAuthRoutes(app) {
   });
 
   /** POST /api/admin/auth/login — 管理员登录 */
-  app.post('/api/admin/auth/login', requireAdminKey, async (req, res) => {
+  app.post('/api/admin/auth/login', async (req, res) => {
     const sb = supabaseClient.getClient();
     if (!sb) return res.status(503).json({ error: '数据库未配置' });
 
@@ -130,11 +137,30 @@ function registerAdminAuthRoutes(app) {
       })
       .eq('id', row.id);
 
-    return res.json({ success: true, username: row.username });
+    const token = createAdminSession({ adminId: row.id, username: row.username });
+    return res.json({
+      success: true,
+      token,
+      admin: {
+        id: row.id,
+        username: row.username,
+      },
+    });
+  });
+
+  /** GET /api/admin/auth/me — 当前管理员会话 */
+  app.get('/api/admin/auth/me', requireAdminSession, async (req, res) => {
+    return res.json({
+      authenticated: true,
+      admin: {
+        id: req.adminUserId,
+        username: req.adminUsername,
+      },
+    });
   });
 
   /** GET /api/admin/accounts — 管理员列表（不含密码） */
-  app.get('/api/admin/accounts', requireAdminKey, async (req, res) => {
+  app.get('/api/admin/accounts', requireAdminSession, async (req, res) => {
     const sb = supabaseClient.getClient();
     if (!sb) return res.status(503).json({ error: '数据库未配置' });
 
@@ -148,7 +174,7 @@ function registerAdminAuthRoutes(app) {
   });
 
   /** POST /api/admin/accounts — 新增管理员 */
-  app.post('/api/admin/accounts', requireAdminKey, async (req, res) => {
+  app.post('/api/admin/accounts', requireAdminSession, async (req, res) => {
     const sb = supabaseClient.getClient();
     if (!sb) return res.status(503).json({ error: '数据库未配置' });
 
@@ -179,7 +205,7 @@ function registerAdminAuthRoutes(app) {
   });
 
   /** PATCH /api/admin/accounts/:id — 更新管理员（改密码、解锁） */
-  app.patch('/api/admin/accounts/:id', requireAdminKey, async (req, res) => {
+  app.patch('/api/admin/accounts/:id', requireAdminSession, async (req, res) => {
     const sb = supabaseClient.getClient();
     if (!sb) return res.status(503).json({ error: '数据库未配置' });
 
@@ -218,7 +244,7 @@ function registerAdminAuthRoutes(app) {
   });
 
   /** DELETE /api/admin/accounts/:id — 删除管理员 */
-  app.delete('/api/admin/accounts/:id', requireAdminKey, async (req, res) => {
+  app.delete('/api/admin/accounts/:id', requireAdminSession, async (req, res) => {
     const sb = supabaseClient.getClient();
     if (!sb) return res.status(503).json({ error: '数据库未配置' });
 

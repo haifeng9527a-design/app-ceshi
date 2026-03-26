@@ -61,6 +61,7 @@ class ChatWebSocketService {
   final _callInvitationController =
       StreamController<Map<String, dynamic>>.broadcast();
   final _newMessageSignalController = StreamController<String>.broadcast();
+  final _connectionSignalController = StreamController<String>.broadcast();
 
   bool get isConnected => _channel != null;
   Set<String> get subscribedConversationIds => Set<String>.from(_subscribedIds);
@@ -72,6 +73,8 @@ class ChatWebSocketService {
       _callInvitationController.stream;
   Stream<String> get newMessageSignalStream =>
       _newMessageSignalController.stream;
+  Stream<String> get connectionSignalStream =>
+      _connectionSignalController.stream;
 
   String? get _wsBaseUrl {
     final url = dotenv.env['TONGXIN_API_URL']?.trim();
@@ -163,6 +166,9 @@ class ChatWebSocketService {
       );
       _reconnectAttempts = 0;
       _startHeartbeat(generation);
+      if (!_connectionSignalController.isClosed) {
+        _connectionSignalController.add(user.uid);
+      }
       if (kDebugMode) {
         debugPrint(
             '[ChatWs] 连接成功 uid=${user.uid.length > 12 ? user.uid.substring(0, 12) : user.uid}');
@@ -474,5 +480,6 @@ class ChatWebSocketService {
     _callInvitationController.close();
     _marketQuoteController.close();
     _newMessageSignalController.close();
+    _connectionSignalController.close();
   }
 }

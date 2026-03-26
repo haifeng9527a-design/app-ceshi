@@ -116,32 +116,40 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
   }
 
   String _tradeIntentLabel(bool isBuy) {
+    final l10n = AppLocalizations.of(context)!;
     if (!_isContractSelected) {
-      return isBuy ? '现货买入' : '现货卖出';
+      return isBuy ? l10n.tradingSpotBuy : l10n.tradingSpotSell;
     }
     if (_selectedPositionSide == PositionSide.long) {
-      return isBuy ? '开多' : '平多';
+      return isBuy ? l10n.tradingOpenLong : l10n.tradingCloseLong;
     }
-    return isBuy ? '平空' : '开空';
+    return isBuy ? l10n.tradingCloseShort : l10n.tradingOpenShort;
   }
 
   String _productTypeLabel(ProductType type) {
+    final l10n = AppLocalizations.of(context)!;
     switch (type) {
       case ProductType.spot:
-        return '现货';
+        return l10n.tradingProductSpot;
       case ProductType.perpetual:
-        return '永续';
+        return l10n.tradingProductPerpetual;
       case ProductType.future:
-        return '期货';
+        return l10n.tradingProductFuture;
     }
   }
 
   String _positionSideLabel(PositionSide side) {
-    return side == PositionSide.short ? '做空' : '做多';
+    final l10n = AppLocalizations.of(context)!;
+    return side == PositionSide.short
+        ? l10n.tradingPositionShort
+        : l10n.tradingPositionLong;
   }
 
   String _marginModeLabel(MarginMode mode) {
-    return mode == MarginMode.isolated ? '逐仓' : '全仓';
+    final l10n = AppLocalizations.of(context)!;
+    return mode == MarginMode.isolated
+        ? l10n.tradingMarginIsolated
+        : l10n.tradingMarginCross;
   }
 
   @override
@@ -435,7 +443,7 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
         _loadingSearch = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('未找到匹配标的')),
+        SnackBar(content: Text(AppLocalizations.of(context)!.tradingNoMatchedSymbol)),
       );
       return;
     }
@@ -574,7 +582,7 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          '选择标的（"$query"）',
+                          AppLocalizations.of(context)!.tradingPickSymbol(query),
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 14,
@@ -596,11 +604,12 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
                     itemBuilder: (c, i) {
                       final item = candidates[i];
                       final market = (item.market ?? '').toLowerCase();
+                      final l10n = AppLocalizations.of(context)!;
                       final marketLabel = market == 'crypto'
-                          ? '加密'
+                          ? l10n.tradingCrypto
                           : market == 'forex'
-                              ? '外汇'
-                              : '股票';
+                              ? l10n.tradingForex
+                              : l10n.tradingStock;
                       return ListTile(
                         onTap: () => Navigator.of(ctx).pop(item),
                         title: Text(
@@ -759,7 +768,7 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
             if (!mounted || !ctx.mounted) return;
             Navigator.of(ctx).pop();
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('已经委托')),
+              SnackBar(content: Text(AppLocalizations.of(context)!.tradingOrderPlaced)),
             );
             _refreshTradingSummary();
           } catch (e) {
@@ -1322,8 +1331,8 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
             children: [
               const Icon(Icons.tune_rounded, size: 16, color: _accent),
               const SizedBox(width: 6),
-              const Text(
-                '交易模式',
+              Text(
+                AppLocalizations.of(context)!.tradingMode,
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 13,
@@ -1334,7 +1343,7 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
               Text(
                 _isContractSelected
                     ? '${_productTypeLabel(_selectedProductType)} / ${_positionSideLabel(_selectedPositionSide)} / ${_selectedLeverage.toStringAsFixed(0)}x'
-                    : '现货 / 做多 / 1x',
+                    : '${AppLocalizations.of(context)!.tradingProductSpot} / ${AppLocalizations.of(context)!.tradingPositionLong} / 1x',
                 style: TextStyle(color: _muted, fontSize: 11),
               ),
             ],
@@ -1344,15 +1353,17 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: Text(
-                '当前维持保证金率 ${(100 * _maintenanceMarginRate).toStringAsFixed(2)}%',
+                AppLocalizations.of(context)!.tradingMaintenanceRate(
+                  (100 * _maintenanceMarginRate).toStringAsFixed(2),
+                ),
                 style: TextStyle(color: _muted, fontSize: 12),
               ),
             ),
           SegmentedButton<ProductType>(
-            segments: const [
-              ButtonSegment(value: ProductType.spot, label: Text('现货')),
-              ButtonSegment(value: ProductType.perpetual, label: Text('永续')),
-              ButtonSegment(value: ProductType.future, label: Text('期货')),
+            segments: [
+              ButtonSegment(value: ProductType.spot, label: Text(AppLocalizations.of(context)!.tradingProductSpot)),
+              ButtonSegment(value: ProductType.perpetual, label: Text(AppLocalizations.of(context)!.tradingProductPerpetual)),
+              ButtonSegment(value: ProductType.future, label: Text(AppLocalizations.of(context)!.tradingProductFuture)),
             ],
             selected: {_selectedProductType},
             onSelectionChanged: (selection) {
@@ -1388,19 +1399,19 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
                   width: 150,
                   child: DropdownButtonFormField<PositionSide>(
                     initialValue: _selectedPositionSide,
-                    decoration: const InputDecoration(
-                      labelText: '持仓方向',
+                    decoration: InputDecoration(
+                      labelText: AppLocalizations.of(context)!.tradingPositionDirection,
                       border: OutlineInputBorder(),
                     ),
                     items: [
                       DropdownMenuItem(
                         value: PositionSide.long,
-                        child: Text('做多'),
+                        child: Text(AppLocalizations.of(context)!.tradingPositionLong),
                       ),
                       if (_allowShort)
-                        const DropdownMenuItem(
+                        DropdownMenuItem(
                           value: PositionSide.short,
-                          child: Text('做空'),
+                          child: Text(AppLocalizations.of(context)!.tradingPositionShort),
                         ),
                     ],
                     onChanged: (value) {
@@ -1414,18 +1425,18 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
                   width: 160,
                   child: DropdownButtonFormField<MarginMode>(
                     initialValue: _selectedMarginMode,
-                    decoration: const InputDecoration(
-                      labelText: '保证金模式',
+                    decoration: InputDecoration(
+                      labelText: AppLocalizations.of(context)!.tradingMarginMode,
                       border: OutlineInputBorder(),
                     ),
-                    items: const [
+                    items: [
                       DropdownMenuItem(
                         value: MarginMode.cross,
-                        child: Text('全仓'),
+                        child: Text(AppLocalizations.of(context)!.tradingMarginCross),
                       ),
                       DropdownMenuItem(
                         value: MarginMode.isolated,
-                        child: Text('逐仓'),
+                        child: Text(AppLocalizations.of(context)!.tradingMarginIsolated),
                       ),
                     ],
                     onChanged: (value) {
@@ -1441,7 +1452,10 @@ class _MarketTradeTabState extends State<MarketTradeTab> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '杠杆 ${_selectedLeverage.toStringAsFixed(0)}x / 上限 ${_maxLeverage.toStringAsFixed(0)}x',
+                        AppLocalizations.of(context)!.tradingLeverageWithMax(
+                          _selectedLeverage.toStringAsFixed(0),
+                          _maxLeverage.toStringAsFixed(0),
+                        ),
                         style: TextStyle(color: _muted, fontSize: 12),
                       ),
                       Slider(
@@ -1648,7 +1662,7 @@ class _OrderSheetState extends State<_OrderSheet> {
                   _miniChip(widget.productTypeLabel(_productType)),
                   _miniChip(widget.positionSideLabel(_positionSide)),
                   _miniChip(_productType == ProductType.spot
-                      ? '全仓'
+                      ? AppLocalizations.of(context)!.tradingMarginCross
                       : widget.marginModeLabel(_marginMode)),
                   _miniChip(
                       '${_productType == ProductType.spot ? 1 : _leverage.toStringAsFixed(0)}x'),
@@ -1656,11 +1670,11 @@ class _OrderSheetState extends State<_OrderSheet> {
               ),
               const SizedBox(height: 16),
               SegmentedButton<ProductType>(
-                segments: const [
-                  ButtonSegment(value: ProductType.spot, label: Text('现货')),
+                segments: [
+                  ButtonSegment(value: ProductType.spot, label: Text(AppLocalizations.of(context)!.tradingProductSpot)),
                   ButtonSegment(
-                      value: ProductType.perpetual, label: Text('永续')),
-                  ButtonSegment(value: ProductType.future, label: Text('期货')),
+                      value: ProductType.perpetual, label: Text(AppLocalizations.of(context)!.tradingProductPerpetual)),
+                  ButtonSegment(value: ProductType.future, label: Text(AppLocalizations.of(context)!.tradingProductFuture)),
                 ],
                 selected: {_productType},
                 onSelectionChanged: (s) {
@@ -1685,7 +1699,7 @@ class _OrderSheetState extends State<_OrderSheet> {
                       child: DropdownButtonFormField<PositionSide>(
                         initialValue: _positionSide,
                         decoration: InputDecoration(
-                          labelText: '方向',
+                          labelText: AppLocalizations.of(context)!.tradingPositionDirection,
                           filled: true,
                           fillColor: _bg,
                           border: OutlineInputBorder(
@@ -1693,11 +1707,11 @@ class _OrderSheetState extends State<_OrderSheet> {
                           ),
                         ),
                         items: [
-                          const DropdownMenuItem(
-                              value: PositionSide.long, child: Text('做多')),
+                          DropdownMenuItem(
+                              value: PositionSide.long, child: Text(AppLocalizations.of(context)!.tradingPositionLong)),
                           if (widget.allowShort)
-                            const DropdownMenuItem(
-                                value: PositionSide.short, child: Text('做空')),
+                            DropdownMenuItem(
+                                value: PositionSide.short, child: Text(AppLocalizations.of(context)!.tradingPositionShort)),
                         ],
                         onChanged: (value) {
                           if (value != null) {
@@ -1711,18 +1725,18 @@ class _OrderSheetState extends State<_OrderSheet> {
                       child: DropdownButtonFormField<MarginMode>(
                         initialValue: _marginMode,
                         decoration: InputDecoration(
-                          labelText: '保证金',
+                          labelText: AppLocalizations.of(context)!.tradingMargin,
                           filled: true,
                           fillColor: _bg,
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
                         ),
-                        items: const [
+                        items: [
                           DropdownMenuItem(
-                              value: MarginMode.cross, child: Text('全仓')),
+                              value: MarginMode.cross, child: Text(AppLocalizations.of(context)!.tradingMarginCross)),
                           DropdownMenuItem(
-                              value: MarginMode.isolated, child: Text('逐仓')),
+                              value: MarginMode.isolated, child: Text(AppLocalizations.of(context)!.tradingMarginIsolated)),
                         ],
                         onChanged: (value) {
                           if (value != null) {
@@ -1738,7 +1752,10 @@ class _OrderSheetState extends State<_OrderSheet> {
                   children: [
                     Expanded(
                       child: Text(
-                        '杠杆 ${_leverage.toStringAsFixed(0)}x / 上限 ${widget.maxLeverage.toStringAsFixed(0)}x',
+                        AppLocalizations.of(context)!.tradingLeverageWithMax(
+                          _leverage.toStringAsFixed(0),
+                          widget.maxLeverage.toStringAsFixed(0),
+                        ),
                         style: const TextStyle(
                             color: Colors.white70, fontSize: 12),
                       ),
@@ -1818,7 +1835,7 @@ class _OrderSheetState extends State<_OrderSheet> {
                     children: [
                       Expanded(
                         child: _kvText(
-                          '可用资金',
+                          AppLocalizations.of(context)!.tradingAvailableFunds,
                           availableFunds != null
                               ? availableFunds.toStringAsFixed(2)
                               : '--',
@@ -1828,9 +1845,9 @@ class _OrderSheetState extends State<_OrderSheet> {
                         child: _kvText(
                           _requiresFunds()
                               ? (_productType == ProductType.spot
-                                  ? '预计占用'
-                                  : '预计保证金')
-                              : '预计占用',
+                                  ? AppLocalizations.of(context)!.tradingEstimatedOccupied
+                                  : AppLocalizations.of(context)!.tradingEstimatedMargin)
+                              : AppLocalizations.of(context)!.tradingEstimatedOccupied,
                           estimatedFunds != null
                               ? estimatedFunds.toStringAsFixed(2)
                               : (_requiresFunds() ? '--' : '0.00'),
@@ -1893,12 +1910,16 @@ class _OrderSheetState extends State<_OrderSheet> {
                                   availableFunds != null &&
                                   estimatedFunds > availableFunds) {
                                 final label = _productType == ProductType.spot
-                                    ? '可用资金不足，无法委托'
-                                    : '可用保证金不足，无法委托';
+                                    ? AppLocalizations.of(context)!.tradingInsufficientFunds
+                                    : AppLocalizations.of(context)!.tradingInsufficientMargin;
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
                                       content: Text(
-                                          '$label（需要 ${estimatedFunds.toStringAsFixed(2)}，当前 ${availableFunds.toStringAsFixed(2)}）')),
+                                          AppLocalizations.of(context)!.tradingNeedAndCurrent(
+                                            label,
+                                            estimatedFunds.toStringAsFixed(2),
+                                            availableFunds.toStringAsFixed(2),
+                                          ))),
                                 );
                                 return;
                               }
@@ -1928,7 +1949,7 @@ class _OrderSheetState extends State<_OrderSheet> {
                       ),
                       child: Text(
                         _isSubmitting
-                            ? '提交中...'
+                            ? AppLocalizations.of(context)!.teachersSubmitting
                             : (widget.isBuy
                                 ? AppLocalizations.of(context)!
                                     .tradingConfirmBuy

@@ -38,7 +38,7 @@ const STOCK_24H_SYMBOLS = new Set(
 
 function createRequireAdminRole() {
   return async (req, res, next) => {
-    if (req.isAdminByKey === true) return next();
+    if (req.isAdminByKey === true || req.isAdminSession === true) return next();
     const uid = req.firebaseUid;
     if (!uid) return res.status(401).json({ error: '未鉴权' });
     const sb = supabaseClient.getClient();
@@ -468,6 +468,58 @@ async function handleSplits(req, res, polygonKey) {
   }
 }
 
+/** GET /api/news/hot?limit=6 — 热点英文新闻 */
+async function handleHotNews(req, res, polygonKey) {
+  const limit = Math.max(1, Math.min(parseInt(req.query.limit, 10) || 6, 20));
+  if (!polygonKey) return res.json([]);
+  const cacheKey = `news_hot_${limit}`;
+  const cached = getOrStale(cacheKey);
+  if (cached) return res.json(cached);
+  try {
+    const list = await polygon.getReferenceNews(polygonKey, { limit });
+    set(cacheKey, list, DEFAULT_TTL_MS.news);
+    return res.json(list);
+  } catch (e) {
+    return res.status(502).json({ error: String(e.message || e) });
+  }
+}
+
+/** GET /api/news?ticker=AAPL&limit=20 — 个股新闻 */
+async function handleTickerNews(req, res, polygonKey) {
+  const ticker = String(req.query.ticker || '').trim().toUpperCase();
+  const limit = Math.max(1, Math.min(parseInt(req.query.limit, 10) || 20, 50));
+  if (!ticker) return res.status(400).json({ error: 'missing ticker' });
+  if (!polygonKey) return res.json([]);
+  const cacheKey = `news_${ticker}_${limit}`;
+  const cached = getOrStale(cacheKey);
+  if (cached) return res.json(cached);
+  try {
+    const list = await polygon.getReferenceNews(polygonKey, { ticker, limit });
+    set(cacheKey, list, DEFAULT_TTL_MS.news);
+    return res.json(list);
+  } catch (e) {
+    return res.status(502).json({ error: String(e.message || e) });
+  }
+}
+
+/** GET /api/news/announcements?ticker=AAPL&limit=20 — 公告类新闻 */
+async function handleTickerAnnouncements(req, res, polygonKey) {
+  const ticker = String(req.query.ticker || '').trim().toUpperCase();
+  const limit = Math.max(1, Math.min(parseInt(req.query.limit, 10) || 20, 50));
+  if (!ticker) return res.status(400).json({ error: 'missing ticker' });
+  if (!polygonKey) return res.json([]);
+  const cacheKey = `news_ann_${ticker}_${limit}`;
+  const cached = getOrStale(cacheKey);
+  if (cached) return res.json(cached);
+  try {
+    const list = await polygon.getAnnouncementNews(polygonKey, ticker, limit);
+    set(cacheKey, list, DEFAULT_TTL_MS.news);
+    return res.json(list);
+  } catch (e) {
+    return res.status(502).json({ error: String(e.message || e) });
+  }
+}
+
 const MARKET_SNAPSHOTS_TABLE = 'market_snapshots';
 
 /** GET /api/market/snapshots?type=gainers|losers|indices|forex|crypto — 从 Supabase 读取行情快照 */
@@ -712,6 +764,9 @@ function registerRoutes(app, polygonKey, twelveKey, requireAuth) {
   app.get('/api/ratios', (req, res) => handleRatios(req, res, polygonKey));
   app.get('/api/dividends', (req, res) => handleDividends(req, res, polygonKey));
   app.get('/api/splits', (req, res) => handleSplits(req, res, polygonKey));
+  app.get('/api/news/hot', (req, res) => handleHotNews(req, res, polygonKey));
+  app.get('/api/news', (req, res) => handleTickerNews(req, res, polygonKey));
+  app.get('/api/news/announcements', (req, res) => handleTickerAnnouncements(req, res, polygonKey));
 }
 
 module.exports = { registerRoutes };

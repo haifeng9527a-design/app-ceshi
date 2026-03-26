@@ -37,11 +37,11 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
     super.dispose();
   }
 
-  /// 首次部署：若数据库无管理员，则从 env 创建默认账号
+  /// 首次部署：若数据库无管理员，且配置了 bootstrap key，则尝试初始化首个管理员
   Future<void> _bootstrapIfNeeded() async {
-    if (!AdminApiClient.instance.isAvailable) return;
+    if (!AdminApiClient.instance.hasBootstrapKey) return;
     try {
-      await AdminApiClient.instance.post('api/admin/auth/bootstrap');
+      await AdminApiClient.instance.postWithAdminKey('api/admin/auth/bootstrap');
     } catch (_) {}
   }
 
@@ -59,7 +59,7 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
     if (!AdminApiClient.instance.isAvailable) {
       if (!mounted) return;
       setState(() {
-        _errorText = '未配置 API 地址或密钥，请检查 .env';
+        _errorText = '未配置 API 地址，请检查 .env';
         _loading = false;
       });
       return;
@@ -73,6 +73,23 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
       if (!mounted) return;
 
       if (resp.statusCode == 200) {
+        String? sessionToken;
+        if (resp.body.isNotEmpty) {
+          try {
+            final body = jsonDecode(resp.body);
+            if (body is Map) {
+              sessionToken = body['token']?.toString();
+            }
+          } catch (_) {}
+        }
+        if (sessionToken == null || sessionToken.isEmpty) {
+          setState(() {
+            _errorText = '登录成功但未返回会话令牌，请确认后端已更新';
+            _loading = false;
+          });
+          return;
+        }
+        AdminApiClient.instance.setSessionToken(sessionToken);
         setState(() => _loading = false);
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (_) => const AdminHomePage()),

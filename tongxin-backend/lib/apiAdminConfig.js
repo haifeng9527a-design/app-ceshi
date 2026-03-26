@@ -3,9 +3,10 @@
  * - GET /api/admin/config：列表
  * - POST /api/admin/config：新增/更新
  * - DELETE /api/admin/config/:key：删除
- * 所有接口需 x-admin-key 鉴权
+ * 所有接口需管理员会话鉴权
  */
 const supabaseClient = require('./supabaseClient');
+const { requireAdminSession } = require('./adminSession');
 
 function requireAdminKey(req, res, next) {
   const adminKey = process.env.ADMIN_API_KEY?.trim();
@@ -19,7 +20,7 @@ function requireAdminKey(req, res, next) {
 
 function registerAdminConfigRoutes(app) {
   /** GET /api/admin/config — 获取全部 app_config */
-  app.get('/api/admin/config', requireAdminKey, async (req, res) => {
+  app.get('/api/admin/config', requireAdminSession, async (req, res) => {
     const sb = supabaseClient.getClient();
     if (!sb) return res.status(503).json({ error: '数据库未配置' });
 
@@ -33,7 +34,7 @@ function registerAdminConfigRoutes(app) {
   });
 
   /** POST /api/admin/config — 新增或更新配置 */
-  app.post('/api/admin/config', requireAdminKey, async (req, res) => {
+  app.post('/api/admin/config', requireAdminSession, async (req, res) => {
     const sb = supabaseClient.getClient();
     if (!sb) return res.status(503).json({ error: '数据库未配置' });
 
@@ -55,7 +56,7 @@ function registerAdminConfigRoutes(app) {
   });
 
   /** PATCH /api/admin/config/:key — 更新配置值 */
-  app.patch('/api/admin/config/:key', requireAdminKey, async (req, res) => {
+  app.patch('/api/admin/config/:key', requireAdminSession, async (req, res) => {
     const sb = supabaseClient.getClient();
     if (!sb) return res.status(503).json({ error: '数据库未配置' });
 
@@ -82,7 +83,7 @@ function registerAdminConfigRoutes(app) {
   });
 
   /** DELETE /api/admin/config/:key — 删除配置 */
-  app.delete('/api/admin/config/:key', requireAdminKey, async (req, res) => {
+  app.delete('/api/admin/config/:key', requireAdminSession, async (req, res) => {
     const sb = supabaseClient.getClient();
     if (!sb) return res.status(503).json({ error: '数据库未配置' });
 

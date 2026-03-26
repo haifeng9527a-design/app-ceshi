@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../core/admin_api_client.dart';
 import '../l10n/admin_strings.dart';
+import 'admin_activities_panel.dart';
+import 'admin_login_page.dart';
 import 'admin_reports_panel.dart';
 import 'admin_settings_panel.dart';
 import 'admin_teacher_panel.dart';
@@ -15,6 +17,7 @@ enum AdminSection {
   teachers,
   admins,
   appConfig,
+  activities,
   trading,
   systemMessages,
   reports,
@@ -31,10 +34,27 @@ class AdminHomePage extends StatefulWidget {
 class _AdminHomePageState extends State<AdminHomePage> {
   AdminSection _section = AdminSection.teachers;
 
+  void _logout() {
+    AdminApiClient.instance.clearSessionToken();
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const AdminLoginPage()),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(AdminStrings.adminTitle)),
+      appBar: AppBar(
+        title: Text(AdminStrings.adminTitle),
+        actions: [
+          TextButton.icon(
+            onPressed: _logout,
+            icon: const Icon(Icons.logout),
+            label: const Text('退出'),
+          ),
+          const SizedBox(width: 12),
+        ],
+      ),
       body: Row(
         children: [
           _SideNav(
@@ -61,6 +81,8 @@ class _AdminHomePageState extends State<AdminHomePage> {
         return const _AdminAccountsPanel();
       case AdminSection.appConfig:
         return const _AppConfigPanel();
+      case AdminSection.activities:
+        return const AdminActivitiesPanel();
       case AdminSection.trading:
         return const AdminTradingPanel();
       case AdminSection.teachers:
@@ -2104,6 +2126,12 @@ class _SideNav extends StatelessWidget {
             icon: Icons.tune_outlined,
             active: current == AdminSection.appConfig,
             onTap: () => onSelect(AdminSection.appConfig),
+          ),
+          _NavItem(
+            title: '活动管理',
+            icon: Icons.campaign_outlined,
+            active: current == AdminSection.activities,
+            onTap: () => onSelect(AdminSection.activities),
           ),
           _NavItem(
             title: AdminStrings.adminSystemMessages,

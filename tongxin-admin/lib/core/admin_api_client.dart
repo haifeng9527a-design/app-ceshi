@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 class AdminApiClient {
   AdminApiClient._();
   static final AdminApiClient instance = AdminApiClient._();
+  String? _sessionToken;
 
   String? get _baseUrl {
     final v = dotenv.env['TONGXIN_API_URL']?.trim();
@@ -19,7 +20,18 @@ class AdminApiClient {
     return v;
   }
 
-  bool get isAvailable => _baseUrl != null && _adminApiKey != null;
+  bool get isAvailable => _baseUrl != null;
+  bool get hasBootstrapKey => _adminApiKey != null;
+  bool get hasSession => _sessionToken != null && _sessionToken!.trim().isNotEmpty;
+
+  void setSessionToken(String token) {
+    final trimmed = token.trim();
+    _sessionToken = trimmed.isEmpty ? null : trimmed;
+  }
+
+  void clearSessionToken() {
+    _sessionToken = null;
+  }
 
   Uri _uri(String path) {
     final base = _baseUrl;
@@ -30,15 +42,21 @@ class AdminApiClient {
     return Uri.parse('$base/$safePath');
   }
 
-  Map<String, String> _headers() {
-    final key = _adminApiKey;
-    if (key == null) {
-      throw StateError('缺少 ADMIN_API_KEY');
-    }
-    return {
+  Map<String, String> _headers({bool includeAdminKey = false}) {
+    final headers = <String, String>{
       'Content-Type': 'application/json',
-      'x-admin-key': key,
     };
+    if (hasSession) {
+      headers['x-admin-session'] = _sessionToken!;
+    }
+    if (includeAdminKey) {
+      final key = _adminApiKey;
+      if (key == null) {
+        throw StateError('缺少 ADMIN_API_KEY');
+      }
+      headers['x-admin-key'] = key;
+    }
+    return headers;
   }
 
   Future<http.Response> get(String path) {
@@ -47,6 +65,14 @@ class AdminApiClient {
 
   Future<http.Response> post(String path, {Object? body}) {
     return http.post(_uri(path), headers: _headers(), body: jsonEncode(body ?? const {}));
+  }
+
+  Future<http.Response> postWithAdminKey(String path, {Object? body}) {
+    return http.post(
+      _uri(path),
+      headers: _headers(includeAdminKey: true),
+      body: jsonEncode(body ?? const {}),
+    );
   }
 
   Future<http.Response> patch(String path, {Object? body}) {

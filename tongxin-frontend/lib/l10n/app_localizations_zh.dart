@@ -310,6 +310,21 @@ class AppLocalizationsZh extends AppLocalizations {
   String get profileReportSubtitle => '举报违规内容或用户';
 
   @override
+  String get profileUserTradingCenterMenuTitle => '用户交易中心';
+
+  @override
+  String get profileUserTradingCenterMenuSubtitle => '通过 WebView 打开用户交易中心';
+
+  @override
+  String get profileUserTradingCenterHiddenMenuTitle => '用户交易中心';
+
+  @override
+  String get profileUserTradingCenterHiddenMenuSubtitle => '当前版本暂不支持，请访问下方链接';
+
+  @override
+  String get profileLinkPrefix => '链接：';
+
+  @override
   String get profilePrivacyPolicyContent =>
       '本应用尊重并保护用户隐私。我们收集的信息仅用于提供和改进服务。详细条款请参阅应用商店或官网的完整隐私政策。';
 
@@ -918,6 +933,18 @@ class AppLocalizationsZh extends AppLocalizations {
   String get teachersPublishFailed => '发布失败';
 
   @override
+  String get teachersDeleteStrategy => '删除策略';
+
+  @override
+  String get teachersDeleteStrategyConfirm => '确定删除这条策略吗？删除后无法恢复。';
+
+  @override
+  String get teachersStrategyDeleted => '策略已删除';
+
+  @override
+  String get teachersDeleteStrategyFailed => '删除策略失败';
+
+  @override
   String get teachersUploadTradeRecord => '上传交易记录';
 
   @override
@@ -1377,6 +1404,10 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String get authFirebaseConfigHint =>
       '尚未配置 Firebase，请先添加配置文件（google-services.json / GoogleService-Info.plist）。';
+
+  @override
+  String get authFirebaseConfigHintWeb =>
+      '网页版登录配置未完成，当前 Web 端暂时无法使用 Firebase 登录。';
 
   @override
   String get authVerificationSent => '已发送验证邮件，请验证后再登录';
@@ -3802,4 +3833,344 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get teachersStatusOpenAfterApproval => '审核通过后开放策略发布';
+
+  @override
+  String get teachersTradingAccount => '交易账户';
+
+  @override
+  String get teachersSpotAccount => '现货账户';
+
+  @override
+  String get teachersContractAccount => '合约账户';
+
+  @override
+  String get tradingSpotBuy => '现货买入';
+
+  @override
+  String get tradingSpotSell => '现货卖出';
+
+  @override
+  String get tradingOpenLong => '开多';
+
+  @override
+  String get tradingCloseLong => '平多';
+
+  @override
+  String get tradingOpenShort => '开空';
+
+  @override
+  String get tradingCloseShort => '平空';
+
+  @override
+  String get tradingProductSpot => '现货';
+
+  @override
+  String get tradingProductPerpetual => '永续';
+
+  @override
+  String get tradingProductFuture => '期货';
+
+  @override
+  String get tradingPositionLong => '做多';
+
+  @override
+  String get tradingPositionShort => '做空';
+
+  @override
+  String get tradingMarginCross => '全仓';
+
+  @override
+  String get tradingMarginIsolated => '逐仓';
+
+  @override
+  String get tradingNoMatchedSymbol => '未找到匹配标的';
+
+  @override
+  String tradingPickSymbol(String query) {
+    return '选择标的（\"$query\"）';
+  }
+
+  @override
+  String get tradingOrderPlaced => '已经委托';
+
+  @override
+  String get tradingMode => '交易模式';
+
+  @override
+  String tradingMaintenanceRate(String rate) {
+    return '当前维持保证金率 $rate%';
+  }
+
+  @override
+  String get tradingPositionDirection => '持仓方向';
+
+  @override
+  String get tradingMarginMode => '保证金模式';
+
+  @override
+  String get tradingLeverage => '杠杆';
+
+  @override
+  String get tradingMargin => '保证金';
+
+  @override
+  String tradingLeverageWithMax(String leverage, String max) {
+    return '杠杆 ${leverage}x / 上限 ${max}x';
+  }
+
+  @override
+  String get tradingAvailableFunds => '可用资金';
+
+  @override
+  String get tradingEstimatedOccupied => '预计占用';
+
+  @override
+  String get tradingEstimatedMargin => '预计保证金';
+
+  @override
+  String get tradingInsufficientFunds => '可用资金不足，无法委托';
+
+  @override
+  String get tradingInsufficientMargin => '可用保证金不足，无法委托';
+
+  @override
+  String tradingNeedAndCurrent(String label, String need, String current) {
+    return '$label（需要 $need，当前 $current）';
+  }
+
+  @override
+  String get tradingTransferFunds => '账户划转';
+
+  @override
+  String tradingTransferFromTo(String from, String to) {
+    return '从 $from 划转到 $to';
+  }
+
+  @override
+  String get tradingTransferAmount => '划转金额';
+
+  @override
+  String get tradingEnterValidTransferAmount => '请输入有效划转金额';
+
+  @override
+  String get tradingInsufficientAvailableFunds => '可用资金不足';
+
+  @override
+  String get tradingTransferSuccess => '资金划转成功';
+
+  @override
+  String get tradingLedgerTypePositionLiquidated => '强制平仓';
+
+  @override
+  String get tradingLedgerTypeTransferOut => '账户划转转出';
+
+  @override
+  String get tradingLedgerTypeTransferIn => '账户划转转入';
+
+  @override
+  String tradingLedgerCsvHeader(String suffix) {
+    return '时间,流水类型,标的,资产类型,产品类型,方向,持仓方向,变动金额$suffix,变动后余额$suffix,备注';
+  }
+
+  @override
+  String get tradingLoadMore => '加载更多';
+
+  @override
+  String get tradingViewDetails => '查看详情';
+
+  @override
+  String get tradingSellableQuantity => '可卖数量';
+
+  @override
+  String get tradingClosableQuantity => '可平数量';
+
+  @override
+  String get tradingAssetGeneric => '资产';
+
+  @override
+  String get reportSelectFromFriends => '从好友中选择';
+
+  @override
+  String get reportNoFriendsYet => '暂无好友';
+
+  @override
+  String get reportSelectFriendHint => '请选择好友';
+
+  @override
+  String get reportInvalidTargetUser => '举报失败：无效目标用户';
+
+  @override
+  String get reportScreenshotUploadFailed => '举报失败：截图上传失败';
+
+  @override
+  String get rankingsBoardWeekly => '周榜';
+
+  @override
+  String get rankingsBoardMonthly => '月榜';
+
+  @override
+  String get rankingsBoardQuarterly => '季榜';
+
+  @override
+  String get rankingsBoardYearly => '年榜';
+
+  @override
+  String get rankingsBoardAllTime => '总榜';
+
+  @override
+  String get rankingsTop10 => '前10名';
+
+  @override
+  String tradingLeverageX(String value) {
+    return '$value倍';
+  }
+
+  @override
+  String tradingNotionalValue(String value) {
+    return '成交额 $value';
+  }
+
+  @override
+  String get tradingPositionHolding => '持仓';
+
+  @override
+  String get tradingLiquidationPrice => '强平价';
+
+  @override
+  String tradingCloseQuantityExceeded(String label, String max) {
+    return '$label不足，当前最多可平 $max';
+  }
+
+  @override
+  String tradingEnterValidCloseQuantity(String action) {
+    return '请输入有效$action数量';
+  }
+
+  @override
+  String tradingEnterValidLimitPriceFor(String action) {
+    return '限价$action请输入有效价格';
+  }
+
+  @override
+  String tradingCurrentAndFloating(String current, String floating) {
+    return '现价 $current   浮盈 $floating';
+  }
+
+  @override
+  String tradingPriceForAction(String action) {
+    return '$action 价格';
+  }
+
+  @override
+  String tradingConfirmAction(String action) {
+    return '确认$action';
+  }
+
+  @override
+  String get tradingQuantityWord => '数量';
+
+  @override
+  String get dashboardEyebrowMentor => '精选导师';
+
+  @override
+  String get dashboardTitleMentor => '适合先浏览、再决定关注';
+
+  @override
+  String get dashboardActionViewAll => '查看全部';
+
+  @override
+  String get dashboardEyebrowRanking => '本月榜单';
+
+  @override
+  String get dashboardTitleRanking => '先看 Top 3，再决定深入谁';
+
+  @override
+  String get dashboardActionFullRanking => '完整榜单';
+
+  @override
+  String get dashboardEyebrowNews => '热点新闻';
+
+  @override
+  String get dashboardTitleNews => '英文市场热点，快速掌握主线';
+
+  @override
+  String get dashboardActionMoreNews => '更多新闻';
+
+  @override
+  String get dashboardHeroTitle => '先看懂榜单，再决定关注';
+
+  @override
+  String get dashboardHeroSubtitle => '首页聚合榜单解读、导师入口和市场速览，帮助你在更短时间内做出更清晰的关注决策。';
+
+  @override
+  String get dashboardHeroActionViewRanking => '查看榜单';
+
+  @override
+  String get dashboardHeroMetricDimensionLabel => '榜单维度';
+
+  @override
+  String get dashboardHeroMetricDimensionValue => '5类';
+
+  @override
+  String get dashboardHeroMetricCountLabel => '展示人数';
+
+  @override
+  String get dashboardHeroMetricCountValue => 'Top10';
+
+  @override
+  String get dashboardHeroMetricUpdateLabel => '更新频率';
+
+  @override
+  String get dashboardHeroMetricUpdateValue => '实时';
+
+  @override
+  String get dashboardQuickMarketTitle => '市场行情';
+
+  @override
+  String get dashboardQuickMarketSubtitle => '指数、热点与自选';
+
+  @override
+  String get dashboardQuickMentorTitle => '导师中心';
+
+  @override
+  String get dashboardQuickMentorSubtitle => '先看资料，再决定关注';
+
+  @override
+  String get dashboardQuickRankingTitle => '榜单排行';
+
+  @override
+  String get dashboardQuickRankingSubtitle => '快速锁定 Top 交易员';
+
+  @override
+  String get dashboardQuickMessageTitle => '消息中心';
+
+  @override
+  String get dashboardQuickMessageSubtitle => '查看会话与系统通知';
+
+  @override
+  String get dashboardTrust1 => '真实收益可视化';
+
+  @override
+  String get dashboardTrust2 => '导师策略可追踪';
+
+  @override
+  String get dashboardTrust3 => '榜单入口更清晰';
+
+  @override
+  String get dashboardTrust4 => '消息触达更直接';
+
+  @override
+  String get dashboardMentorFallbackTitle => '交易导师';
+
+  @override
+  String get dashboardMentorTip => '点击查看老师个人资料，交易策略中心仅好友可进入。';
+
+  @override
+  String get dashboardNoHotNews => '暂无热点新闻';
+
+  @override
+  String get teachersStrategyMaxNineImages => '最多一次发布 9 张图片';
+
+  @override
+  String get teachersStrategyExceedNineIgnored => '超出部分已忽略（最多 9 张）';
 }

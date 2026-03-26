@@ -9,6 +9,12 @@ class FriendsRepository {
   FriendsRepository();
 
   bool get _useApi => ApiClient.instance.isAvailable;
+  static final Map<String, StreamController<List<FriendProfile>>>
+      _friendControllers =
+      <String, StreamController<List<FriendProfile>>>{};
+  static final Map<String, StreamController<Map<String, String>>>
+      _remarkControllers =
+      <String, StreamController<Map<String, String>>>{};
   static final Map<String, StreamController<List<FriendRequestItem>>>
       _incomingRequestControllers =
       <String, StreamController<List<FriendRequestItem>>>{};
@@ -71,17 +77,109 @@ class FriendsRepository {
   }
 
   Stream<int> watchFriendCount({required String userId}) {
-    return watchFriends(userId: userId).map((list) => list.length);
+    return watchFriends(userId: userId)
+        .map((list) => list.length)
+        .asBroadcastStream();
   }
 
   Stream<List<FriendProfile>> watchFriends({required String userId}) {
     if (!_useApi) return Stream.value(<FriendProfile>[]);
-    return FriendsApi.instance.watchFriends(userId: userId);
+    if (userId.isEmpty) return Stream.value(<FriendProfile>[]);
+    final existed = _friendControllers[userId];
+    if (existed != null) return existed.stream;
+
+    Timer? timer;
+    var inFlight = false;
+    var lastData = <FriendProfile>[];
+    late final StreamController<List<FriendProfile>> controller;
+
+    Future<void> tick() async {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        final data = await FriendsApi.instance.getFriends();
+        lastData = data;
+        if (!controller.isClosed) controller.add(data);
+      } catch (_) {
+        if (!controller.isClosed && lastData.isNotEmpty) {
+          controller.add(lastData);
+        }
+      } finally {
+        inFlight = false;
+      }
+    }
+
+    void start() {
+      timer ??= Timer.periodic(const Duration(seconds: 5), (_) => tick());
+      tick();
+    }
+
+    Future<void> stopIfIdle() async {
+      if (controller.hasListener) return;
+      timer?.cancel();
+      timer = null;
+      _friendControllers.remove(userId);
+      if (!controller.isClosed) {
+        await controller.close();
+      }
+    }
+
+    controller = StreamController<List<FriendProfile>>.broadcast(
+      onListen: start,
+      onCancel: stopIfIdle,
+    );
+    _friendControllers[userId] = controller;
+    return controller.stream;
   }
 
   Stream<Map<String, String>> watchRemarks({required String userId}) {
     if (!_useApi) return Stream.value(<String, String>{});
-    return FriendsApi.instance.watchRemarks(userId: userId);
+    if (userId.isEmpty) return Stream.value(<String, String>{});
+    final existed = _remarkControllers[userId];
+    if (existed != null) return existed.stream;
+
+    Timer? timer;
+    var inFlight = false;
+    var lastData = <String, String>{};
+    late final StreamController<Map<String, String>> controller;
+
+    Future<void> tick() async {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        final data = await FriendsApi.instance.getRemarks();
+        lastData = data;
+        if (!controller.isClosed) controller.add(data);
+      } catch (_) {
+        if (!controller.isClosed && lastData.isNotEmpty) {
+          controller.add(lastData);
+        }
+      } finally {
+        inFlight = false;
+      }
+    }
+
+    void start() {
+      timer ??= Timer.periodic(const Duration(seconds: 5), (_) => tick());
+      tick();
+    }
+
+    Future<void> stopIfIdle() async {
+      if (controller.hasListener) return;
+      timer?.cancel();
+      timer = null;
+      _remarkControllers.remove(userId);
+      if (!controller.isClosed) {
+        await controller.close();
+      }
+    }
+
+    controller = StreamController<Map<String, String>>.broadcast(
+      onListen: start,
+      onCancel: stopIfIdle,
+    );
+    _remarkControllers[userId] = controller;
+    return controller.stream;
   }
 
   Future<void> saveRemark({
@@ -111,13 +209,19 @@ class FriendsRepository {
 
     Timer? timer;
     var inFlight = false;
+    var lastData = <FriendRequestItem>[];
     late final StreamController<List<FriendRequestItem>> controller;
     Future<void> tick() async {
       if (inFlight) return;
       inFlight = true;
       try {
         final data = await FriendsApi.instance.getIncomingRequests();
+        lastData = data;
         if (!controller.isClosed) controller.add(data);
+      } catch (_) {
+        if (!controller.isClosed && lastData.isNotEmpty) {
+          controller.add(lastData);
+        }
       } finally {
         inFlight = false;
       }
@@ -164,13 +268,19 @@ class FriendsRepository {
 
     Timer? timer;
     var inFlight = false;
+    var lastData = <FriendRequestItem>[];
     late final StreamController<List<FriendRequestItem>> controller;
     Future<void> tick() async {
       if (inFlight) return;
       inFlight = true;
       try {
         final data = await FriendsApi.instance.getAllRequestRecords();
+        lastData = data;
         if (!controller.isClosed) controller.add(data);
+      } catch (_) {
+        if (!controller.isClosed && lastData.isNotEmpty) {
+          controller.add(lastData);
+        }
       } finally {
         inFlight = false;
       }

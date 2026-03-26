@@ -15,6 +15,8 @@ class ApiClient {
   static const int _networkErrorStatusCode = 599;
   final Map<String, Future<http.Response>> _inflightGetRequests =
       <String, Future<http.Response>>{};
+  final Map<String, http.Response> _lastSuccessfulGetResponses =
+      <String, http.Response>{};
 
   String? get _baseUrl {
     final url = dotenv.env['TONGXIN_API_URL']?.trim();
@@ -86,7 +88,7 @@ class ApiClient {
     }
     final effectiveTimeout = timeout ?? const Duration(seconds: 15);
     final requestKey =
-        '${withAuth ? 'auth' : 'anon'}|${effectiveTimeout.inMilliseconds}|${uri.toString()}';
+        '${withAuth ? 'auth' : 'anon'}|${effectiveTimeout.inMilliseconds}|$base$path|${queryParameters == null ? '' : jsonEncode(queryParameters)}';
     final inflight = _inflightGetRequests[requestKey];
     if (inflight != null) {
       if (kDebugMode)
@@ -95,6 +97,7 @@ class ApiClient {
     }
     _logRequest('GET', uri);
     final future = () async {
+      final stopwatch = Stopwatch()..start();
       try {
         var resp = await http
             .get(uri, headers: await _headers(withAuth: withAuth))
@@ -106,8 +109,31 @@ class ApiClient {
                   headers: await _headers(withAuth: true, forceRefresh: true))
               .timeout(effectiveTimeout);
         }
+        if (resp.statusCode == 304) {
+          final cached = _lastSuccessfulGetResponses[requestKey];
+          if (cached != null) {
+            resp = http.Response(
+              cached.body,
+              200,
+              headers: cached.headers,
+              request: cached.request,
+            );
+          }
+        }
+        if (resp.statusCode == 200) {
+          _lastSuccessfulGetResponses[requestKey] = resp;
+        }
+        stopwatch.stop();
+        _logDuration('GET', path, stopwatch.elapsed, resp.statusCode);
         return resp;
       } catch (e) {
+        stopwatch.stop();
+        _logDuration(
+          'GET',
+          path,
+          stopwatch.elapsed,
+          _networkErrorStatusCode,
+        );
         if (kDebugMode) debugPrint('[ApiClient GET $path] $e');
         return http.Response(
             '{"error":"${e.toString()}"}', _networkErrorStatusCode);

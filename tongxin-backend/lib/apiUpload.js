@@ -11,8 +11,26 @@ function registerUploadRoutes(app, requireAuth) {
     return;
   }
   const MAX_SINGLE_UPLOAD_BYTES = 8 * 1024 * 1024;
+  const getConversationMemberRole = async (sb, conversationId, uid) => {
+    const { data, error } = await sb
+      .from('chat_members')
+      .select('role')
+      .eq('conversation_id', conversationId)
+      .eq('user_id', uid)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    return data?.role || null;
+  };
+  const ensureConversationMember = async (res, sb, conversationId, uid) => {
+    const role = await getConversationMemberRole(sb, conversationId, uid);
+    if (!role) {
+      res.status(403).json({ error: 'not member' });
+      return null;
+    }
+    return role;
+  };
   const requireAdmin = async (req, res, next) => {
-    if (req.isAdminByKey === true) return next();
+    if (req.isAdminByKey === true || req.isAdminSession === true) return next();
     const uid = req.firebaseUid;
     if (!uid) return res.status(401).json({ error: '未鉴权' });
     const sb = supabase();
@@ -131,6 +149,11 @@ function registerUploadRoutes(app, requireAuth) {
     const sb = supabase();
     if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
     try {
+      const memberRole = await ensureConversationMember(res, sb, conversation_id, uid);
+      if (!memberRole) return;
+      if (!['owner', 'admin'].includes(memberRole)) {
+        return res.status(403).json({ error: 'forbidden' });
+      }
       const buf = Buffer.from(content_base64, 'base64');
       if (buf.length > MAX_SINGLE_UPLOAD_BYTES) {
         return res.status(400).json({ error: '文件过大，最大 8MB' });
@@ -160,6 +183,8 @@ function registerUploadRoutes(app, requireAuth) {
     const sb = supabase();
     if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
     try {
+      const memberRole = await ensureConversationMember(res, sb, conversation_id, uid);
+      if (!memberRole) return;
       const buf = Buffer.from(content_base64, 'base64');
       if (buf.length > MAX_SINGLE_UPLOAD_BYTES) {
         return res.status(400).json({ error: '文件过大，最大 8MB' });

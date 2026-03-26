@@ -9,7 +9,6 @@ import '../../core/layout_mode.dart';
 import '../../l10n/app_localizations.dart';
 import '../../core/notification_service.dart';
 import '../../core/startup_data_sync_service.dart';
-import '../../core/pc_dashboard_page.dart';
 import '../../core/pc_shell.dart';
 import '../../core/api_client.dart';
 import '../home/featured_teacher_page.dart';
@@ -52,13 +51,13 @@ class _HomePageState extends State<HomePage> {
     ProfilePage(),
   ];
 
-  /// Desktop sidebar: Dashboard, Markets, Watchlist, Messages, Leaderboard, Profile
+  /// Desktop sidebar: Rankings, Markets, Watchlist, Messages, Follow, Profile
   final List<Widget> _desktopPages = const [
-    PcDashboardPage(),
+    RankingsPage(),
     MarketPage(),
     WatchlistPage(),
     MessagesPage(),
-    RankingsPage(),
+    FeaturedTeacherPage(),
     ProfilePage(),
   ];
 
@@ -111,11 +110,6 @@ class _HomePageState extends State<HomePage> {
 
   Widget _desktopChildForIndex(int index) {
     final i = index.clamp(0, _desktopPages.length - 1);
-    if (i == 0) {
-      return PcDashboardPage(
-        onNavigateToSection: (idx) => setState(() => _currentIndex = idx),
-      );
-    }
     return _desktopPages[i];
   }
 
@@ -221,9 +215,9 @@ class _HomePageState extends State<HomePage> {
               },
               destinations: [
                 NavigationDestination(
-                  icon: const Icon(AppIcons.navHome),
-                  selectedIcon: const Icon(AppIcons.navHomeActive),
-                  label: AppLocalizations.of(context)!.navMainPage,
+                  icon: const Icon(Icons.leaderboard_outlined),
+                  selectedIcon: const Icon(Icons.leaderboard),
+                  label: AppLocalizations.of(context)!.navRankings,
                 ),
                 NavigationDestination(
                   icon: const Icon(AppIcons.navMarket),

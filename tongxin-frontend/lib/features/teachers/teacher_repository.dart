@@ -339,27 +339,40 @@ class TeacherRepository {
     );
   }
 
+  Future<void> deleteStrategy({
+    required String strategyId,
+  }) async {
+    if (!_useApi) return;
+    await TeachersApi.instance.deleteStrategy(strategyId: strategyId);
+  }
+
   Stream<List<TradeRecord>> watchTradeRecords(String teacherId) {
     if (!_useApi) return Stream.value(const []);
-    return _pollImmediately(
-      () => TeachersApi.instance.getTradeRecords(teacherId),
-      interval: const Duration(seconds: 5),
+    return _asBroadcast(
+      _pollImmediately(
+        () => TeachersApi.instance.getTradeRecords(teacherId),
+        interval: const Duration(seconds: 5),
+      ),
     );
   }
 
   Stream<List<TeacherPosition>> watchPositions(String teacherId) {
     if (!_useApi) return Stream.value(const []);
-    return _pollImmediately(
-      () => TeachersApi.instance.getPositions(teacherId),
-      interval: const Duration(seconds: 5),
+    return _asBroadcast(
+      _pollImmediately(
+        () => TeachersApi.instance.getPositions(teacherId),
+        interval: const Duration(seconds: 5),
+      ),
     );
   }
 
   Stream<List<TeacherPosition>> watchHistoryPositions(String teacherId) {
     if (!_useApi) return Stream.value(const []);
-    return _pollImmediately(
-      () => TeachersApi.instance.getPositions(teacherId, history: true),
-      interval: const Duration(seconds: 5),
+    return _asBroadcast(
+      _pollImmediately(
+        () => TeachersApi.instance.getPositions(teacherId, history: true),
+        interval: const Duration(seconds: 5),
+      ),
     );
   }
 

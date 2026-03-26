@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:firebase_auth/firebase_auth.dart';
@@ -6,16 +7,19 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/design/design_tokens.dart';
+import '../../core/layout_mode.dart';
 import '../../l10n/app_localizations.dart';
 import '../../ui/components/components.dart';
 import '../auth/login_page.dart';
 import '../../api/users_api.dart';
 import '../../core/api_client.dart';
 import '../../core/firebase_bootstrap.dart';
+import '../../core/local_debug_mode.dart';
 import '../../core/models.dart';
 import '../messages/message_models.dart';
 import '../messages/messages_repository.dart';
 import '../strategies/strategy_dialog.dart';
+import '../strategies/strategy_image_preview.dart';
 import '../strategies/strategies_page.dart';
 import '../teachers/teacher_detail_page.dart';
 import '../teachers/teacher_models.dart' as tmodels;
@@ -72,6 +76,7 @@ class FeaturedTeacherPage extends StatefulWidget {
 
 class _FeaturedTeacherPageState extends State<FeaturedTeacherPage> {
   final _repo = TeacherRepository();
+  StreamSubscription<User?>? _authSubscription;
   Teacher? _teacher;
   List<Teacher> _teachers = [];
   int _selectedIndex = 0;
@@ -81,6 +86,7 @@ class _FeaturedTeacherPageState extends State<FeaturedTeacherPage> {
 
   @override
   void dispose() {
+    _authSubscription?.cancel();
     _pageController.dispose();
     super.dispose();
   }
@@ -88,6 +94,12 @@ class _FeaturedTeacherPageState extends State<FeaturedTeacherPage> {
   @override
   void initState() {
     super.initState();
+    if (FirebaseBootstrap.isReady) {
+      _authSubscription = FirebaseAuth.instance.authStateChanges().listen((_) {
+        if (!mounted) return;
+        _load();
+      });
+    }
     _load();
   }
 
@@ -97,7 +109,7 @@ class _FeaturedTeacherPageState extends State<FeaturedTeacherPage> {
     final userId = FirebaseBootstrap.isReady
         ? (FirebaseAuth.instance.currentUser?.uid ?? '')
         : '';
-    if (userId.isEmpty && specifiedId == null) {
+    if (userId.isEmpty && specifiedId == null && !LocalDebugMode.isEnabled) {
       setState(() {
         _loading = false;
         _teacher = null;
@@ -154,22 +166,24 @@ class _FeaturedTeacherPageState extends State<FeaturedTeacherPage> {
     });
     try {
       final teachers = <Teacher>[];
-      final selfProfile = await _repo.fetchProfile(userId);
-      if (!mounted) return;
-      final followedIds = await _repo.getFollowedTeacherIds(userId);
-      if (!mounted) return;
       final seenIds = <String>{};
-      if (selfProfile != null) {
-        teachers.add(_profileToTeacher(context, selfProfile));
-        seenIds.add(userId);
-      }
-      for (final tid in followedIds) {
-        if (tid.isEmpty || seenIds.contains(tid)) continue;
-        seenIds.add(tid);
-        final p = await _repo.fetchProfile(tid);
+      if (userId.isNotEmpty) {
+        final selfProfile = await _repo.fetchProfile(userId);
         if (!mounted) return;
-        if (p != null) {
-          teachers.add(_profileToTeacher(context, p));
+        final followedIds = await _repo.getFollowedTeacherIds(userId);
+        if (!mounted) return;
+        if (selfProfile != null) {
+          teachers.add(_profileToTeacher(context, selfProfile));
+          seenIds.add(userId);
+        }
+        for (final tid in followedIds) {
+          if (tid.isEmpty || seenIds.contains(tid)) continue;
+          seenIds.add(tid);
+          final p = await _repo.fetchProfile(tid);
+          if (!mounted) return;
+          if (p != null) {
+            teachers.add(_profileToTeacher(context, p));
+          }
         }
       }
       if (teachers.isEmpty && specifiedId == null) {
@@ -232,6 +246,180 @@ class _FeaturedTeacherPageState extends State<FeaturedTeacherPage> {
     }
   }
 
+  void _openTeacherDetail(Teacher teacher) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => TeacherDetailPage(teacher: teacher),
+      ),
+    );
+  }
+
+  void _openStrategiesPage(Teacher teacher) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => StrategiesPage(teacher: teacher),
+      ),
+    );
+  }
+
+  Widget _buildTeacherHero(Teacher teacher, {required bool desktop}) {
+    if (_teachers.length >= 2) {
+      return Column(
+        children: [
+          SizedBox(
+            height: desktop ? 210 : 170,
+            child: PageView.builder(
+              controller: _pageController,
+              itemCount: _teachers.length,
+              onPageChanged: _onTeacherPageChanged,
+              itemBuilder: (context, i) {
+                final t = _teachers[i];
+                return Padding(
+                  padding: const EdgeInsets.only(right: AppSpacing.sm),
+                  child: _HeroHeader(
+                    teacher: t,
+                    onTap: () => _openTeacherDetail(t),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List.generate(
+              _teachers.length,
+              (i) => Container(
+                margin: const EdgeInsets.symmetric(horizontal: AppSpacing.xs - 1),
+                width: 6,
+                height: 6,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: i == _selectedIndex
+                      ? AppColors.primary
+                      : AppColors.primarySubtle(0.3),
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+    return _HeroHeader(
+      teacher: teacher,
+      onTap: () => _openTeacherDetail(teacher),
+    );
+  }
+
+  Widget _buildDesktopStrategyCenter(BuildContext context, Teacher teacher) {
+    final l10n = AppLocalizations.of(context)!;
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
+    return DecoratedBox(
+      decoration: const BoxDecoration(color: AppColors.scaffold),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.lg,
+          AppSpacing.md,
+          AppSpacing.lg,
+          AppSpacing.xl,
+        ),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1360),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _DesktopTeacherHero(teacher: teacher),
+                if (_teachers.length >= 2) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  Center(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: List.generate(
+                        _teachers.length,
+                        (i) => Container(
+                          margin: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.xs - 1,
+                          ),
+                          width: 6,
+                          height: 6,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: i == _selectedIndex
+                                ? AppColors.primary
+                                : AppColors.primarySubtle(0.3),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: AppSpacing.lg),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      flex: 8,
+                      child: _DesktopStrategySectionCard(
+                        title: l10n.featuredTodayStrategy,
+                        subtitle: '今日观点、核心思路与评论互动集中展示',
+                        trailing: AppButton(
+                          variant: AppButtonVariant.text,
+                          label: l10n.featuredViewAllStrategies,
+                          onPressed: () => _openStrategiesPage(teacher),
+                        ),
+                        child: _TodayStrategyStream(
+                          key: ValueKey(
+                            'today-desktop-${teacher.id}-$currentUserId',
+                          ),
+                          teacherId: teacher.id,
+                          teacherName: teacher.name,
+                          teacherAvatarUrl: teacher.avatarUrl,
+                          fallbackText: teacher.todayStrategy,
+                          repo: _repo,
+                          currentUserId: currentUserId,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.lg),
+                    Expanded(
+                      flex: 4,
+                      child: Column(
+                        children: [
+                          _DesktopStrategySectionCard(
+                            title: l10n.featuredCurrentPositions,
+                            subtitle: '当前持仓、成本与浮动盈亏',
+                            child: _PositionsStream(
+                              key: ValueKey('current-desktop-${teacher.id}'),
+                              teacherId: teacher.id,
+                              repo: _repo,
+                              isHistory: false,
+                            ),
+                          ),
+                          const SizedBox(height: AppSpacing.lg),
+                          _DesktopStrategySectionCard(
+                            title: l10n.featuredHistoryPositions,
+                            subtitle: '历史成交与已实现收益回顾',
+                            child: _PositionsStream(
+                              key: ValueKey('history-desktop-${teacher.id}'),
+                              teacherId: teacher.id,
+                              repo: _repo,
+                              isHistory: true,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -264,12 +452,14 @@ class _FeaturedTeacherPageState extends State<FeaturedTeacherPage> {
                 const SizedBox(height: AppSpacing.lg),
                 if (isNotLoggedIn)
                   AppButton(
-                    onPressed: () {
-                      Navigator.of(context).push(
+                    onPressed: () async {
+                      await Navigator.of(context).push(
                         MaterialPageRoute(
                           builder: (_) => const LoginPage(),
                         ),
                       );
+                      if (!mounted) return;
+                      _load();
                     },
                     icon: const Icon(Icons.login, size: 20),
                     label: l10n.authLoginOrRegister,
@@ -288,6 +478,14 @@ class _FeaturedTeacherPageState extends State<FeaturedTeacherPage> {
       );
     }
     final teacher = _teacher!;
+    final useDesktopLayout = LayoutMode.useDesktopLikeLayout(context);
+    if (useDesktopLayout) {
+      return Scaffold(
+        body: SafeArea(
+          child: _buildDesktopStrategyCenter(context, teacher),
+        ),
+      );
+    }
     return Scaffold(
       body: SafeArea(
         child: CustomScrollView(
@@ -302,63 +500,7 @@ class _FeaturedTeacherPageState extends State<FeaturedTeacherPage> {
               sliver: SliverList(
                 delegate: SliverChildListDelegate(
                   [
-                    if (_teachers.length >= 2) ...[
-                      SizedBox(
-                        height: 170,
-                        child: PageView.builder(
-                          controller: _pageController,
-                          itemCount: _teachers.length,
-                          onPageChanged: _onTeacherPageChanged,
-                          itemBuilder: (context, i) {
-                            final t = _teachers[i];
-                            return Padding(
-                              padding: const EdgeInsets.only(right: AppSpacing.sm),
-                              child: _HeroHeader(
-                                teacher: t,
-                                onTap: () {
-                                  Navigator.of(context).push(
-                                    MaterialPageRoute(
-                                      builder: (_) =>
-                                          TeacherDetailPage(teacher: t),
-                                    ),
-                                  );
-                                },
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.sm),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: List.generate(
-                          _teachers.length,
-                          (i) => Container(
-                            margin: const EdgeInsets.symmetric(horizontal: AppSpacing.xs - 1),
-                            width: 6,
-                            height: 6,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: i == _selectedIndex
-                                  ? AppColors.primary
-                                  : AppColors.primarySubtle(0.3),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.sm),
-                    ] else
-                      _HeroHeader(
-                        teacher: teacher,
-                        onTap: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) =>
-                                  TeacherDetailPage(teacher: teacher),
-                            ),
-                          );
-                        },
-                      ),
+                    _buildTeacherHero(teacher, desktop: false),
                     const SizedBox(height: AppSpacing.md),
                     _SectionTitle(
                         title:
@@ -369,6 +511,9 @@ class _FeaturedTeacherPageState extends State<FeaturedTeacherPage> {
                         title: AppLocalizations.of(context)!
                             .featuredTodayStrategy),
                     _TodayStrategyStream(
+                      key: ValueKey(
+                        'today-mobile-${teacher.id}-${FirebaseAuth.instance.currentUser?.uid ?? ''}',
+                      ),
                       teacherId: teacher.id,
                       teacherName: teacher.name,
                       teacherAvatarUrl: teacher.avatarUrl,
@@ -383,13 +528,7 @@ class _FeaturedTeacherPageState extends State<FeaturedTeacherPage> {
                       child: AppButton(
                         variant: AppButtonVariant.text,
                         label: AppLocalizations.of(context)!.featuredViewAllStrategies,
-                        onPressed: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => StrategiesPage(teacher: teacher),
-                            ),
-                          );
-                        },
+                        onPressed: () => _openStrategiesPage(teacher),
                       ),
                     ),
                     const SizedBox(height: AppSpacing.md),
@@ -397,12 +536,14 @@ class _FeaturedTeacherPageState extends State<FeaturedTeacherPage> {
                         title: AppLocalizations.of(context)!
                             .featuredCurrentPositions),
                     _PositionsStream(
+                        key: ValueKey('current-mobile-${teacher.id}'),
                         teacherId: teacher.id, repo: _repo, isHistory: false),
                     const SizedBox(height: AppSpacing.md),
                     _SectionTitle(
                         title: AppLocalizations.of(context)!
                             .featuredHistoryPositions),
                     _PositionsStream(
+                        key: ValueKey('history-mobile-${teacher.id}'),
                         teacherId: teacher.id, repo: _repo, isHistory: true),
                   ],
                 ),
@@ -606,6 +747,375 @@ class _SectionTitle extends StatelessWidget {
   }
 }
 
+class _DesktopStrategySectionCard extends StatelessWidget {
+  const _DesktopStrategySectionCard({
+    required this.title,
+    required this.child,
+    this.subtitle,
+    this.trailing,
+  });
+
+  final String title;
+  final String? subtitle;
+  final Widget child;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSpacing.xl),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            AppColors.surface2,
+            AppColors.surface,
+          ],
+        ),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.18)),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primarySubtle(0.08),
+            blurRadius: 24,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 3,
+                          height: 16,
+                          decoration: BoxDecoration(
+                            color: AppColors.primary,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          title,
+                          style: AppTypography.subtitle.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (subtitle?.trim().isNotEmpty == true) ...[
+                      const SizedBox(height: AppSpacing.xs),
+                      Text(
+                        subtitle!,
+                        style: AppTypography.bodySecondary.copyWith(
+                          color: AppColors.textTertiary,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              if (trailing != null) ...[
+                const SizedBox(width: AppSpacing.md),
+                trailing!,
+              ],
+            ],
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _DesktopTeacherHero extends StatelessWidget {
+  const _DesktopTeacherHero({required this.teacher});
+
+  final Teacher teacher;
+
+  @override
+  Widget build(BuildContext context) {
+    final bio = teacher.bio.trim().isNotEmpty
+        ? teacher.bio.trim()
+        : '这里展示交易员的投资风格、擅长市场与近期策略定位。';
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSpacing.xl),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFF17130A),
+            Color(0xFF0E0D0A),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.24)),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primarySubtle(0.1),
+            blurRadius: 28,
+            offset: const Offset(0, 14),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                flex: 7,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: AppColors.primary.withValues(alpha: 0.38),
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.primarySubtle(0.14),
+                            blurRadius: 18,
+                            offset: const Offset(0, 8),
+                          ),
+                        ],
+                      ),
+                      child: CircleAvatar(
+                        radius: 42,
+                        backgroundColor: AppColors.surface,
+                        backgroundImage: teacher.avatarUrl.trim().isNotEmpty
+                            ? NetworkImage(teacher.avatarUrl.trim())
+                            : null,
+                        child: teacher.avatarUrl.trim().isEmpty
+                            ? Text(
+                                _initial(teacher.name),
+                                style: AppTypography.title.copyWith(
+                                  fontSize: 26,
+                                  color: AppColors.primary,
+                                ),
+                              )
+                            : null,
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.lg),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '交易员策略中心',
+                            style: AppTypography.meta.copyWith(
+                              color: const Color(0xFFE2C670),
+                              letterSpacing: 0.8,
+                            ),
+                          ),
+                          const SizedBox(height: AppSpacing.md),
+                          Text(
+                            teacher.name,
+                            style: AppTypography.title.copyWith(
+                              fontSize: 34,
+                              fontWeight: FontWeight.w800,
+                              color: const Color(0xFFFFF2CA),
+                            ),
+                          ),
+                          const SizedBox(height: AppSpacing.xs),
+                          Text(
+                            teacher.title,
+                            style: AppTypography.body.copyWith(
+                              color: const Color(0xFFD4C18F),
+                            ),
+                          ),
+                          const SizedBox(height: AppSpacing.lg),
+                          Container(
+                            width: 48,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: AppColors.primary,
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                          ),
+                          const SizedBox(height: AppSpacing.lg),
+                          Text(
+                            bio,
+                            style: AppTypography.body.copyWith(
+                              color: const Color(0xFFC9BB97),
+                              height: 1.7,
+                            ),
+                          ),
+                          if (teacher.tags.isNotEmpty) ...[
+                            const SizedBox(height: AppSpacing.lg),
+                            Wrap(
+                              spacing: AppSpacing.sm,
+                              runSpacing: AppSpacing.sm,
+                              children: teacher.tags
+                                  .take(4)
+                                  .map(
+                                    (tag) => Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 8,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.primary.withValues(alpha: 0.08),
+                                        borderRadius: BorderRadius.circular(999),
+                                        border: Border.all(
+                                          color: AppColors.primary.withValues(alpha: 0.18),
+                                        ),
+                                      ),
+                                      child: Text(
+                                        tag,
+                                        style: AppTypography.caption.copyWith(
+                                          color: AppColors.primary,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ),
+                                  )
+                                  .toList(),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: AppSpacing.xl),
+              Expanded(
+                flex: 5,
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _DesktopStrategyStat(
+                            label: AppLocalizations.of(context)!.featuredWins,
+                            value: '${teacher.wins}',
+                            highlight: false,
+                          ),
+                        ),
+                        const SizedBox(width: AppSpacing.md),
+                        Expanded(
+                          child: _DesktopStrategyStat(
+                            label: AppLocalizations.of(context)!.featuredWinRate,
+                            value:
+                                '${((teacher.wins + teacher.losses) > 0 ? ((teacher.wins / (teacher.wins + teacher.losses)) * 100).round() : 0)}%',
+                            highlight: false,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _DesktopStrategyStat(
+                            label: AppLocalizations.of(context)!.featuredPositionPnl,
+                            value: _formatAmount(teacher.pnlCurrent),
+                            highlight: true,
+                          ),
+                        ),
+                        const SizedBox(width: AppSpacing.md),
+                        Expanded(
+                          child: _DesktopStrategyStat(
+                            label: AppLocalizations.of(context)!.teachersMonthlyEarnings,
+                            value: _formatAmount(teacher.pnlMonth),
+                            highlight: true,
+                          ),
+                        ),
+                        const SizedBox(width: AppSpacing.md),
+                        Expanded(
+                          child: _DesktopStrategyStat(
+                            label: AppLocalizations.of(context)!.featuredTotalPnl,
+                            value: _formatAmount(teacher.pnlTotal),
+                            highlight: true,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DesktopStrategyStat extends StatelessWidget {
+  const _DesktopStrategyStat({
+    required this.label,
+    required this.value,
+    required this.highlight,
+  });
+
+  final String label;
+  final String value;
+  final bool highlight;
+
+  @override
+  Widget build(BuildContext context) {
+    final positive = value.startsWith('+');
+    final negative = value.startsWith('-');
+    final valueColor = highlight
+        ? (positive
+            ? AppColors.positive
+            : (negative ? AppColors.negative : AppColors.textPrimary))
+        : AppColors.textPrimary;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      decoration: BoxDecoration(
+        color: AppColors.surface.withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: highlight
+              ? AppColors.primary.withValues(alpha: 0.18)
+              : Colors.white.withValues(alpha: 0.05),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: AppTypography.caption.copyWith(
+              color: AppColors.textTertiary,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            value,
+            style: AppTypography.subtitle.copyWith(
+              fontWeight: FontWeight.w700,
+              color: valueColor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _KpiGrid extends StatelessWidget {
   const _KpiGrid({required this.teacher});
 
@@ -664,6 +1174,7 @@ class _KpiTile extends StatelessWidget {
 /// 今日交易策略：优先显示交易员中心发布的最新一条策略，无则显示档案中的今日策略
 class _TodayStrategyStream extends StatelessWidget {
   const _TodayStrategyStream({
+    super.key,
     required this.teacherId,
     required this.teacherName,
     required this.teacherAvatarUrl,
@@ -682,8 +1193,14 @@ class _TodayStrategyStream extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    if (currentUserId.isEmpty) {
+      return _LockedTodayStrategyCard(
+        title: l10n.featuredTodayStrategy,
+      );
+    }
     return StreamBuilder<List<tmodels.TeacherStrategy>>(
       stream: repo.watchPublishedStrategies(teacherId),
+      initialData: const [],
       builder: (context, stratSnapshot) {
         final strategies = stratSnapshot.data ?? const [];
         final latest = strategies.isNotEmpty ? strategies.first : null;
@@ -704,6 +1221,7 @@ class _TodayStrategyStream extends StatelessWidget {
             : Stream<List<Comment>>.value(const []);
         return StreamBuilder<List<Comment>>(
           stream: commentsStream,
+          initialData: const [],
           builder: (context, commentsSnapshot) {
             final comments = commentsSnapshot.data ?? const [];
             return _HeroStrategyCard(
@@ -721,6 +1239,62 @@ class _TodayStrategyStream extends StatelessWidget {
           },
         );
       },
+    );
+  }
+}
+
+class _LockedTodayStrategyCard extends StatelessWidget {
+  const _LockedTodayStrategyCard({required this.title});
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        gradient: const LinearGradient(
+          colors: [
+            AppColors.surface2,
+            AppColors.surface,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        border: Border.all(color: AppColors.primary, width: 0.6),
+      ),
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: AppTypography.subtitle.copyWith(
+              color: AppColors.primary,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            '登录后可查看今日交易策略，未登录用户仅可查看历史交易策略。',
+            style: AppTypography.body.copyWith(
+              color: AppColors.textSecondary,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          AppButton(
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const LoginPage()),
+              );
+            },
+            icon: const Icon(Icons.login, size: 18),
+            label: l10n.authLoginOrRegister,
+          ),
+        ],
+      ),
     );
   }
 }
@@ -986,8 +1560,26 @@ class _HeroStrategyCardState extends State<_HeroStrategyCard> {
     );
   }
 
+  void _openStrategyDialog(BuildContext context, List<String> imageUrls) {
+    showStrategyDialog(
+      context,
+      widget.text,
+      _mergedComments,
+      teacherId: widget.teacherId,
+      strategyId: widget.strategyId,
+      imageUrls: imageUrls,
+      currentUserId: widget.currentUserId,
+      repo: widget.repo,
+      onCommentPosted: _onCommentPosted,
+      initialShowComments: _showComments,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final allImageUrls = (widget.imageUrls ?? const <String>[])
+        .where((u) => u.trim().isNotEmpty)
+        .toList(growable: false);
     return LayoutBuilder(
       builder: (context, constraints) {
         final maxW = constraints.maxWidth;
@@ -1017,43 +1609,27 @@ class _HeroStrategyCardState extends State<_HeroStrategyCard> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                InkWell(
-                  onTap: () {
-                    showStrategyDialog(
-                      context,
-                      widget.text,
-                      _mergedComments,
-                      teacherId: widget.teacherId,
-                      strategyId: widget.strategyId,
-                      currentUserId: widget.currentUserId,
-                      repo: widget.repo,
-                      onCommentPosted: _onCommentPosted,
-                      initialShowComments: _showComments,
-                    );
-                  },
-                  borderRadius: BorderRadius.circular(18),
-                  child: Padding(
-                    padding: const EdgeInsets.all(18),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (widget.imageUrls != null &&
-                            widget.imageUrls!.isNotEmpty) ...[
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(10),
-                            child: Image.network(
-                              widget.imageUrls!.first,
-                              height: 120,
-                              width: double.infinity,
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) =>
-                                  const SizedBox.shrink(),
+                Padding(
+                  padding: const EdgeInsets.all(18),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                        if (allImageUrls.isNotEmpty) ...[
+                          StrategyImagePreviewGrid(
+                            imageUrls: allImageUrls,
+                            onImageTap: (i) => showStrategyImageViewer(
+                              context,
+                              imageUrls: allImageUrls,
+                              initialIndex: i,
                             ),
                           ),
                           const SizedBox(height: 12),
                         ],
-                        Row(
-                          children: [
+                        GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () => _openStrategyDialog(context, allImageUrls),
+                          child: Row(
+                            children: [
                             Container(
                               padding: const EdgeInsets.all(AppSpacing.sm),
                               decoration: BoxDecoration(
@@ -1078,30 +1654,36 @@ class _HeroStrategyCardState extends State<_HeroStrategyCard> {
                             ),
                             const Spacer(),
                             const Icon(Icons.open_in_new, size: 16),
-                          ],
+                            ],
+                          ),
                         ),
                         const SizedBox(height: AppSpacing.sm + AppSpacing.xs / 2),
-                        Text(
-                          widget.text,
-                          maxLines: 3,
-                          overflow: TextOverflow.ellipsis,
-                          style:
-                              Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                    fontSize: 15,
-                                    height: 1.4,
-                                  ),
+                        GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () => _openStrategyDialog(context, allImageUrls),
+                          child: Text(
+                            widget.text,
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                  fontSize: 15,
+                                  height: 1.4,
+                                ),
+                          ),
                         ),
                         const SizedBox(height: 10),
-                        Text(
-                          AppLocalizations.of(context)!
-                              .featuredViewFullStrategy,
-                          style: Theme.of(context)
-                              .textTheme
-                              .labelSmall
-                              ?.copyWith(color: AppColors.primary),
+                        GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () => _openStrategyDialog(context, allImageUrls),
+                          child: Text(
+                            AppLocalizations.of(context)!.featuredViewFullStrategy,
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelSmall
+                                ?.copyWith(color: AppColors.primary),
+                          ),
                         ),
-                      ],
-                    ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: AppSpacing.sm + AppSpacing.xs / 2),
@@ -1698,6 +2280,7 @@ class _CommentItem extends StatelessWidget {
 /// 从 Supabase teacher_positions 实时同步持仓，使用与交易中心一致的卡片 UI
 class _PositionsStream extends StatelessWidget {
   const _PositionsStream({
+    super.key,
     required this.teacherId,
     required this.repo,
     required this.isHistory,
@@ -1714,6 +2297,7 @@ class _PositionsStream extends StatelessWidget {
         : repo.watchPositions(teacherId);
     return StreamBuilder<List<tmodels.TeacherPosition>>(
       stream: stream,
+      initialData: const [],
       builder: (context, snapshot) {
         final list = snapshot.data ?? const [];
         return Column(

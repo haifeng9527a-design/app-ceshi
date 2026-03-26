@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
+import '../l10n/app_localizations.dart';
+
 class AppWebViewPage extends StatefulWidget {
   const AppWebViewPage({
     super.key,
@@ -144,7 +146,7 @@ class _AppWebViewPageState extends State<AppWebViewPage> {
                         });
                         _controller.loadRequest(_initialUri);
                       },
-                      child: const Text('重试'),
+                      child: Text(AppLocalizations.of(context)!.commonRetry),
                     ),
                   ],
                 ),

@@ -317,6 +317,23 @@ class AppLocalizationsEn extends AppLocalizations {
   String get profileReportSubtitle => 'Report violations or users';
 
   @override
+  String get profileUserTradingCenterMenuTitle => 'User Trading Center';
+
+  @override
+  String get profileUserTradingCenterMenuSubtitle =>
+      'Open user trading center via WebView';
+
+  @override
+  String get profileUserTradingCenterHiddenMenuTitle => 'User Trading Center';
+
+  @override
+  String get profileUserTradingCenterHiddenMenuSubtitle =>
+      'Current version is not supported. Please use the link below.';
+
+  @override
+  String get profileLinkPrefix => 'Link: ';
+
+  @override
   String get profilePrivacyPolicyContent =>
       'We respect and protect your privacy. Information we collect is used only to provide and improve our services. See the full privacy policy on the app store or our website.';
 
@@ -938,6 +955,19 @@ class AppLocalizationsEn extends AppLocalizations {
   String get teachersPublishFailed => 'Publish failed';
 
   @override
+  String get teachersDeleteStrategy => 'Delete strategy';
+
+  @override
+  String get teachersDeleteStrategyConfirm =>
+      'Delete this strategy? This action cannot be undone.';
+
+  @override
+  String get teachersStrategyDeleted => 'Strategy deleted';
+
+  @override
+  String get teachersDeleteStrategyFailed => 'Failed to delete strategy';
+
+  @override
   String get teachersUploadTradeRecord => 'Upload trade record';
 
   @override
@@ -1407,6 +1437,10 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get authFirebaseConfigHint =>
       'Firebase not configured. Add google-services.json / GoogleService-Info.plist first.';
+
+  @override
+  String get authFirebaseConfigHintWeb =>
+      'Web login is not configured yet. Firebase sign-in is currently unavailable on the web app.';
 
   @override
   String get authVerificationSent =>
@@ -3875,4 +3909,353 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get teachersStatusOpenAfterApproval =>
       'Strategy publishing will be available after approval';
+
+  @override
+  String get teachersTradingAccount => 'Trading Account';
+
+  @override
+  String get teachersSpotAccount => 'Spot Account';
+
+  @override
+  String get teachersContractAccount => 'Contract Account';
+
+  @override
+  String get tradingSpotBuy => 'Spot Buy';
+
+  @override
+  String get tradingSpotSell => 'Spot Sell';
+
+  @override
+  String get tradingOpenLong => 'Open Long';
+
+  @override
+  String get tradingCloseLong => 'Close Long';
+
+  @override
+  String get tradingOpenShort => 'Open Short';
+
+  @override
+  String get tradingCloseShort => 'Close Short';
+
+  @override
+  String get tradingProductSpot => 'Spot';
+
+  @override
+  String get tradingProductPerpetual => 'Perpetual';
+
+  @override
+  String get tradingProductFuture => 'Futures';
+
+  @override
+  String get tradingPositionLong => 'Long';
+
+  @override
+  String get tradingPositionShort => 'Short';
+
+  @override
+  String get tradingMarginCross => 'Cross';
+
+  @override
+  String get tradingMarginIsolated => 'Isolated';
+
+  @override
+  String get tradingNoMatchedSymbol => 'No matching symbol found';
+
+  @override
+  String tradingPickSymbol(String query) {
+    return 'Select symbol (\"$query\")';
+  }
+
+  @override
+  String get tradingOrderPlaced => 'Order placed';
+
+  @override
+  String get tradingMode => 'Trading Mode';
+
+  @override
+  String tradingMaintenanceRate(String rate) {
+    return 'Maintenance margin rate $rate%';
+  }
+
+  @override
+  String get tradingPositionDirection => 'Position Direction';
+
+  @override
+  String get tradingMarginMode => 'Margin Mode';
+
+  @override
+  String get tradingLeverage => 'Leverage';
+
+  @override
+  String get tradingMargin => 'Margin';
+
+  @override
+  String tradingLeverageWithMax(String leverage, String max) {
+    return 'Leverage ${leverage}x / Max ${max}x';
+  }
+
+  @override
+  String get tradingAvailableFunds => 'Available Funds';
+
+  @override
+  String get tradingEstimatedOccupied => 'Estimated Used';
+
+  @override
+  String get tradingEstimatedMargin => 'Estimated Margin';
+
+  @override
+  String get tradingInsufficientFunds => 'Insufficient available funds';
+
+  @override
+  String get tradingInsufficientMargin => 'Insufficient available margin';
+
+  @override
+  String tradingNeedAndCurrent(String label, String need, String current) {
+    return '$label (need $need, current $current)';
+  }
+
+  @override
+  String get tradingTransferFunds => 'Account Transfer';
+
+  @override
+  String tradingTransferFromTo(String from, String to) {
+    return 'Transfer from $from to $to';
+  }
+
+  @override
+  String get tradingTransferAmount => 'Transfer Amount';
+
+  @override
+  String get tradingEnterValidTransferAmount =>
+      'Please enter a valid transfer amount';
+
+  @override
+  String get tradingInsufficientAvailableFunds =>
+      'Insufficient available funds';
+
+  @override
+  String get tradingTransferSuccess => 'Transfer completed';
+
+  @override
+  String get tradingLedgerTypePositionLiquidated => 'Forced Liquidation';
+
+  @override
+  String get tradingLedgerTypeTransferOut => 'Transfer Out';
+
+  @override
+  String get tradingLedgerTypeTransferIn => 'Transfer In';
+
+  @override
+  String tradingLedgerCsvHeader(String suffix) {
+    return 'Time,Entry Type,Symbol,Asset Class,Product Type,Side,Position Side,Amount$suffix,Balance After$suffix,Note';
+  }
+
+  @override
+  String get tradingLoadMore => 'Load more';
+
+  @override
+  String get tradingViewDetails => 'View details';
+
+  @override
+  String get tradingSellableQuantity => 'Sellable Qty';
+
+  @override
+  String get tradingClosableQuantity => 'Closable Qty';
+
+  @override
+  String get tradingAssetGeneric => 'Asset';
+
+  @override
+  String get reportSelectFromFriends => 'Select from friends';
+
+  @override
+  String get reportNoFriendsYet => 'No friends yet';
+
+  @override
+  String get reportSelectFriendHint => 'Select a friend';
+
+  @override
+  String get reportInvalidTargetUser => 'Report failed: invalid target user';
+
+  @override
+  String get reportScreenshotUploadFailed =>
+      'Report failed: screenshot upload failed';
+
+  @override
+  String get rankingsBoardWeekly => 'Weekly';
+
+  @override
+  String get rankingsBoardMonthly => 'Monthly';
+
+  @override
+  String get rankingsBoardQuarterly => 'Quarterly';
+
+  @override
+  String get rankingsBoardYearly => 'Yearly';
+
+  @override
+  String get rankingsBoardAllTime => 'All Time';
+
+  @override
+  String get rankingsTop10 => 'Top 10';
+
+  @override
+  String tradingLeverageX(String value) {
+    return '${value}x';
+  }
+
+  @override
+  String tradingNotionalValue(String value) {
+    return 'Notional $value';
+  }
+
+  @override
+  String get tradingPositionHolding => 'Position';
+
+  @override
+  String get tradingLiquidationPrice => 'Liq. Price';
+
+  @override
+  String tradingCloseQuantityExceeded(String label, String max) {
+    return '$label insufficient, max closable now: $max';
+  }
+
+  @override
+  String tradingEnterValidCloseQuantity(String action) {
+    return 'Enter a valid $action quantity';
+  }
+
+  @override
+  String tradingEnterValidLimitPriceFor(String action) {
+    return 'Enter a valid limit price for $action';
+  }
+
+  @override
+  String tradingCurrentAndFloating(String current, String floating) {
+    return 'Current $current   Floating $floating';
+  }
+
+  @override
+  String tradingPriceForAction(String action) {
+    return '$action price';
+  }
+
+  @override
+  String tradingConfirmAction(String action) {
+    return 'Confirm $action';
+  }
+
+  @override
+  String get tradingQuantityWord => 'Qty';
+
+  @override
+  String get dashboardEyebrowMentor => 'Featured Mentors';
+
+  @override
+  String get dashboardTitleMentor =>
+      'Browse first, then follow with confidence';
+
+  @override
+  String get dashboardActionViewAll => 'View all';
+
+  @override
+  String get dashboardEyebrowRanking => 'Monthly Rankings';
+
+  @override
+  String get dashboardTitleRanking => 'Check Top 3 first, then dive deeper';
+
+  @override
+  String get dashboardActionFullRanking => 'Full rankings';
+
+  @override
+  String get dashboardEyebrowNews => 'Hot News';
+
+  @override
+  String get dashboardTitleNews => 'English market highlights at a glance';
+
+  @override
+  String get dashboardActionMoreNews => 'More news';
+
+  @override
+  String get dashboardHeroTitle => 'Understand rankings before following';
+
+  @override
+  String get dashboardHeroSubtitle =>
+      'Home combines ranking insights, mentor entry points, and market snapshots to help you make clearer follow decisions in less time.';
+
+  @override
+  String get dashboardHeroActionViewRanking => 'View rankings';
+
+  @override
+  String get dashboardHeroMetricDimensionLabel => 'Ranking dimensions';
+
+  @override
+  String get dashboardHeroMetricDimensionValue => '5 types';
+
+  @override
+  String get dashboardHeroMetricCountLabel => 'Displayed count';
+
+  @override
+  String get dashboardHeroMetricCountValue => 'Top10';
+
+  @override
+  String get dashboardHeroMetricUpdateLabel => 'Update frequency';
+
+  @override
+  String get dashboardHeroMetricUpdateValue => 'Realtime';
+
+  @override
+  String get dashboardQuickMarketTitle => 'Market';
+
+  @override
+  String get dashboardQuickMarketSubtitle =>
+      'Indices, highlights, and watchlist';
+
+  @override
+  String get dashboardQuickMentorTitle => 'Mentor Center';
+
+  @override
+  String get dashboardQuickMentorSubtitle => 'Review profiles before following';
+
+  @override
+  String get dashboardQuickRankingTitle => 'Rankings';
+
+  @override
+  String get dashboardQuickRankingSubtitle => 'Quickly find Top traders';
+
+  @override
+  String get dashboardQuickMessageTitle => 'Messages';
+
+  @override
+  String get dashboardQuickMessageSubtitle =>
+      'Conversations and system notices';
+
+  @override
+  String get dashboardTrust1 => 'Real returns visualized';
+
+  @override
+  String get dashboardTrust2 => 'Mentor strategies traceable';
+
+  @override
+  String get dashboardTrust3 => 'Clearer ranking entry';
+
+  @override
+  String get dashboardTrust4 => 'More direct message reach';
+
+  @override
+  String get dashboardMentorFallbackTitle => 'Trading Mentor';
+
+  @override
+  String get dashboardMentorTip =>
+      'Tap to view mentor profile. Strategy center is for friends only.';
+
+  @override
+  String get dashboardNoHotNews => 'No hot news yet';
+
+  @override
+  String get teachersStrategyMaxNineImages => 'Up to 9 images per post';
+
+  @override
+  String get teachersStrategyExceedNineIgnored =>
+      'Extra images were ignored (max 9)';
 }

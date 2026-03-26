@@ -6,7 +6,7 @@ const supabaseClient = require('./supabaseClient');
 
 function registerTeacherRoutes(app, requireAuth, optionalAuth) {
   const requireAdminRole = async (req, res, next) => {
-    if (req.isAdminByKey === true) return next();
+    if (req.isAdminByKey === true || req.isAdminSession === true) return next();
     const uid = req.firebaseUid;
     if (!uid) return res.status(401).json({ error: '未鉴权' });
     const sb = supabase();
@@ -45,7 +45,9 @@ function registerTeacherRoutes(app, requireAuth, optionalAuth) {
     return {
       user_id: String(payload.user_id || fallbackUserId || '').trim(),
       floating_pnl: toFiniteNumber(payload.floating_pnl),
+      week_realized_pnl: toFiniteNumber(payload.week_realized_pnl),
       month_realized_pnl: toFiniteNumber(payload.month_realized_pnl),
+      quarter_realized_pnl: toFiniteNumber(payload.quarter_realized_pnl),
       year_realized_pnl: toFiniteNumber(payload.year_realized_pnl),
       total_realized_pnl: toFiniteNumber(payload.total_realized_pnl),
       wins: toSafeInt(payload.wins),
@@ -60,12 +62,15 @@ function registerTeacherRoutes(app, requireAuth, optionalAuth) {
       ...profile,
       wins: normalized.wins,
       losses: normalized.losses,
-      pnl_current: normalized.floating_pnl,
+      pnl_current: normalized.week_realized_pnl,
+      pnl_week: normalized.week_realized_pnl,
       pnl_month: normalized.month_realized_pnl,
+      pnl_quarter: normalized.quarter_realized_pnl,
       pnl_year: normalized.year_realized_pnl,
       pnl_total: normalized.total_realized_pnl,
-      floating_pnl: normalized.floating_pnl,
+      week_realized_pnl: normalized.week_realized_pnl,
       month_realized_pnl: normalized.month_realized_pnl,
+      quarter_realized_pnl: normalized.quarter_realized_pnl,
       year_realized_pnl: normalized.year_realized_pnl,
       total_realized_pnl: normalized.total_realized_pnl,
     };
@@ -350,7 +355,7 @@ function registerTeacherRoutes(app, requireAuth, optionalAuth) {
     }
   });
 
-  /** GET /api/teachers/rankings — 排行榜（已通过、按本月盈亏降序） */
+  /** GET /api/teachers/rankings — 排行榜（已通过、按总平仓收益降序） */
   app.get('/api/teachers/rankings', optionalAuth, async (req, res) => {
     const sb = supabase();
     if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
@@ -364,7 +369,7 @@ function registerTeacherRoutes(app, requireAuth, optionalAuth) {
     }
   });
 
-  /** GET /api/teachers/rankings-real — 真实排行榜（按当月已实现盈亏） */
+  /** GET /api/teachers/rankings-real — 真实排行榜（按总平仓收益） */
   app.get('/api/teachers/rankings-real', optionalAuth, async (req, res) => {
     const sb = supabase();
     if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
@@ -719,6 +724,27 @@ function registerTeacherRoutes(app, requireAuth, optionalAuth) {
         .maybeSingle();
       if (error) return res.status(502).json({ error: error.message });
       return res.json(data || { ok: true });
+    } catch (e) {
+      return res.status(502).json({ error: String(e.message || e) });
+    }
+  });
+
+  /** DELETE /api/teachers/strategies/:strategyId — 当前用户删除策略 */
+  app.delete('/api/teachers/strategies/:strategyId', requireAuth, async (req, res) => {
+    const uid = req.firebaseUid;
+    const { strategyId } = req.params;
+    if (!uid) return res.status(401).json({ error: '未鉴权' });
+    if (!strategyId) return res.status(400).json({ error: 'missing strategyId' });
+    const sb = supabase();
+    if (!sb) return res.status(503).json({ error: 'Supabase 未配置' });
+    try {
+      const { error } = await sb
+        .from('trade_strategies')
+        .delete()
+        .eq('id', strategyId)
+        .eq('teacher_id', uid);
+      if (error) return res.status(502).json({ error: error.message });
+      return res.json({ ok: true });
     } catch (e) {
       return res.status(502).json({ error: String(e.message || e) });
     }

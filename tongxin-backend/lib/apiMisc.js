@@ -4,6 +4,7 @@
 const crypto = require('crypto');
 const supabaseClient = require('./supabaseClient');
 const { sendToUser } = require('./chatWebSocket');
+const { fetchRankingsContentForApp } = require('./apiAdminRankingsContent');
 
 const AGORA_TOKEN_VERSION = '006';
 const AGORA_APP_ID_LENGTH = 32;
@@ -114,7 +115,7 @@ async function getUserRole(sb, uid) {
 function createRoleGuard(allowedRoles) {
   const normalized = new Set(allowedRoles.map((r) => String(r).toLowerCase()));
   return async (req, res, next) => {
-    if (req.isAdminByKey === true) return next();
+    if (req.isAdminByKey === true || req.isAdminSession === true) return next();
     const uid = req.firebaseUid;
     if (!uid) return res.status(401).json({ error: '未鉴权' });
     const sb = supabaseClient.getClient();
@@ -174,6 +175,7 @@ function registerMiscRoutes(app, requireAuth) {
       for (const r of rows || []) {
         map[r.key] = r.value != null ? String(r.value).trim() : null;
       }
+      const rankingsContent = await fetchRankingsContentForApp(sb);
       res.json({
         user_trading_center_hidden_versions: map.user_trading_center_hidden_versions || null,
         webview_user_page_url: map.webview_user_page_url || null,
@@ -181,6 +183,16 @@ function registerMiscRoutes(app, requireAuth) {
         user_trading_center_menu_subtitle: map.user_trading_center_menu_subtitle || null,
         user_trading_center_hidden_menu_title: map.user_trading_center_hidden_menu_title || null,
         user_trading_center_hidden_menu_subtitle: map.user_trading_center_hidden_menu_subtitle || null,
+        rankings_intro_title: rankingsContent.config.rankings_intro_title,
+        rankings_intro_summary: rankingsContent.config.rankings_intro_summary,
+        rankings_intro_detail: rankingsContent.config.rankings_intro_detail,
+        rankings_signup_title: rankingsContent.config.rankings_signup_title,
+        rankings_signup_summary: rankingsContent.config.rankings_signup_summary,
+        rankings_signup_detail: rankingsContent.config.rankings_signup_detail,
+        rankings_signup_entry_url: rankingsContent.config.rankings_signup_entry_url,
+        rankings_activity_title: rankingsContent.config.rankings_activity_title,
+        rankings_activity_summary: rankingsContent.config.rankings_activity_summary,
+        rankings_activity_detail: rankingsContent.config.rankings_activity_detail,
       });
     } catch (e) {
       res.status(502).json({ error: String(e.message || e) });

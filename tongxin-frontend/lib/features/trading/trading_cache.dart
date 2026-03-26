@@ -8,12 +8,16 @@ import 'package:path_provider/path_provider.dart';
 class TradingCache {
   TradingCache._();
   static final TradingCache instance = TradingCache._();
+  bool get _disabledOnWeb => kIsWeb;
 
   static const String _dirName = 'trading_cache';
   Directory? _dir;
   bool _init = false;
 
   Future<Directory> _getDir() async {
+    if (_disabledOnWeb) {
+      throw UnsupportedError('TradingCache disabled on web');
+    }
     if (_dir != null) return _dir!;
     if (_init) {
       await Future<void>.delayed(const Duration(milliseconds: 50));
@@ -49,6 +53,7 @@ class TradingCache {
 
   /// 读取缓存，若不存在或已过期返回 null
   Future<Map<String, dynamic>?> get(String key, {Duration maxAge = const Duration(seconds: 1)}) async {
+    if (_disabledOnWeb) return null;
     try {
       final dir = await _getDir();
       final file = File('${dir.path}/${_fileKey(key)}.json');
@@ -71,6 +76,7 @@ class TradingCache {
 
   /// 读取缓存中的列表（如 gainers、aggregates、candles）
   Future<List<dynamic>?> getList(String key, {Duration maxAge = const Duration(minutes: 1)}) async {
+    if (_disabledOnWeb) return null;
     final map = await get(key, maxAge: maxAge);
     if (map == null) return null;
     final list = map['list'] as List<dynamic>?;
@@ -79,6 +85,7 @@ class TradingCache {
 
   /// 读取缓存中的数值（如 previous close）
   Future<double?> getDouble(String key, {Duration maxAge = const Duration(hours: 24)}) async {
+    if (_disabledOnWeb) return null;
     final map = await get(key, maxAge: maxAge);
     if (map == null) return null;
     final v = map['v'];
@@ -88,6 +95,7 @@ class TradingCache {
 
   /// 写入缓存
   Future<void> set(String key, Map<String, dynamic> value, {Duration? maxAge}) async {
+    if (_disabledOnWeb) return;
     try {
       final dir = await _getDir();
       final file = File('${dir.path}/${_fileKey(key)}.json');
@@ -102,10 +110,12 @@ class TradingCache {
   }
 
   Future<void> setList(String key, List<dynamic> list, {Duration? maxAge}) async {
+    if (_disabledOnWeb) return;
     await set(key, {'list': list}, maxAge: maxAge);
   }
 
   Future<void> setDouble(String key, double value, {Duration? maxAge}) async {
+    if (_disabledOnWeb) return;
     await set(key, {'v': value}, maxAge: maxAge);
   }
 }

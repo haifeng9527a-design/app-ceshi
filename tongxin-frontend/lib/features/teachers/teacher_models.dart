@@ -38,7 +38,9 @@ class TeacherProfile {
     this.rating,
     this.todayStrategy,
     this.pnlCurrent,
+    this.pnlWeek,
     this.pnlMonth,
+    this.pnlQuarter,
     this.pnlYear,
     this.pnlTotal,
     this.signature,
@@ -77,7 +79,9 @@ class TeacherProfile {
   final int? rating;
   final String? todayStrategy;
   final num? pnlCurrent;
+  final num? pnlWeek;
   final num? pnlMonth;
+  final num? pnlQuarter;
   final num? pnlYear;
   final num? pnlTotal;
 
@@ -118,7 +122,9 @@ class TeacherProfile {
       rating: row['rating'] as int?,
       todayStrategy: row['today_strategy'] as String?,
       pnlCurrent: row['pnl_current'] as num?,
+      pnlWeek: row['pnl_week'] as num?,
       pnlMonth: row['pnl_month'] as num?,
+      pnlQuarter: row['pnl_quarter'] as num?,
       pnlYear: row['pnl_year'] as num?,
       pnlTotal: row['pnl_total'] as num?,
       signature: row['signature'] as String?,
@@ -158,7 +164,9 @@ class TeacherProfile {
       'rating': rating,
       'today_strategy': todayStrategy,
       'pnl_current': pnlCurrent,
+      'pnl_week': pnlWeek,
       'pnl_month': pnlMonth,
+      'pnl_quarter': pnlQuarter,
       'pnl_year': pnlYear,
       'pnl_total': pnlTotal,
       'updated_at': DateTime.now().toIso8601String(),
@@ -170,7 +178,9 @@ class TeacherPnlMetrics {
   const TeacherPnlMetrics({
     required this.userId,
     required this.floatingPnl,
+    required this.weekRealizedPnl,
     required this.monthRealizedPnl,
+    required this.quarterRealizedPnl,
     required this.yearRealizedPnl,
     required this.totalRealizedPnl,
     required this.wins,
@@ -179,7 +189,9 @@ class TeacherPnlMetrics {
 
   final String userId;
   final double floatingPnl;
+  final double weekRealizedPnl;
   final double monthRealizedPnl;
+  final double quarterRealizedPnl;
   final double yearRealizedPnl;
   final double totalRealizedPnl;
   final int wins;
@@ -200,8 +212,11 @@ class TeacherPnlMetrics {
     return TeacherPnlMetrics(
       userId: row['user_id']?.toString() ?? '',
       floatingPnl: asDouble(row['floating_pnl'] ?? row['pnl_current']),
+      weekRealizedPnl: asDouble(row['week_realized_pnl'] ?? row['pnl_week']),
       monthRealizedPnl:
           asDouble(row['month_realized_pnl'] ?? row['pnl_month']),
+      quarterRealizedPnl:
+          asDouble(row['quarter_realized_pnl'] ?? row['pnl_quarter']),
       yearRealizedPnl: asDouble(row['year_realized_pnl'] ?? row['pnl_year']),
       totalRealizedPnl:
           asDouble(row['total_realized_pnl'] ?? row['pnl_total']),
@@ -214,7 +229,9 @@ class TeacherPnlMetrics {
     return TeacherPnlMetrics(
       userId: profile.userId,
       floatingPnl: (profile.pnlCurrent ?? 0).toDouble(),
+      weekRealizedPnl: (profile.pnlWeek ?? 0).toDouble(),
       monthRealizedPnl: (profile.pnlMonth ?? 0).toDouble(),
+      quarterRealizedPnl: (profile.pnlQuarter ?? 0).toDouble(),
       yearRealizedPnl: (profile.pnlYear ?? 0).toDouble(),
       totalRealizedPnl: (profile.pnlTotal ?? 0).toDouble(),
       wins: profile.wins ?? 0,
@@ -226,7 +243,9 @@ class TeacherPnlMetrics {
     return {
       'user_id': userId,
       'floating_pnl': floatingPnl,
+      'week_realized_pnl': weekRealizedPnl,
       'month_realized_pnl': monthRealizedPnl,
+      'quarter_realized_pnl': quarterRealizedPnl,
       'year_realized_pnl': yearRealizedPnl,
       'total_realized_pnl': totalRealizedPnl,
       'wins': wins,
@@ -261,10 +280,43 @@ class TeacherStrategy {
   factory TeacherStrategy.fromMap(Map<String, dynamic> row) {
     final urls = row['image_urls'];
     List<String>? list;
-    if (urls != null && urls is List) {
-      list = urls.map((e) => e.toString()).where((e) => e.isNotEmpty).toList();
-      if (list.isEmpty) list = null;
+    if (urls is List) {
+      list = urls.map((e) => e.toString().trim()).where((e) => e.isNotEmpty).toList();
+    } else if (urls is String && urls.trim().isNotEmpty) {
+      final raw = urls.trim();
+      if (raw.startsWith('[') && raw.endsWith(']')) {
+        // JSON 数组字符串
+        final body = raw.substring(1, raw.length - 1).trim();
+        if (body.isNotEmpty) {
+          list = body
+              .split(',')
+              .map((e) => e.replaceAll('"', '').replaceAll("'", '').trim())
+              .where((e) => e.isNotEmpty)
+              .toList();
+        }
+      } else if (raw.startsWith('{') && raw.endsWith('}')) {
+        // Postgres text[] 字面量
+        final body = raw.substring(1, raw.length - 1).trim();
+        if (body.isNotEmpty) {
+          list = body
+              .split(',')
+              .map((e) => e.replaceAll('"', '').replaceAll("'", '').trim())
+              .where((e) => e.isNotEmpty)
+              .toList();
+        }
+      } else {
+        list = raw
+            .split(',')
+            .map((e) => e.replaceAll('"', '').replaceAll("'", '').trim())
+            .where((e) => e.isNotEmpty)
+            .toList();
+      }
     }
+    final legacySingle = row['image_url']?.toString().trim();
+    if ((list == null || list.isEmpty) && legacySingle != null && legacySingle.isNotEmpty) {
+      list = [legacySingle];
+    }
+    if (list != null && list.isEmpty) list = null;
     return TeacherStrategy(
       id: row['id'] as String,
       teacherId: row['teacher_id'] as String,

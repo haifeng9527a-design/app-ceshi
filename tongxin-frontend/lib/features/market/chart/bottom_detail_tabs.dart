@@ -2,8 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../../core/app_webview_page.dart';
 import '../../../l10n/app_localizations.dart';
-import '../../trading/polygon_repository.dart';
 import '../market_repository.dart';
 import 'chart_theme.dart';
 import 'indicators_section.dart';
@@ -46,6 +46,22 @@ class _BottomDetailTabsState extends State<BottomDetailTabs> {
   List<(double, int)> _bids = [];
   List<(double, int)> _asks = [];
   final _market = MarketRepository();
+  bool _loadingCapital = false;
+  bool _loadingNews = false;
+  bool _loadingAnnouncements = false;
+  Map<String, dynamic>? _keyRatios;
+  List<Map<String, dynamic>> _dividends = const [];
+  List<Map<String, dynamic>> _splits = const [];
+  List<MarketNewsItem> _news = const [];
+  List<MarketNewsItem> _announcements = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCapital();
+    _loadTickerNews();
+    _loadAnnouncements();
+  }
 
   List<String> _labels(BuildContext context) => [
     AppLocalizations.of(context)!.chartTabOrderBook,
@@ -98,6 +114,9 @@ class _BottomDetailTabsState extends State<BottomDetailTabs> {
       _bids = [];
       _asks = [];
       if (_index == 0 && widget.symbol != null) _startOrderBookPolling();
+      _loadCapital();
+      _loadTickerNews();
+      _loadAnnouncements();
     }
   }
 
@@ -126,8 +145,11 @@ class _BottomDetailTabsState extends State<BottomDetailTabs> {
                   onTap: () {
                     final wasOrderBook = _index == 0;
                     setState(() => _index = i);
-                    if (i == 0 && !wasOrderBook) _startOrderBookPolling();
-                    else if (i != 0) _stopOrderBookPolling();
+                    if (i == 0 && !wasOrderBook) {
+                      _startOrderBookPolling();
+                    } else if (i != 0) {
+                      _stopOrderBookPolling();
+                    }
                   },
                   behavior: HitTestBehavior.opaque,
                   child: Container(
@@ -197,11 +219,21 @@ class _BottomDetailTabsState extends State<BottomDetailTabs> {
           candles: widget.klineCandles,
         );
       case 2:
-        return _placeholder(context, AppLocalizations.of(context)!.chartTabCapital);
+        return _buildCapitalTab(context);
       case 3:
-        return _placeholder(context, AppLocalizations.of(context)!.chartTabNews);
+        return _buildNewsTab(
+          context,
+          loading: _loadingNews,
+          items: _news,
+          emptyText: '暂无新闻',
+        );
       case 4:
-        return _placeholder(context, AppLocalizations.of(context)!.chartTabAnnouncement);
+        return _buildNewsTab(
+          context,
+          loading: _loadingAnnouncements,
+          items: _announcements,
+          emptyText: '暂无公告',
+        );
       default:
         return const SizedBox.shrink();
     }
@@ -218,5 +250,194 @@ class _BottomDetailTabsState extends State<BottomDetailTabs> {
         style: TextStyle(color: ChartTheme.textSecondary, fontSize: 14),
       ),
     );
+  }
+
+  Future<void> _loadCapital() async {
+    final symbol = widget.symbol?.trim() ?? '';
+    if (symbol.isEmpty) return;
+    setState(() => _loadingCapital = true);
+    final ratios = await _market.getKeyRatios(symbol);
+    final dividends = await _market.getDividends(symbol);
+    final splits = await _market.getSplits(symbol);
+    if (!mounted) return;
+    setState(() {
+      _keyRatios = ratios;
+      _dividends = dividends;
+      _splits = splits;
+      _loadingCapital = false;
+    });
+  }
+
+  Future<void> _loadTickerNews() async {
+    final symbol = widget.symbol?.trim() ?? '';
+    if (symbol.isEmpty) return;
+    setState(() => _loadingNews = true);
+    final rows = await _market.getTickerNews(symbol, limit: 20);
+    if (!mounted) return;
+    setState(() {
+      _news = rows;
+      _loadingNews = false;
+    });
+  }
+
+  Future<void> _loadAnnouncements() async {
+    final symbol = widget.symbol?.trim() ?? '';
+    if (symbol.isEmpty) return;
+    setState(() => _loadingAnnouncements = true);
+    final rows = await _market.getTickerAnnouncements(symbol, limit: 20);
+    if (!mounted) return;
+    setState(() {
+      _announcements = rows;
+      _loadingAnnouncements = false;
+    });
+  }
+
+  Widget _buildCapitalTab(BuildContext context) {
+    if (_loadingCapital) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 28),
+        child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+      );
+    }
+    final hasRatios = _keyRatios != null && _keyRatios!.isNotEmpty;
+    final hasActions = _dividends.isNotEmpty || _splits.isNotEmpty;
+    if (!hasRatios && !hasActions) {
+      return _placeholder(context, AppLocalizations.of(context)!.chartTabCapital);
+    }
+    final pe = _numText(_keyRatios?['price_to_earnings']);
+    final pb = _numText(_keyRatios?['price_to_book']);
+    final dy = _percentText(_keyRatios?['dividend_yield']);
+    final roe = _percentText(_keyRatios?['return_on_equity']);
+    final mc = _largeNumText(_keyRatios?['market_cap']);
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (hasRatios) ...[
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _metricChip('P/E', pe),
+                _metricChip('P/B', pb),
+                _metricChip('Div Yield', dy),
+                _metricChip('ROE', roe),
+                _metricChip('Mkt Cap', mc),
+              ],
+            ),
+            const SizedBox(height: 12),
+          ],
+          if (_dividends.isNotEmpty)
+            Text(
+              'Dividends: ${_dividends.take(3).map((d) => '${d['ex_dividend_date'] ?? '-'} \$${d['cash_amount'] ?? '-'}').join('  |  ')}',
+              style: TextStyle(color: ChartTheme.textPrimary, fontSize: 13),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          if (_splits.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Splits: ${_splits.take(3).map((s) => '${s['execution_date'] ?? '-'} ${s['split_from'] ?? '-'}:${s['split_to'] ?? '-'}').join('  |  ')}',
+              style: TextStyle(color: ChartTheme.textPrimary, fontSize: 13),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _metricChip(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: ChartTheme.surface2,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: ChartTheme.border),
+      ),
+      child: Text(
+        '$label: $value',
+        style: const TextStyle(color: ChartTheme.textPrimary, fontSize: 12),
+      ),
+    );
+  }
+
+  Widget _buildNewsTab(
+    BuildContext context, {
+    required bool loading,
+    required List<MarketNewsItem> items,
+    required String emptyText,
+  }) {
+    if (loading) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 28),
+        child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+      );
+    }
+    if (items.isEmpty) {
+      return _placeholder(context, emptyText);
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+      child: Column(
+        children: items.take(12).map((item) {
+          return ListTile(
+            dense: true,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+            title: Text(
+              item.title,
+              style: const TextStyle(color: ChartTheme.textPrimary, fontSize: 13),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            subtitle: Text(
+              '${item.source} · ${_formatTime(item.publishedAt)}',
+              style: const TextStyle(color: ChartTheme.textSecondary, fontSize: 11),
+            ),
+            trailing: const Icon(Icons.open_in_new_rounded, size: 16, color: ChartTheme.textSecondary),
+            onTap: () => _openNews(item),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Future<void> _openNews(MarketNewsItem item) async {
+    final uri = Uri.tryParse(item.url);
+    if (uri == null) return;
+    await openInAppWebView(
+      context,
+      url: item.url,
+      title: item.title,
+    );
+  }
+
+  static String _numText(dynamic value) {
+    final v = value is num ? value.toDouble() : double.tryParse('${value ?? ''}');
+    if (v == null) return '--';
+    return v.toStringAsFixed(2);
+  }
+
+  static String _percentText(dynamic value) {
+    final v = value is num ? value.toDouble() : double.tryParse('${value ?? ''}');
+    if (v == null) return '--';
+    return '${(v * 100).toStringAsFixed(2)}%';
+  }
+
+  static String _largeNumText(dynamic value) {
+    final v = value is num ? value.toDouble() : double.tryParse('${value ?? ''}');
+    if (v == null) return '--';
+    if (v >= 1000000000) return '${(v / 1000000000).toStringAsFixed(2)}B';
+    if (v >= 1000000) return '${(v / 1000000).toStringAsFixed(2)}M';
+    return v.toStringAsFixed(0);
+  }
+
+  static String _formatTime(DateTime? dt) {
+    if (dt == null) return '--';
+    final local = dt.toLocal();
+    return '${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')} '
+        '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
   }
 }

@@ -116,7 +116,7 @@ class _MarketPageState extends State<MarketPage>
 
   /// PC 端：TradingView 风格，Shell 已有顶栏
   Widget _buildPcPage(BuildContext context) {
-    return ColoredBox(
+    return Material(
       color: TvTheme.bg,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1178,7 +1178,10 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
               Text(AppLocalizations.of(context)!.marketHeatmap,
                   style: PcDashboardTheme.titleSmall),
               const Spacer(),
-              Text('S&P 500', style: PcDashboardTheme.bodySmall),
+              Text(
+                AppLocalizations.of(context)!.marketIndexSp500,
+                style: PcDashboardTheme.bodySmall,
+              ),
               const SizedBox(width: 8),
               Text('${AppLocalizations.of(context)!.marketTradeSubcategory} >',
                   style: PcDashboardTheme.bodySmall),
@@ -1628,7 +1631,7 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
                     minimumSize: Size.zero,
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
-                  child: Text('See all',
+                  child: Text(AppLocalizations.of(context)!.marketMore,
                       style: PcDashboardTheme.bodyMedium
                           .copyWith(color: PcDashboardTheme.accent)),
                 ),
@@ -2001,10 +2004,10 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
       children: [
         Row(
           children: [
-            _buildSectionLabel('Watchlist'),
+            _buildSectionLabel(AppLocalizations.of(context)!.marketWatchlist),
             const Spacer(),
             AppButton(
-              label: 'See all',
+              label: AppLocalizations.of(context)!.marketMore,
               variant: AppButtonVariant.text,
               onPressed: () => Navigator.of(context)
                   .push(
@@ -2015,10 +2018,10 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
         ),
         const SizedBox(height: AppSpacing.xs),
         if (_watchlistSymbols.isEmpty)
-          const AppCard(
+          AppCard(
             padding: EdgeInsets.symmetric(vertical: AppSpacing.lg),
             child: Center(
-              child: Text('No watchlist. Tap star to add.'),
+              child: Text(AppLocalizations.of(context)!.marketAddWatchlistHint),
             ),
           )
         else
@@ -2044,9 +2047,9 @@ class _HomeTabState extends State<_HomeTab> with WidgetsBindingObserver {
   Widget _buildTrendingSegmented() {
     return Row(
       children: [
-        _segmentChip('Stocks', 0),
+        _segmentChip(AppLocalizations.of(context)!.marketTabUsStock, 0),
         const SizedBox(width: 8),
-        _segmentChip('Crypto', 1),
+        _segmentChip(AppLocalizations.of(context)!.marketTabCrypto, 1),
       ],
     );
   }

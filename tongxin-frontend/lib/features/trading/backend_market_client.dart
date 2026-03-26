@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
-import 'polygon_repository.dart';
 import 'trading_cache.dart';
 import '../market/market_repository.dart';
 
@@ -160,7 +159,7 @@ class BackendMarketClient {
     final useRealtime = realtime && symbols.length == 1;
     if (!useRealtime) {
       final cached = await _cache.get(cacheKey, maxAge: _quotesMaxAge);
-      if (cached != null && cached is Map<String, dynamic>) {
+      if (cached != null) {
         final out = <String, MarketQuote>{};
         for (final sym in symbols) {
           final s = sym.trim();
@@ -432,7 +431,7 @@ class BackendMarketClient {
       if (result.isNotEmpty) return result;
     }
     final queryParams = <String, String>{'symbol': sym, 'interval': interval};
-    if (resolvedFromMs != null && resolvedToMs != null) {
+    if (resolvedFromMs != null) {
       queryParams['fromMs'] = resolvedFromMs.toString();
       queryParams['toMs'] = resolvedToMs.toString();
     }
@@ -694,13 +693,14 @@ class BackendMarketClient {
 
   static const _ratiosMaxAge = Duration(minutes: 10);
   static const _companyActionsMaxAge = Duration(hours: 1);
+  static const _newsMaxAge = Duration(minutes: 5);
 
   Future<Map<String, dynamic>?> getKeyRatios(String symbol) async {
     final sym = symbol.trim();
     if (sym.isEmpty) return null;
     final cacheKey = 'backend_ratios_$sym';
     final cached = await _cache.get(cacheKey, maxAge: _ratiosMaxAge);
-    if (cached != null && cached is Map<String, dynamic>) return cached;
+    if (cached != null) return cached;
     final uri = Uri.parse('${_base}api/ratios').replace(queryParameters: {'symbol': sym});
     try {
       final resp = await http.get(uri).timeout(const Duration(seconds: 10), onTimeout: () => throw Exception('请求超时'));
@@ -754,6 +754,102 @@ class BackendMarketClient {
       return result;
     } catch (e) {
       if (kDebugMode) debugPrint('[Backend getSplits] $e');
+      return [];
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getHotNews({int limit = 6}) async {
+    final safeLimit = limit.clamp(1, 20);
+    final cacheKey = 'backend_hot_news_$safeLimit';
+    final cached = await _cache.getList(cacheKey, maxAge: _newsMaxAge);
+    if (cached != null && cached.isNotEmpty) {
+      return cached.whereType<Map<String, dynamic>>().toList();
+    }
+    final uri = Uri.parse('${_base}api/news/hot')
+        .replace(queryParameters: {'limit': '$safeLimit'});
+    try {
+      final resp = await http.get(uri).timeout(
+          const Duration(seconds: 10), onTimeout: () => throw Exception('请求超时'));
+      if (resp.statusCode != 200) return [];
+      final list = jsonDecode(resp.body);
+      if (list is! List) return [];
+      final result = list.whereType<Map<String, dynamic>>().toList();
+      if (result.isNotEmpty) {
+        try {
+          await _cache.setList(cacheKey, result);
+        } catch (_) {}
+      }
+      return result;
+    } catch (e) {
+      if (kDebugMode) debugPrint('[Backend getHotNews] $e');
+      return [];
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getTickerNews(
+    String symbol, {
+    int limit = 20,
+  }) async {
+    final sym = symbol.trim().toUpperCase();
+    if (sym.isEmpty) return [];
+    final safeLimit = limit.clamp(1, 50);
+    final cacheKey = 'backend_ticker_news_${sym}_$safeLimit';
+    final cached = await _cache.getList(cacheKey, maxAge: _newsMaxAge);
+    if (cached != null && cached.isNotEmpty) {
+      return cached.whereType<Map<String, dynamic>>().toList();
+    }
+    final uri = Uri.parse('${_base}api/news').replace(
+      queryParameters: {'ticker': sym, 'limit': '$safeLimit'},
+    );
+    try {
+      final resp = await http.get(uri).timeout(
+          const Duration(seconds: 10), onTimeout: () => throw Exception('请求超时'));
+      if (resp.statusCode != 200) return [];
+      final list = jsonDecode(resp.body);
+      if (list is! List) return [];
+      final result = list.whereType<Map<String, dynamic>>().toList();
+      if (result.isNotEmpty) {
+        try {
+          await _cache.setList(cacheKey, result);
+        } catch (_) {}
+      }
+      return result;
+    } catch (e) {
+      if (kDebugMode) debugPrint('[Backend getTickerNews] $e');
+      return [];
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getTickerAnnouncements(
+    String symbol, {
+    int limit = 20,
+  }) async {
+    final sym = symbol.trim().toUpperCase();
+    if (sym.isEmpty) return [];
+    final safeLimit = limit.clamp(1, 50);
+    final cacheKey = 'backend_ticker_ann_${sym}_$safeLimit';
+    final cached = await _cache.getList(cacheKey, maxAge: _newsMaxAge);
+    if (cached != null && cached.isNotEmpty) {
+      return cached.whereType<Map<String, dynamic>>().toList();
+    }
+    final uri = Uri.parse('${_base}api/news/announcements').replace(
+      queryParameters: {'ticker': sym, 'limit': '$safeLimit'},
+    );
+    try {
+      final resp = await http.get(uri).timeout(
+          const Duration(seconds: 10), onTimeout: () => throw Exception('请求超时'));
+      if (resp.statusCode != 200) return [];
+      final list = jsonDecode(resp.body);
+      if (list is! List) return [];
+      final result = list.whereType<Map<String, dynamic>>().toList();
+      if (result.isNotEmpty) {
+        try {
+          await _cache.setList(cacheKey, result);
+        } catch (_) {}
+      }
+      return result;
+    } catch (e) {
+      if (kDebugMode) debugPrint('[Backend getTickerAnnouncements] $e');
       return [];
     }
   }

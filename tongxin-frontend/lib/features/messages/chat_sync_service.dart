@@ -19,13 +19,13 @@ class ChatSyncService {
     if (userId.isEmpty || !_useApi) return;
     try {
       final list = await MessagesApi.instance.getConversations();
-      if (list.isEmpty) return;
       final conversations = list.map((c) => Conversation.fromSupabase(
         row: c,
         unreadCount: c['unread_count'] as int? ?? 0,
         peerId: c['peer_id'] as String?,
       )).toList();
       await ChatDb.instance.upsertConversations(userId, conversations);
+      if (conversations.isEmpty) return;
       final currentIds = ChatWebSocketService.instance.subscribedConversationIds;
       final missingIds = conversations
           .map((c) => c.id)

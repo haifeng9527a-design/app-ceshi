@@ -19,6 +19,21 @@ function teacherHubApi(path, options = {}) {
   return fetch(url, { ...options, headers });
 }
 
+function getSafeBridgeSnapshot(bridge) {
+  if (!bridge || typeof bridge !== "object") return null;
+  return {
+    apiBaseUrl: bridge.apiBaseUrl || null,
+    hasAuthToken: Boolean(bridge.authToken),
+    user: bridge.user && typeof bridge.user === "object"
+      ? {
+          uid: bridge.user.uid || null,
+          displayName: bridge.user.displayName || null,
+          email: bridge.user.email || null,
+        }
+      : null,
+  };
+}
+
 function render() {
   const status = document.getElementById("status");
   const raw = document.getElementById("raw");
@@ -30,7 +45,7 @@ function render() {
       ? window.getTeacherHubCurrentUser()
       : bridge?.user ?? null;
 
-  raw.textContent = JSON.stringify(bridge, null, 2) || "null";
+  raw.textContent = JSON.stringify(getSafeBridgeSnapshot(bridge), null, 2) || "null";
   user.textContent = JSON.stringify(currentUser, null, 2) || "null";
 
   if (currentUser && currentUser.uid) {

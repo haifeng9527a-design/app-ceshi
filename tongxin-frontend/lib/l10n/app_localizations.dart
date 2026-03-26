@@ -692,6 +692,36 @@ abstract class AppLocalizations {
   /// **'举报违规内容或用户'**
   String get profileReportSubtitle;
 
+  /// No description provided for @profileUserTradingCenterMenuTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'用户交易中心'**
+  String get profileUserTradingCenterMenuTitle;
+
+  /// No description provided for @profileUserTradingCenterMenuSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'通过 WebView 打开用户交易中心'**
+  String get profileUserTradingCenterMenuSubtitle;
+
+  /// No description provided for @profileUserTradingCenterHiddenMenuTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'用户交易中心'**
+  String get profileUserTradingCenterHiddenMenuTitle;
+
+  /// No description provided for @profileUserTradingCenterHiddenMenuSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'当前版本暂不支持，请访问下方链接'**
+  String get profileUserTradingCenterHiddenMenuSubtitle;
+
+  /// No description provided for @profileLinkPrefix.
+  ///
+  /// In zh, this message translates to:
+  /// **'链接：'**
+  String get profileLinkPrefix;
+
   /// No description provided for @profilePrivacyPolicyContent.
   ///
   /// In zh, this message translates to:
@@ -1874,6 +1904,30 @@ abstract class AppLocalizations {
   /// **'发布失败'**
   String get teachersPublishFailed;
 
+  /// No description provided for @teachersDeleteStrategy.
+  ///
+  /// In zh, this message translates to:
+  /// **'删除策略'**
+  String get teachersDeleteStrategy;
+
+  /// No description provided for @teachersDeleteStrategyConfirm.
+  ///
+  /// In zh, this message translates to:
+  /// **'确定删除这条策略吗？删除后无法恢复。'**
+  String get teachersDeleteStrategyConfirm;
+
+  /// No description provided for @teachersStrategyDeleted.
+  ///
+  /// In zh, this message translates to:
+  /// **'策略已删除'**
+  String get teachersStrategyDeleted;
+
+  /// No description provided for @teachersDeleteStrategyFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'删除策略失败'**
+  String get teachersDeleteStrategyFailed;
+
   /// No description provided for @teachersUploadTradeRecord.
   ///
   /// In zh, this message translates to:
@@ -2767,6 +2821,12 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'尚未配置 Firebase，请先添加配置文件（google-services.json / GoogleService-Info.plist）。'**
   String get authFirebaseConfigHint;
+
+  /// No description provided for @authFirebaseConfigHintWeb.
+  ///
+  /// In zh, this message translates to:
+  /// **'网页版登录配置未完成，当前 Web 端暂时无法使用 Firebase 登录。'**
+  String get authFirebaseConfigHintWeb;
 
   /// No description provided for @authVerificationSent.
   ///
@@ -7405,6 +7465,630 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'审核通过后开放策略发布'**
   String get teachersStatusOpenAfterApproval;
+
+  /// No description provided for @teachersTradingAccount.
+  ///
+  /// In zh, this message translates to:
+  /// **'交易账户'**
+  String get teachersTradingAccount;
+
+  /// No description provided for @teachersSpotAccount.
+  ///
+  /// In zh, this message translates to:
+  /// **'现货账户'**
+  String get teachersSpotAccount;
+
+  /// No description provided for @teachersContractAccount.
+  ///
+  /// In zh, this message translates to:
+  /// **'合约账户'**
+  String get teachersContractAccount;
+
+  /// No description provided for @tradingSpotBuy.
+  ///
+  /// In zh, this message translates to:
+  /// **'现货买入'**
+  String get tradingSpotBuy;
+
+  /// No description provided for @tradingSpotSell.
+  ///
+  /// In zh, this message translates to:
+  /// **'现货卖出'**
+  String get tradingSpotSell;
+
+  /// No description provided for @tradingOpenLong.
+  ///
+  /// In zh, this message translates to:
+  /// **'开多'**
+  String get tradingOpenLong;
+
+  /// No description provided for @tradingCloseLong.
+  ///
+  /// In zh, this message translates to:
+  /// **'平多'**
+  String get tradingCloseLong;
+
+  /// No description provided for @tradingOpenShort.
+  ///
+  /// In zh, this message translates to:
+  /// **'开空'**
+  String get tradingOpenShort;
+
+  /// No description provided for @tradingCloseShort.
+  ///
+  /// In zh, this message translates to:
+  /// **'平空'**
+  String get tradingCloseShort;
+
+  /// No description provided for @tradingProductSpot.
+  ///
+  /// In zh, this message translates to:
+  /// **'现货'**
+  String get tradingProductSpot;
+
+  /// No description provided for @tradingProductPerpetual.
+  ///
+  /// In zh, this message translates to:
+  /// **'永续'**
+  String get tradingProductPerpetual;
+
+  /// No description provided for @tradingProductFuture.
+  ///
+  /// In zh, this message translates to:
+  /// **'期货'**
+  String get tradingProductFuture;
+
+  /// No description provided for @tradingPositionLong.
+  ///
+  /// In zh, this message translates to:
+  /// **'做多'**
+  String get tradingPositionLong;
+
+  /// No description provided for @tradingPositionShort.
+  ///
+  /// In zh, this message translates to:
+  /// **'做空'**
+  String get tradingPositionShort;
+
+  /// No description provided for @tradingMarginCross.
+  ///
+  /// In zh, this message translates to:
+  /// **'全仓'**
+  String get tradingMarginCross;
+
+  /// No description provided for @tradingMarginIsolated.
+  ///
+  /// In zh, this message translates to:
+  /// **'逐仓'**
+  String get tradingMarginIsolated;
+
+  /// No description provided for @tradingNoMatchedSymbol.
+  ///
+  /// In zh, this message translates to:
+  /// **'未找到匹配标的'**
+  String get tradingNoMatchedSymbol;
+
+  /// No description provided for @tradingPickSymbol.
+  ///
+  /// In zh, this message translates to:
+  /// **'选择标的（\"{query}\"）'**
+  String tradingPickSymbol(String query);
+
+  /// No description provided for @tradingOrderPlaced.
+  ///
+  /// In zh, this message translates to:
+  /// **'已经委托'**
+  String get tradingOrderPlaced;
+
+  /// No description provided for @tradingMode.
+  ///
+  /// In zh, this message translates to:
+  /// **'交易模式'**
+  String get tradingMode;
+
+  /// No description provided for @tradingMaintenanceRate.
+  ///
+  /// In zh, this message translates to:
+  /// **'当前维持保证金率 {rate}%'**
+  String tradingMaintenanceRate(String rate);
+
+  /// No description provided for @tradingPositionDirection.
+  ///
+  /// In zh, this message translates to:
+  /// **'持仓方向'**
+  String get tradingPositionDirection;
+
+  /// No description provided for @tradingMarginMode.
+  ///
+  /// In zh, this message translates to:
+  /// **'保证金模式'**
+  String get tradingMarginMode;
+
+  /// No description provided for @tradingLeverage.
+  ///
+  /// In zh, this message translates to:
+  /// **'杠杆'**
+  String get tradingLeverage;
+
+  /// No description provided for @tradingMargin.
+  ///
+  /// In zh, this message translates to:
+  /// **'保证金'**
+  String get tradingMargin;
+
+  /// No description provided for @tradingLeverageWithMax.
+  ///
+  /// In zh, this message translates to:
+  /// **'杠杆 {leverage}x / 上限 {max}x'**
+  String tradingLeverageWithMax(String leverage, String max);
+
+  /// No description provided for @tradingAvailableFunds.
+  ///
+  /// In zh, this message translates to:
+  /// **'可用资金'**
+  String get tradingAvailableFunds;
+
+  /// No description provided for @tradingEstimatedOccupied.
+  ///
+  /// In zh, this message translates to:
+  /// **'预计占用'**
+  String get tradingEstimatedOccupied;
+
+  /// No description provided for @tradingEstimatedMargin.
+  ///
+  /// In zh, this message translates to:
+  /// **'预计保证金'**
+  String get tradingEstimatedMargin;
+
+  /// No description provided for @tradingInsufficientFunds.
+  ///
+  /// In zh, this message translates to:
+  /// **'可用资金不足，无法委托'**
+  String get tradingInsufficientFunds;
+
+  /// No description provided for @tradingInsufficientMargin.
+  ///
+  /// In zh, this message translates to:
+  /// **'可用保证金不足，无法委托'**
+  String get tradingInsufficientMargin;
+
+  /// No description provided for @tradingNeedAndCurrent.
+  ///
+  /// In zh, this message translates to:
+  /// **'{label}（需要 {need}，当前 {current}）'**
+  String tradingNeedAndCurrent(String label, String need, String current);
+
+  /// No description provided for @tradingTransferFunds.
+  ///
+  /// In zh, this message translates to:
+  /// **'账户划转'**
+  String get tradingTransferFunds;
+
+  /// No description provided for @tradingTransferFromTo.
+  ///
+  /// In zh, this message translates to:
+  /// **'从 {from} 划转到 {to}'**
+  String tradingTransferFromTo(String from, String to);
+
+  /// No description provided for @tradingTransferAmount.
+  ///
+  /// In zh, this message translates to:
+  /// **'划转金额'**
+  String get tradingTransferAmount;
+
+  /// No description provided for @tradingEnterValidTransferAmount.
+  ///
+  /// In zh, this message translates to:
+  /// **'请输入有效划转金额'**
+  String get tradingEnterValidTransferAmount;
+
+  /// No description provided for @tradingInsufficientAvailableFunds.
+  ///
+  /// In zh, this message translates to:
+  /// **'可用资金不足'**
+  String get tradingInsufficientAvailableFunds;
+
+  /// No description provided for @tradingTransferSuccess.
+  ///
+  /// In zh, this message translates to:
+  /// **'资金划转成功'**
+  String get tradingTransferSuccess;
+
+  /// No description provided for @tradingLedgerTypePositionLiquidated.
+  ///
+  /// In zh, this message translates to:
+  /// **'强制平仓'**
+  String get tradingLedgerTypePositionLiquidated;
+
+  /// No description provided for @tradingLedgerTypeTransferOut.
+  ///
+  /// In zh, this message translates to:
+  /// **'账户划转转出'**
+  String get tradingLedgerTypeTransferOut;
+
+  /// No description provided for @tradingLedgerTypeTransferIn.
+  ///
+  /// In zh, this message translates to:
+  /// **'账户划转转入'**
+  String get tradingLedgerTypeTransferIn;
+
+  /// No description provided for @tradingLedgerCsvHeader.
+  ///
+  /// In zh, this message translates to:
+  /// **'时间,流水类型,标的,资产类型,产品类型,方向,持仓方向,变动金额{suffix},变动后余额{suffix},备注'**
+  String tradingLedgerCsvHeader(String suffix);
+
+  /// No description provided for @tradingLoadMore.
+  ///
+  /// In zh, this message translates to:
+  /// **'加载更多'**
+  String get tradingLoadMore;
+
+  /// No description provided for @tradingViewDetails.
+  ///
+  /// In zh, this message translates to:
+  /// **'查看详情'**
+  String get tradingViewDetails;
+
+  /// No description provided for @tradingSellableQuantity.
+  ///
+  /// In zh, this message translates to:
+  /// **'可卖数量'**
+  String get tradingSellableQuantity;
+
+  /// No description provided for @tradingClosableQuantity.
+  ///
+  /// In zh, this message translates to:
+  /// **'可平数量'**
+  String get tradingClosableQuantity;
+
+  /// No description provided for @tradingAssetGeneric.
+  ///
+  /// In zh, this message translates to:
+  /// **'资产'**
+  String get tradingAssetGeneric;
+
+  /// No description provided for @reportSelectFromFriends.
+  ///
+  /// In zh, this message translates to:
+  /// **'从好友中选择'**
+  String get reportSelectFromFriends;
+
+  /// No description provided for @reportNoFriendsYet.
+  ///
+  /// In zh, this message translates to:
+  /// **'暂无好友'**
+  String get reportNoFriendsYet;
+
+  /// No description provided for @reportSelectFriendHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'请选择好友'**
+  String get reportSelectFriendHint;
+
+  /// No description provided for @reportInvalidTargetUser.
+  ///
+  /// In zh, this message translates to:
+  /// **'举报失败：无效目标用户'**
+  String get reportInvalidTargetUser;
+
+  /// No description provided for @reportScreenshotUploadFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'举报失败：截图上传失败'**
+  String get reportScreenshotUploadFailed;
+
+  /// No description provided for @rankingsBoardWeekly.
+  ///
+  /// In zh, this message translates to:
+  /// **'周榜'**
+  String get rankingsBoardWeekly;
+
+  /// No description provided for @rankingsBoardMonthly.
+  ///
+  /// In zh, this message translates to:
+  /// **'月榜'**
+  String get rankingsBoardMonthly;
+
+  /// No description provided for @rankingsBoardQuarterly.
+  ///
+  /// In zh, this message translates to:
+  /// **'季榜'**
+  String get rankingsBoardQuarterly;
+
+  /// No description provided for @rankingsBoardYearly.
+  ///
+  /// In zh, this message translates to:
+  /// **'年榜'**
+  String get rankingsBoardYearly;
+
+  /// No description provided for @rankingsBoardAllTime.
+  ///
+  /// In zh, this message translates to:
+  /// **'总榜'**
+  String get rankingsBoardAllTime;
+
+  /// No description provided for @rankingsTop10.
+  ///
+  /// In zh, this message translates to:
+  /// **'前10名'**
+  String get rankingsTop10;
+
+  /// No description provided for @tradingLeverageX.
+  ///
+  /// In zh, this message translates to:
+  /// **'{value}倍'**
+  String tradingLeverageX(String value);
+
+  /// No description provided for @tradingNotionalValue.
+  ///
+  /// In zh, this message translates to:
+  /// **'成交额 {value}'**
+  String tradingNotionalValue(String value);
+
+  /// No description provided for @tradingPositionHolding.
+  ///
+  /// In zh, this message translates to:
+  /// **'持仓'**
+  String get tradingPositionHolding;
+
+  /// No description provided for @tradingLiquidationPrice.
+  ///
+  /// In zh, this message translates to:
+  /// **'强平价'**
+  String get tradingLiquidationPrice;
+
+  /// No description provided for @tradingCloseQuantityExceeded.
+  ///
+  /// In zh, this message translates to:
+  /// **'{label}不足，当前最多可平 {max}'**
+  String tradingCloseQuantityExceeded(String label, String max);
+
+  /// No description provided for @tradingEnterValidCloseQuantity.
+  ///
+  /// In zh, this message translates to:
+  /// **'请输入有效{action}数量'**
+  String tradingEnterValidCloseQuantity(String action);
+
+  /// No description provided for @tradingEnterValidLimitPriceFor.
+  ///
+  /// In zh, this message translates to:
+  /// **'限价{action}请输入有效价格'**
+  String tradingEnterValidLimitPriceFor(String action);
+
+  /// No description provided for @tradingCurrentAndFloating.
+  ///
+  /// In zh, this message translates to:
+  /// **'现价 {current}   浮盈 {floating}'**
+  String tradingCurrentAndFloating(String current, String floating);
+
+  /// No description provided for @tradingPriceForAction.
+  ///
+  /// In zh, this message translates to:
+  /// **'{action} 价格'**
+  String tradingPriceForAction(String action);
+
+  /// No description provided for @tradingConfirmAction.
+  ///
+  /// In zh, this message translates to:
+  /// **'确认{action}'**
+  String tradingConfirmAction(String action);
+
+  /// No description provided for @tradingQuantityWord.
+  ///
+  /// In zh, this message translates to:
+  /// **'数量'**
+  String get tradingQuantityWord;
+
+  /// No description provided for @dashboardEyebrowMentor.
+  ///
+  /// In zh, this message translates to:
+  /// **'精选导师'**
+  String get dashboardEyebrowMentor;
+
+  /// No description provided for @dashboardTitleMentor.
+  ///
+  /// In zh, this message translates to:
+  /// **'适合先浏览、再决定关注'**
+  String get dashboardTitleMentor;
+
+  /// No description provided for @dashboardActionViewAll.
+  ///
+  /// In zh, this message translates to:
+  /// **'查看全部'**
+  String get dashboardActionViewAll;
+
+  /// No description provided for @dashboardEyebrowRanking.
+  ///
+  /// In zh, this message translates to:
+  /// **'本月榜单'**
+  String get dashboardEyebrowRanking;
+
+  /// No description provided for @dashboardTitleRanking.
+  ///
+  /// In zh, this message translates to:
+  /// **'先看 Top 3，再决定深入谁'**
+  String get dashboardTitleRanking;
+
+  /// No description provided for @dashboardActionFullRanking.
+  ///
+  /// In zh, this message translates to:
+  /// **'完整榜单'**
+  String get dashboardActionFullRanking;
+
+  /// No description provided for @dashboardEyebrowNews.
+  ///
+  /// In zh, this message translates to:
+  /// **'热点新闻'**
+  String get dashboardEyebrowNews;
+
+  /// No description provided for @dashboardTitleNews.
+  ///
+  /// In zh, this message translates to:
+  /// **'英文市场热点，快速掌握主线'**
+  String get dashboardTitleNews;
+
+  /// No description provided for @dashboardActionMoreNews.
+  ///
+  /// In zh, this message translates to:
+  /// **'更多新闻'**
+  String get dashboardActionMoreNews;
+
+  /// No description provided for @dashboardHeroTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'先看懂榜单，再决定关注'**
+  String get dashboardHeroTitle;
+
+  /// No description provided for @dashboardHeroSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'首页聚合榜单解读、导师入口和市场速览，帮助你在更短时间内做出更清晰的关注决策。'**
+  String get dashboardHeroSubtitle;
+
+  /// No description provided for @dashboardHeroActionViewRanking.
+  ///
+  /// In zh, this message translates to:
+  /// **'查看榜单'**
+  String get dashboardHeroActionViewRanking;
+
+  /// No description provided for @dashboardHeroMetricDimensionLabel.
+  ///
+  /// In zh, this message translates to:
+  /// **'榜单维度'**
+  String get dashboardHeroMetricDimensionLabel;
+
+  /// No description provided for @dashboardHeroMetricDimensionValue.
+  ///
+  /// In zh, this message translates to:
+  /// **'5类'**
+  String get dashboardHeroMetricDimensionValue;
+
+  /// No description provided for @dashboardHeroMetricCountLabel.
+  ///
+  /// In zh, this message translates to:
+  /// **'展示人数'**
+  String get dashboardHeroMetricCountLabel;
+
+  /// No description provided for @dashboardHeroMetricCountValue.
+  ///
+  /// In zh, this message translates to:
+  /// **'Top10'**
+  String get dashboardHeroMetricCountValue;
+
+  /// No description provided for @dashboardHeroMetricUpdateLabel.
+  ///
+  /// In zh, this message translates to:
+  /// **'更新频率'**
+  String get dashboardHeroMetricUpdateLabel;
+
+  /// No description provided for @dashboardHeroMetricUpdateValue.
+  ///
+  /// In zh, this message translates to:
+  /// **'实时'**
+  String get dashboardHeroMetricUpdateValue;
+
+  /// No description provided for @dashboardQuickMarketTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'市场行情'**
+  String get dashboardQuickMarketTitle;
+
+  /// No description provided for @dashboardQuickMarketSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'指数、热点与自选'**
+  String get dashboardQuickMarketSubtitle;
+
+  /// No description provided for @dashboardQuickMentorTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'导师中心'**
+  String get dashboardQuickMentorTitle;
+
+  /// No description provided for @dashboardQuickMentorSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'先看资料，再决定关注'**
+  String get dashboardQuickMentorSubtitle;
+
+  /// No description provided for @dashboardQuickRankingTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'榜单排行'**
+  String get dashboardQuickRankingTitle;
+
+  /// No description provided for @dashboardQuickRankingSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'快速锁定 Top 交易员'**
+  String get dashboardQuickRankingSubtitle;
+
+  /// No description provided for @dashboardQuickMessageTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'消息中心'**
+  String get dashboardQuickMessageTitle;
+
+  /// No description provided for @dashboardQuickMessageSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'查看会话与系统通知'**
+  String get dashboardQuickMessageSubtitle;
+
+  /// No description provided for @dashboardTrust1.
+  ///
+  /// In zh, this message translates to:
+  /// **'真实收益可视化'**
+  String get dashboardTrust1;
+
+  /// No description provided for @dashboardTrust2.
+  ///
+  /// In zh, this message translates to:
+  /// **'导师策略可追踪'**
+  String get dashboardTrust2;
+
+  /// No description provided for @dashboardTrust3.
+  ///
+  /// In zh, this message translates to:
+  /// **'榜单入口更清晰'**
+  String get dashboardTrust3;
+
+  /// No description provided for @dashboardTrust4.
+  ///
+  /// In zh, this message translates to:
+  /// **'消息触达更直接'**
+  String get dashboardTrust4;
+
+  /// No description provided for @dashboardMentorFallbackTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'交易导师'**
+  String get dashboardMentorFallbackTitle;
+
+  /// No description provided for @dashboardMentorTip.
+  ///
+  /// In zh, this message translates to:
+  /// **'点击查看老师个人资料，交易策略中心仅好友可进入。'**
+  String get dashboardMentorTip;
+
+  /// No description provided for @dashboardNoHotNews.
+  ///
+  /// In zh, this message translates to:
+  /// **'暂无热点新闻'**
+  String get dashboardNoHotNews;
+
+  /// No description provided for @teachersStrategyMaxNineImages.
+  ///
+  /// In zh, this message translates to:
+  /// **'最多一次发布 9 张图片'**
+  String get teachersStrategyMaxNineImages;
+
+  /// No description provided for @teachersStrategyExceedNineIgnored.
+  ///
+  /// In zh, this message translates to:
+  /// **'超出部分已忽略（最多 9 张）'**
+  String get teachersStrategyExceedNineIgnored;
 }
 
 class _AppLocalizationsDelegate

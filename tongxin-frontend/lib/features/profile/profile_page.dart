@@ -17,6 +17,7 @@ import '../auth/auth_service.dart';
 import '../auth/login_page.dart';
 import '../../core/api_client.dart';
 import '../../core/firebase_bootstrap.dart';
+import '../../core/local_debug_mode.dart';
 import '../../core/locale_provider.dart';
 import '../../l10n/app_localizations.dart';
 import '../../ui/components/components.dart';
@@ -28,6 +29,7 @@ import '../../core/user_restrictions.dart';
 import '../../core/web_user_page.dart';
 import '../home/featured_teacher_page.dart';
 import '../teachers/teacher_center_page.dart';
+import '../teachers/teacher_strategy_manage_page.dart';
 import '../messages/customer_service_workbench_page.dart';
 import '../messages/supabase_user_sync.dart';
 import 'report_page.dart';
@@ -46,11 +48,21 @@ class UserRoleInfo {
 
 Future<UserRoleInfo?> _fetchRoleInfo(String userId) async {
   if (userId.isEmpty) return null;
-  if (!ApiClient.instance.isAvailable)
-    return const UserRoleInfo(role: 'user', level: 0, teacherStatus: 'pending');
+  if (!ApiClient.instance.isAvailable) {
+    return const UserRoleInfo(
+      role: 'user',
+      level: 0,
+      teacherStatus: 'pending',
+    );
+  }
   final p = await UsersApi.instance.getProfile(userId);
-  if (p == null)
-    return const UserRoleInfo(role: 'user', level: 0, teacherStatus: 'pending');
+  if (p == null) {
+    return const UserRoleInfo(
+      role: 'user',
+      level: 0,
+      teacherStatus: 'pending',
+    );
+  }
   return UserRoleInfo(
     role: p['role'] as String? ?? 'user',
     level: (p['level'] as int?) ?? 0,
@@ -417,6 +429,55 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
     );
   }
 
+  String _localizedMenuText({
+    required String configured,
+    required String fallback,
+  }) {
+    final value = configured.trim();
+    if (value.isEmpty) return fallback;
+    final lang = Localizations.localeOf(context).languageCode.toLowerCase();
+    final hasChinese = RegExp(r'[\u4E00-\u9FFF]').hasMatch(value);
+    if (lang == 'en' && hasChinese) {
+      return fallback;
+    }
+    return value;
+  }
+
+  Widget _buildLocalDebugPlaceholder(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(AppLocalizations.of(context)!.profileMy),
+      ),
+      body: ListView(
+        padding: AppSpacing.allMd,
+        children: [
+          AppCard(
+            padding: AppSpacing.allMd,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '本地开发模式',
+                  style: AppTypography.title.copyWith(fontSize: 20),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                Text(
+                  '当前 macOS 调试包没有开发签名，Firebase 登录在钥匙串阶段会失败，所以“我的”页暂时不走真实账号。',
+                  style: AppTypography.bodySecondary,
+                ),
+                const SizedBox(height: AppSpacing.md),
+                Text(
+                  '现在可以继续调试行情、排行榜、老师页等无需登录的功能；等签名配好后再恢复完整登录。',
+                  style: AppTypography.body,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<User?>(
@@ -426,6 +487,9 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
       builder: (context, snapshot) {
         final user = snapshot.data;
         if (user == null) {
+          if (LocalDebugMode.isEnabled) {
+            return _buildLocalDebugPlaceholder(context);
+          }
           _loadedUserId = null;
           _avatarUrl = null;
           _shortId = null;
@@ -775,6 +839,33 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                         },
                       ),
                     ),
+                    if (role.teacherStatus.toString().trim().toLowerCase() ==
+                        'approved') ...[
+                      const SizedBox(height: AppSpacing.md),
+                      AppCard(
+                        padding: EdgeInsets.zero,
+                        child: ListTile(
+                          leading: const Icon(Icons.post_add_outlined),
+                          title: Text(
+                            AppLocalizations.of(context)!
+                                .teachersPublishStrategy,
+                          ),
+                          subtitle: Text(
+                            AppLocalizations.of(context)!
+                                .profileManageStrategyAndRecords,
+                          ),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    const TeacherStrategyManagePage(),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
                     if (role.role.toString().trim().toLowerCase() ==
                         'customer_service') ...[
                       const SizedBox(height: AppSpacing.md),
@@ -834,20 +925,40 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
             final data = snap.data;
             if (data == null) return const SizedBox.shrink();
             final config = AppConfigService.instance;
+            final l10n = AppLocalizations.of(context)!;
             if (data) {
               return _buildMenuItemCard(
                 leading: const Icon(Icons.account_balance_wallet_outlined),
-                title: config.userTradingCenterMenuTitle,
-                subtitle: config.userTradingCenterMenuSubtitle,
+                title: _localizedMenuText(
+                  configured: config.userTradingCenterMenuTitle,
+                  fallback: l10n.profileUserTradingCenterMenuTitle,
+                ),
+                subtitle: _localizedMenuText(
+                  configured: config.userTradingCenterMenuSubtitle,
+                  fallback: l10n.profileUserTradingCenterMenuSubtitle,
+                ),
                 onTap: () => openWebUserPage(context),
               );
             }
             final url = config.webviewUserPageUrl ?? '';
-            final subtitle = config.userTradingCenterHiddenMenuSubtitle +
-                (url.isNotEmpty ? '\n链接：$url' : '');
+            final hiddenSubtitle = _localizedMenuText(
+              configured: config.userTradingCenterHiddenMenuSubtitle,
+              fallback: l10n.profileUserTradingCenterHiddenMenuSubtitle,
+            );
+            final subtitle = hiddenSubtitle +
+                (url.isNotEmpty ? '\n${l10n.profileLinkPrefix}$url' : '');
             return _buildMenuItemCard(
-              leading: Icon(Icons.account_balance_wallet_outlined, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5)),
-              title: config.userTradingCenterHiddenMenuTitle,
+              leading: Icon(
+                Icons.account_balance_wallet_outlined,
+                color: Theme.of(context)
+                    .colorScheme
+                    .onSurface
+                    .withValues(alpha: 0.5),
+              ),
+              title: _localizedMenuText(
+                configured: config.userTradingCenterHiddenMenuTitle,
+                fallback: l10n.profileUserTradingCenterHiddenMenuTitle,
+              ),
               subtitle: subtitle,
               onTap: null,
             );

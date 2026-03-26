@@ -11,6 +11,7 @@ import 'market_repository.dart';
 class MarketDb {
   MarketDb._();
   static final MarketDb instance = MarketDb._();
+  bool get _disabledOnWeb => kIsWeb;
 
   Database? _db;
   static const int _version = 5;
@@ -20,6 +21,9 @@ class MarketDb {
   final Map<String, StreamController<Object?>> _quotesControllers = {};
 
   Future<Database> _getDb() async {
+    if (_disabledOnWeb) {
+      throw UnsupportedError('MarketDb disabled on web');
+    }
     if (_db != null && _db!.isOpen) return _db!;
     try {
       final dbDir = await getDatabasesPath();
@@ -154,7 +158,7 @@ class MarketDb {
 
   /// 合并美股列表（以服务端为准，全量替换）
   Future<void> upsertTickers(List<MarketSearchResult> list) async {
-    if (list.isEmpty) return;
+    if (_disabledOnWeb || list.isEmpty) return;
     try {
       final db = await _getDb();
       final now = DateTime.now().millisecondsSinceEpoch;
@@ -182,7 +186,7 @@ class MarketDb {
 
   /// 合并报价（不存在则插入，已存在则更新）
   Future<void> upsertQuotes(Map<String, MarketQuote> map) async {
-    if (map.isEmpty) return;
+    if (_disabledOnWeb || map.isEmpty) return;
     try {
       final db = await _getDb();
       final now = DateTime.now().millisecondsSinceEpoch;
@@ -217,7 +221,7 @@ class MarketDb {
 
   /// 外汇独立表：合并报价（不存在则插入，已存在则更新）
   Future<void> upsertForexQuotes(Map<String, MarketQuote> map) async {
-    if (map.isEmpty) return;
+    if (_disabledOnWeb || map.isEmpty) return;
     try {
       final db = await _getDb();
       final now = DateTime.now().millisecondsSinceEpoch;
@@ -250,7 +254,7 @@ class MarketDb {
 
   /// 外汇交易对独立表：symbol+name（用于外汇页首屏/离线恢复）
   Future<void> upsertForexPairs(List<MarketSearchResult> pairs) async {
-    if (pairs.isEmpty) return;
+    if (_disabledOnWeb || pairs.isEmpty) return;
     try {
       final db = await _getDb();
       final now = DateTime.now().millisecondsSinceEpoch;
@@ -276,6 +280,7 @@ class MarketDb {
 
   /// 外汇交易对独立表：读取全部 symbol+name
   Future<List<MarketSearchResult>> getForexPairs() async {
+    if (_disabledOnWeb) return [];
     try {
       final db = await _getDb();
       final rows = await db.query('forex_pairs', orderBy: 'symbol ASC');
@@ -300,6 +305,7 @@ class MarketDb {
 
   /// 外汇独立表：按 symbols 读取；symbols 为空时读取全部
   Future<Map<String, MarketQuote>> getForexQuotes([List<String>? symbols]) async {
+    if (_disabledOnWeb) return {};
     try {
       final db = await _getDb();
       final out = <String, MarketQuote>{};
@@ -335,7 +341,7 @@ class MarketDb {
 
   /// 加密货币独立表：合并报价（不存在则插入，已存在则更新）
   Future<void> upsertCryptoQuotes(Map<String, MarketQuote> map) async {
-    if (map.isEmpty) return;
+    if (_disabledOnWeb || map.isEmpty) return;
     try {
       final db = await _getDb();
       final now = DateTime.now().millisecondsSinceEpoch;
@@ -368,6 +374,7 @@ class MarketDb {
 
   /// 加密货币独立表：按 symbols 读取；symbols 为空时读取全部
   Future<Map<String, MarketQuote>> getCryptoQuotes([List<String>? symbols]) async {
+    if (_disabledOnWeb) return {};
     try {
       final db = await _getDb();
       final out = <String, MarketQuote>{};
@@ -403,6 +410,7 @@ class MarketDb {
 
   /// 获取美股列表（按 symbol 排序）
   Future<List<MarketSearchResult>> getTickers() async {
+    if (_disabledOnWeb) return [];
     try {
       final db = await _getDb();
       final rows = await db.query(
@@ -418,6 +426,7 @@ class MarketDb {
 
   /// 清空所有股票行情数据（tickers + quotes）
   Future<void> clearAllMarketData() async {
+    if (_disabledOnWeb) return;
     try {
       final db = await _getDb();
       await db.delete('quotes');
@@ -436,6 +445,7 @@ class MarketDb {
 
   /// 获取美股数量
   Future<int> getTickersCount() async {
+    if (_disabledOnWeb) return 0;
     try {
       final db = await _getDb();
       final r = await db.rawQuery('SELECT COUNT(*) as c FROM tickers');
@@ -450,7 +460,7 @@ class MarketDb {
 
   /// 获取报价 Map（按 symbol 列表，超限时分批查询）
   Future<Map<String, MarketQuote>> getQuotes(List<String> symbols) async {
-    if (symbols.isEmpty) return {};
+    if (_disabledOnWeb || symbols.isEmpty) return {};
     try {
       final db = await _getDb();
       final out = <String, MarketQuote>{};
@@ -486,6 +496,7 @@ class MarketDb {
     int limit = 0,
     int offset = 0,
   }) async {
+    if (_disabledOnWeb) return [];
     try {
       final db = await _getDb();
       final orderBy = _buildOrderBy(sortColumn ?? 'pct', sortAscending);
@@ -641,6 +652,7 @@ class MarketDb {
 
   /// tickers 表总条数
   Future<int> getTickerCount() async {
+    if (_disabledOnWeb) return 0;
     try {
       final db = await _getDb();
       final r = await db.rawQuery('SELECT COUNT(*) as c FROM tickers');
@@ -653,6 +665,7 @@ class MarketDb {
 
   /// 返回尚未写入 quotes 的 ticker symbols（用于首轮补齐缺失行情）
   Future<List<String>> getTickerSymbolsMissingQuotes({int limit = 200}) async {
+    if (_disabledOnWeb) return [];
     try {
       final db = await _getDb();
       final rows = await db.rawQuery('''
@@ -675,6 +688,7 @@ class MarketDb {
 
   /// 返回最久未刷新的 symbols（用于后台异步刷新“最新数据”）
   Future<List<String>> getOldestQuoteSymbols({int limit = 200}) async {
+    if (_disabledOnWeb) return [];
     try {
       final db = await _getDb();
       final rows = await db.rawQuery('''
@@ -701,6 +715,12 @@ class MarketDb {
     required int limit,
     int offset = 0,
   }) async {
+    if (_disabledOnWeb) {
+      return (
+        tickers: <MarketSearchResult>[],
+        quotes: <String, MarketQuote>{},
+      );
+    }
     final tickers = await getTickersWithQuotes(
       sortColumn: sortColumn,
       sortAscending: sortAscending,
@@ -714,6 +734,7 @@ class MarketDb {
   }
 
   Future<void> close() async {
+    if (_disabledOnWeb) return;
     for (final c in _tickersControllers.values) {
       await c.close();
     }

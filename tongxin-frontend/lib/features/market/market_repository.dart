@@ -1315,6 +1315,33 @@ class MarketRepository {
     if (_backend == null) return [];
     return _backend!.getSplits(symbol.trim());
   }
+
+  /// 首页热点新闻（英文）
+  Future<List<MarketNewsItem>> getHotNews({int limit = 6}) async {
+    if (_backend == null) return const [];
+    final rows = await _backend!.getHotNews(limit: limit);
+    return rows.map(MarketNewsItem.fromMap).whereType<MarketNewsItem>().toList();
+  }
+
+  /// 个股新闻（英文）
+  Future<List<MarketNewsItem>> getTickerNews(
+    String symbol, {
+    int limit = 20,
+  }) async {
+    if (_backend == null) return const [];
+    final rows = await _backend!.getTickerNews(symbol, limit: limit);
+    return rows.map(MarketNewsItem.fromMap).whereType<MarketNewsItem>().toList();
+  }
+
+  /// 个股公告（由新闻流中公告类筛选）
+  Future<List<MarketNewsItem>> getTickerAnnouncements(
+    String symbol, {
+    int limit = 20,
+  }) async {
+    if (_backend == null) return const [];
+    final rows = await _backend!.getTickerAnnouncements(symbol, limit: limit);
+    return rows.map(MarketNewsItem.fromMap).whereType<MarketNewsItem>().toList();
+  }
 }
 
 // ---------- 统一模型（UI 使用） ----------
@@ -1337,6 +1364,64 @@ class MarketSearchResult {
   final String? stockType;
   /// 是否 24 小时可交易（来源：配置或启发式识别）
   final bool? is24HourTrading;
+}
+
+class MarketNewsItem {
+  const MarketNewsItem({
+    required this.title,
+    required this.url,
+    required this.source,
+    this.id,
+    this.summary,
+    this.imageUrl,
+    this.publishedAt,
+    this.tickers = const [],
+    this.isAnnouncement = false,
+    this.lang = 'en',
+  });
+
+  final String? id;
+  final String title;
+  final String? summary;
+  final String url;
+  final String source;
+  final String? imageUrl;
+  final DateTime? publishedAt;
+  final List<String> tickers;
+  final bool isAnnouncement;
+  final String lang;
+
+  static MarketNewsItem? fromMap(Map<String, dynamic> map) {
+    final title = (map['title'] as String?)?.trim() ?? '';
+    final url = (map['url'] as String?)?.trim() ?? '';
+    if (title.isEmpty || url.isEmpty) return null;
+    final source = (map['source'] as String?)?.trim();
+    final publishedRaw = (map['published_utc'] ?? map['publishedAt'])?.toString();
+    final publishedAt = (publishedRaw == null || publishedRaw.isEmpty)
+        ? null
+        : DateTime.tryParse(publishedRaw);
+    final rawTickers = map['tickers'];
+    final tickers = rawTickers is List
+        ? rawTickers
+            .map((e) => e.toString().trim().toUpperCase())
+            .where((e) => e.isNotEmpty)
+            .toList(growable: false)
+        : const <String>[];
+    return MarketNewsItem(
+      id: map['id']?.toString(),
+      title: title,
+      summary: (map['summary'] as String?)?.trim(),
+      url: url,
+      source: source == null || source.isEmpty ? 'Unknown' : source,
+      imageUrl: (map['image_url'] as String?)?.trim(),
+      publishedAt: publishedAt,
+      tickers: tickers,
+      isAnnouncement: map['is_announcement'] == true,
+      lang: (map['lang'] as String?)?.trim().isNotEmpty == true
+          ? (map['lang'] as String).trim()
+          : 'en',
+    );
+  }
 }
 
 /// 统一报价（美股来自 Polygon last+prev，其余来自 Twelve Data）

@@ -156,18 +156,28 @@ class _AccountLedgerTabState extends State<AccountLedgerTab> {
       builder: (ctx) {
         return AlertDialog(
           backgroundColor: const Color(0xFF171E2B),
-          title: const Text('资金划转', style: TextStyle(color: Colors.white)),
+          title: Text(
+            AppLocalizations.of(context)!.tradingTransferFunds,
+            style: const TextStyle(color: Colors.white),
+          ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '从 ${fromType == TradingAccountType.spot ? '现货账户' : '合约账户'} 划转到 ${toType == TradingAccountType.spot ? '现货账户' : '合约账户'}',
+                AppLocalizations.of(context)!.tradingTransferFromTo(
+                  fromType == TradingAccountType.spot
+                      ? AppLocalizations.of(context)!.teachersSpotAccount
+                      : AppLocalizations.of(context)!.teachersContractAccount,
+                  toType == TradingAccountType.spot
+                      ? AppLocalizations.of(context)!.teachersSpotAccount
+                      : AppLocalizations.of(context)!.teachersContractAccount,
+                ),
                 style: const TextStyle(color: Colors.white70, fontSize: 13),
               ),
               const SizedBox(height: 8),
               Text(
-                '可用资金 ${_amountWithCurrency(account.cashAvailable, account.currency)}',
+                '${AppLocalizations.of(context)!.tradingSummaryAvailableFunds} ${_amountWithCurrency(account.cashAvailable, account.currency)}',
                 style: const TextStyle(color: Color(0xFFAAB3C4), fontSize: 12),
               ),
               const SizedBox(height: 12),
@@ -177,7 +187,7 @@ class _AccountLedgerTabState extends State<AccountLedgerTab> {
                     const TextInputType.numberWithOptions(decimal: true),
                 style: const TextStyle(color: Colors.white),
                 decoration: InputDecoration(
-                  labelText: '划转金额',
+                  labelText: AppLocalizations.of(context)!.tradingTransferAmount,
                   labelStyle: const TextStyle(color: Colors.white54),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
@@ -197,7 +207,7 @@ class _AccountLedgerTabState extends State<AccountLedgerTab> {
           actions: [
             TextButton(
               onPressed: _transferring ? null : () => Navigator.of(ctx).pop(),
-              child: const Text('取消'),
+              child: Text(AppLocalizations.of(context)!.commonCancel),
             ),
             FilledButton(
               onPressed: _transferring
@@ -207,13 +217,13 @@ class _AccountLedgerTabState extends State<AccountLedgerTab> {
                           double.tryParse(amountController.text.trim());
                       if (amount == null || amount <= 0) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('请输入有效划转金额')),
+                          SnackBar(content: Text(AppLocalizations.of(context)!.tradingEnterValidTransferAmount)),
                         );
                         return;
                       }
                       if (amount > account.cashAvailable) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('可用资金不足')),
+                          SnackBar(content: Text(AppLocalizations.of(context)!.tradingInsufficientAvailableFunds)),
                         );
                         return;
                       }
@@ -231,7 +241,7 @@ class _AccountLedgerTabState extends State<AccountLedgerTab> {
                         await _loadData(showLoading: true);
                         if (!mounted) return;
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('资金划转成功')),
+                          SnackBar(content: Text(AppLocalizations.of(context)!.tradingTransferSuccess)),
                         );
                       } catch (e) {
                         if (!mounted) return;
@@ -251,7 +261,7 @@ class _AccountLedgerTabState extends State<AccountLedgerTab> {
                       child: CircularProgressIndicator(
                           strokeWidth: 2, color: Colors.white),
                     )
-                  : const Text('确认'),
+                  : Text(AppLocalizations.of(context)!.commonConfirm),
             ),
           ],
         );
@@ -295,11 +305,11 @@ class _AccountLedgerTabState extends State<AccountLedgerTab> {
       case 'order_filled_sell':
         return l10n.tradingLedgerTypeOrderFilledSell;
       case 'position_liquidated':
-        return '强制平仓';
+        return l10n.tradingLedgerTypePositionLiquidated;
       case 'account_transfer_out':
-        return '账户划转转出';
+        return l10n.tradingLedgerTypeTransferOut;
       case 'account_transfer_in':
-        return '账户划转转入';
+        return l10n.tradingLedgerTypeTransferIn;
       default:
         return v;
     }
@@ -313,27 +323,31 @@ class _AccountLedgerTabState extends State<AccountLedgerTab> {
 
   String _ledgerAssetClassLabel(String ac) {
     return switch (ac.toLowerCase()) {
-      'stock' => '股票',
-      'forex' => '外汇',
-      'crypto' => '加密货币',
+      'stock' => AppLocalizations.of(context)!.tradingStock,
+      'forex' => AppLocalizations.of(context)!.tradingForex,
+      'crypto' => AppLocalizations.of(context)!.tradingCrypto,
       _ => ac,
     };
   }
 
   String _ledgerProductTypeLabel(ProductType pt) {
     return switch (pt) {
-      ProductType.spot => '现货',
-      ProductType.perpetual => '永续',
-      ProductType.future => '期货',
+      ProductType.spot => AppLocalizations.of(context)!.tradingProductSpot,
+      ProductType.perpetual => AppLocalizations.of(context)!.tradingProductPerpetual,
+      ProductType.future => AppLocalizations.of(context)!.tradingProductFuture,
     };
   }
 
   String _ledgerSideLabel(String side) {
-    return side.toLowerCase() == 'buy' ? '买入' : '卖出';
+    return side.toLowerCase() == 'buy'
+        ? AppLocalizations.of(context)!.tradingBuy
+        : AppLocalizations.of(context)!.tradingSell;
   }
 
   String _ledgerPositionSideLabel(PositionSide ps) {
-    return ps == PositionSide.long ? '做多' : '做空';
+    return ps == PositionSide.long
+        ? AppLocalizations.of(context)!.tradingPositionLong
+        : AppLocalizations.of(context)!.tradingPositionShort;
   }
 
   // 用户侧展示名：后台管理员 admin 统一显示为“系统”。
@@ -344,9 +358,12 @@ class _AccountLedgerTabState extends State<AccountLedgerTab> {
     }
     final lower = note.toLowerCase();
     if (lower == 'admin' || lower == '管理员') {
-      return '系统';
+      return AppLocalizations.of(context)!.adminSystemMessages;
     }
-    return note.replaceAll(RegExp(r'\badmin\b', caseSensitive: false), '系统');
+    return note.replaceAll(
+      RegExp(r'\badmin\b', caseSensitive: false),
+      AppLocalizations.of(context)!.adminSystemMessages,
+    );
   }
 
   Future<void> _copyCsv(List<TradingLedgerEntry> rows) async {
@@ -354,7 +371,7 @@ class _AccountLedgerTabState extends State<AccountLedgerTab> {
     final curr = _account?.currency ?? 'USD';
     final suffix = curr.toUpperCase() == 'USDT' ? ' USDT' : ' USD';
     final b = StringBuffer();
-    b.writeln('时间,流水类型,标的,资产类型,产品类型,方向,持仓方向,变动金额$suffix,变动后余额$suffix,备注');
+    b.writeln(AppLocalizations.of(context)!.tradingLedgerCsvHeader(suffix));
     for (final e in rows) {
       final time = e.createdAt.toIso8601String();
       final typeCn = _entryTypeLabel(context, e.entryType);
@@ -437,7 +454,7 @@ class _AccountLedgerTabState extends State<AccountLedgerTab> {
                 ),
                 child: Row(
                   children: [
-                    const Text('类型筛选: ',
+                    Text('${l10n.tradingLedgerTypeFilter}',
                         style:
                             TextStyle(color: Color(0xFFA6B4CE), fontSize: 12)),
                     DropdownButton<String>(
@@ -590,8 +607,8 @@ class _AccountLedgerTabState extends State<AccountLedgerTab> {
                               const Color(0xFFD4AF37).withValues(alpha: 0.45),
                         ),
                       ),
-                      child: const Text(
-                        '加载更多',
+                      child: Text(
+                        l10n.tradingLoadMore,
                         style:
                             TextStyle(color: Color(0xFFECD59E), fontSize: 12),
                       ),
@@ -653,7 +670,7 @@ class _SummaryCard extends StatelessWidget {
                     Row(
                       children: [
                         Text(
-                          '总资产',
+                          AppLocalizations.of(context)!.tradingSummaryEquity,
                           style: TextStyle(
                             color: const Color(0xFFEAF2FF),
                             fontSize: titleSize,
@@ -714,8 +731,9 @@ class _SummaryCard extends StatelessWidget {
                       child: Text.rich(
                         TextSpan(
                           children: [
-                            const TextSpan(
-                              text: '今日盈亏  ',
+                            TextSpan(
+                              text:
+                                  '${AppLocalizations.of(context)!.tradingSummaryTodayPnl}  ',
                               style: TextStyle(
                                 color: Color(0xFFDBE5FF),
                                 fontSize: 14,
@@ -784,7 +802,9 @@ class _SummaryCard extends StatelessWidget {
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
                           : const Icon(Icons.swap_horiz, size: 14),
-                      label: const Text('账户划转'),
+                      label: Text(
+                        AppLocalizations.of(context)!.tradingTransferFunds,
+                      ),
                     ),
                   ),
                 ],
@@ -809,23 +829,13 @@ class _SummaryCard extends StatelessWidget {
                       color: Color(0xFFD4AF37), size: 21),
                   const SizedBox(width: 8),
                   Text(
-                    '资金分布',
+                    AppLocalizations.of(context)!.tradingSummaryFundDistribution,
                     style: TextStyle(
                       color: const Color(0xFFF6D98A),
                       fontSize: sectionTitleSize,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
-                  const Spacer(),
-                  Text(
-                    '查看详情',
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.75),
-                      fontSize: 14,
-                    ),
-                  ),
-                  Icon(Icons.chevron_right_rounded,
-                      color: Colors.white.withValues(alpha: 0.75), size: 18),
                 ],
               ),
               const SizedBox(height: 10),
@@ -835,12 +845,12 @@ class _SummaryCard extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _distributionRow(
-                            '现金余额', cashBalance, const Color(0xFF20AEFF)),
-                        _distributionRow(
-                            '可用资金', available, const Color(0xFFF4A048)),
-                        _distributionRow(
-                            '冻结资金', frozen, const Color(0xFF7082FF)),
+                        _distributionRow(AppLocalizations.of(context)!.tradingSummaryCashBalance,
+                            cashBalance, const Color(0xFF20AEFF)),
+                        _distributionRow(AppLocalizations.of(context)!.tradingSummaryAvailableFunds,
+                            available, const Color(0xFFF4A048)),
+                        _distributionRow(AppLocalizations.of(context)!.tradingSummaryFrozenFunds,
+                            frozen, const Color(0xFF7082FF)),
                       ],
                     ),
                   ),
@@ -905,8 +915,9 @@ class _SummaryCard extends StatelessWidget {
                                 fontWeight: FontWeight.w800,
                               ),
                             ),
-                            const Text(
-                              '可用资金',
+                            Text(
+                              AppLocalizations.of(context)!
+                                  .tradingSummaryAvailableFunds,
                               style: TextStyle(
                                 color: Color(0xFFD2D9E8),
                                 fontSize: 11,

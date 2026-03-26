@@ -26,11 +26,11 @@ class PcShell extends StatelessWidget {
   final EdgeInsets? contentPadding;
 
   static List<String> _pageTitles(BuildContext context) => [
-    AppLocalizations.of(context)!.navHome,
+    AppLocalizations.of(context)!.navRankings,
     AppLocalizations.of(context)!.navMarket,
     AppLocalizations.of(context)!.navWatchlist,
     AppLocalizations.of(context)!.navMessages,
-    AppLocalizations.of(context)!.navRankings,
+    AppLocalizations.of(context)!.navFollow,
     AppLocalizations.of(context)!.navProfile,
   ];
 
@@ -39,7 +39,7 @@ class PcShell extends StatelessWidget {
     final titles = _pageTitles(context);
     final title = currentIndex >= 0 && currentIndex < titles.length
         ? titles[currentIndex]
-        : AppLocalizations.of(context)!.navHome;
+        : AppLocalizations.of(context)!.navRankings;
     return ColoredBox(
       color: PcDashboardTheme.surface,
       child: Row(

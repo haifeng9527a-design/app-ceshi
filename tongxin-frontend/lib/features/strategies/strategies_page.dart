@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 
 import '../../core/models.dart';
 import '../../l10n/app_localizations.dart';
+import '../auth/login_page.dart';
 import '../teachers/teacher_models.dart' as tmodels;
 import '../teachers/teacher_repository.dart';
 import 'strategy_dialog.dart';
+import 'strategy_image_preview.dart';
 
 class StrategiesPage extends StatelessWidget {
   const StrategiesPage({super.key, required this.teacher});
@@ -17,6 +19,7 @@ class StrategiesPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final repo = TeacherRepository();
     final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final canSeeTodayStrategy = currentUserId.isNotEmpty;
 
     return Scaffold(
       backgroundColor: _pageBg,
@@ -27,15 +30,48 @@ class StrategiesPage extends StatelessWidget {
         stream: repo.watchPublishedStrategies(teacher.id),
         builder: (context, stratSnapshot) {
           final strategies = stratSnapshot.data ?? const [];
-          final latest = strategies.isNotEmpty ? strategies.first : null;
-          final history = strategies.length > 1 ? strategies.sublist(1) : const <tmodels.TeacherStrategy>[];
+          final latest = canSeeTodayStrategy && strategies.isNotEmpty
+              ? strategies.first
+              : null;
+          final history = canSeeTodayStrategy
+              ? (strategies.length > 1
+                  ? strategies.sublist(1)
+                  : const <tmodels.TeacherStrategy>[])
+              : strategies
+                  .where((s) => !_isTodayStrategy(s.createdAt))
+                  .toList();
 
           return ListView(
             physics: const ClampingScrollPhysics(),
             padding: const EdgeInsets.all(16),
             children: [
               _SectionTitle(title: AppLocalizations.of(context)!.strategiesTodayStrategies),
-              if (latest != null)
+              if (!canSeeTodayStrategy)
+                _InfoCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '登录后可查看今日交易策略，当前仅展示历史交易策略。',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: Colors.white70,
+                          height: 1.5,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      FilledButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(builder: (_) => const LoginPage()),
+                          );
+                        },
+                        icon: const Icon(Icons.login),
+                        label: Text(AppLocalizations.of(context)!.authLoginOrRegister),
+                      ),
+                    ],
+                  ),
+                )
+              else if (latest != null)
                 StreamBuilder<List<Comment>>(
                   stream: repo.watchStrategyComments(teacher.id, latest.id),
                   builder: (context, commentsSnapshot) {
@@ -99,6 +135,14 @@ class StrategiesPage extends StatelessWidget {
   }
 }
 
+bool _isTodayStrategy(DateTime dt) {
+  final local = dt.toLocal();
+  final now = DateTime.now().toLocal();
+  return local.year == now.year &&
+      local.month == now.month &&
+      local.day == now.day;
+}
+
 class _SectionTitle extends StatelessWidget {
   const _SectionTitle({required this.title});
 
@@ -160,6 +204,9 @@ class _StrategyCard extends StatelessWidget {
             ? strategy.content!
             : (strategy.summary.trim().isNotEmpty ? strategy.summary : null)) ??
         (fallbackText.trim().isNotEmpty ? fallbackText : AppLocalizations.of(context)!.featuredNoStrategyContent);
+    final allImageUrls = (strategy.imageUrls ?? const <String>[])
+        .where((u) => u.trim().isNotEmpty)
+        .toList(growable: false);
 
     return InkWell(
       onTap: () {
@@ -169,6 +216,7 @@ class _StrategyCard extends StatelessWidget {
           comments,
           teacherId: teacherId,
           strategyId: strategy.id,
+          imageUrls: allImageUrls,
           currentUserId: currentUserId,
           repo: repo,
           onCommentPosted: onCommentPosted ?? (_, __) {},
@@ -185,15 +233,13 @@ class _StrategyCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (strategy.imageUrls != null && strategy.imageUrls!.isNotEmpty) ...[
-              ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: Image.network(
-                  strategy.imageUrls!.first,
-                  height: 120,
-                  width: double.infinity,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+            if (allImageUrls.isNotEmpty) ...[
+              StrategyImagePreviewGrid(
+                imageUrls: allImageUrls,
+                onImageTap: (i) => showStrategyImageViewer(
+                  context,
+                  imageUrls: allImageUrls,
+                  initialIndex: i,
                 ),
               ),
               const SizedBox(height: 12),

@@ -448,6 +448,7 @@ class _ChatDetailPageState extends State<ChatDetailPage>
         _repository.markConversationRead(
           conversationId: cid,
           userId: uid,
+          force: true,
         );
       });
     }
@@ -2631,10 +2632,10 @@ class _ChatDetailPageState extends State<ChatDetailPage>
                 _prefetchRemoteMedia(dedupedMessages);
                 if (dedupedMessages.length != _lastMessageCount) {
                   _lastMessageCount = dedupedMessages.length;
-                  if (_userId.isNotEmpty) {
+                  if (_effectiveUserId.isNotEmpty) {
                     _repository.markConversationRead(
                       conversationId: widget.conversation.id,
-                      userId: _userId,
+                      userId: _effectiveUserId,
                     );
                   }
                   if (_shouldAutoScrollNotifier.value) {

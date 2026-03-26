@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/design/design_tokens.dart';
 import '../../core/firebase_bootstrap.dart';
+import '../../core/local_debug_mode.dart';
 import '../../l10n/app_localizations.dart';
 import '../../ui/components/components.dart';
 import '../../core/user_restrictions.dart';
@@ -183,6 +184,15 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  void _continueLocalDebug() {
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+      return;
+    }
+    _showMessage('已启用本地开发模式，请先调试无需登录的页面');
+  }
+
   void _showMessage(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -314,8 +324,39 @@ class _LoginPageState extends State<LoginPage> {
                       AppCard(
                         padding: AppSpacing.allMd,
                         child: Text(
-                          l10n.authFirebaseConfigHint,
+                          kIsWeb
+                              ? l10n.authFirebaseConfigHintWeb
+                              : l10n.authFirebaseConfigHint,
                           style: AppTypography.bodySecondary.copyWith(color: AppColors.primary),
+                        ),
+                      ),
+                    ],
+                    if (LocalDebugMode.isEnabled) ...[
+                      const SizedBox(height: AppSpacing.lg),
+                      AppCard(
+                        padding: AppSpacing.allMd,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '当前 macOS 本地调试未使用开发签名，Firebase 登录会被系统钥匙串拦截。',
+                              style: AppTypography.body.copyWith(
+                                color: AppColors.primary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: AppSpacing.sm),
+                            Text(
+                              '现在先继续开发无需登录的页面；以后补好签名后再恢复真实登录。',
+                              style: AppTypography.bodySecondary,
+                            ),
+                            const SizedBox(height: AppSpacing.md),
+                            AppButton(
+                              variant: AppButtonVariant.secondary,
+                              label: '继续本地开发',
+                              onPressed: _loading ? null : _continueLocalDebug,
+                            ),
+                          ],
                         ),
                       ),
                     ],
