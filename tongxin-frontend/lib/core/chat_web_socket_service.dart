@@ -8,6 +8,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'api_client.dart';
 import 'firebase_bootstrap.dart';
+import 'web_foreground_sound.dart';
 import '../features/messages/chat_db.dart';
 import '../features/messages/message_models.dart';
 
@@ -62,6 +63,7 @@ class ChatWebSocketService {
       StreamController<Map<String, dynamic>>.broadcast();
   final _newMessageSignalController = StreamController<String>.broadcast();
   final _connectionSignalController = StreamController<String>.broadcast();
+  String? _activeConversationId;
 
   bool get isConnected => _channel != null;
   Set<String> get subscribedConversationIds => Set<String>.from(_subscribedIds);
@@ -75,6 +77,11 @@ class ChatWebSocketService {
       _newMessageSignalController.stream;
   Stream<String> get connectionSignalStream =>
       _connectionSignalController.stream;
+
+  void setActiveConversationId(String? conversationId) {
+    _activeConversationId = conversationId;
+    WebForegroundSound.setActiveConversationId(conversationId);
+  }
 
   String? get _wsBaseUrl {
     final url = dotenv.env['TONGXIN_API_URL']?.trim();
@@ -251,6 +258,16 @@ class ChatWebSocketService {
           }
           if (convId.isNotEmpty && !_newMessageSignalController.isClosed) {
             _newMessageSignalController.add(convId);
+          }
+          if (convId.isNotEmpty &&
+              sender.isNotEmpty &&
+              sender != _currentUserId &&
+              convId != _activeConversationId) {
+            unawaited(
+              WebForegroundSound.playIncomingMessageTone(
+                conversationId: convId,
+              ),
+            );
           }
           _handleNewMessage(m); // 不 await，避免阻塞
         }

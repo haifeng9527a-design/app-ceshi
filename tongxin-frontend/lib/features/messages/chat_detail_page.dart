@@ -31,6 +31,7 @@ import '../../core/design/design_tokens.dart';
 import '../../core/network_error_helper.dart';
 import '../../core/notification_service.dart';
 import '../../core/role_badge.dart';
+import '../../core/chat_web_socket_service.dart';
 import '../../ui/components/components.dart';
 import '../../api/messages_api.dart';
 import '../../core/api_client.dart';
@@ -164,6 +165,8 @@ class _ChatDetailPageState extends State<ChatDetailPage>
   void initState() {
     super.initState();
     NotificationService.setCurrentConversationId(widget.conversation.id);
+    ChatWebSocketService.instance
+        .setActiveConversationId(widget.conversation.id);
     final user = FirebaseAuth.instance.currentUser;
     _userId = user?.uid ?? '';
     _userName = user?.displayName?.trim().isNotEmpty == true
@@ -438,6 +441,7 @@ class _ChatDetailPageState extends State<ChatDetailPage>
   @override
   void dispose() {
     NotificationService.setCurrentConversationId(null);
+    ChatWebSocketService.instance.setActiveConversationId(null);
     LastOnlineService.updateLastOnlineNow();
     _markReadTimer?.cancel();
     _markReadTimer = null;

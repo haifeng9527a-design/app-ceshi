@@ -708,13 +708,28 @@ class _StatChipCompact extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AppCard(
-      padding: AppSpacing.symmetric(horizontal: AppSpacing.sm - AppSpacing.xs / 2, vertical: AppSpacing.sm - AppSpacing.xs / 2),
-      child: FittedBox(
-        fit: BoxFit.scaleDown,
-        child: Text(
-          '$label $value',
-          style: Theme.of(context).textTheme.labelSmall,
-        ),
+      padding: AppSpacing.symmetric(
+        horizontal: AppSpacing.sm - AppSpacing.xs / 2,
+        vertical: AppSpacing.sm - AppSpacing.xs / 2,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: AppColors.textTertiary,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w800,
+              color: AppColors.textPrimary,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1100,13 +1115,15 @@ class _DesktopStrategyStat extends StatelessWidget {
             label,
             style: AppTypography.caption.copyWith(
               color: AppColors.textTertiary,
+              fontSize: 13,
             ),
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(
             value,
             style: AppTypography.subtitle.copyWith(
-              fontWeight: FontWeight.w700,
+              fontWeight: FontWeight.w800,
+              fontSize: highlight ? 30 : 26,
               color: valueColor,
             ),
           ),
@@ -1162,8 +1179,10 @@ class _KpiTile extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
             _formatAmount(value),
-            style:
-                Theme.of(context).textTheme.labelLarge?.copyWith(color: color),
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w800,
+            ),
           ),
         ],
       ),

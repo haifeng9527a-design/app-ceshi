@@ -23,6 +23,7 @@ class TeacherPublicPage extends StatefulWidget {
   });
 
   final String teacherId;
+
   /// 从聊天「查看个人资料」进入时传 true，已是好友则显示「发消息」而非「加好友」
   final bool isAlreadyFriend;
 
@@ -50,9 +51,8 @@ class _TeacherPublicPageState extends State<TeacherPublicPage> {
     _publishedStrategiesStream = _repository.watchPublishedStrategies(
       widget.teacherId,
     );
-    _tradeRecordsStream = _repository
-        .watchTradeRecords(widget.teacherId)
-        .asBroadcastStream();
+    _tradeRecordsStream =
+        _repository.watchTradeRecords(widget.teacherId).asBroadcastStream();
   }
 
   @override
@@ -66,279 +66,311 @@ class _TeacherPublicPageState extends State<TeacherPublicPage> {
         final currentUserId = authSnapshot.data?.uid ?? '';
         final isOwner = currentUserId == teacherId;
         return Scaffold(
-      backgroundColor: AppColors.scaffold,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(
-            Icons.arrow_back_ios_new,
-            color: TeacherPublicPage._accent,
-            size: 20,
+          backgroundColor: AppColors.scaffold,
+          appBar: AppBar(
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            leading: IconButton(
+              icon: const Icon(
+                Icons.arrow_back_ios_new,
+                color: TeacherPublicPage._accent,
+                size: 20,
+              ),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+            title: Text(
+              AppLocalizations.of(context)!.teachersProfileTitle,
+              style: const TextStyle(
+                color: TeacherPublicPage._accent,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            centerTitle: true,
           ),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        title: Text(
-          AppLocalizations.of(context)!.teachersProfileTitle,
-          style: const TextStyle(
-            color: TeacherPublicPage._accent,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        centerTitle: true,
-      ),
-      body: FutureBuilder<TeacherProfile?>(
-        future: _profileFuture,
-        builder: (context, snapshot) {
-          final profile = snapshot.data;
-          if (profile == null) {
-            return Center(
-              child: Text(
-                AppLocalizations.of(context)!.teachersNoTeacherInfo,
-                style: const TextStyle(color: TeacherPublicPage._muted),
-              ),
-            );
-          }
-          final isApproved = (profile.status ?? '') == 'approved';
-          final listChildren = [
-              _HeaderBlock(
-                profile: profile,
-                teacherId: teacherId,
-                repository: _repository,
-              ),
-              const SizedBox(height: AppSpacing.lg),
-              FutureBuilder<TeacherPnlMetrics?>(
-                future: _metricsFuture,
-                builder: (context, metricsSnapshot) {
-                  final metrics =
-                      metricsSnapshot.data ?? TeacherPnlMetrics.fromProfile(profile);
-                  return _StatsBlock(profile: profile, metrics: metrics);
-                },
-              ),
-              const SizedBox(height: AppSpacing.xl),
-              if (useDesktopLayout)
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: _SectionBlock(
-                        title: AppLocalizations.of(context)!.teachersPersonalIntro,
-                        child: _BioCard(
-                          bio: profile.bio?.trim().isNotEmpty == true
-                              ? profile.bio!
-                              : null,
+          body: FutureBuilder<TeacherProfile?>(
+            future: _profileFuture,
+            builder: (context, snapshot) {
+              final profile = snapshot.data;
+              if (profile == null) {
+                return Center(
+                  child: Text(
+                    AppLocalizations.of(context)!.teachersNoTeacherInfo,
+                    style: const TextStyle(color: TeacherPublicPage._muted),
+                  ),
+                );
+              }
+              final isApproved = (profile.status ?? '') == 'approved';
+              final listChildren = [
+                _HeaderBlock(
+                  profile: profile,
+                  teacherId: teacherId,
+                  repository: _repository,
+                ),
+                const SizedBox(height: AppSpacing.lg),
+                FutureBuilder<TeacherPnlMetrics?>(
+                  future: _metricsFuture,
+                  builder: (context, metricsSnapshot) {
+                    final metrics = metricsSnapshot.data ??
+                        TeacherPnlMetrics.fromProfile(profile);
+                    return _StatsBlock(profile: profile, metrics: metrics);
+                  },
+                ),
+                const SizedBox(height: AppSpacing.xl),
+                if (useDesktopLayout)
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: _SectionBlock(
+                          title: AppLocalizations.of(context)!
+                              .teachersPersonalIntro,
+                          child: _BioCard(
+                            bio: profile.bio?.trim().isNotEmpty == true
+                                ? profile.bio!
+                                : null,
+                          ),
                         ),
                       ),
+                      const SizedBox(width: AppSpacing.lg),
+                      Expanded(
+                        child: _SectionBlock(
+                          title: AppLocalizations.of(context)!
+                              .teachersExpertiseProducts,
+                          child: _SpecialtiesWrap(
+                              specialties: profile.specialties),
+                        ),
+                      ),
+                    ],
+                  )
+                else ...[
+                  _SectionBlock(
+                    title: AppLocalizations.of(context)!.teachersPersonalIntro,
+                    child: _BioCard(
+                      bio: profile.bio?.trim().isNotEmpty == true
+                          ? profile.bio!
+                          : null,
                     ),
-                    const SizedBox(width: AppSpacing.lg),
-                    Expanded(
-                      child: _SectionBlock(
-                        title: AppLocalizations.of(context)!.teachersExpertiseProducts,
-                        child: _SpecialtiesWrap(specialties: profile.specialties),
+                  ),
+                  _SectionBlock(
+                    title:
+                        AppLocalizations.of(context)!.teachersExpertiseProducts,
+                    child: _SpecialtiesWrap(specialties: profile.specialties),
+                  ),
+                ],
+                if (isApproved) ...[
+                  if (useDesktopLayout)
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          flex: 7,
+                          child: _SectionBlock(
+                            title: (isOwner || isAlreadyFriend)
+                                ? AppLocalizations.of(context)!
+                                    .teachersStrategySection
+                                : AppLocalizations.of(context)!
+                                    .strategiesHistoryStrategies,
+                            child: StreamBuilder<List<TeacherStrategy>>(
+                              stream: _publishedStrategiesStream,
+                              builder: (context, strategySnapshot) {
+                                final allItems = strategySnapshot.data ??
+                                    const <TeacherStrategy>[];
+                                final canSeeTodayStrategy =
+                                    isOwner || isAlreadyFriend;
+                                final items = canSeeTodayStrategy
+                                    ? allItems
+                                    : allItems
+                                        .where((item) =>
+                                            !_isTodayStrategy(item.createdAt))
+                                        .toList();
+                                if (items.isEmpty) {
+                                  return Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                        vertical: 12),
+                                    child: Text(
+                                      AppLocalizations.of(context)!
+                                          .teachersNoPublicStrategy,
+                                      style: const TextStyle(
+                                        color: TeacherPublicPage._muted,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  );
+                                }
+                                return Column(
+                                  children: items
+                                      .map(
+                                        (item) => Padding(
+                                          padding: const EdgeInsets.only(
+                                              bottom: AppSpacing.md),
+                                          child: StreamBuilder<List<Comment>>(
+                                            stream: _repository
+                                                .watchStrategyComments(
+                                              teacherId,
+                                              item.id,
+                                            ),
+                                            builder:
+                                                (context, commentSnapshot) {
+                                              final comments =
+                                                  commentSnapshot.data ??
+                                                      const <Comment>[];
+                                              return _TeacherStrategyHistoryCard(
+                                                item: item,
+                                                comments: comments,
+                                                teacherId: teacherId,
+                                                currentUserId: currentUserId,
+                                                repository: _repository,
+                                              );
+                                            },
+                                          ),
+                                        ),
+                                      )
+                                      .toList(),
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: AppSpacing.xl),
+                        Expanded(
+                          flex: 5,
+                          child: _SectionBlock(
+                            title: isOwner
+                                ? AppLocalizations.of(context)!
+                                    .teachersMyTradeRecords
+                                : AppLocalizations.of(context)!.tradingRecords,
+                            child: StreamBuilder<List<TradeRecord>>(
+                              stream: _tradeRecordsStream,
+                              builder: (context, recordSnapshot) {
+                                final items = recordSnapshot.data ??
+                                    const <TradeRecord>[];
+                                return _TradeRecordShowcase(items: items);
+                              },
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                  else ...[
+                    _SectionBlock(
+                      title: (isOwner || isAlreadyFriend)
+                          ? AppLocalizations.of(context)!
+                              .teachersStrategySection
+                          : AppLocalizations.of(context)!
+                              .strategiesHistoryStrategies,
+                      child: StreamBuilder<List<TeacherStrategy>>(
+                        stream: _publishedStrategiesStream,
+                        builder: (context, strategySnapshot) {
+                          final allItems = strategySnapshot.data ??
+                              const <TeacherStrategy>[];
+                          final canSeeTodayStrategy =
+                              isOwner || isAlreadyFriend;
+                          final items = canSeeTodayStrategy
+                              ? allItems
+                              : allItems
+                                  .where((item) =>
+                                      !_isTodayStrategy(item.createdAt))
+                                  .toList();
+                          if (items.isEmpty) {
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              child: Text(
+                                AppLocalizations.of(context)!
+                                    .teachersNoPublicStrategy,
+                                style: const TextStyle(
+                                  color: TeacherPublicPage._muted,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            );
+                          }
+                          return Column(
+                            children: items
+                                .map(
+                                  (item) => Padding(
+                                    padding: const EdgeInsets.only(
+                                        bottom: AppSpacing.md),
+                                    child: StreamBuilder<List<Comment>>(
+                                      stream: _repository.watchStrategyComments(
+                                        teacherId,
+                                        item.id,
+                                      ),
+                                      builder: (context, commentSnapshot) {
+                                        final comments = commentSnapshot.data ??
+                                            const <Comment>[];
+                                        return _TeacherStrategyHistoryCard(
+                                          item: item,
+                                          comments: comments,
+                                          teacherId: teacherId,
+                                          currentUserId: currentUserId,
+                                          repository: _repository,
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                )
+                                .toList(),
+                          );
+                        },
+                      ),
+                    ),
+                    _SectionBlock(
+                      title: isOwner
+                          ? AppLocalizations.of(context)!.teachersMyTradeRecords
+                          : AppLocalizations.of(context)!.tradingRecords,
+                      child: StreamBuilder<List<TradeRecord>>(
+                        stream: _tradeRecordsStream,
+                        builder: (context, recordSnapshot) {
+                          final items =
+                              recordSnapshot.data ?? const <TradeRecord>[];
+                          return _TradeRecordShowcase(items: items);
+                        },
                       ),
                     ),
                   ],
-                )
-              else ...[
-                _SectionBlock(
-                  title: AppLocalizations.of(context)!.teachersPersonalIntro,
-                  child: _BioCard(
-                    bio: profile.bio?.trim().isNotEmpty == true
-                        ? profile.bio!
-                        : null,
-                  ),
-                ),
-                _SectionBlock(
-                  title: AppLocalizations.of(context)!.teachersExpertiseProducts,
-                  child: _SpecialtiesWrap(specialties: profile.specialties),
-                ),
-              ],
-              if (isApproved) ...[
-                _SectionBlock(
-                  title: (isOwner || isAlreadyFriend)
-                      ? AppLocalizations.of(context)!.teachersStrategySection
-                      : AppLocalizations.of(context)!.strategiesHistoryStrategies,
-                  child: StreamBuilder<List<TeacherStrategy>>(
-                    stream: _publishedStrategiesStream,
-                    builder: (context, strategySnapshot) {
-                      final allItems =
-                          strategySnapshot.data ?? const <TeacherStrategy>[];
-                      final canSeeTodayStrategy = isOwner || isAlreadyFriend;
-                      final items = canSeeTodayStrategy
-                          ? allItems
-                          : allItems
-                              .where((item) => !_isTodayStrategy(item.createdAt))
-                              .toList();
-                      if (items.isEmpty) {
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          child: Text(
-                            AppLocalizations.of(context)!.teachersNoPublicStrategy,
-                            style: const TextStyle(
-                              color: TeacherPublicPage._muted,
-                              fontSize: 14,
-                            ),
+                ],
+              ];
+              return Column(
+                children: [
+                  Expanded(
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxWidth: useDesktopLayout ? 1240 : 760,
+                        ),
+                        child: ListView(
+                          padding: EdgeInsets.fromLTRB(
+                            useDesktopLayout ? AppSpacing.xl : AppSpacing.md,
+                            0,
+                            useDesktopLayout ? AppSpacing.xl : AppSpacing.md,
+                            isOwner
+                                ? AppSpacing.xl
+                                : AppSpacing.xxxl + AppSpacing.sm,
                           ),
-                        );
-                      }
-                      return Column(
-                        children: items
-                            .map(
-                              (item) => Padding(
-                                padding: const EdgeInsets.only(bottom: AppSpacing.md),
-                                child: StreamBuilder<List<Comment>>(
-                                  stream: _repository.watchStrategyComments(
-                                    teacherId,
-                                    item.id,
-                                  ),
-                                  builder: (context, commentSnapshot) {
-                                    final comments =
-                                        commentSnapshot.data ?? const <Comment>[];
-                                    return _TeacherStrategyHistoryCard(
-                                      item: item,
-                                      comments: comments,
-                                      teacherId: teacherId,
-                                      currentUserId: currentUserId,
-                                      repository: _repository,
-                                    );
-                                  },
-                                ),
-                              ),
-                            )
-                            .toList(),
-                      );
-                    },
-                  ),
-                ),
-              ],
-              if (isOwner && isApproved) ...[
-                _SectionBlock(
-                  title: AppLocalizations.of(context)!.teachersMyTradeRecords,
-                  child: StreamBuilder<List<TradeRecord>>(
-                    stream: _tradeRecordsStream,
-                    builder: (context, recordSnapshot) {
-                      final items =
-                          recordSnapshot.data ?? const <TradeRecord>[];
-                      if (items.isEmpty) {
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          child: Text(
-                            AppLocalizations.of(context)!.teachersNoTradeRecords,
-                            style: const TextStyle(
-                              color: TeacherPublicPage._muted,
-                              fontSize: 14,
-                            ),
-                          ),
-                        );
-                      }
-                      return Column(
-                        children: items
-                            .map(
-                              (item) => AppCard(
-                                margin: const EdgeInsets.only(bottom: AppSpacing.sm),
-                                padding: const EdgeInsets.all(AppSpacing.md - 4),
-                                child: Row(
-                                  children: [
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            item.symbol,
-                                            style: const TextStyle(
-                                              color: AppColors.textPrimary,
-                                              fontWeight: FontWeight.w500,
-                                            ),
-                                          ),
-                                          Text(
-                                            '${item.side}  PnL: ${item.pnl}',
-                                            style: const TextStyle(
-                                                  color: TeacherPublicPage._muted,
-                                              fontSize: 12,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    if (item.attachmentUrl != null &&
-                                        item.attachmentUrl!.isNotEmpty)
-                                      IconButton(
-                                        icon: const Icon(
-                                          Icons.image_outlined,
-                                          color: TeacherPublicPage._accent,
-                                          size: 20,
-                                        ),
-                                        onPressed: () {
-                                          showDialog(
-                                            context: context,
-                                            builder: (_) => Dialog(
-                                              backgroundColor:
-                                                  TeacherPublicPage._surface,
-                                              child: Image.network(
-                                                item.attachmentUrl!,
-                                              ),
-                                            ),
-                                          );
-                                        },
-                                      ),
-                                    if (item.tradeTime != null)
-                                      Text(
-                                        _formatDate(item.tradeTime!),
-                                        style: const TextStyle(
-                                          color: TeacherPublicPage._muted,
-                                          fontSize: 11,
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              ),
-                            )
-                            .toList(),
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ];
-          return Column(
-            children: [
-              Expanded(
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(
-                      maxWidth: useDesktopLayout ? 1240 : 760,
-                    ),
-                    child: ListView(
-                      padding: EdgeInsets.fromLTRB(
-                        useDesktopLayout ? AppSpacing.xl : AppSpacing.md,
-                        0,
-                        useDesktopLayout ? AppSpacing.xl : AppSpacing.md,
-                        isOwner ? AppSpacing.xl : AppSpacing.xxxl + AppSpacing.sm,
+                          children: listChildren,
+                        ),
                       ),
-                      children: listChildren,
                     ),
                   ),
-                ),
-              ),
-              _BottomFollowBar(
-                teacherId: teacherId,
-                teacherDisplayName: (profile.displayName?.trim().isNotEmpty == true)
-                    ? profile.displayName!
-                    : (profile.realName?.trim().isNotEmpty == true
-                        ? profile.realName!
-                        : AppLocalizations.of(context)!.profileTeacher),
-                currentUserId: currentUserId,
-                isOwner: isOwner,
-                isAlreadyFriend: isAlreadyFriend,
-                repository: _repository,
-                maxWidth: useDesktopLayout ? 1240 : 760,
-              ),
-            ],
-          );
-        },
-      ),
-    );
+                  _BottomFollowBar(
+                    teacherId: teacherId,
+                    teacherDisplayName:
+                        (profile.displayName?.trim().isNotEmpty == true)
+                            ? profile.displayName!
+                            : (profile.realName?.trim().isNotEmpty == true
+                                ? profile.realName!
+                                : AppLocalizations.of(context)!.profileTeacher),
+                    currentUserId: currentUserId,
+                    isOwner: isOwner,
+                    isAlreadyFriend: isAlreadyFriend,
+                    repository: _repository,
+                    maxWidth: useDesktopLayout ? 1240 : 760,
+                  ),
+                ],
+              );
+            },
+          ),
+        );
       },
     );
   }
@@ -388,15 +420,94 @@ class _BottomFollowBarState extends State<_BottomFollowBar> {
   @override
   Widget build(BuildContext context) {
     final bottomPad = MediaQuery.of(context).padding.bottom;
+    final useDesktopLayout = LayoutMode.useDesktopLikeLayout(context);
     return FutureBuilder<bool>(
       future: widget.currentUserId.isNotEmpty
-          ? FriendsRepository().isFriend(userId: widget.currentUserId, friendId: widget.teacherId)
+          ? FriendsRepository().isFriend(
+              userId: widget.currentUserId, friendId: widget.teacherId)
           : Future.value(false),
       builder: (context, friendSnapshot) {
-        final isFriend = _overrideIsFriend ?? friendSnapshot.data ?? widget.isAlreadyFriend;
+        final isFriend =
+            _overrideIsFriend ?? friendSnapshot.data ?? widget.isAlreadyFriend;
+        final l10n = AppLocalizations.of(context)!;
+
+        void openStrategyCenter() {
+          if (widget.currentUserId.isEmpty) {
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const LoginPage()),
+            );
+            return;
+          }
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => FeaturedTeacherPage(teacherId: widget.teacherId),
+            ),
+          );
+        }
+
+        Future<void> sendFriendRequest() async {
+          if (widget.currentUserId.isEmpty) {
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const LoginPage()),
+            );
+            return;
+          }
+          try {
+            await FriendsRepository().sendFriendRequest(
+              requesterId: widget.currentUserId,
+              receiverId: widget.teacherId,
+            );
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(l10n.msgFriendRequestSent)),
+              );
+            }
+          } catch (e) {
+            if (context.mounted) {
+              final msg = e.toString();
+              String displayMsg;
+              if (msg.contains('already_friends')) {
+                displayMsg = l10n.msgAlreadyFriends;
+                if (mounted) setState(() => _overrideIsFriend = true);
+              } else if (msg.contains('already_pending')) {
+                displayMsg = l10n.msgAlreadyPending;
+              } else {
+                displayMsg = NetworkErrorHelper.messageForUser(
+                  e,
+                  prefix: l10n.msgAddFriendFailed,
+                  l10n: l10n,
+                );
+              }
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(displayMsg)),
+              );
+            }
+          }
+        }
+
+        final actionButton = SizedBox(
+          width: useDesktopLayout ? 240 : double.infinity,
+          child: AppButton(
+            onPressed: widget.isOwner || isFriend
+                ? openStrategyCenter
+                : sendFriendRequest,
+            label: widget.isOwner || isFriend
+                ? l10n.teachersEnterStrategyCenter
+                : l10n.msgAddFriend,
+            variant: widget.isOwner || isFriend
+                ? AppButtonVariant.primary
+                : AppButtonVariant.secondary,
+          ),
+        );
+
         return Container(
           width: double.infinity,
-          padding: EdgeInsets.fromLTRB(16, 12, 16, 12 + bottomPad),
+          padding: EdgeInsets.fromLTRB(
+            16,
+            useDesktopLayout ? 18 : 12,
+            16,
+            (useDesktopLayout ? 18 : 12) + bottomPad,
+          ),
           decoration: BoxDecoration(
             color: AppColors.surface,
             border: Border(
@@ -408,73 +519,62 @@ class _BottomFollowBarState extends State<_BottomFollowBar> {
             child: Center(
               child: ConstrainedBox(
                 constraints: BoxConstraints(maxWidth: widget.maxWidth),
-                child: widget.isOwner || isFriend
-                ? SizedBox(
-                    width: double.infinity,
-                    child: AppButton(
-                      onPressed: () {
-                        if (widget.currentUserId.isEmpty) {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(builder: (_) => const LoginPage()),
-                          );
-                          return;
-                        }
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => FeaturedTeacherPage(teacherId: widget.teacherId),
+                child: useDesktopLayout
+                    ? Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.xl,
+                          vertical: AppSpacing.lg,
+                        ),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              AppColors.surfaceElevated,
+                              AppColors.surface,
+                            ],
                           ),
-                        );
-                      },
-                      label: AppLocalizations.of(context)!.teachersEnterStrategyCenter,
-                    ),
-                  )
-                : SizedBox(
-                    width: double.infinity,
-                    child: AppButton(
-                    onPressed: () async {
-                      if (widget.currentUserId.isEmpty) {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(builder: (_) => const LoginPage()),
-                        );
-                        return;
-                      }
-                      try {
-                        await FriendsRepository().sendFriendRequest(
-                          requesterId: widget.currentUserId,
-                          receiverId: widget.teacherId,
-                        );
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text(AppLocalizations.of(context)!.msgFriendRequestSent)),
-                          );
-                        }
-                      } catch (e) {
-                        if (context.mounted) {
-                          final msg = e.toString();
-                          String displayMsg;
-                          if (msg.contains('already_friends')) {
-                            displayMsg = AppLocalizations.of(context)!.msgAlreadyFriends;
-                            if (mounted) setState(() => _overrideIsFriend = true);
-                          } else if (msg.contains('already_pending')) {
-                            displayMsg = AppLocalizations.of(context)!.msgAlreadyPending;
-                          } else {
-                            displayMsg = NetworkErrorHelper.messageForUser(e, prefix: AppLocalizations.of(context)!.msgAddFriendFailed, l10n: AppLocalizations.of(context));
-                          }
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text(displayMsg)),
-                          );
-                        }
-                      }
-                    },
-                    label: AppLocalizations.of(context)!.msgAddFriend,
-                  ),
-                ),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: AppColors.primary.withValues(alpha: 0.14),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    widget.isOwner || isFriend
+                                        ? '继续查看完整策略与实时内容'
+                                        : '先建立好友关系，再进入交易策略中心',
+                                    style: AppTypography.body.copyWith(
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  const SizedBox(height: AppSpacing.xs),
+                                  Text(
+                                    widget.teacherDisplayName,
+                                    style: AppTypography.caption.copyWith(
+                                      color: AppColors.textTertiary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: AppSpacing.xl),
+                            actionButton,
+                          ],
+                        ),
+                      )
+                    : actionButton,
               ),
             ),
           ),
         );
-        },
-      );
+      },
+    );
   }
 }
 
@@ -545,6 +645,7 @@ class _HeaderBlock extends StatelessWidget {
                   style: AppTypography.subtitle.copyWith(
                     color: AppColors.textPrimary,
                     fontWeight: FontWeight.w800,
+                    fontSize: useDesktopLayout ? 28 : 24,
                   ),
                 ),
               ],
@@ -602,9 +703,10 @@ class _HeaderBlock extends StatelessWidget {
                       child: CircleAvatar(
                         radius: useDesktopLayout ? 44 : 38,
                         backgroundColor: AppColors.surface,
-                        backgroundImage: profile.avatarUrl?.trim().isNotEmpty == true
-                            ? NetworkImage(profile.avatarUrl!.trim())
-                            : null,
+                        backgroundImage:
+                            profile.avatarUrl?.trim().isNotEmpty == true
+                                ? NetworkImage(profile.avatarUrl!.trim())
+                                : null,
                         child: profile.avatarUrl?.trim().isNotEmpty == true
                             ? null
                             : Text(
@@ -632,7 +734,8 @@ class _HeaderBlock extends StatelessWidget {
                           ),
                           const SizedBox(height: AppSpacing.xs),
                           Text(
-                            signature ?? AppLocalizations.of(context)!.teachersNoIntro,
+                            signature ??
+                                AppLocalizations.of(context)!.teachersNoIntro,
                             style: AppTypography.body.copyWith(
                               color: AppColors.textSecondary,
                               height: 1.6,
@@ -656,7 +759,8 @@ class _HeaderBlock extends StatelessWidget {
               ],
             ),
             if (tags.isNotEmpty) ...[
-              SizedBox(height: useDesktopLayout ? AppSpacing.xl : AppSpacing.lg),
+              SizedBox(
+                  height: useDesktopLayout ? AppSpacing.xl : AppSpacing.lg),
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(AppSpacing.lg),
@@ -706,7 +810,9 @@ class _HeaderBlock extends StatelessWidget {
       final facts = [
         _ProfileFactCard(
           label: AppLocalizations.of(context)!.teachersYearsExperience,
-          value: profile.yearsExperience != null ? '${profile.yearsExperience} 年' : null,
+          value: profile.yearsExperience != null
+              ? '${profile.yearsExperience} 年'
+              : null,
         ),
         _ProfileFactCard(
           label: AppLocalizations.of(context)!.teachersMainMarket,
@@ -852,9 +958,8 @@ class _StatsBlock extends StatelessWidget {
     final wins = metrics.wins;
     final losses = metrics.losses;
     final totalTrades = wins + losses;
-    final winRate = totalTrades > 0
-        ? (100.0 * wins / totalTrades).toStringAsFixed(0)
-        : '0';
+    final winRate =
+        totalTrades > 0 ? (100.0 * wins / totalTrades).toStringAsFixed(0) : '0';
     final rating = profile.rating ?? 0;
     final statItems = [
       _StatData(
@@ -912,7 +1017,8 @@ class _StatsBlock extends StatelessWidget {
               const SizedBox(width: 8),
               Text(
                 AppLocalizations.of(context)!.teachersRecordAndEarnings,
-                style: AppTypography.subtitle.copyWith(fontWeight: FontWeight.w700),
+                style: AppTypography.subtitle
+                    .copyWith(fontWeight: FontWeight.w700),
               ),
             ],
           ),
@@ -1027,8 +1133,9 @@ class _StatItem extends StatelessWidget {
               color: isPositive
                   ? _accent
                   : (isNegative ? AppColors.negative : AppColors.textPrimary),
-              fontWeight: FontWeight.w700,
-              fontSize: compact ? 20 : 26,
+              fontWeight: FontWeight.w800,
+              fontSize: compact ? 24 : 32,
+              letterSpacing: compact ? 0.1 : 0.2,
             ),
           ),
         ],
@@ -1089,8 +1196,9 @@ class _SpecialtiesWrap extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final list =
-        (specialties ?? const <String>[]).where((s) => s.trim().isNotEmpty).toList();
+    final list = (specialties ?? const <String>[])
+        .where((s) => s.trim().isNotEmpty)
+        .toList();
     if (list.isEmpty) {
       return Container(
         width: double.infinity,
@@ -1101,7 +1209,8 @@ class _SpecialtiesWrap extends StatelessWidget {
           border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
         ),
         child: Center(
-          child: Text(AppLocalizations.of(context)!.commonNone, style: const TextStyle(color: _muted, fontSize: 14)),
+          child: Text(AppLocalizations.of(context)!.commonNone,
+              style: const TextStyle(color: _muted, fontSize: 14)),
         ),
       );
     }
@@ -1119,7 +1228,8 @@ class _SpecialtiesWrap extends StatelessWidget {
         children: list
             .map(
               (item) => Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
                 decoration: BoxDecoration(
                   color: _accent.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(999),
@@ -1191,7 +1301,8 @@ class _SectionBlock extends StatelessWidget {
               const SizedBox(width: 8),
               Text(
                 title,
-                style: AppTypography.subtitle.copyWith(fontWeight: FontWeight.w700),
+                style: AppTypography.subtitle
+                    .copyWith(fontWeight: FontWeight.w700),
               ),
             ],
           ),
@@ -1246,7 +1357,7 @@ class _ProfileFactCard extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: AppTypography.body.copyWith(
               fontWeight: FontWeight.w600,
-              fontSize: 15,
+              fontSize: 18,
             ),
           ),
         ],
@@ -1280,6 +1391,7 @@ class _TeacherStrategyHistoryCard extends StatelessWidget {
     final allImageUrls = (item.imageUrls ?? const <String>[])
         .where((u) => u.trim().isNotEmpty)
         .toList(growable: false);
+    final useDesktopLayout = LayoutMode.useDesktopLikeLayout(context);
 
     return InkWell(
       onTap: () {
@@ -1302,7 +1414,14 @@ class _TeacherStrategyHistoryCard extends StatelessWidget {
         width: double.infinity,
         padding: const EdgeInsets.all(AppSpacing.lg),
         decoration: BoxDecoration(
-          color: AppColors.surfaceElevated,
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              AppColors.surfaceElevated,
+              AppColors.surface,
+            ],
+          ),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(color: AppColors.primary.withValues(alpha: 0.14)),
         ),
@@ -1353,14 +1472,17 @@ class _TeacherStrategyHistoryCard extends StatelessWidget {
                     vertical: 6,
                   ),
                   decoration: BoxDecoration(
-                    color: AppColors.surface,
+                    color: AppColors.primary.withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(999),
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+                    border: Border.all(
+                      color: AppColors.primary.withValues(alpha: 0.16),
+                    ),
                   ),
                   child: Text(
                     '${comments.length} 评论',
                     style: AppTypography.caption.copyWith(
-                      color: AppColors.textSecondary,
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                 ),
@@ -1372,13 +1494,23 @@ class _TeacherStrategyHistoryCard extends StatelessWidget {
             ],
             if (content.isNotEmpty) ...[
               const SizedBox(height: AppSpacing.lg),
-              Text(
-                content,
-                maxLines: 4,
-                overflow: TextOverflow.ellipsis,
-                style: AppTypography.body.copyWith(
-                  color: AppColors.textSecondary,
-                  height: 1.6,
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(AppSpacing.md),
+                decoration: BoxDecoration(
+                  color: AppColors.surface.withValues(alpha: 0.72),
+                  borderRadius: BorderRadius.circular(16),
+                  border:
+                      Border.all(color: Colors.white.withValues(alpha: 0.05)),
+                ),
+                child: Text(
+                  content,
+                  maxLines: useDesktopLayout ? 5 : 4,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.body.copyWith(
+                    color: AppColors.textSecondary,
+                    height: 1.6,
+                  ),
                 ),
               ),
             ],
@@ -1411,15 +1543,268 @@ class _TeacherStrategyHistoryCard extends StatelessWidget {
                         const SizedBox(height: AppSpacing.sm),
                         ...previewComments.map(
                           (comment) => Padding(
-                            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                            padding:
+                                const EdgeInsets.only(bottom: AppSpacing.sm),
                             child: _StrategyCommentPreview(comment: comment),
                           ),
                         ),
                       ],
                     ),
             ),
+            const SizedBox(height: AppSpacing.md),
+            Row(
+              children: [
+                Text(
+                  '查看策略详情与讨论',
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.primary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.xs),
+                const Icon(
+                  Icons.arrow_forward_rounded,
+                  color: AppColors.primary,
+                  size: 16,
+                ),
+              ],
+            ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _TradeRecordShowcase extends StatelessWidget {
+  const _TradeRecordShowcase({
+    required this.items,
+  });
+
+  final List<TradeRecord> items;
+
+  @override
+  Widget build(BuildContext context) {
+    if (items.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Text(
+          AppLocalizations.of(context)!.teachersNoTradeRecords,
+          style: const TextStyle(
+            color: TeacherPublicPage._muted,
+            fontSize: 14,
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      children: items
+          .map(
+            (item) => Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.md),
+              child: _TradeRecordCard(item: item),
+            ),
+          )
+          .toList(),
+    );
+  }
+}
+
+class _TradeRecordCard extends StatelessWidget {
+  const _TradeRecordCard({
+    required this.item,
+  });
+
+  final TradeRecord item;
+
+  @override
+  Widget build(BuildContext context) {
+    final displayPnl = item.pnlAmount ?? item.pnl;
+    final isPositive = displayPnl > 0;
+    final isNegative = displayPnl < 0;
+    final pnlColor = isPositive
+        ? AppColors.primary
+        : (isNegative ? AppColors.negative : AppColors.textPrimary);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceElevated,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: isPositive
+              ? AppColors.primary.withValues(alpha: 0.18)
+              : Colors.white.withValues(alpha: 0.06),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.symbol,
+                      style: AppTypography.subtitle.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.surface,
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.06),
+                        ),
+                      ),
+                      child: Text(
+                        item.side.isEmpty ? '交易记录' : item.side.toUpperCase(),
+                        style: AppTypography.caption.copyWith(
+                          color: AppColors.textSecondary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    _formatSignedNumber(displayPnl),
+                    style: AppTypography.subtitle.copyWith(
+                      color: pnlColor,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 28,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    item.tradeTime != null
+                        ? _TeacherPublicPageState._formatDate(item.tradeTime!)
+                        : '时间待补充',
+                    style: AppTypography.caption.copyWith(
+                      color: AppColors.textTertiary,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Wrap(
+            spacing: AppSpacing.md,
+            runSpacing: AppSpacing.md,
+            children: [
+              _TradeRecordMeta(
+                label: '买入',
+                value: item.buyPrice != null
+                    ? '@ ${item.buyPrice!.toStringAsFixed(2)}'
+                    : '—',
+              ),
+              _TradeRecordMeta(
+                label: '卖出',
+                value: item.sellPrice != null
+                    ? '@ ${item.sellPrice!.toStringAsFixed(2)}'
+                    : '—',
+              ),
+              _TradeRecordMeta(
+                label: '数量',
+                value: item.sellShares != null
+                    ? item.sellShares!.toStringAsFixed(2)
+                    : (item.buyShares != null
+                        ? item.buyShares!.toStringAsFixed(2)
+                        : '—'),
+              ),
+            ],
+          ),
+          if (item.attachmentUrl != null && item.attachmentUrl!.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.md),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: AppButton(
+                label: '查看凭证',
+                variant: AppButtonVariant.text,
+                icon: const Icon(
+                  Icons.image_outlined,
+                  size: 16,
+                ),
+                onPressed: () {
+                  showDialog(
+                    context: context,
+                    builder: (_) => Dialog(
+                      backgroundColor: TeacherPublicPage._surface,
+                      child: Image.network(item.attachmentUrl!),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String _formatSignedNumber(num value) {
+    if (value > 0) return '+${value.toStringAsFixed(2)}';
+    if (value < 0) return value.toStringAsFixed(2);
+    return '0.00';
+  }
+}
+
+class _TradeRecordMeta extends StatelessWidget {
+  const _TradeRecordMeta({
+    required this.label,
+    required this.value,
+  });
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minWidth: 92),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.sm,
+      ),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: AppTypography.caption.copyWith(
+              color: AppColors.textTertiary,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: AppTypography.body.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ),
     );
   }
