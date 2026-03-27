@@ -69,8 +69,7 @@ class _RankingsPageState extends State<RankingsPage> {
               ))
           .where((c) => c.title.isNotEmpty && c.summary.isNotEmpty)
           .toList();
-      final nextCards =
-          cards.isNotEmpty ? cards : _fallbackCardsFromConfig();
+      final nextCards = cards.isNotEmpty ? cards : _fallbackCardsFromConfig();
       final nextHash = jsonEncode(nextCards.map((e) => e.toMap()).toList());
       if (!mounted) return;
       if (nextHash != _cardsHash) {
@@ -271,7 +270,8 @@ class _RankingsPageState extends State<RankingsPage> {
     final totalWins = items.fold<int>(0, (sum, item) => sum + item.wins);
     final avgWinRate = items.isEmpty
         ? 0
-        : items.fold<int>(0, (sum, item) => sum + item.winRatePct) ~/ items.length;
+        : items.fold<int>(0, (sum, item) => sum + item.winRatePct) ~/
+            items.length;
 
     return DecoratedBox(
       decoration: const BoxDecoration(color: AppColors.scaffold),
@@ -290,7 +290,8 @@ class _RankingsPageState extends State<RankingsPage> {
               children: [
                 _DesktopRankingsHero(
                   title: boardTitle,
-                  summary: heroCard?.summary ?? l10n.rankingsRealtimeTransparent,
+                  summary:
+                      heroCard?.summary ?? l10n.rankingsRealtimeTransparent,
                   detail: heroCard?.detail ?? '',
                   leaderName: leader?.name ?? '--',
                   leaderTitle: leader?.title ?? l10n.roleTrader,
@@ -343,6 +344,7 @@ class _RankingsPageState extends State<RankingsPage> {
                   const SizedBox(height: AppSpacing.xl),
                   _DesktopLeaderboardSection(
                     title: boardTitle,
+                    boardType: _boardType,
                     items: items,
                     onTap: _openTeacher,
                   ),
@@ -382,7 +384,8 @@ class _RankingsPageState extends State<RankingsPage> {
               child: CircularProgressIndicator(color: AppColors.primary),
             );
           }
-          final rankings = _top10ByBoard(snapshot.data ?? const <TeacherProfile>[]);
+          final rankings =
+              _top10ByBoard(snapshot.data ?? const <TeacherProfile>[]);
           return useDesktopLayout
               ? _buildDesktopRankings(context, rankings)
               : _buildMobileRankings(context, rankings);
@@ -503,6 +506,8 @@ class _RankingViewModel {
   final int losses;
   final int winRatePct;
   final double score;
+
+  int get totalTrades => wins + losses;
 }
 
 String _formatAmount(double value) {
@@ -998,7 +1003,8 @@ class _RankIntroConfigCardsState extends State<_RankIntroConfigCards> {
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text(AppLocalizations.of(context)!.groupLinkCopied),
+                        content:
+                            Text(AppLocalizations.of(context)!.groupLinkCopied),
                       ),
                     );
                   }
@@ -1551,10 +1557,12 @@ class _DesktopRankingsHero extends StatelessWidget {
                                 vertical: 7,
                               ),
                               decoration: BoxDecoration(
-                                color: AppColors.primary.withValues(alpha: 0.12),
+                                color:
+                                    AppColors.primary.withValues(alpha: 0.12),
                                 borderRadius: BorderRadius.circular(999),
                                 border: Border.all(
-                                  color: AppColors.primary.withValues(alpha: 0.3),
+                                  color:
+                                      AppColors.primary.withValues(alpha: 0.3),
                                 ),
                               ),
                               child: Text(
@@ -1640,11 +1648,13 @@ class _DesktopRankingsHero extends StatelessWidget {
                                   decoration: BoxDecoration(
                                     shape: BoxShape.circle,
                                     border: Border.all(
-                                      color: AppColors.primary.withValues(alpha: 0.4),
+                                      color: AppColors.primary
+                                          .withValues(alpha: 0.4),
                                     ),
                                     boxShadow: [
                                       BoxShadow(
-                                        color: AppColors.primary.withValues(alpha: 0.12),
+                                        color: AppColors.primary
+                                            .withValues(alpha: 0.12),
                                         blurRadius: 14,
                                         offset: const Offset(0, 6),
                                       ),
@@ -1659,7 +1669,8 @@ class _DesktopRankingsHero extends StatelessWidget {
                                 const SizedBox(width: AppSpacing.md),
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Text(
                                         leaderName,
@@ -1736,7 +1747,8 @@ class _DesktopRankingsHero extends StatelessWidget {
                         label: Text(boardTitleBuilder(type)),
                         selected: selected,
                         onSelected: (_) => onChanged(type),
-                        selectedColor: AppColors.primary.withValues(alpha: 0.18),
+                        selectedColor:
+                            AppColors.primary.withValues(alpha: 0.18),
                         backgroundColor: const Color(0xFF121212),
                         side: BorderSide(
                           color: selected
@@ -2001,7 +2013,8 @@ class _DesktopPodiumSection extends StatelessWidget {
                     Expanded(
                       flex: ordered[i].rank == 1 ? 5 : 4,
                       child: Padding(
-                        padding: EdgeInsets.only(top: topPadding[ordered[i].rank] ?? 0),
+                        padding: EdgeInsets.only(
+                            top: topPadding[ordered[i].rank] ?? 0),
                         child: _DesktopTopCard(
                           item: ordered[i],
                           onTap: () => onTap(ordered[i].teacherId),
@@ -2240,7 +2253,8 @@ class _DesktopPodiumStat extends StatelessWidget {
         children: [
           Text(
             label,
-            style: AppTypography.meta.copyWith(color: accent.withValues(alpha: 0.9)),
+            style: AppTypography.meta
+                .copyWith(color: accent.withValues(alpha: 0.9)),
           ),
           const SizedBox(height: AppSpacing.xs),
           Text(
@@ -2381,16 +2395,27 @@ class _DesktopPodiumPalette {
 class _DesktopLeaderboardSection extends StatelessWidget {
   const _DesktopLeaderboardSection({
     required this.title,
+    required this.boardType,
     required this.items,
     required this.onTap,
   });
 
   final String title;
+  final _RankingBoardType boardType;
   final List<_RankingViewModel> items;
   final ValueChanged<String> onTap;
 
   @override
   Widget build(BuildContext context) {
+    final avgTrades = items.isEmpty
+        ? 0
+        : items.fold<int>(0, (sum, item) => sum + item.totalTrades) ~/
+            items.length;
+    final avgScore = items.isEmpty
+        ? 0
+        : items.fold<double>(0, (sum, item) => sum + item.score) / items.length;
+    final profitableCount = items.where((item) => item.score > 0).length;
+
     return Container(
       padding: const EdgeInsets.all(AppSpacing.xl),
       decoration: BoxDecoration(
@@ -2427,6 +2452,33 @@ class _DesktopLeaderboardSection extends StatelessWidget {
               ),
             ],
           ),
+          const SizedBox(height: AppSpacing.lg),
+          Wrap(
+            spacing: AppSpacing.md,
+            runSpacing: AppSpacing.md,
+            children: [
+              _LeaderboardSummaryChip(
+                label: '统计周期',
+                value: _boardPeriodLabel(boardType),
+                helper: '榜单口径',
+              ),
+              _LeaderboardSummaryChip(
+                label: '平均交易次数',
+                value: '$avgTrades',
+                helper: '按当前 Top 10',
+              ),
+              _LeaderboardSummaryChip(
+                label: '盈利人数',
+                value: '$profitableCount/${items.length}',
+                helper: '当前榜单样本',
+              ),
+              _LeaderboardSummaryChip(
+                label: '平均收益',
+                value: _formatAmount(avgScore),
+                helper: '当前周期均值',
+              ),
+            ],
+          ),
           const SizedBox(height: AppSpacing.md),
           const _DesktopLeaderboardHeader(),
           const SizedBox(height: AppSpacing.sm),
@@ -2456,28 +2508,40 @@ class _DesktopLeaderboardHeader extends StatelessWidget {
             width: 68,
             child: Text(
               '排名',
-              style: AppTypography.meta.copyWith(color: const Color(0xFFBCA86A)),
+              style:
+                  AppTypography.meta.copyWith(color: const Color(0xFFBCA86A)),
             ),
           ),
           Expanded(
             flex: 4,
             child: Text(
               '交易员',
-              style: AppTypography.meta.copyWith(color: const Color(0xFFBCA86A)),
+              style:
+                  AppTypography.meta.copyWith(color: const Color(0xFFBCA86A)),
             ),
           ),
           Expanded(
             flex: 2,
             child: Text(
               '胜率',
-              style: AppTypography.meta.copyWith(color: const Color(0xFFBCA86A)),
+              style:
+                  AppTypography.meta.copyWith(color: const Color(0xFFBCA86A)),
             ),
           ),
           Expanded(
             flex: 2,
             child: Text(
               '战绩',
-              style: AppTypography.meta.copyWith(color: const Color(0xFFBCA86A)),
+              style:
+                  AppTypography.meta.copyWith(color: const Color(0xFFBCA86A)),
+            ),
+          ),
+          Expanded(
+            flex: 2,
+            child: Text(
+              '交易次数',
+              style:
+                  AppTypography.meta.copyWith(color: const Color(0xFFBCA86A)),
             ),
           ),
           Expanded(
@@ -2486,7 +2550,8 @@ class _DesktopLeaderboardHeader extends StatelessWidget {
               alignment: Alignment.centerRight,
               child: Text(
                 '收益',
-                style: AppTypography.meta.copyWith(color: const Color(0xFFBCA86A)),
+                style:
+                    AppTypography.meta.copyWith(color: const Color(0xFFBCA86A)),
               ),
             ),
           ),
@@ -2598,6 +2663,16 @@ class _DesktopLeaderboardRow extends StatelessWidget {
             ),
             Expanded(
               flex: 2,
+              child: Text(
+                '${item.totalTrades}',
+                style: AppTypography.bodySecondary.copyWith(
+                  color: const Color(0xFFE4D5AE),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            Expanded(
+              flex: 2,
               child: Align(
                 alignment: Alignment.centerRight,
                 child: Text(
@@ -2612,6 +2687,72 @@ class _DesktopLeaderboardRow extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+class _LeaderboardSummaryChip extends StatelessWidget {
+  const _LeaderboardSummaryChip({
+    required this.label,
+    required this.value,
+    required this.helper,
+  });
+
+  final String label;
+  final String value;
+  final String helper;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 220,
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      decoration: BoxDecoration(
+        color: const Color(0xFF100E0B),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.14)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: AppTypography.meta.copyWith(
+              color: const Color(0xFFCBB16C),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            value,
+            style: AppTypography.dataSmall.copyWith(
+              fontSize: 20,
+              color: const Color(0xFFFFEDBE),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            helper,
+            style: AppTypography.caption.copyWith(
+              color: const Color(0xFF9F9577),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+String _boardPeriodLabel(_RankingBoardType type) {
+  switch (type) {
+    case _RankingBoardType.weekly:
+      return '本周';
+    case _RankingBoardType.monthly:
+      return '本月';
+    case _RankingBoardType.quarterly:
+      return '本季度';
+    case _RankingBoardType.yearly:
+      return '本年度';
+    case _RankingBoardType.allTime:
+      return '总榜';
   }
 }
 
@@ -2695,4 +2836,3 @@ class _DesktopEmptyState extends StatelessWidget {
     );
   }
 }
-
