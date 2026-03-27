@@ -1,0 +1,23 @@
+{
+  "name": "tongxin-backend",
+  "version": "0.1.0",
+  "description": "Tongxin backend: quote proxy & cache for Polygon/Twelve Data",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.97.0",
+    "bcrypt": "^6.0.0",
+    "better-sqlite3": "^12.6.2",
+    "cors": "^2.8.5",
+    "dotenv": "^17.3.1",
+    "express": "^4.21.0",
+    "firebase-admin": "^13.0.0",
+    "ws": "^8.19.0"
+  }
+}

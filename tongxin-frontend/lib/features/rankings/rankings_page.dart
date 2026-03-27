@@ -2412,8 +2412,9 @@ class _DesktopLeaderboardSection extends StatelessWidget {
         : items.fold<int>(0, (sum, item) => sum + item.totalTrades) ~/
             items.length;
     final avgScore = items.isEmpty
-        ? 0
-        : items.fold<double>(0, (sum, item) => sum + item.score) / items.length;
+        ? 0.0
+        : items.fold<double>(0.0, (sum, item) => sum + item.score) /
+            items.length;
     final profitableCount = items.where((item) => item.score > 0).length;
 
     return Container(

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/chat_web_socket_service.dart';
 import '../../l10n/app_localizations.dart';
+import 'chart/bottom_detail_tabs.dart';
 import 'chart/chart_theme.dart';
 import 'chart/detail_header.dart';
 import 'chart/indicators_panel.dart';
@@ -61,7 +62,6 @@ class _GenericChartPageState extends State<GenericChartPage>
     with SingleTickerProviderStateMixin {
   static const List<(String, String)> _chartTabs = <(String, String)>[
     ('分时', 'line'),
-    ('1分K', '1min'),
     ('5分', '5min'),
     ('15分', '15min'),
     ('30分', '30min'),
@@ -72,7 +72,10 @@ class _GenericChartPageState extends State<GenericChartPage>
   late TabController _tabController;
   final _market = MarketRepository();
   StreamSubscription<MarketQuoteUpdate>? _realtimeSub;
+  StreamSubscription<String>? _connectionSub;
   String _realtimeSubscribedSymbol = '';
+  Timer? _quoteTimer;
+  Timer? _chartTimer;
 
   MarketQuote? _quote;
   List<ChartCandle> _intraday = [];
@@ -85,14 +88,18 @@ class _GenericChartPageState extends State<GenericChartPage>
   bool _showPrevCloseLine = true;
   bool _loading = true;
   String _chartPeriod = '1m';
-  String _klineInterval = '1min';
+  String _klineInterval = '5min';
   late String _currentSymbol;
   String _currentName = '';
   int _currentIndex = 0;
+  DateTime? _lastQuoteUpdatedAt;
 
-  String get _effectiveSymbol => widget.symbolList != null ? _currentSymbol : widget.symbol;
-  String get _effectiveName => widget.symbolList != null ? _currentName : widget.name;
-  int get _effectiveIndex => widget.symbolList != null ? _currentIndex : _prevNextIndex;
+  String get _effectiveSymbol =>
+      widget.symbolList != null ? _currentSymbol : widget.symbol;
+  String get _effectiveName =>
+      widget.symbolList != null ? _currentName : widget.name;
+  int get _effectiveIndex =>
+      widget.symbolList != null ? _currentIndex : _prevNextIndex;
 
   static const double _chartContainerPaddingV = 28.0;
   static const double _intradayChartPaddingV = 16.0;
@@ -105,10 +112,14 @@ class _GenericChartPageState extends State<GenericChartPage>
 
   static int? _intradayLastDays(String p) {
     switch (p) {
-      case '2d': return 2;
-      case '3d': return 3;
-      case '4d': return 4;
-      default: return null;
+      case '2d':
+        return 2;
+      case '3d':
+        return 3;
+      case '4d':
+        return 4;
+      default:
+        return null;
     }
   }
 
@@ -125,11 +136,16 @@ class _GenericChartPageState extends State<GenericChartPage>
       case '1h':
         return '1h';
       case '5day':
-      case 'day': return '1day';
-      case 'week': return '1day'; // Twelve Data 可后续扩展 1week
-      case 'month': return '1day';
-      case 'year': return '1day';
-      default: return '1day';
+      case 'day':
+        return '1day';
+      case 'week':
+        return '1day'; // Twelve Data 可后续扩展 1week
+      case 'month':
+        return '1day';
+      case 'year':
+        return '1day';
+      default:
+        return '1day';
     }
   }
 
@@ -138,11 +154,13 @@ class _GenericChartPageState extends State<GenericChartPage>
   int get _prevNextIndex {
     final list = widget.symbolList;
     if (list == null || list.isEmpty) return -1;
-    if (widget.symbolList != null) return _currentIndex.clamp(0, list.length - 1);
+    if (widget.symbolList != null)
+      return _currentIndex.clamp(0, list.length - 1);
     if (widget.symbolIndex != null) {
       return widget.symbolIndex!.clamp(0, list.length - 1);
     }
-    final i = list.indexWhere((s) => s.toUpperCase() == widget.symbol.toUpperCase());
+    final i =
+        list.indexWhere((s) => s.toUpperCase() == widget.symbol.toUpperCase());
     return i >= 0 ? i : 0;
   }
 
@@ -166,7 +184,8 @@ class _GenericChartPageState extends State<GenericChartPage>
     final list = widget.symbolList;
     if (list == null || list.isEmpty) return;
     final newSym = newSymbol.trim();
-    final newIndex = list.indexWhere((s) => s.toUpperCase() == newSym.toUpperCase());
+    final newIndex =
+        list.indexWhere((s) => s.toUpperCase() == newSym.toUpperCase());
     if (newIndex < 0) return;
 
     final oldSym = _currentSymbol;
@@ -181,7 +200,8 @@ class _GenericChartPageState extends State<GenericChartPage>
     _startRealtimeForCurrentSymbol();
 
     final cached = _genericDetailCache[newSym];
-    if (cached != null && (cached.intraday.isNotEmpty || cached.daily.isNotEmpty)) {
+    if (cached != null &&
+        (cached.intraday.isNotEmpty || cached.daily.isNotEmpty)) {
       setState(() {
         _quote = cached.quote;
         _intraday = List.from(cached.intraday);
@@ -219,7 +239,9 @@ class _GenericChartPageState extends State<GenericChartPage>
       _switchToSymbolInPlace(newSymbol);
       return;
     }
-    final newIndex = list != null ? list.indexWhere((s) => s.toUpperCase() == newSymbol.toUpperCase()) : -1;
+    final newIndex = list != null
+        ? list.indexWhere((s) => s.toUpperCase() == newSymbol.toUpperCase())
+        : -1;
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
         builder: (_) => GenericChartPage(
@@ -241,7 +263,8 @@ class _GenericChartPageState extends State<GenericChartPage>
     if (list != null && list.isNotEmpty && widget.symbolIndex != null) {
       _currentIndex = widget.symbolIndex!.clamp(0, list.length - 1);
     } else if (list != null && list.isNotEmpty) {
-      final i = list.indexWhere((s) => s.toUpperCase() == widget.symbol.toUpperCase());
+      final i = list
+          .indexWhere((s) => s.toUpperCase() == widget.symbol.toUpperCase());
       _currentIndex = i >= 0 ? i : 0;
     } else {
       _currentIndex = 0;
@@ -267,27 +290,37 @@ class _GenericChartPageState extends State<GenericChartPage>
         if (mounted) setState(() => _loading = false);
       });
     });
-    _dailyController = ChartViewportController(initialVisibleCount: 80, minVisibleCount: 30, maxVisibleCount: 200);
+    _dailyController = ChartViewportController(
+        initialVisibleCount: 80, minVisibleCount: 30, maxVisibleCount: 200);
+    _connectionSub =
+        ChatWebSocketService.instance.connectionSignalStream.listen((_) {
+      _startRealtimeForCurrentSymbol();
+    });
     _startRealtimeForCurrentSymbol();
+    _startRealtimeTimers();
     _load();
   }
 
   @override
   void dispose() {
     _realtimeSub?.cancel();
+    _connectionSub?.cancel();
+    _quoteTimer?.cancel();
+    _chartTimer?.cancel();
     _tabController.dispose();
     super.dispose();
   }
 
   void _startRealtimeForCurrentSymbol() {
-    if (!ChatWebSocketService.instance.isConnected) return;
     final symbol = _effectiveSymbol.trim().toUpperCase();
     if (symbol.isEmpty) return;
+    if (!ChatWebSocketService.instance.isConnected) return;
     if (_realtimeSubscribedSymbol == symbol) return;
     _realtimeSub?.cancel();
     _realtimeSubscribedSymbol = symbol;
     ChatWebSocketService.instance.subscribeMarket([symbol]);
-    _realtimeSub = ChatWebSocketService.instance.marketQuoteStream.listen(_onRealtimeQuote);
+    _realtimeSub = ChatWebSocketService.instance.marketQuoteStream
+        .listen(_onRealtimeQuote);
   }
 
   void _onRealtimeQuote(MarketQuoteUpdate u) {
@@ -296,19 +329,25 @@ class _GenericChartPageState extends State<GenericChartPage>
     if (current.isEmpty || u.symbol.toUpperCase() != current) return;
     final prev = _quote;
     final prevClose = prev?.prevClose ??
-        ((prev != null && prev.change != 0) ? (prev.price - prev.change) : null);
+        ((prev != null && prev.change != 0)
+            ? (prev.price - prev.change)
+            : null);
     final change = (prevClose != null && prevClose > 0)
         ? (u.price - prevClose)
         : (u.change ?? prev?.change ?? 0);
     final changePercent = (prevClose != null && prevClose > 0)
         ? ((change / prevClose) * 100)
         : (u.percentChange ?? prev?.changePercent ?? 0);
-    final minuteSec = ((DateTime.now().millisecondsSinceEpoch ~/ 60000) * 60).toDouble();
+    final minuteSec =
+        ((DateTime.now().millisecondsSinceEpoch ~/ 60000) * 60).toDouble();
     final price = u.price;
-    final high = prev?.high != null ? (price > prev!.high! ? price : prev.high) : price;
-    final low = prev?.low != null ? (price < prev!.low! ? price : prev.low) : price;
+    final high =
+        prev?.high != null ? (price > prev!.high! ? price : prev.high) : price;
+    final low =
+        prev?.low != null ? (price < prev!.low! ? price : prev.low) : price;
 
     setState(() {
+      _lastQuoteUpdatedAt = DateTime.now();
       _quote = MarketQuote(
         symbol: u.symbol,
         name: prev?.name ?? _effectiveName,
@@ -369,9 +408,9 @@ class _GenericChartPageState extends State<GenericChartPage>
       }
 
       final bucketSizeSec = _klineBucketSeconds(_klineInterval);
-      final bucketStartSec = ((DateTime.now().millisecondsSinceEpoch ~/ 1000) ~/
-              bucketSizeSec) *
-          bucketSizeSec.toDouble();
+      final bucketStartSec =
+          ((DateTime.now().millisecondsSinceEpoch ~/ 1000) ~/ bucketSizeSec) *
+              bucketSizeSec.toDouble();
       if (_daily.isEmpty) {
         _daily = <ChartCandle>[
           ChartCandle(
@@ -419,6 +458,66 @@ class _GenericChartPageState extends State<GenericChartPage>
     });
   }
 
+  void _startRealtimeTimers() {
+    _quoteTimer?.cancel();
+    _chartTimer?.cancel();
+    _quoteTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      _refreshQuoteSilently();
+    });
+    _chartTimer = Timer.periodic(const Duration(seconds: 12), (_) {
+      if (!mounted) return;
+      _refreshQuoteSilently();
+      _refreshChartsSilently();
+    });
+  }
+
+  Future<void> _refreshQuoteSilently() async {
+    final sym = _effectiveSymbol.trim();
+    if (sym.isEmpty) return;
+    final q = await _market.getQuote(sym, realtime: true);
+    if (!mounted || q.hasError || q.price <= 0) return;
+    if (_effectiveSymbol.trim().toUpperCase() != sym.toUpperCase()) return;
+    setState(() {
+      _quote = q;
+      _lastQuoteUpdatedAt = DateTime.now();
+      if (q.name != null && q.name!.isNotEmpty) {
+        _currentName = q.name!;
+      }
+    });
+    _saveToCache(sym);
+  }
+
+  Future<void> _refreshChartsSilently() async {
+    final sym = _effectiveSymbol.trim();
+    if (sym.isEmpty) return;
+    final lastDays = _intradayLastDays(_chartPeriod);
+    final intra = await _market.getCandles(
+      sym,
+      _intradayToInterval(_chartPeriod),
+      lastDays: lastDays,
+    );
+    final day = await _market.getCandles(
+      sym,
+      _klineToInterval(_klineInterval),
+    );
+    if (!mounted ||
+        _effectiveSymbol.trim().toUpperCase() != sym.toUpperCase()) {
+      return;
+    }
+    if (intra.isEmpty && day.isEmpty) return;
+    setState(() {
+      if (intra.isNotEmpty) {
+        _intraday = intra;
+      }
+      if (day.isNotEmpty) {
+        _daily = day;
+        _dailyController.initFromCandlesLength(day.length);
+      }
+    });
+    _saveToCache(sym);
+  }
+
   int _klineBucketSeconds(String interval) {
     switch (interval) {
       case '1min':
@@ -438,7 +537,7 @@ class _GenericChartPageState extends State<GenericChartPage>
   }
 
   Future<void> _load() async {
-    if (!_market.twelveDataAvailable) {
+    if (!_market.useBackend && !_market.twelveDataAvailable) {
       if (mounted) setState(() => _loading = false);
       return;
     }
@@ -459,6 +558,9 @@ class _GenericChartPageState extends State<GenericChartPage>
     if (!mounted) return;
     setState(() {
       _quote = q;
+      if (!q.hasError && q.price > 0) {
+        _lastQuoteUpdatedAt = DateTime.now();
+      }
       _intraday = intra;
       _daily = day;
       _lastLoadedEarliestTs = null;
@@ -471,7 +573,8 @@ class _GenericChartPageState extends State<GenericChartPage>
 
   Future<void> _loadDailyOlder(int earliestTimestampMs) async {
     if (_dailyLoadingMore) return;
-    if (_lastLoadedEarliestTs != null && earliestTimestampMs >= _lastLoadedEarliestTs!) return;
+    if (_lastLoadedEarliestTs != null &&
+        earliestTimestampMs >= _lastLoadedEarliestTs!) return;
     setState(() => _dailyLoadingMore = true);
     try {
       final beforeLen = _daily.length;
@@ -512,20 +615,31 @@ class _GenericChartPageState extends State<GenericChartPage>
             q.price > 0)
         ? q.volume! * q.price
         : null;
-    final amplitude =
-        (q != null && !q.hasError && q.high != null && q.low != null && (prevClose ?? 0) > 0)
-            ? (q.high! - q.low!) / prevClose! * 100
-            : null;
+    final amplitude = (q != null &&
+            !q.hasError &&
+            q.high != null &&
+            q.low != null &&
+            (prevClose ?? 0) > 0)
+        ? (q.high! - q.low!) / prevClose! * 100
+        : null;
 
     return Scaffold(
       backgroundColor: ChartTheme.background,
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
+            final useDesktopTerminalLayout = constraints.maxWidth >= 1180;
             final screenH = MediaQuery.sizeOf(context).height;
-            final fixedChartHeight = (screenH * 0.45).clamp(320.0, 420.0);
-            final availableHeight =
-                fixedChartHeight - _chartContainerPaddingV - _intradayChartPaddingV - 8;
+            final fixedChartHeight = useDesktopTerminalLayout
+                ? (screenH * 0.56).clamp(430.0, 620.0)
+                : (screenH * 0.42).clamp(300.0, 390.0);
+            final detailPanelHeight = useDesktopTerminalLayout
+                ? (screenH * 0.58).clamp(520.0, 700.0)
+                : (screenH * 0.32).clamp(240.0, 320.0);
+            final availableHeight = fixedChartHeight -
+                _chartContainerPaddingV -
+                _intradayChartPaddingV -
+                8;
             final contentHeight = availableHeight.clamp(160.0, double.infinity);
             final contentHeightIntraday =
                 contentHeight.clamp(180.0, double.infinity);
@@ -584,57 +698,363 @@ class _GenericChartPageState extends State<GenericChartPage>
               ),
               child: ConstrainedBox(
                 constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                child: Column(
-                  children: [
-                    DetailHeader(
-                      symbol: _effectiveSymbol,
-                      name: _effectiveName.isNotEmpty ? _effectiveName : null,
-                      onBack: () => Navigator.of(context).maybePop(),
-                      onPrev: _prevNextIndex > 0 ? _switchToPrev : null,
-                      onNext: _prevNextIndex >= 0 &&
-                              _prevNextIndex < _symbolListLength - 1
-                          ? _switchToNext
-                          : null,
+                child: Align(
+                  alignment: Alignment.topCenter,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 1380),
+                    child: Column(
+                      children: [
+                        DetailHeader(
+                          symbol: _effectiveSymbol,
+                          name:
+                              _effectiveName.isNotEmpty ? _effectiveName : null,
+                          onBack: () => Navigator.of(context).maybePop(),
+                          onPrev: _prevNextIndex > 0 ? _switchToPrev : null,
+                          onNext: _prevNextIndex >= 0 &&
+                                  _prevNextIndex < _symbolListLength - 1
+                              ? _switchToNext
+                              : null,
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(14, 14, 14, 0),
+                          child: _buildOverviewCard(
+                            currentPrice: price,
+                            change: changeVal,
+                            changePercent: changePercent,
+                            prevClose: prevClose,
+                            open: q?.open,
+                            high: q?.high,
+                            low: q?.low,
+                            turnover: turnover,
+                            amplitude: amplitude,
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
+                          child: useDesktopTerminalLayout
+                              ? _buildDesktopTerminalBody(
+                                  chartContent: chartContent,
+                                  chartHeight: fixedChartHeight,
+                                  detailPanelHeight: detailPanelHeight,
+                                  currentPrice: price,
+                                  prevClose: prevClose,
+                                )
+                              : Column(
+                                  children: [
+                                    _buildChartCard(
+                                      chartContent: chartContent,
+                                      chartHeight: fixedChartHeight,
+                                    ),
+                                    if (_tabController.index != 0)
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 12),
+                                        child: IndicatorsPanel(
+                                          overlayIndicator: _overlayIndicator,
+                                          subChartIndicator: _subChartIndicator,
+                                          showPrevCloseLine: _showPrevCloseLine,
+                                          onOverlayChanged: (v) => setState(
+                                              () => _overlayIndicator = v),
+                                          onSubChartChanged: (v) => setState(
+                                              () => _subChartIndicator = v),
+                                          onShowPrevCloseLineChanged: (v) =>
+                                              setState(
+                                                  () => _showPrevCloseLine = v),
+                                        ),
+                                      ),
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 12),
+                                      child: _buildStatsBar(),
+                                    ),
+                                  ],
+                                ),
+                        ),
+                        if (!useDesktopTerminalLayout)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
+                            child: SizedBox(
+                              height: detailPanelHeight,
+                              child: _buildSidePanel(currentPrice: price),
+                            ),
+                          ),
+                        if (useDesktopTerminalLayout) const SizedBox(height: 8),
+                      ],
                     ),
-                    PriceSection(
-                      currentPrice: price,
-                      change: changeVal,
-                      changePercent: changePercent,
-                      prevClose: prevClose,
-                      open: q?.open,
-                      high: q?.high,
-                      low: q?.low,
-                      turnover: turnover,
-                      amplitude: amplitude,
-                    ),
-                    _buildGenericModeTabs(),
-                    TvChartContainer(
-                      edgeToEdge: true,
-                      padding: const EdgeInsets.fromLTRB(0, 6, 0, 16),
-                      child: SizedBox(
-                        height: fixedChartHeight,
-                        child: ClipRect(child: chartContent),
-                      ),
-                    ),
-                    if (_tabController.index != 0)
-                      IndicatorsPanel(
-                        overlayIndicator: _overlayIndicator,
-                        subChartIndicator: _subChartIndicator,
-                        showPrevCloseLine: _showPrevCloseLine,
-                        onOverlayChanged: (v) =>
-                            setState(() => _overlayIndicator = v),
-                        onSubChartChanged: (v) =>
-                            setState(() => _subChartIndicator = v),
-                        onShowPrevCloseLineChanged: (v) =>
-                            setState(() => _showPrevCloseLine = v),
-                      ),
-                    _buildStatsBar(),
-                  ],
+                  ),
                 ),
               ),
             );
           },
         ),
+      ),
+    );
+  }
+
+  Widget _buildDesktopTerminalBody({
+    required Widget chartContent,
+    required double chartHeight,
+    required double detailPanelHeight,
+    required double? currentPrice,
+    required double? prevClose,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          flex: 9,
+          child: Column(
+            children: [
+              _buildChartCard(
+                chartContent: chartContent,
+                chartHeight: chartHeight,
+              ),
+              const SizedBox(height: 12),
+              _buildStatsBar(),
+            ],
+          ),
+        ),
+        const SizedBox(width: 16),
+        SizedBox(
+          width: 368,
+          child: Column(
+            children: [
+              _buildSidebarQuoteCard(
+                currentPrice: currentPrice,
+                prevClose: prevClose,
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                height: detailPanelHeight,
+                child: _buildSidePanel(currentPrice: currentPrice),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildChartCard({
+    required Widget chartContent,
+    required double chartHeight,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: ChartTheme.cardBackground,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: ChartTheme.border),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.18),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+            spreadRadius: -10,
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          _buildGenericModeTabs(),
+          TvChartContainer(
+            edgeToEdge: true,
+            padding: const EdgeInsets.fromLTRB(0, 4, 0, 10),
+            child: SizedBox(
+              height: chartHeight,
+              child: ClipRect(child: chartContent),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSidePanel({required double? currentPrice}) {
+    return Container(
+      decoration: BoxDecoration(
+        color: ChartTheme.cardBackground,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: ChartTheme.border),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.16),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+            spreadRadius: -12,
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(18),
+        child: BottomDetailTabs(
+          symbol: _effectiveSymbol,
+          currentPrice: currentPrice,
+          overlayIndicator: _overlayIndicator,
+          subChartIndicator: _subChartIndicator,
+          showPrevCloseLine: _showPrevCloseLine,
+          onOverlayChanged: (v) => setState(() => _overlayIndicator = v),
+          onSubChartChanged: (v) => setState(() => _subChartIndicator = v),
+          onShowPrevCloseLineChanged: (v) =>
+              setState(() => _showPrevCloseLine = v),
+          klineCandles: _daily,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSidebarQuoteCard({
+    required double? currentPrice,
+    required double? prevClose,
+  }) {
+    final q = _quote;
+    final change = (q != null && !q.hasError) ? q.change : null;
+    final changePercent = (q != null && !q.hasError) ? q.changePercent : null;
+    final isUp = (changePercent ?? 0) >= 0;
+    final priceColor = change == null
+        ? ChartTheme.textPrimary
+        : (isUp ? ChartTheme.up : ChartTheme.down);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF171D27), Color(0xFF10151D)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: ChartTheme.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            _effectiveSymbol,
+            style: const TextStyle(
+              color: ChartTheme.textSecondary,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.4,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            currentPrice != null ? ChartTheme.formatPrice(currentPrice) : '—',
+            style: TextStyle(
+              color: priceColor,
+              fontSize: 38,
+              fontWeight: FontWeight.w800,
+              fontFamily: ChartTheme.fontMono,
+              fontFeatures: const [ChartTheme.tabularFigures],
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '${change != null ? (change >= 0 ? '+' : '') + ChartTheme.formatPrice(change) : '—'}   ${changePercent != null ? '${changePercent >= 0 ? '+' : ''}${changePercent.toStringAsFixed(2)}%' : '—'}',
+            style: TextStyle(
+              color: priceColor,
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              fontFamily: ChartTheme.fontMono,
+              fontFeatures: const [ChartTheme.tabularFigures],
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: _sidebarMetric(
+                  '卖一',
+                  q?.ask != null ? ChartTheme.formatPrice(q!.ask!) : '—',
+                  valueColor: ChartTheme.down,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _sidebarMetric(
+                  '买一',
+                  q?.bid != null ? ChartTheme.formatPrice(q!.bid!) : '—',
+                  valueColor: ChartTheme.up,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _sidebarMetric(
+                  '今开',
+                  q?.open != null ? ChartTheme.formatPrice(q!.open!) : '—',
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _sidebarMetric(
+                  '昨收',
+                  prevClose != null ? ChartTheme.formatPrice(prevClose) : '—',
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _sidebarMetric(
+                  '最高',
+                  q?.high != null ? ChartTheme.formatPrice(q!.high!) : '—',
+                  valueColor: ChartTheme.up,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _sidebarMetric(
+                  '最低',
+                  q?.low != null ? ChartTheme.formatPrice(q!.low!) : '—',
+                  valueColor: ChartTheme.down,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _sidebarMetric(
+    String label,
+    String value, {
+    Color? valueColor,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: ChartTheme.surface2.withValues(alpha: 0.88),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: ChartTheme.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              color: ChartTheme.textTertiary,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: TextStyle(
+              color: valueColor ?? ChartTheme.textPrimary,
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              fontFamily: ChartTheme.fontMono,
+              fontFeatures: const [ChartTheme.tabularFigures],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -649,14 +1069,148 @@ class _GenericChartPageState extends State<GenericChartPage>
     return l10n.chartIntraday;
   }
 
+  String _marketTypeLabel() {
+    final symbol = _effectiveSymbol.trim().toUpperCase();
+    if (symbol.contains('/')) {
+      if (symbol.endsWith('/USD') || symbol.endsWith('/USDT')) {
+        return '加密货币';
+      }
+      return '外汇';
+    }
+    return '指数';
+  }
+
+  String _liveBadgeText() {
+    final last = _lastQuoteUpdatedAt;
+    if (last == null) return '等待实时数据';
+    final seconds = DateTime.now().difference(last).inSeconds;
+    if (seconds <= 1) return '实时更新中';
+    if (seconds < 60) return '$seconds 秒前更新';
+    final minutes = DateTime.now().difference(last).inMinutes;
+    return '$minutes 分钟前更新';
+  }
+
+  Widget _buildOverviewCard({
+    required double? currentPrice,
+    required double? change,
+    required double? changePercent,
+    required double? prevClose,
+    required double? open,
+    required double? high,
+    required double? low,
+    required double? turnover,
+    required double? amplitude,
+  }) {
+    final isLive = _lastQuoteUpdatedAt != null &&
+        DateTime.now().difference(_lastQuoteUpdatedAt!).inSeconds <= 3;
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: ChartTheme.border),
+        gradient: const LinearGradient(
+          colors: [Color(0xFF161B22), Color(0xFF11161E)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.2),
+            blurRadius: 22,
+            offset: const Offset(0, 12),
+            spreadRadius: -12,
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                _buildTopBadge(
+                  _marketTypeLabel(),
+                  textColor: ChartTheme.textPrimary,
+                  background: ChartTheme.surface2,
+                ),
+                _buildTopBadge(
+                  _liveBadgeText(),
+                  textColor: isLive ? ChartTheme.up : ChartTheme.textSecondary,
+                  background: isLive
+                      ? ChartTheme.up.withValues(alpha: 0.12)
+                      : ChartTheme.surface2,
+                  dotColor: isLive ? ChartTheme.up : ChartTheme.textTertiary,
+                ),
+                _buildTopBadge(
+                  _effectiveSymbol,
+                  textColor: ChartTheme.accentGold,
+                  background: ChartTheme.surface2,
+                ),
+              ],
+            ),
+          ),
+          PriceSection(
+            currentPrice: currentPrice,
+            change: change,
+            changePercent: changePercent,
+            prevClose: prevClose,
+            open: open,
+            high: high,
+            low: low,
+            turnover: turnover,
+            amplitude: amplitude,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTopBadge(
+    String label, {
+    required Color textColor,
+    required Color background,
+    Color? dotColor,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: ChartTheme.borderSubtle),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (dotColor != null) ...[
+            Container(
+              width: 7,
+              height: 7,
+              decoration: BoxDecoration(
+                color: dotColor,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 6),
+          ],
+          Text(
+            label,
+            style: TextStyle(
+              color: textColor,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildGenericModeTabs() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      decoration: const BoxDecoration(
-        border: Border(
-          bottom: BorderSide(color: ChartTheme.border, width: 0.5),
-        ),
-      ),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: Row(
@@ -666,16 +1220,18 @@ class _GenericChartPageState extends State<GenericChartPage>
               onTap: () => _tabController.animateTo(i),
               behavior: HitTestBehavior.opaque,
               child: Container(
-                margin: const EdgeInsets.only(right: 14),
-                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 2),
+                margin: const EdgeInsets.only(right: 10),
+                padding:
+                    const EdgeInsets.symmetric(vertical: 8, horizontal: 14),
                 decoration: BoxDecoration(
-                  border: Border(
-                    bottom: BorderSide(
-                      color: selected
-                          ? ChartTheme.tabUnderline
-                          : Colors.transparent,
-                      width: 2,
-                    ),
+                  color: selected
+                      ? ChartTheme.tabSelectedBg.withValues(alpha: 0.9)
+                      : ChartTheme.surface2.withValues(alpha: 0.75),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(
+                    color: selected
+                        ? ChartTheme.tabUnderline.withValues(alpha: 0.7)
+                        : ChartTheme.border,
                   ),
                 ),
                 child: Text(
@@ -685,8 +1241,7 @@ class _GenericChartPageState extends State<GenericChartPage>
                         ? ChartTheme.textPrimary
                         : ChartTheme.textSecondary,
                     fontSize: 14,
-                    fontWeight:
-                        selected ? FontWeight.w600 : FontWeight.w500,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
                   ),
                 ),
               ),
@@ -731,8 +1286,7 @@ class _GenericChartPageState extends State<GenericChartPage>
                 borderRadius: BorderRadius.circular(ChartTheme.radiusButton),
                 child: InkWell(
                   onTap: () => _dailyController.goToRealtime(_daily.length),
-                  borderRadius:
-                      BorderRadius.circular(ChartTheme.radiusButton),
+                  borderRadius: BorderRadius.circular(ChartTheme.radiusButton),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 12,
@@ -759,9 +1313,15 @@ class _GenericChartPageState extends State<GenericChartPage>
   /// 分时图上方摘要行：价 均 涨 涨跌幅 量 额（与股票详情一致，数据一目了然）
   Widget _buildIntradaySummaryRow() {
     final q = _quote;
-    final price = (q != null && !q.hasError && q.price > 0) ? q.price : (_intraday.isNotEmpty ? _intraday.last.close : 0.0);
-    final open = (q != null && !q.hasError) ? q.open : (_intraday.isNotEmpty ? _intraday.first.open : null);
-    final prev = (q != null && !q.hasError && q.price > 0 && q.change != 0) ? q.price - q.change : open;
+    final price = (q != null && !q.hasError && q.price > 0)
+        ? q.price
+        : (_intraday.isNotEmpty ? _intraday.last.close : 0.0);
+    final open = (q != null && !q.hasError)
+        ? q.open
+        : (_intraday.isNotEmpty ? _intraday.first.open : null);
+    final prev = (q != null && !q.hasError && q.price > 0 && q.change != 0)
+        ? q.price - q.change
+        : open;
     double? avgPrice;
     int totalVol = 0;
     double turnover = 0;
@@ -775,21 +1335,33 @@ class _GenericChartPageState extends State<GenericChartPage>
         sumV += v;
         sumVw += c.close * v;
       }
-      avgPrice = sumV > 0 ? sumVw / sumV : (_intraday.map((c) => c.close).reduce((a, b) => a + b) / _intraday.length);
+      avgPrice = sumV > 0
+          ? sumVw / sumV
+          : (_intraday.map((c) => c.close).reduce((a, b) => a + b) /
+              _intraday.length);
     }
     if (totalVol == 0 && q != null && q.volume != null) totalVol = q.volume!;
     final prevVal = prev ?? 0.0;
-    final change = (q != null && q.change != null) ? q.change! : (prevVal > 0 ? price - prevVal : 0.0);
-    final changePct = prevVal > 0 ? (price - prevVal) / prevVal * 100 : (q?.changePercent ?? 0.0);
+    final change = (q != null && q.change != null)
+        ? q.change!
+        : (prevVal > 0 ? price - prevVal : 0.0);
+    final changePct = prevVal > 0
+        ? (price - prevVal) / prevVal * 100
+        : (q?.changePercent ?? 0.0);
     final changeColor = (change >= 0 ? ChartTheme.up : ChartTheme.down);
     String turnStr = '—';
-    if (turnover >= 10000) turnStr = '${(turnover / 10000).toStringAsFixed(2)}万';
+    if (turnover >= 10000)
+      turnStr = '${(turnover / 10000).toStringAsFixed(2)}万';
     else if (turnover > 0) turnStr = turnover.toStringAsFixed(0);
     String volStr = '—';
-    if (totalVol > 0) volStr = totalVol >= 10000 ? '${(totalVol / 10000).toStringAsFixed(2)}万' : totalVol.toString();
+    if (totalVol > 0)
+      volStr = totalVol >= 10000
+          ? '${(totalVol / 10000).toStringAsFixed(2)}万'
+          : totalVol.toString();
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: ChartTheme.pagePadding, vertical: 8),
+      padding: const EdgeInsets.symmetric(
+          horizontal: ChartTheme.pagePadding, vertical: 8),
       decoration: const BoxDecoration(
         color: ChartTheme.cardBackground,
         border: Border(bottom: BorderSide(color: ChartTheme.border, width: 1)),
@@ -799,12 +1371,21 @@ class _GenericChartPageState extends State<GenericChartPage>
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            _summaryBlock(AppLocalizations.of(context)!.chartPrice, price > 0 ? price.toStringAsFixed(2) : '—', null),
-            _summaryBlock(AppLocalizations.of(context)!.chartAvg, avgPrice != null ? avgPrice.toStringAsFixed(2) : '—', null),
-            _summaryBlock(AppLocalizations.of(context)!.chartChangeShort, '${change >= 0 ? '+' : ''}${change.toStringAsFixed(2)}', changeColor),
-            _summaryBlock(AppLocalizations.of(context)!.chartChangePercent, '${changePct >= 0 ? '+' : ''}${changePct.toStringAsFixed(2)}%', changeColor),
+            _summaryBlock(AppLocalizations.of(context)!.chartPrice,
+                price > 0 ? price.toStringAsFixed(2) : '—', null),
+            _summaryBlock(AppLocalizations.of(context)!.chartAvg,
+                avgPrice != null ? avgPrice.toStringAsFixed(2) : '—', null),
+            _summaryBlock(
+                AppLocalizations.of(context)!.chartChangeShort,
+                '${change >= 0 ? '+' : ''}${change.toStringAsFixed(2)}',
+                changeColor),
+            _summaryBlock(
+                AppLocalizations.of(context)!.chartChangePercent,
+                '${changePct >= 0 ? '+' : ''}${changePct.toStringAsFixed(2)}%',
+                changeColor),
             _summaryBlock(AppLocalizations.of(context)!.chartVol, volStr, null),
-            _summaryBlock(AppLocalizations.of(context)!.chartTurnover, turnStr, null),
+            _summaryBlock(
+                AppLocalizations.of(context)!.chartTurnover, turnStr, null),
           ],
         ),
       ),
@@ -818,7 +1399,9 @@ class _GenericChartPageState extends State<GenericChartPage>
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(color: ChartTheme.textTertiary, fontSize: 10)),
+          Text(label,
+              style: const TextStyle(
+                  color: ChartTheme.textTertiary, fontSize: 10)),
           const SizedBox(height: 2),
           Text(
             value,
@@ -846,9 +1429,18 @@ class _GenericChartPageState extends State<GenericChartPage>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 2, color: ChartTheme.accentGold)),
+            SizedBox(
+                width: 28,
+                height: 28,
+                child: CircularProgressIndicator(
+                    strokeWidth: 2, color: ChartTheme.accentGold)),
             const SizedBox(height: 12),
-            Text(l10n.chartFetchingWithLabel(label), style: TextStyle(color: ChartTheme.textPrimary, fontSize: 15, fontWeight: FontWeight.w500), textAlign: TextAlign.center),
+            Text(l10n.chartFetchingWithLabel(label),
+                style: TextStyle(
+                    color: ChartTheme.textPrimary,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500),
+                textAlign: TextAlign.center),
           ],
         ),
       ),
@@ -869,9 +1461,15 @@ class _GenericChartPageState extends State<GenericChartPage>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.show_chart_rounded, size: 48, color: ChartTheme.textTertiary),
+            Icon(Icons.show_chart_rounded,
+                size: 48, color: ChartTheme.textTertiary),
             const SizedBox(height: 16),
-            Text(AppLocalizations.of(context)!.chartNoData, style: TextStyle(color: ChartTheme.textPrimary, fontSize: 17, fontWeight: FontWeight.w600), textAlign: TextAlign.center),
+            Text(AppLocalizations.of(context)!.chartNoData,
+                style: TextStyle(
+                    color: ChartTheme.textPrimary,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w600),
+                textAlign: TextAlign.center),
             const SizedBox(height: 8),
             Text(
               AppLocalizations.of(context)!.chartEmptyHint,
@@ -885,13 +1483,20 @@ class _GenericChartPageState extends State<GenericChartPage>
               child: InkWell(
                 onTap: () {
                   setState(() => _loading = true);
-                  _load().then((_) { if (mounted) setState(() => _loading = false); });
+                  _load().then((_) {
+                    if (mounted) setState(() => _loading = false);
+                  });
                 },
                 borderRadius: BorderRadius.circular(ChartTheme.radiusButton),
                 hoverColor: ChartTheme.surfaceHover,
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                  child: Text(AppLocalizations.of(context)!.chartRetry, style: TextStyle(color: ChartTheme.textPrimary, fontSize: 13, fontWeight: FontWeight.w500)),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  child: Text(AppLocalizations.of(context)!.chartRetry,
+                      style: TextStyle(
+                          color: ChartTheme.textPrimary,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500)),
                 ),
               ),
             ),
@@ -953,7 +1558,9 @@ class _GenericChartPageState extends State<GenericChartPage>
       close: close,
       prevClose: prevClose,
       amplitude: amplitude,
-      avgPrice: (high != null && low != null && close != null) ? (high! + low! + close!) / 3 : null,
+      avgPrice: (high != null && low != null && close != null)
+          ? (high! + low! + close!) / 3
+          : null,
       volume: volume,
       turnover: turnover,
     );

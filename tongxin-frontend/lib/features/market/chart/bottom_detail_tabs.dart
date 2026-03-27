@@ -97,7 +97,7 @@ class _BottomDetailTabsState extends State<BottomDetailTabs> {
       } catch (_) {}
     }
     poll();
-    _orderBookTimer = Timer.periodic(const Duration(seconds: 5), (_) => poll());
+    _orderBookTimer = Timer.periodic(const Duration(seconds: 2), (_) => poll());
   }
 
   void _stopOrderBookPolling() {
@@ -225,14 +225,18 @@ class _BottomDetailTabsState extends State<BottomDetailTabs> {
           context,
           loading: _loadingNews,
           items: _news,
-          emptyText: '暂无新闻',
+          emptyText: widget.symbol?.trim().isNotEmpty == true
+              ? '${widget.symbol} 暂无新闻'
+              : '暂无新闻',
         );
       case 4:
         return _buildNewsTab(
           context,
           loading: _loadingAnnouncements,
           items: _announcements,
-          emptyText: '暂无公告',
+          emptyText: widget.symbol?.trim().isNotEmpty == true
+              ? '${widget.symbol} 暂无公告'
+              : '暂无公告',
         );
       default:
         return const SizedBox.shrink();
@@ -383,21 +387,44 @@ class _BottomDetailTabsState extends State<BottomDetailTabs> {
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
       child: Column(
         children: items.take(12).map((item) {
-          return ListTile(
-            dense: true,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-            title: Text(
-              item.title,
-              style: const TextStyle(color: ChartTheme.textPrimary, fontSize: 13),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
+          return Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            decoration: BoxDecoration(
+              color: ChartTheme.surface2,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: ChartTheme.border),
             ),
-            subtitle: Text(
-              '${item.source} · ${_formatTime(item.publishedAt)}',
-              style: const TextStyle(color: ChartTheme.textSecondary, fontSize: 11),
+            child: ListTile(
+              dense: true,
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              title: Text(
+                item.title,
+                style: const TextStyle(
+                  color: ChartTheme.textPrimary,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              subtitle: Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  '${item.source} · ${_formatTime(item.publishedAt)}',
+                  style: const TextStyle(
+                    color: ChartTheme.textSecondary,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+              trailing: const Icon(
+                Icons.open_in_new_rounded,
+                size: 16,
+                color: ChartTheme.textSecondary,
+              ),
+              onTap: () => _openNews(item),
             ),
-            trailing: const Icon(Icons.open_in_new_rounded, size: 16, color: ChartTheme.textSecondary),
-            onTap: () => _openNews(item),
           );
         }).toList(),
       ),

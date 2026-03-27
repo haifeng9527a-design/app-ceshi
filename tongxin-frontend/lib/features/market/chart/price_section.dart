@@ -44,103 +44,151 @@ class PriceSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final isUp = change != null && change! >= 0;
     final color = change != null ? (isUp ? ChartTheme.up : ChartTheme.down) : ChartTheme.textPrimary;
+    final l10n = AppLocalizations.of(context)!;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 14, 12, 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 720;
+          final metricWidth = compact
+              ? (constraints.maxWidth - 10) / 2
+              : (constraints.maxWidth - 30) / 4;
+          final turnoverStr = turnover != null
+              ? _formatLarge(context, turnover!)
+              : (marketCap != null ? _formatLarge(context, marketCap!) : null);
+          final metricItems = [
+            (l10n.chartPriceOpen, open, null as bool?),
+            (l10n.chartPriceHigh, high, true as bool?),
+            (l10n.chartPriceLow, low, false as bool?),
+            (l10n.chartPricePrevClose, prevClose, null as bool?),
+            (l10n.chartPriceTotalTurnover, turnoverStr, null as bool?),
+            (
+              l10n.chartPriceTurnoverRate,
+              turnoverRate != null ? '${turnoverRate!.toStringAsFixed(1)}%' : null,
+              null as bool?
+            ),
+            (
+              l10n.chartPriceAmplitude,
+              amplitude != null ? '${amplitude!.toStringAsFixed(1)}%' : null,
+              null as bool?
+            ),
+          ];
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                currentPrice != null ? ChartTheme.formatPrice(currentPrice!) : '—',
-                style: TextStyle(
-                  color: color,
-                  fontSize: 26,
-                  fontWeight: FontWeight.w700,
-                  fontFamily: ChartTheme.fontMono,
-                  fontFeatures: const [ChartTheme.tabularFigures],
-                ),
-              ),
-              if (change != null || changePercent != null) ...[
-                const SizedBox(width: 10),
-                Icon(
-                  change != null && change! < 0 ? Icons.arrow_drop_down : Icons.arrow_drop_up,
-                  color: color,
-                  size: 20,
-                ),
-                Text(
-                  '${change != null ? (change! >= 0 ? '+' : '') + ChartTheme.formatPrice(change!) : ''} '
-                  '${changePercent != null ? '(${(changePercent! >= 0 ? '+' : '') + changePercent!.toStringAsFixed(2)}%)' : ''}',
-                  style: TextStyle(
-                    color: color,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    fontFamily: ChartTheme.fontMono,
-                    fontFeatures: const [ChartTheme.tabularFigures],
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Expanded(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.baseline,
+                      textBaseline: TextBaseline.alphabetic,
+                      children: [
+                        Flexible(
+                          child: Text(
+                            currentPrice != null
+                                ? ChartTheme.formatPrice(currentPrice!)
+                                : '—',
+                            style: TextStyle(
+                              color: color,
+                              fontSize: 34,
+                              fontWeight: FontWeight.w800,
+                              fontFamily: ChartTheme.fontMono,
+                              fontFeatures: const [ChartTheme.tabularFigures],
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (change != null || changePercent != null) ...[
+                          const SizedBox(width: 10),
+                          Icon(
+                            change != null && change! < 0
+                                ? Icons.south_east_rounded
+                                : Icons.north_east_rounded,
+                            color: color,
+                            size: 18,
+                          ),
+                          const SizedBox(width: 2),
+                          Flexible(
+                            child: Text(
+                              '${change != null ? (change! >= 0 ? '+' : '') + ChartTheme.formatPrice(change!) : ''} '
+                              '${changePercent != null ? '(${(changePercent! >= 0 ? '+' : '') + changePercent!.toStringAsFixed(2)}%)' : ''}',
+                              style: TextStyle(
+                                color: color,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                                fontFamily: ChartTheme.fontMono,
+                                fontFeatures: const [ChartTheme.tabularFigures],
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: metricItems.map((item) {
+                  return SizedBox(
+                    width: metricWidth.clamp(140.0, 220.0),
+                    child: _metricCard(
+                      item.$1,
+                      item.$2,
+                      isUp: item.$3,
+                    ),
+                  );
+                }).toList(),
+              ),
             ],
-          ),
-          const SizedBox(height: 14),
-          Builder(
-            builder: (ctx) {
-              final l10n = AppLocalizations.of(ctx)!;
-              return Row(
-                children: [
-                  _metric(l10n.chartPriceOpen, open),
-                  _metric(l10n.chartPriceHigh, high, isUp: true),
-                  _metric(l10n.chartPriceLow, low, isUp: false),
-                  _metric(l10n.chartPricePrevClose, prevClose),
-                ],
-              );
-            },
-          ),
-          const SizedBox(height: 6),
-          Builder(
-            builder: (ctx) {
-              final l10n = AppLocalizations.of(ctx)!;
-              final turnoverStr = turnover != null ? _formatLarge(ctx, turnover!) : (marketCap != null ? _formatLarge(ctx, marketCap!) : null);
-              return Row(
-                children: [
-                  _metric(l10n.chartPriceTotalTurnover, turnoverStr),
-                  _metric(l10n.chartPriceTurnoverRate, turnoverRate != null ? '${turnoverRate!.toStringAsFixed(1)}%' : null),
-                  _metric(l10n.chartPriceAmplitude, amplitude != null ? '${amplitude!.toStringAsFixed(1)}%' : null),
-                ],
-              );
-            },
-          ),
-        ],
+          );
+        },
       ),
     );
   }
 
-  Widget _metric(String label, dynamic value, {bool? isUp}) {
+  Widget _metricCard(String label, dynamic value, {bool? isUp}) {
     final str = value is double ? ChartTheme.formatPrice(value) : (value is String ? value : '—');
     final valueColor = value == null || value == '—'
         ? ChartTheme.textSecondary
         : (isUp == true ? ChartTheme.up : isUp == false ? ChartTheme.down : ChartTheme.textPrimary);
-    return Expanded(
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: ChartTheme.cardBackground,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: ChartTheme.border.withValues(alpha: 0.9)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(color: ChartTheme.textTertiary, fontSize: 13)),
-          const SizedBox(width: 4),
-          Flexible(
-            child: Text(
-              str,
-              style: TextStyle(
-                color: valueColor,
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-                fontFamily: ChartTheme.fontMono,
-                fontFeatures: const [ChartTheme.tabularFigures],
-              ),
-              overflow: TextOverflow.ellipsis,
+          Text(
+            label,
+            style: const TextStyle(
+              color: ChartTheme.textTertiary,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
             ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            str,
+            style: TextStyle(
+              color: valueColor,
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              fontFamily: ChartTheme.fontMono,
+              fontFeatures: const [ChartTheme.tabularFigures],
+            ),
+            overflow: TextOverflow.ellipsis,
           ),
         ],
       ),

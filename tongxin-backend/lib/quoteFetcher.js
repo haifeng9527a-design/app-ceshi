@@ -36,11 +36,31 @@ function toQuoteSnapshot(q) {
 
 async function fetchOneQuote(polygonKey, original, polygonSym) {
   try {
-    const q = await polygon.getTickerSnapshot(polygonKey, polygonSym);
-    // 有结果就直接返回（含 error_reason 时也能看到「为什么空」）
-    if (q) return toQuoteSnapshot({ ...q, symbol: original });
-    const fallback = await polygon.getQuote(polygonKey, polygonSym);
-    return toQuoteSnapshot({ ...fallback, symbol: original });
+    const [snapshot, quote, prevBar] = await Promise.all([
+      polygon.getTickerSnapshot(polygonKey, polygonSym),
+      polygon.getQuote(polygonKey, polygonSym),
+      polygon.getPrevDayBar(polygonKey, polygonSym),
+    ]);
+    let q = snapshot ? { ...snapshot, symbol: original } : null;
+    if (!q || !(q.price > 0)) {
+      q = {
+        symbol: original,
+        price: quote?.price > 0 ? quote.price : (prevBar?.c || 0),
+        change: quote?.change ?? 0,
+        changePercent: quote?.changePercent ?? 0,
+        prevClose: prevBar?.c ?? null,
+        open: snapshot?.open ?? prevBar?.o ?? null,
+        high: snapshot?.high ?? prevBar?.h ?? null,
+        low: snapshot?.low ?? prevBar?.l ?? null,
+        volume: snapshot?.volume ?? prevBar?.v ?? null,
+        bid: quote?.bid ?? snapshot?.bid ?? null,
+        ask: quote?.ask ?? snapshot?.ask ?? null,
+        bidSize: quote?.bidSize ?? snapshot?.bidSize ?? null,
+        askSize: quote?.askSize ?? snapshot?.askSize ?? null,
+        ...(quote?.price > 0 || prevBar?.c > 0 ? {} : { error_reason: 'Polygon Snapshot 无当日/昨收数据' }),
+      };
+    }
+    return toQuoteSnapshot(q);
   } catch (e) {
     db.recordQuoteFetchFailure(original);
     return toQuoteSnapshot({

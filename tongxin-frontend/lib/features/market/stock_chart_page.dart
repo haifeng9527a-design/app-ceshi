@@ -123,8 +123,6 @@ class _StockChartPageState extends State<StockChartPage>
   Timer? _chartTimer;
   Timer? _autoRetryTimer;
   Map<String, dynamic>? _keyRatios;
-  List<Map<String, dynamic>> _dividends = [];
-  List<Map<String, dynamic>> _splits = [];
   String? _stockName;
   /// 有 symbolList 时用于原地切换，避免 pushReplacement 重建页面
   late String _currentSymbol;
@@ -192,7 +190,6 @@ class _StockChartPageState extends State<StockChartPage>
     _connectRealtime();
     _startRealtimeTimers();
     _loadKeyRatios();
-    _loadCompanyActions();
     if (widget.name == null) _loadStockName();
   }
 
@@ -436,15 +433,6 @@ class _StockChartPageState extends State<StockChartPage>
   Future<void> _loadKeyRatios() async {
     final data = await _market.getKeyRatios(_effectiveSymbol);
     if (mounted) setState(() => _keyRatios = data);
-  }
-
-  Future<void> _loadCompanyActions() async {
-    final div = await _market.getDividends(_effectiveSymbol);
-    final spl = await _market.getSplits(_effectiveSymbol);
-    if (mounted) setState(() {
-      _dividends = div;
-      _splits = spl;
-    });
   }
 
   Future<void> _loadTodayOHLC() async {
@@ -730,8 +718,8 @@ class _StockChartPageState extends State<StockChartPage>
         child: LayoutBuilder(
           builder: (context, constraints) {
             final screenH = MediaQuery.sizeOf(context).height;
-            final fixedChartHeight = (screenH * 0.45).clamp(320.0, 420.0);
-            final detailPanelHeight = (screenH * 0.34).clamp(240.0, 360.0);
+            final fixedChartHeight = (screenH * 0.42).clamp(300.0, 390.0);
+            final detailPanelHeight = (screenH * 0.30).clamp(220.0, 300.0);
             final availableHeight = fixedChartHeight - _chartContainerPaddingV - _intradayChartPaddingV - 8;
             final contentHeight = availableHeight.clamp(160.0, double.infinity);
             final contentHeightIntraday = contentHeight.clamp(180.0, double.infinity);
@@ -819,7 +807,7 @@ class _StockChartPageState extends State<StockChartPage>
                     if (widget.isMockData) _buildMockBanner(),
                     TvChartContainer(
                       edgeToEdge: true,
-                      padding: const EdgeInsets.fromLTRB(0, 6, 0, 16),
+                      padding: const EdgeInsets.fromLTRB(0, 4, 0, 10),
                       child: SizedBox(
                         height: fixedChartHeight,
                         child: ClipRect(
@@ -841,51 +829,11 @@ class _StockChartPageState extends State<StockChartPage>
                         klineCandles: _candlesKLine,
                       ),
                     ),
-                    if (_dividends.isNotEmpty || _splits.isNotEmpty) _buildCompanyActionsSection(),
                   ],
                 ),
               ),
             );
           },
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCompanyActionsSection() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(ChartTheme.pagePadding, 12, ChartTheme.pagePadding, 18),
-      decoration: const BoxDecoration(
-        color: ChartTheme.cardBackground,
-        border: Border(top: BorderSide(color: ChartTheme.border, width: 0.5)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(AppLocalizations.of(context)!.chartCompanyActions, style: TextStyle(color: ChartTheme.textSecondary, fontSize: 13, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 8),
-            if (_dividends.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Text(
-                  '${AppLocalizations.of(context)!.chartDividends}: ${_dividends.take(3).map((d) => '${d['ex_dividend_date'] ?? d['pay_date']} \$${d['cash_amount']}').join(' · ')}${_dividends.length > 3 ? ' …' : ''}',
-                  style: TextStyle(color: ChartTheme.textPrimary, fontSize: 14),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            if (_splits.isNotEmpty)
-              Text(
-                '${AppLocalizations.of(context)!.chartSplits}: ${_splits.take(3).map((s) => '${s['execution_date']} ${s['split_from']}:${s['split_to']}').join(' · ')}${_splits.length > 3 ? ' …' : ''}',
-                style: TextStyle(color: ChartTheme.textPrimary, fontSize: 14),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-          ],
         ),
       ),
     );

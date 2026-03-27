@@ -84,10 +84,11 @@ class _DetailHeaderState extends State<DetailHeader> {
 
   @override
   Widget build(BuildContext context) {
+    final subtitle = (widget.name ?? widget.exchangeOrName)?.trim();
     return SafeArea(
       bottom: false,
       child: SizedBox(
-        height: ChartTheme.topBarHeight,
+        height: 68,
         child: Material(
           color: ChartTheme.background,
           child: DecoratedBox(
@@ -115,40 +116,61 @@ class _DetailHeaderState extends State<DetailHeader> {
                         }
                       },
                       behavior: HitTestBehavior.opaque,
-                      child: Row(
+                      child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
-                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          if (widget.onPrev != null) ...[
-                            _iconButton(
-                              icon: Icons.chevron_left,
-                              size: 24,
-                              onPressed: widget.onPrev!,
-                            ),
-                            const SizedBox(width: 4),
-                          ],
-                          Flexible(
-                            child: Text(
-                              widget.symbol,
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (widget.onPrev != null) ...[
+                                _iconButton(
+                                  icon: Icons.chevron_left,
+                                  size: 26,
+                                  onPressed: widget.onPrev!,
+                                ),
+                                const SizedBox(width: 4),
+                              ],
+                              Flexible(
+                                child: Text(
+                                  widget.symbol,
+                                  style: const TextStyle(
+                                    color: ChartTheme.up,
+                                    fontSize: 28,
+                                    fontWeight: FontWeight.w800,
+                                    fontFamily: ChartTheme.fontMono,
+                                    fontFeatures: [ChartTheme.tabularFigures],
+                                    letterSpacing: 0.6,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.center,
+                                ),
+                              ),
+                              if (widget.onNext != null) ...[
+                                const SizedBox(width: 4),
+                                _iconButton(
+                                  icon: Icons.chevron_right,
+                                  size: 26,
+                                  onPressed: widget.onNext!,
+                                ),
+                              ],
+                            ],
+                          ),
+                          if (subtitle != null &&
+                              subtitle.isNotEmpty &&
+                              subtitle.toUpperCase() != widget.symbol.toUpperCase()) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              subtitle,
                               style: const TextStyle(
-                                color: ChartTheme.up,
-                                fontSize: 24,
-                                fontWeight: FontWeight.w700,
-                                fontFamily: ChartTheme.fontMono,
-                                fontFeatures: [ChartTheme.tabularFigures],
-                                letterSpacing: 1.0,
+                                color: ChartTheme.textSecondary,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
                               ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               textAlign: TextAlign.center,
-                            ),
-                          ),
-                          if (widget.onNext != null) ...[
-                            const SizedBox(width: 4),
-                            _iconButton(
-                              icon: Icons.chevron_right,
-                              size: 24,
-                              onPressed: widget.onNext!,
                             ),
                           ],
                         ],
@@ -187,8 +209,8 @@ class _DetailHeaderState extends State<DetailHeader> {
         onTap: onPressed,
         borderRadius: BorderRadius.circular(ChartTheme.radiusButton),
         child: SizedBox(
-          width: 32,
-          height: 32,
+          width: 36,
+          height: 36,
           child: Center(
             child: Icon(icon, size: size, color: color ?? ChartTheme.textPrimary),
           ),
