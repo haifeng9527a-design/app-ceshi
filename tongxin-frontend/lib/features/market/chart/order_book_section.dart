@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../l10n/app_localizations.dart';
+import '../market_repository.dart';
 import 'chart_theme.dart';
 
 /// 盘口/委托簿（与特斯拉图完全一致）：卖价/数量/买价/数量，卖档红底渐变、买档绿底渐变
@@ -8,11 +9,15 @@ class OrderBookSection extends StatelessWidget {
   const OrderBookSection({
     super.key,
     required this.currentPrice,
+    this.quote,
+    this.symbol,
     this.bids = const [],
     this.asks = const [],
   });
 
   final double? currentPrice;
+  final MarketQuote? quote;
+  final String? symbol;
   /// 买盘 [(price, qty), ...] 从高到低
   final List<(double, int)> bids;
   /// 卖盘 [(price, qty), ...] 从低到高
@@ -20,8 +25,12 @@ class OrderBookSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final topAsk = asks.isNotEmpty ? asks.first : null;
-    final topBid = bids.isNotEmpty ? bids.first : null;
+    final topAsk = asks.isNotEmpty
+        ? asks.first
+        : (quote?.ask != null ? (quote!.ask!, quote?.askSize ?? 0) : null);
+    final topBid = bids.isNotEmpty
+        ? bids.first
+        : (quote?.bid != null ? (quote!.bid!, quote?.bidSize ?? 0) : null);
     final spread = (topAsk != null && topBid != null)
         ? topAsk.$1 - topBid.$1
         : null;
@@ -74,22 +83,7 @@ class OrderBookSection extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           if (rows.isEmpty)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-              decoration: BoxDecoration(
-                color: ChartTheme.surface2,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: ChartTheme.border),
-              ),
-              child: const Text(
-                '当前数据源仅提供实时买一/卖一，暂无更多盘口深度。',
-                style: TextStyle(
-                  color: ChartTheme.textSecondary,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            )
+            _fallbackSnapshotCard()
           else
             ...rows.asMap().entries.map((entry) => _orderRow(
                   sellPrice: entry.value.sellPrice,
@@ -98,6 +92,89 @@ class OrderBookSection extends StatelessWidget {
                   buyQty: entry.value.buyQty,
                   rowIndex: entry.key,
                 )),
+        ],
+      ),
+    );
+  }
+
+  Widget _fallbackSnapshotCard() {
+    final q = quote;
+    final prevClose = q?.prevClose ??
+        ((q != null && q.change != 0) ? (q.price - q.change) : null);
+    final turnover = (q != null &&
+            q.volume != null &&
+            q.volume! > 0 &&
+            q.price > 0)
+        ? q.volume! * q.price
+        : null;
+    final items = <(String, String, Color?)>[
+      ('最新价', currentPrice != null ? ChartTheme.formatPrice(currentPrice!) : '—', ChartTheme.textPrimary),
+      ('今开', q?.open != null ? ChartTheme.formatPrice(q!.open!) : '—', null),
+      ('昨收', prevClose != null ? ChartTheme.formatPrice(prevClose) : '—', null),
+      ('最高', q?.high != null ? ChartTheme.formatPrice(q!.high!) : '—', ChartTheme.up),
+      ('最低', q?.low != null ? ChartTheme.formatPrice(q!.low!) : '—', ChartTheme.down),
+      ('成交量', _formatCompactVolume(q?.volume), null),
+      ('成交额', _formatCompactTurnover(turnover), null),
+      ('代码', (symbol == null || symbol!.trim().isEmpty) ? '—' : symbol!.trim().toUpperCase(), null),
+    ];
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+      decoration: BoxDecoration(
+        color: ChartTheme.surface2,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: ChartTheme.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            '当前数据源暂无盘口深度，已回退显示可获取的实时快照。',
+            style: TextStyle(
+              color: ChartTheme.textSecondary,
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: items.map((item) {
+              return SizedBox(
+                width: 148,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: ChartTheme.cardBackground,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: ChartTheme.border),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.$1,
+                        style: const TextStyle(
+                          color: ChartTheme.textTertiary,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        item.$2,
+                        style: TextStyle(
+                          color: item.$3 ?? ChartTheme.textPrimary,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
         ],
       ),
     );
@@ -188,6 +265,20 @@ class OrderBookSection extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  String _formatCompactVolume(int? volume) {
+    if (volume == null || volume <= 0) return '—';
+    if (volume >= 100000000) return '${(volume / 100000000).toStringAsFixed(2)}亿';
+    if (volume >= 10000) return '${(volume / 10000).toStringAsFixed(2)}万';
+    return volume.toString();
+  }
+
+  String _formatCompactTurnover(double? turnover) {
+    if (turnover == null || turnover <= 0) return '—';
+    if (turnover >= 100000000) return '${(turnover / 100000000).toStringAsFixed(2)}亿';
+    if (turnover >= 10000) return '${(turnover / 10000).toStringAsFixed(2)}万';
+    return turnover.toStringAsFixed(0);
   }
 
   Widget _headerRow(BuildContext context) {

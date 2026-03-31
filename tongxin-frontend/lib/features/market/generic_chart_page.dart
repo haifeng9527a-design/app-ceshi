@@ -341,10 +341,17 @@ class _GenericChartPageState extends State<GenericChartPage>
     final minuteSec =
         ((DateTime.now().millisecondsSinceEpoch ~/ 60000) * 60).toDouble();
     final price = u.price;
+    final open = prev?.open ??
+        (_daily.isNotEmpty ? _daily.last.open : (_intraday.isNotEmpty ? _intraday.first.open : price));
     final high =
         prev?.high != null ? (price > prev!.high! ? price : prev.high) : price;
     final low =
         prev?.low != null ? (price < prev!.low! ? price : prev.low) : price;
+    final bid = prev?.bid;
+    final ask = prev?.ask;
+    final bidSize = prev?.bidSize;
+    final askSize = prev?.askSize;
+    final volume = prev?.volume;
 
     setState(() {
       _lastQuoteUpdatedAt = DateTime.now();
@@ -354,10 +361,14 @@ class _GenericChartPageState extends State<GenericChartPage>
         price: price,
         change: change,
         changePercent: changePercent,
-        open: prev?.open,
+        open: open,
         high: high,
         low: low,
-        volume: prev?.volume,
+        volume: volume,
+        bid: bid,
+        ask: ask,
+        bidSize: bidSize,
+        askSize: askSize,
         prevClose: prevClose,
       );
 
@@ -461,11 +472,11 @@ class _GenericChartPageState extends State<GenericChartPage>
   void _startRealtimeTimers() {
     _quoteTimer?.cancel();
     _chartTimer?.cancel();
-    _quoteTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+    _quoteTimer = Timer.periodic(const Duration(milliseconds: 800), (_) {
       if (!mounted) return;
       _refreshQuoteSilently();
     });
-    _chartTimer = Timer.periodic(const Duration(seconds: 12), (_) {
+    _chartTimer = Timer.periodic(const Duration(seconds: 6), (_) {
       if (!mounted) return;
       _refreshQuoteSilently();
       _refreshChartsSilently();
@@ -886,10 +897,11 @@ class _GenericChartPageState extends State<GenericChartPage>
         borderRadius: BorderRadius.circular(18),
         child: BottomDetailTabs(
           symbol: _effectiveSymbol,
-          currentPrice: currentPrice,
-          overlayIndicator: _overlayIndicator,
-          subChartIndicator: _subChartIndicator,
-          showPrevCloseLine: _showPrevCloseLine,
+                          currentPrice: currentPrice,
+                          quote: q,
+                          overlayIndicator: _overlayIndicator,
+                          subChartIndicator: _subChartIndicator,
+                          showPrevCloseLine: _showPrevCloseLine,
           onOverlayChanged: (v) => setState(() => _overlayIndicator = v),
           onSubChartChanged: (v) => setState(() => _subChartIndicator = v),
           onShowPrevCloseLineChanged: (v) =>
@@ -911,6 +923,24 @@ class _GenericChartPageState extends State<GenericChartPage>
     final priceColor = change == null
         ? ChartTheme.textPrimary
         : (isUp ? ChartTheme.up : ChartTheme.down);
+    final turnover = (q != null &&
+            !q.hasError &&
+            q.volume != null &&
+            q.volume! > 0 &&
+            (currentPrice ?? 0) > 0)
+        ? q.volume! * (currentPrice ?? 0)
+        : null;
+    final hasOrderBook = q?.ask != null || q?.bid != null;
+    final topLeftLabel = hasOrderBook ? '卖一' : '成交量';
+    final topLeftValue = hasOrderBook
+        ? (q?.ask != null ? ChartTheme.formatPrice(q!.ask!) : '—')
+        : _formatCompactVolume(q?.volume);
+    final topRightLabel = hasOrderBook ? '买一' : '成交额';
+    final topRightValue = hasOrderBook
+        ? (q?.bid != null ? ChartTheme.formatPrice(q!.bid!) : '—')
+        : _formatCompactTurnover(turnover);
+    final topLeftColor = hasOrderBook ? ChartTheme.down : ChartTheme.textPrimary;
+    final topRightColor = hasOrderBook ? ChartTheme.up : ChartTheme.accentGold;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
@@ -962,17 +992,17 @@ class _GenericChartPageState extends State<GenericChartPage>
             children: [
               Expanded(
                 child: _sidebarMetric(
-                  '卖一',
-                  q?.ask != null ? ChartTheme.formatPrice(q!.ask!) : '—',
-                  valueColor: ChartTheme.down,
+                  topLeftLabel,
+                  topLeftValue,
+                  valueColor: topLeftColor,
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: _sidebarMetric(
-                  '买一',
-                  q?.bid != null ? ChartTheme.formatPrice(q!.bid!) : '—',
-                  valueColor: ChartTheme.up,
+                  topRightLabel,
+                  topRightValue,
+                  valueColor: topRightColor,
                 ),
               ),
             ],
@@ -1057,6 +1087,20 @@ class _GenericChartPageState extends State<GenericChartPage>
         ],
       ),
     );
+  }
+
+  String _formatCompactVolume(int? volume) {
+    if (volume == null || volume <= 0) return '—';
+    if (volume >= 100000000) return '${(volume / 100000000).toStringAsFixed(2)}亿';
+    if (volume >= 10000) return '${(volume / 10000).toStringAsFixed(2)}万';
+    return volume.toString();
+  }
+
+  String _formatCompactTurnover(double? turnover) {
+    if (turnover == null || turnover <= 0) return '—';
+    if (turnover >= 100000000) return '${(turnover / 100000000).toStringAsFixed(2)}亿';
+    if (turnover >= 10000) return '${(turnover / 10000).toStringAsFixed(2)}万';
+    return turnover.toStringAsFixed(0);
   }
 
   String? _statusLabel() {

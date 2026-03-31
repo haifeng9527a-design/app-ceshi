@@ -14,6 +14,7 @@ class BottomDetailTabs extends StatefulWidget {
   const BottomDetailTabs({
     super.key,
     required this.currentPrice,
+    this.quote,
     this.symbol,
     this.overlayIndicator = 'none',
     this.subChartIndicator = 'vol',
@@ -25,6 +26,7 @@ class BottomDetailTabs extends StatefulWidget {
   });
 
   final double? currentPrice;
+  final MarketQuote? quote;
   /// 股票代码，用于盘口 Tab 定时拉取买一/卖一
   final String? symbol;
   final String overlayIndicator;
@@ -97,7 +99,7 @@ class _BottomDetailTabsState extends State<BottomDetailTabs> {
       } catch (_) {}
     }
     poll();
-    _orderBookTimer = Timer.periodic(const Duration(seconds: 2), (_) => poll());
+    _orderBookTimer = Timer.periodic(const Duration(seconds: 1), (_) => poll());
   }
 
   void _stopOrderBookPolling() {
@@ -204,6 +206,8 @@ class _BottomDetailTabsState extends State<BottomDetailTabs> {
         return OrderBookSection(
           key: const ValueKey('orderbook'),
           currentPrice: widget.currentPrice,
+          quote: widget.quote,
+          symbol: widget.symbol,
           bids: _bids,
           asks: _asks,
         );
