@@ -309,7 +309,7 @@ class BackendMarketClient {
     required int page,
     int pageSize = 30,
   }) async {
-    final cacheKey = 'backend_crypto_pairs_${page}_$pageSize';
+    final cacheKey = 'backend_crypto_pairs_v2_${page}_$pageSize';
     final cached = await _cache.get(cacheKey, maxAge: _cryptoPairsMaxAge);
     if (cached is Map<String, dynamic>) {
       final parsed = BackendCryptoPairsPage.fromJson(cached);

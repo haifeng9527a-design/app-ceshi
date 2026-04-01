@@ -288,11 +288,28 @@ async function getTradingPairs() {
       lastPrice: Number(ticker?.lastPrice || 0) || null,
     });
   }
-  out.sort((a, b) => {
+  const deduped = new Map();
+  for (const item of out) {
+    const existing = deduped.get(item.symbol);
+    if (!existing) {
+      deduped.set(item.symbol, item);
+      continue;
+    }
+    if ((item.quoteVolume || 0) > (existing.quoteVolume || 0)) {
+      deduped.set(item.symbol, item);
+      continue;
+    }
+    if ((item.quoteVolume || 0) === (existing.quoteVolume || 0) &&
+        String(item.exchangeSymbol).localeCompare(String(existing.exchangeSymbol)) < 0) {
+      deduped.set(item.symbol, item);
+    }
+  }
+  const normalized = [...deduped.values()];
+  normalized.sort((a, b) => {
     if (b.quoteVolume !== a.quoteVolume) return b.quoteVolume - a.quoteVolume;
     return a.symbol.localeCompare(b.symbol);
   });
-  return out;
+  return normalized;
 }
 
 module.exports = {

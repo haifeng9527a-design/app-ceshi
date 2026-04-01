@@ -6130,7 +6130,7 @@ class _ForexTabState extends State<_ForexTab> {
   }
 }
 
-// ---------- 加密货币：Twelve Data ----------
+// ---------- 加密货币：Binance ----------
 
 class _CryptoTab extends StatefulWidget {
   const _CryptoTab();
@@ -6272,24 +6272,16 @@ class _CryptoTabState extends State<_CryptoTab> {
       });
     }
     if (!_market.cryptoBackendAvailable) {
-      final directQuotes =
-          await _market.getQuotes(_coins.map((e) => e.$2).toList());
-      if (directQuotes.isNotEmpty) {
-        _rebuildCoinSymbolLookup();
-        _attemptedSymbols.addAll(_coins.map((e) => e.$2));
-        if (mounted) {
-          setState(() {
-            _quotes = directQuotes;
-            _isMockData = false;
-            _loading = false;
-          });
-        }
-        _startCryptoRealtimeAndSubscribeCurrentPairs();
-        return;
+      _coins = List<(String, String)>.from(_fallbackCoins);
+      _rebuildCoinSymbolLookup();
+      _attemptedSymbols.addAll(_coins.map((e) => e.$2));
+      if (mounted) {
+        setState(() {
+          _quotes = <String, MarketQuote?>{};
+          _hasMoreCoins = false;
+          _loading = false;
+        });
       }
-      if (_quotes.isEmpty) _applyMockCrypto();
-      _startCryptoRealtimeAndSubscribeCurrentPairs();
-      if (mounted) setState(() => _loading = false);
       return;
     }
 
@@ -6308,9 +6300,6 @@ class _CryptoTabState extends State<_CryptoTab> {
       _coins.map((e) => e.$2).toList(),
       reset: false,
     );
-    if (!_hasAnyValidQuotes) {
-      _applyMockCrypto();
-    }
     _startCryptoRealtimeAndSubscribeCurrentPairs();
     if (mounted) {
       setState(() => _loading = false);
@@ -6589,7 +6578,6 @@ class _CryptoTabState extends State<_CryptoTab> {
         controller: _scrollController,
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
         children: [
-          if (_isMockData) _cryptoMockBanner(context),
           _buildTradableCryptoSection(context, sorted),
         ],
       ),
