@@ -897,11 +897,11 @@ class _GenericChartPageState extends State<GenericChartPage>
         borderRadius: BorderRadius.circular(18),
         child: BottomDetailTabs(
           symbol: _effectiveSymbol,
-                          currentPrice: currentPrice,
-                          quote: q,
-                          overlayIndicator: _overlayIndicator,
-                          subChartIndicator: _subChartIndicator,
-                          showPrevCloseLine: _showPrevCloseLine,
+          currentPrice: currentPrice,
+          quote: _quote,
+          overlayIndicator: _overlayIndicator,
+          subChartIndicator: _subChartIndicator,
+          showPrevCloseLine: _showPrevCloseLine,
           onOverlayChanged: (v) => setState(() => _overlayIndicator = v),
           onSubChartChanged: (v) => setState(() => _subChartIndicator = v),
           onShowPrevCloseLineChanged: (v) =>

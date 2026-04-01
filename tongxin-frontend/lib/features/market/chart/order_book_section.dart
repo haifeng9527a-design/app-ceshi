@@ -30,8 +30,10 @@ class OrderBookSection extends StatelessWidget {
         : (quote?.bid != null ? (quote!.bid!, quote?.bidSize ?? 0) : null);
     final spread =
         topAsk != null && topBid != null ? topAsk.$1 - topBid.$1 : null;
-    final rows = <({double? askPrice, int? askQty, double? bidPrice, int? bidQty})>[];
-    final maxDepth = [asks.length, bids.length].fold<int>(0, (a, b) => a > b ? a : b);
+    final rows =
+        <({double? askPrice, int? askQty, double? bidPrice, int? bidQty})>[];
+    final maxDepth =
+        [asks.length, bids.length].fold<int>(0, (a, b) => a > b ? a : b);
     for (var i = 0; i < maxDepth && i < 5; i++) {
       rows.add((
         askPrice: i < asks.length ? asks[i].$1 : null,
@@ -85,7 +87,10 @@ class OrderBookSection extends StatelessWidget {
           _headerRow(context),
           const SizedBox(height: 8),
           if (rows.isEmpty)
-            _fallbackSnapshotCard()
+            _fallbackSnapshotCard(
+              hasTopLevelSnapshot:
+                  topAsk != null || topBid != null || spread != null,
+            )
           else
             ...rows.map(_depthRow),
         ],
@@ -93,22 +98,39 @@ class OrderBookSection extends StatelessWidget {
     );
   }
 
-  Widget _fallbackSnapshotCard() {
+  Widget _fallbackSnapshotCard({required bool hasTopLevelSnapshot}) {
     final q = quote;
-    final prevClose = q?.prevClose ??
-        ((q != null && q.change != 0) ? (q.price - q.change) : null);
-    final turnover = (q != null && q.volume != null && q.volume! > 0 && q.price > 0)
-        ? q.volume! * q.price
-        : null;
+    final prevClose =
+        q?.prevClose ?? ((q != null && q.change != 0) ? (q.price - q.change) : null);
+    final turnover =
+        (q != null && q.volume != null && q.volume! > 0 && q.price > 0)
+            ? q.volume! * q.price
+            : null;
     final items = <(String, String, Color?)>[
-      ('最新价', currentPrice != null ? ChartTheme.formatPrice(currentPrice!) : '--', ChartTheme.textPrimary),
-      ('今开', q?.open != null ? ChartTheme.formatPrice(q!.open!) : '--', null),
-      ('昨收', prevClose != null ? ChartTheme.formatPrice(prevClose) : '--', null),
-      ('最高', q?.high != null ? ChartTheme.formatPrice(q!.high!) : '--', ChartTheme.up),
-      ('最低', q?.low != null ? ChartTheme.formatPrice(q!.low!) : '--', ChartTheme.down),
-      ('成交量', _formatCompactVolume(q?.volume), null),
-      ('成交额', _formatCompactTurnover(turnover), null),
-      ('代码', (symbol == null || symbol!.trim().isEmpty) ? '--' : symbol!.trim().toUpperCase(), null),
+      (
+        'Last',
+        currentPrice != null ? ChartTheme.formatPrice(currentPrice!) : '--',
+        ChartTheme.textPrimary,
+      ),
+      (
+        'Open',
+        q?.open != null ? ChartTheme.formatPrice(q!.open!) : '--',
+        null,
+      ),
+      (
+        'Prev Close',
+        prevClose != null ? ChartTheme.formatPrice(prevClose) : '--',
+        null,
+      ),
+      ('Volume', _formatCompactVolume(q?.volume), null),
+      ('Turnover', _formatCompactTurnover(turnover), null),
+      (
+        'Symbol',
+        (symbol == null || symbol!.trim().isEmpty)
+            ? '--'
+            : symbol!.trim().toUpperCase(),
+        null,
+      ),
     ];
 
     return Container(
@@ -121,53 +143,70 @@ class OrderBookSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            '当前数据源暂无盘口深度，已回退显示可获取的实时快照。',
-            style: TextStyle(
-              color: ChartTheme.textSecondary,
-              fontSize: 13,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: items.map((item) {
-              return SizedBox(
-                width: 148,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: ChartTheme.cardBackground,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: ChartTheme.borderSubtle),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        item.$1,
-                        style: const TextStyle(
-                          color: ChartTheme.textTertiary,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        item.$2,
-                        style: TextStyle(
-                          color: item.$3 ?? ChartTheme.textPrimary,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
+          Row(
+            children: const [
+              Icon(
+                Icons.info_outline,
+                size: 16,
+                color: ChartTheme.textSecondary,
+              ),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Full order-book depth is unavailable from the current feed. Showing the realtime snapshot that is available.',
+                  style: TextStyle(
+                    color: ChartTheme.textSecondary,
+                    fontSize: 13,
                   ),
                 ),
-              );
-            }).toList(),
+              ),
+            ],
           ),
+          if (!hasTopLevelSnapshot) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: items.map((item) {
+                return SizedBox(
+                  width: 148,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: ChartTheme.cardBackground,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: ChartTheme.borderSubtle),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          item.$1,
+                          style: const TextStyle(
+                            color: ChartTheme.textTertiary,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          item.$2,
+                          style: TextStyle(
+                            color: item.$3 ?? ChartTheme.textPrimary,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ],
         ],
       ),
     );
@@ -199,9 +238,9 @@ class OrderBookSection extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            price != null ? ChartTheme.formatPrice(price) : '—',
+            price != null ? ChartTheme.formatPrice(price) : '--',
             style: TextStyle(
-              color: color,
+              color: price != null ? color : ChartTheme.textSecondary,
               fontSize: 16,
               fontWeight: FontWeight.w700,
               fontFamily: ChartTheme.fontMono,
@@ -268,7 +307,7 @@ class OrderBookSection extends StatelessWidget {
 
   Widget _priceCell(double? value, Color color) {
     return Text(
-      value != null ? ChartTheme.formatPrice(value) : '—',
+      value != null ? ChartTheme.formatPrice(value) : '--',
       textAlign: TextAlign.center,
       style: TextStyle(
         color: value != null ? color : ChartTheme.textSecondary,
@@ -282,7 +321,7 @@ class OrderBookSection extends StatelessWidget {
 
   Widget _qtyCell(int? value) {
     return Text(
-      value?.toString() ?? '—',
+      value?.toString() ?? '--',
       textAlign: TextAlign.center,
       style: const TextStyle(
         color: ChartTheme.textPrimary,
