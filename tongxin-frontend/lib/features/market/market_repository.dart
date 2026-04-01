@@ -1157,12 +1157,12 @@ class MarketRepository {
     return getQuotes(symbols);
   }
 
-  Future<({List<(double, int)> bids, List<(double, int)> asks})> getCryptoDepth(
+  Future<BackendCryptoDepth> getCryptoDepth(
     String symbol, {
     int limit = 5,
   }) async {
     if (_backend == null) {
-      return (bids: const <(double, int)>[], asks: const <(double, int)>[]);
+      return const BackendCryptoDepth(bids: [], asks: []);
     }
     return _backend!.getCryptoDepth(symbol, limit: limit);
   }

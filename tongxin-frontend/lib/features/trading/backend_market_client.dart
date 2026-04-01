@@ -375,7 +375,7 @@ class BackendMarketClient {
     }
   }
 
-  Future<({List<(double, int)> bids, List<(double, int)> asks})> getCryptoDepth(
+  Future<BackendCryptoDepth> getCryptoDepth(
     String symbol, {
     int limit = 5,
   }) async {
@@ -391,11 +391,11 @@ class BackendMarketClient {
         onTimeout: () => throw Exception('请求超时'),
       );
       if (resp.statusCode != 200) {
-        return (bids: const <(double, int)>[], asks: const <(double, int)>[]);
+        return const BackendCryptoDepth(bids: [], asks: []);
       }
       final map = jsonDecode(resp.body) as Map<String, dynamic>?;
       if (map == null) {
-        return (bids: const <(double, int)>[], asks: const <(double, int)>[]);
+        return const BackendCryptoDepth(bids: [], asks: []);
       }
       List<(double, int)> parseSide(dynamic raw) {
         if (raw is! List) return const <(double, int)>[];
@@ -410,12 +410,12 @@ class BackendMarketClient {
         return out;
       }
 
-      return (
+      return BackendCryptoDepth(
         bids: parseSide(map['bids']),
         asks: parseSide(map['asks']),
       );
     } catch (_) {
-      return (bids: const <(double, int)>[], asks: const <(double, int)>[]);
+      return const BackendCryptoDepth(bids: [], asks: []);
     }
   }
 
@@ -977,6 +977,16 @@ class BackendCryptoPairsPage {
       hasMore: m['hasMore'] == true,
     );
   }
+}
+
+class BackendCryptoDepth {
+  const BackendCryptoDepth({
+    required this.bids,
+    required this.asks,
+  });
+
+  final List<(double, int)> bids;
+  final List<(double, int)> asks;
 }
 
 class BackendStockTickersPage {

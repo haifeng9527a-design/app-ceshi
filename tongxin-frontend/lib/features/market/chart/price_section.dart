@@ -4,6 +4,14 @@ import '../../../l10n/app_localizations.dart';
 import 'chart_theme.dart';
 
 /// Price summary section shared by stock and crypto detail pages.
+class _MetricItem {
+  const _MetricItem(this.label, this.value, this.isUp);
+
+  final String label;
+  final dynamic value;
+  final bool? isUp;
+}
+
 class PriceSection extends StatelessWidget {
   const PriceSection({
     super.key,
@@ -83,23 +91,23 @@ class PriceSection extends StatelessWidget {
           final turnoverStr = turnover != null
               ? _formatLarge(context, turnover!)
               : (marketCap != null ? _formatLarge(context, marketCap!) : null);
-          final metricItems = <(String, dynamic, bool?)>[
-            (openLabel ?? l10n.chartPriceOpen, open, null),
-            (highLabel ?? l10n.chartPriceHigh, high, true),
-            (lowLabel ?? l10n.chartPriceLow, low, false),
-            (prevCloseLabel ?? l10n.chartPricePrevClose, prevClose, null),
-            (turnoverLabel ?? l10n.chartPriceTotalTurnover, turnoverStr, null),
-            (
+          final metricItems = <_MetricItem>[
+            _MetricItem(openLabel ?? l10n.chartPriceOpen, open, null),
+            _MetricItem(highLabel ?? l10n.chartPriceHigh, high, true),
+            _MetricItem(lowLabel ?? l10n.chartPriceLow, low, false),
+            _MetricItem(prevCloseLabel ?? l10n.chartPricePrevClose, prevClose, null),
+            _MetricItem(turnoverLabel ?? l10n.chartPriceTotalTurnover, turnoverStr, null),
+            _MetricItem(
               turnoverRateLabel ?? l10n.chartPriceTurnoverRate,
               turnoverRate != null ? '${turnoverRate!.toStringAsFixed(1)}%' : null,
               null,
             ),
-            (
+            _MetricItem(
               amplitudeLabel ?? l10n.chartPriceAmplitude,
               amplitude != null ? '${amplitude!.toStringAsFixed(1)}%' : null,
               null,
             ),
-          ].where((item) => !hideNullMetrics || item.$2 != null).toList();
+          ].where((item) => !hideNullMetrics || item.value != null).toList();
 
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -167,9 +175,9 @@ class PriceSection extends StatelessWidget {
                   return SizedBox(
                     width: metricWidth.clamp(140.0, 220.0),
                     child: _metricCard(
-                      item.$1,
-                      item.$2,
-                      isUp: item.$3,
+                      item.label,
+                      item.value,
+                      isUp: item.isUp,
                     ),
                   );
                 }).toList(),
