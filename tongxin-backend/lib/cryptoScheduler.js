@@ -1,4 +1,5 @@
-const twelveData = require('./twelveData');
+const binance = require('./binance');
+const { toQuoteSnapshot } = require('./quoteFetcher');
 const supabaseCryptoCache = require('./supabaseCryptoCache');
 
 const CRYPTO_METADATA_REFRESH_MS = Math.max(
@@ -6,10 +7,10 @@ const CRYPTO_METADATA_REFRESH_MS = Math.max(
   parseInt(process.env.CRYPTO_METADATA_REFRESH_MS || `${60 * 60 * 1000}`, 10),
 );
 const CRYPTO_QUOTES_REFRESH_MS = Math.max(
-  5 * 60 * 1000,
-  parseInt(process.env.CRYPTO_QUOTES_REFRESH_MS || `${60 * 60 * 1000}`, 10),
+  60 * 1000,
+  parseInt(process.env.CRYPTO_QUOTES_REFRESH_MS || `${5 * 60 * 1000}`, 10),
 );
-const CRYPTO_QUOTES_BATCH_SIZE = Math.max(1, parseInt(process.env.CRYPTO_QUOTES_BATCH_SIZE || '80', 10));
+const CRYPTO_QUOTES_BATCH_SIZE = Math.max(1, Math.min(parseInt(process.env.CRYPTO_QUOTES_BATCH_SIZE || '80', 10), 100));
 const CRYPTO_CHUNK_DELAY_MS = Math.max(0, parseInt(process.env.CRYPTO_CHUNK_DELAY_MS || '120', 10));
 
 let pairsTimer = null;
@@ -17,27 +18,22 @@ let quotesTimer = null;
 let refreshingPairs = false;
 let refreshingQuotes = false;
 
-function toQuoteSnapshot(symbol, q) {
-  return {
-    symbol,
-    close: q.close ?? 0,
-    change: q.change ?? 0,
-    percent_change: q.percent_change ?? 0,
-    open: q.open ?? null,
-    high: q.high ?? null,
-    low: q.low ?? null,
-    volume: q.volume ?? null,
-  };
+function chunkArray(list, size) {
+  const out = [];
+  for (let i = 0; i < list.length; i += size) {
+    out.push(list.slice(i, i + size));
+  }
+  return out;
 }
 
-async function refreshCryptoPairs(apiKey) {
-  if (!apiKey || refreshingPairs || !supabaseCryptoCache.isConfigured()) return;
+async function refreshCryptoPairs() {
+  if (refreshingPairs || !supabaseCryptoCache.isConfigured()) return;
   refreshingPairs = true;
   try {
-    const pairs = await twelveData.getCryptoPairs(apiKey);
+    const pairs = await binance.getTradingPairs();
     if (pairs.length > 0) {
       await supabaseCryptoCache.upsertCryptoPairs(pairs);
-      console.log(`[cryptoScheduler] refreshed crypto pairs: ${pairs.length}`);
+      console.log(`[cryptoScheduler] refreshed crypto pairs from Binance: ${pairs.length}`);
     }
   } catch (e) {
     console.warn('[cryptoScheduler] refreshCryptoPairs failed:', String(e?.message || e));
@@ -46,8 +42,8 @@ async function refreshCryptoPairs(apiKey) {
   }
 }
 
-async function refreshAllCryptoQuotes(apiKey) {
-  if (!apiKey || refreshingQuotes || !supabaseCryptoCache.isConfigured()) return;
+async function refreshAllCryptoQuotes() {
+  if (refreshingQuotes || !supabaseCryptoCache.isConfigured()) return;
   refreshingQuotes = true;
   try {
     const total = await supabaseCryptoCache.getCryptoPairsCount();
@@ -58,12 +54,13 @@ async function refreshAllCryptoQuotes(apiKey) {
       const symbols = await supabaseCryptoCache.getCryptoSymbolsBatch(offset, CRYPTO_QUOTES_BATCH_SIZE);
       if (symbols.length === 0) break;
       offset += symbols.length;
-      const map = await twelveData.getQuotes(apiKey, symbols);
+      const binanceSymbols = symbols.map((sym) => binance.toBinanceSymbol(sym)).filter(Boolean);
+      const liveMap = await binance.getQuotes(binanceSymbols);
       const entries = [];
       for (const sym of symbols) {
-        const q = map[sym];
-        if (!q || !(q.close > 0)) continue;
-        entries.push({ symbol: sym, payload: toQuoteSnapshot(sym, q) });
+        const live = liveMap.get(binance.toBinanceSymbol(sym));
+        if (!live || !(live.price > 0)) continue;
+        entries.push({ symbol: sym, payload: toQuoteSnapshot({ ...live, symbol: sym, source: 'binance' }) });
       }
       if (entries.length > 0) {
         await supabaseCryptoCache.setCryptoQuotesBatch(entries);
@@ -73,7 +70,7 @@ async function refreshAllCryptoQuotes(apiKey) {
         await new Promise((resolve) => setTimeout(resolve, CRYPTO_CHUNK_DELAY_MS));
       }
     }
-    console.log(`[cryptoScheduler] refreshed crypto quotes: ${written}/${total}`);
+    console.log(`[cryptoScheduler] refreshed crypto quotes from Binance: ${written}/${total}`);
   } catch (e) {
     console.warn('[cryptoScheduler] refreshAllCryptoQuotes failed:', String(e?.message || e));
   } finally {
@@ -94,22 +91,21 @@ async function getCryptoQuotesFromCache(symbols) {
   return out;
 }
 
-function startCryptoScheduler(apiKey) {
-  if (!apiKey) return;
+function startCryptoScheduler() {
   if (!supabaseCryptoCache.isConfigured()) {
     console.warn('[cryptoScheduler] Supabase 未配置，加密货币调度器未启动');
     return;
   }
   if (!pairsTimer) {
-    refreshCryptoPairs(apiKey).catch(() => {});
+    refreshCryptoPairs().catch(() => {});
     pairsTimer = setInterval(() => {
-      refreshCryptoPairs(apiKey).catch(() => {});
+      refreshCryptoPairs().catch(() => {});
     }, CRYPTO_METADATA_REFRESH_MS);
   }
   if (!quotesTimer) {
-    refreshAllCryptoQuotes(apiKey).catch(() => {});
+    refreshAllCryptoQuotes().catch(() => {});
     quotesTimer = setInterval(() => {
-      refreshAllCryptoQuotes(apiKey).catch(() => {});
+      refreshAllCryptoQuotes().catch(() => {});
     }, CRYPTO_QUOTES_REFRESH_MS);
   }
 }

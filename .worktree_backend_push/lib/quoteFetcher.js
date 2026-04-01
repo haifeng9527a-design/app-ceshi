@@ -26,21 +26,47 @@ function toQuoteSnapshot(q) {
     high: q.high != null ? q.high : null,
     low: q.low != null ? q.low : null,
     volume: q.volume != null ? q.volume : null,
+    quote_volume: q.quoteVolume != null ? q.quoteVolume : null,
+    weighted_avg_price: q.weightedAvgPrice != null ? q.weightedAvgPrice : null,
+    trade_count: q.tradeCount != null ? q.tradeCount : null,
+    open_time: q.openTime != null ? q.openTime : null,
+    close_time: q.closeTime != null ? q.closeTime : null,
     bid: q.bid != null ? q.bid : null,
     ask: q.ask != null ? q.ask : null,
     bidSize: q.bidSize != null ? q.bidSize : null,
     askSize: q.askSize != null ? q.askSize : null,
+    ...(q.source && { source: q.source }),
     ...(q.error_reason && { error_reason: q.error_reason }),
   };
 }
 
 async function fetchOneQuote(polygonKey, original, polygonSym) {
   try {
-    const q = await polygon.getTickerSnapshot(polygonKey, polygonSym);
-    // 有结果就直接返回（含 error_reason 时也能看到「为什么空」）
-    if (q) return toQuoteSnapshot({ ...q, symbol: original });
-    const fallback = await polygon.getQuote(polygonKey, polygonSym);
-    return toQuoteSnapshot({ ...fallback, symbol: original });
+    const [snapshot, quote, prevBar] = await Promise.all([
+      polygon.getTickerSnapshot(polygonKey, polygonSym),
+      polygon.getQuote(polygonKey, polygonSym),
+      polygon.getPrevDayBar(polygonKey, polygonSym),
+    ]);
+    let q = snapshot ? { ...snapshot, symbol: original } : null;
+    if (!q || !(q.price > 0)) {
+      q = {
+        symbol: original,
+        price: quote?.price > 0 ? quote.price : (prevBar?.c || 0),
+        change: quote?.change ?? 0,
+        changePercent: quote?.changePercent ?? 0,
+        prevClose: prevBar?.c ?? null,
+        open: snapshot?.open ?? prevBar?.o ?? null,
+        high: snapshot?.high ?? prevBar?.h ?? null,
+        low: snapshot?.low ?? prevBar?.l ?? null,
+        volume: snapshot?.volume ?? prevBar?.v ?? null,
+        bid: quote?.bid ?? snapshot?.bid ?? null,
+        ask: quote?.ask ?? snapshot?.ask ?? null,
+        bidSize: quote?.bidSize ?? snapshot?.bidSize ?? null,
+        askSize: quote?.askSize ?? snapshot?.askSize ?? null,
+        ...(quote?.price > 0 || prevBar?.c > 0 ? {} : { error_reason: 'Polygon Snapshot 无当日/昨收数据' }),
+      };
+    }
+    return toQuoteSnapshot(q);
   } catch (e) {
     db.recordQuoteFetchFailure(original);
     return toQuoteSnapshot({

@@ -26,10 +26,16 @@ function toQuoteSnapshot(q) {
     high: q.high != null ? q.high : null,
     low: q.low != null ? q.low : null,
     volume: q.volume != null ? q.volume : null,
+    quote_volume: q.quoteVolume != null ? q.quoteVolume : null,
+    weighted_avg_price: q.weightedAvgPrice != null ? q.weightedAvgPrice : null,
+    trade_count: q.tradeCount != null ? q.tradeCount : null,
+    open_time: q.openTime != null ? q.openTime : null,
+    close_time: q.closeTime != null ? q.closeTime : null,
     bid: q.bid != null ? q.bid : null,
     ask: q.ask != null ? q.ask : null,
     bidSize: q.bidSize != null ? q.bidSize : null,
     askSize: q.askSize != null ? q.askSize : null,
+    ...(q.source && { source: q.source }),
     ...(q.error_reason && { error_reason: q.error_reason }),
   };
 }

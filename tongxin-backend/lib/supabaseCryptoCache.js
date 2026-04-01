@@ -185,6 +185,11 @@ async function setCryptoRealtimePricesBatch(updates) {
         high: Number.isFinite(Number(u?.high)) ? Number(u.high) : null,
         low: Number.isFinite(Number(u?.low)) ? Number(u.low) : null,
         volume: Number.isFinite(Number(u?.volume)) ? Number(u.volume) : null,
+        quote_volume: Number.isFinite(Number(u?.quote_volume)) ? Number(u.quote_volume) : null,
+        weighted_avg_price: Number.isFinite(Number(u?.weighted_avg_price))
+          ? Number(u.weighted_avg_price)
+          : null,
+        trade_count: Number.isFinite(Number(u?.trade_count)) ? Number(u.trade_count) : null,
         timestamp: Number.isFinite(Number(u?.timestamp)) ? Number(u.timestamp) : null,
       };
     })
@@ -221,6 +226,9 @@ async function setCryptoRealtimePricesBatch(updates) {
       if (u.high != null) payload.high = u.high;
       if (u.low != null) payload.low = u.low;
       if (u.volume != null) payload.volume = u.volume;
+      if (u.quote_volume != null) payload.quote_volume = u.quote_volume;
+      if (u.weighted_avg_price != null) payload.weighted_avg_price = u.weighted_avg_price;
+      if (u.trade_count != null) payload.trade_count = u.trade_count;
       payload.timestamp = u.timestamp != null
         ? u.timestamp
         : Math.floor(now / 1000);

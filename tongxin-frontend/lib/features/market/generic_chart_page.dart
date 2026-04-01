@@ -126,6 +126,8 @@ class _GenericChartPageState extends State<GenericChartPage>
 
   bool get _isSessionBoundMarket => !_is24HourMarket;
 
+  bool get _isCryptoInstrument => SymbolResolver.isCrypto(_effectiveSymbol);
+
   bool get _is24HourMarket {
     final symbol = _effectiveSymbol.trim().toUpperCase();
     return symbol.contains('/');
@@ -369,6 +371,11 @@ class _GenericChartPageState extends State<GenericChartPage>
     final bidSize = prev?.bidSize;
     final askSize = prev?.askSize;
     final volume = prev?.volume;
+    final quoteVolume = prev?.quoteVolume;
+    final weightedAvgPrice = prev?.weightedAvgPrice;
+    final tradeCount = prev?.tradeCount;
+    final openTimeMs = prev?.openTimeMs;
+    final closeTimeMs = prev?.closeTimeMs;
 
     setState(() {
       _lastQuoteUpdatedAt = DateTime.now();
@@ -382,6 +389,11 @@ class _GenericChartPageState extends State<GenericChartPage>
         high: high,
         low: low,
         volume: volume,
+        quoteVolume: quoteVolume,
+        weightedAvgPrice: weightedAvgPrice,
+        tradeCount: tradeCount,
+        openTimeMs: openTimeMs,
+        closeTimeMs: closeTimeMs,
         bid: bid,
         ask: ask,
         bidSize: bidSize,
@@ -783,6 +795,11 @@ class _GenericChartPageState extends State<GenericChartPage>
       high: high ?? base?.high,
       low: low ?? base?.low,
       volume: (volume != null && volume > 0) ? volume : base?.volume,
+      quoteVolume: base?.quoteVolume,
+      weightedAvgPrice: base?.weightedAvgPrice,
+      tradeCount: base?.tradeCount,
+      openTimeMs: base?.openTimeMs,
+      closeTimeMs: base?.closeTimeMs,
       bid: base?.bid,
       ask: base?.ask,
       bidSize: base?.bidSize,
@@ -831,13 +848,7 @@ class _GenericChartPageState extends State<GenericChartPage>
     final prevClose = (q != null && !q.hasError && q.price > 0 && q.change != 0)
         ? q.price - q.change
         : q?.prevClose;
-    final turnover = (q != null &&
-            !q.hasError &&
-            q.volume != null &&
-            q.volume! > 0 &&
-            q.price > 0)
-        ? q.volume! * q.price
-        : null;
+    final turnover = _resolvedTurnoverValue(q, price);
     final amplitude = (q != null &&
             !q.hasError &&
             q.high != null &&
@@ -1113,16 +1124,19 @@ class _GenericChartPageState extends State<GenericChartPage>
   }) {
     final tone =
         change == null || change >= 0 ? ChartTheme.up : ChartTheme.down;
+    final turnoverValue = _resolvedTurnoverValue(_quote, currentPrice);
     final metrics = [
-      ('Open', _formatMetric(_quote?.open)),
-      ('High', _formatMetric(_quote?.high)),
-      ('Low', _formatMetric(_quote?.low)),
-      ('Prev Close', _formatMetric(prevClose)),
-      ('Volume', _formatVolumeCompact(_quote?.volume)),
-      ('Turnover', _formatLargeNumber(
-          (_quote?.volume != null && currentPrice != null)
-              ? _quote!.volume! * currentPrice
-              : null)),
+      (_openLabel(), _formatMetric(_quote?.open)),
+      (_highLabel(), _formatMetric(_quote?.high)),
+      (_lowLabel(), _formatMetric(_quote?.low)),
+      (
+        _prevCloseLabel(),
+        _isCryptoInstrument
+            ? _formatMetric(_quote?.weightedAvgPrice)
+            : _formatMetric(prevClose),
+      ),
+      (_volumeLabel(), _formatVolumeCompact(_quote?.volume)),
+      (_turnoverLabel(), _formatLargeNumber(turnoverValue)),
     ];
     return Container(
       decoration: BoxDecoration(
@@ -1392,6 +1406,7 @@ class _GenericChartPageState extends State<GenericChartPage>
     final priceColor = change == null
         ? ChartTheme.textPrimary
         : (isUp ? ChartTheme.up : ChartTheme.down);
+    final turnover = _resolvedTurnoverValue(q, currentPrice);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
@@ -1443,10 +1458,12 @@ class _GenericChartPageState extends State<GenericChartPage>
             children: [
               Expanded(
                 child: _sidebarMetric(
-                  q?.ask != null ? '卖一' : '成交量',
-                  q?.ask != null
-                      ? ChartTheme.formatPrice(q!.ask!)
-                      : _formatCompactVolume(q?.volume),
+                  _isCryptoInstrument ? '卖一' : (q?.ask != null ? '卖一' : '成交量'),
+                  _isCryptoInstrument
+                      ? (q?.ask != null ? ChartTheme.formatPrice(q!.ask!) : '--')
+                      : (q?.ask != null
+                          ? ChartTheme.formatPrice(q!.ask!)
+                          : _formatCompactVolume(q?.volume)),
                   valueColor:
                       q?.ask != null ? ChartTheme.down : ChartTheme.textPrimary,
                 ),
@@ -1454,14 +1471,12 @@ class _GenericChartPageState extends State<GenericChartPage>
               const SizedBox(width: 10),
               Expanded(
                 child: _sidebarMetric(
-                  q?.bid != null ? '买一' : '成交额',
-                  q?.bid != null
-                      ? ChartTheme.formatPrice(q!.bid!)
-                      : _formatCompactTurnover(
-                          q?.volume != null && q!.volume! > 0 && q.price > 0
-                              ? q.volume! * q.price
-                              : null,
-                        ),
+                  _isCryptoInstrument ? '买一' : (q?.bid != null ? '买一' : '成交额'),
+                  _isCryptoInstrument
+                      ? (q?.bid != null ? ChartTheme.formatPrice(q!.bid!) : '--')
+                      : (q?.bid != null
+                          ? ChartTheme.formatPrice(q!.bid!)
+                          : _formatCompactTurnover(turnover)),
                   valueColor:
                       q?.bid != null ? ChartTheme.up : ChartTheme.textPrimary,
                 ),
@@ -1473,15 +1488,19 @@ class _GenericChartPageState extends State<GenericChartPage>
             children: [
               Expanded(
                 child: _sidebarMetric(
-                  '今开',
+                  _isCryptoInstrument ? '24h 开' : '今开',
                   q?.open != null ? ChartTheme.formatPrice(q!.open!) : '--',
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: _sidebarMetric(
-                  '昨收',
-                  prevClose != null ? ChartTheme.formatPrice(prevClose) : '--',
+                  _isCryptoInstrument ? '24h 均价' : '昨收',
+                  _isCryptoInstrument
+                      ? (q?.weightedAvgPrice != null
+                          ? ChartTheme.formatPrice(q!.weightedAvgPrice!)
+                          : '--')
+                      : (prevClose != null ? ChartTheme.formatPrice(prevClose) : '--'),
                 ),
               ),
             ],
@@ -1491,7 +1510,7 @@ class _GenericChartPageState extends State<GenericChartPage>
             children: [
               Expanded(
                 child: _sidebarMetric(
-                  '最高',
+                  _isCryptoInstrument ? '24h 高' : '最高',
                   q?.high != null ? ChartTheme.formatPrice(q!.high!) : '--',
                   valueColor: ChartTheme.up,
                 ),
@@ -1499,9 +1518,12 @@ class _GenericChartPageState extends State<GenericChartPage>
               const SizedBox(width: 10),
               Expanded(
                 child: _sidebarMetric(
-                  '最低',
-                  q?.low != null ? ChartTheme.formatPrice(q!.low!) : '--',
-                  valueColor: ChartTheme.down,
+                  _isCryptoInstrument ? '24h 额' : '最低',
+                  _isCryptoInstrument
+                      ? _formatCompactTurnover(turnover)
+                      : (q?.low != null ? ChartTheme.formatPrice(q!.low!) : '--'),
+                  valueColor:
+                      _isCryptoInstrument ? ChartTheme.textPrimary : ChartTheme.down,
                 ),
               ),
             ],
@@ -1570,6 +1592,24 @@ class _GenericChartPageState extends State<GenericChartPage>
     }
     return '指数';
   }
+
+  double? _resolvedTurnoverValue(MarketQuote? quote, double? currentPrice) {
+    if (quote == null || quote.hasError) return null;
+    if (_isCryptoInstrument && quote.quoteVolume != null && quote.quoteVolume! > 0) {
+      return quote.quoteVolume;
+    }
+    if (quote.volume != null && quote.volume! > 0 && (currentPrice ?? 0) > 0) {
+      return quote.volume! * currentPrice!;
+    }
+    return null;
+  }
+
+  String _openLabel() => _isCryptoInstrument ? '24h Open' : 'Open';
+  String _highLabel() => _isCryptoInstrument ? '24h High' : 'High';
+  String _lowLabel() => _isCryptoInstrument ? '24h Low' : 'Low';
+  String _prevCloseLabel() => _isCryptoInstrument ? 'Avg Price' : 'Prev Close';
+  String _volumeLabel() => _isCryptoInstrument ? '24h Vol' : 'Volume';
+  String _turnoverLabel() => _isCryptoInstrument ? '24h Turnover' : 'Turnover';
 
   String _liveBadgeText() {
     final last = _lastQuoteUpdatedAt;
@@ -1647,12 +1687,19 @@ class _GenericChartPageState extends State<GenericChartPage>
             currentPrice: currentPrice,
             change: change,
             changePercent: changePercent,
-            prevClose: prevClose,
+            prevClose: _isCryptoInstrument ? _quote?.weightedAvgPrice : prevClose,
             open: open,
             high: high,
             low: low,
             turnover: turnover,
             amplitude: amplitude,
+            openLabel: _isCryptoInstrument ? '24h Open' : null,
+            highLabel: _isCryptoInstrument ? '24h High' : null,
+            lowLabel: _isCryptoInstrument ? '24h Low' : null,
+            prevCloseLabel: _isCryptoInstrument ? 'Avg Price' : null,
+            turnoverLabel: _isCryptoInstrument ? '24h Turnover' : null,
+            amplitudeLabel: _isCryptoInstrument ? '24h Range' : null,
+            hideNullMetrics: _isCryptoInstrument,
           ),
         ],
       ),

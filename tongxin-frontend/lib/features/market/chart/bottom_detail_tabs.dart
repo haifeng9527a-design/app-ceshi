@@ -80,6 +80,16 @@ class _BottomDetailTabsState extends State<BottomDetailTabs> {
     if (sym == null || sym.isEmpty) return;
     void poll() async {
       try {
+        final isCrypto = SymbolResolver.isCrypto(sym);
+        if (isCrypto) {
+          final depth = await _market.getCryptoDepth(sym, limit: 5);
+          if (!mounted || _index != 0) return;
+          setState(() {
+            _bids = depth.bids;
+            _asks = depth.asks;
+          });
+          return;
+        }
         final q = await _market.getQuote(sym, realtime: true);
         if (!mounted || _index != 0) return;
         final bids = <(double, int)>[];
@@ -90,12 +100,10 @@ class _BottomDetailTabsState extends State<BottomDetailTabs> {
         if (q.ask != null && q.ask! > 0) {
           asks.add((q.ask!, q.askSize ?? 0));
         }
-        if (mounted && _index == 0) {
-          setState(() {
-            _bids = bids;
-            _asks = asks;
-          });
-        }
+        setState(() {
+          _bids = bids;
+          _asks = asks;
+        });
       } catch (_) {}
     }
     poll();

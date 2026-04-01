@@ -1,8 +1,8 @@
 /**
  * Tongxin Backend
  * - 健康检查
- * - 行情代理（Polygon / Twelve Data）与缓存
- * 环境变量：POLYGON_API_KEY、TWELVE_DATA_API_KEY（可选），可从 .env 加载
+ * - 行情代理与缓存（美股 Polygon / 外汇 Twelve / 加密货币 Binance）
+ * 环境变量：POLYGON_API_KEY、TWELVE_DATA_API_KEY（外汇可选），可从 .env 加载
  */
 require('dotenv').config();
 const express = require('express');
@@ -119,9 +119,9 @@ if (enableBackgroundJobs) {
   if (twelveKey) {
     startForexScheduler(twelveKey);
     startForexRealtimeIngestor(twelveKey);
-    startCryptoScheduler(twelveKey);
-    startCryptoRealtimeIngestor(twelveKey);
   }
+  startCryptoScheduler();
+  startCryptoRealtimeIngestor();
 } else {
   console.log('[backend] background jobs disabled (ENABLE_BACKGROUND_JOBS=false)');
 }

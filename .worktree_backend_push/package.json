@@ -1,7 +1,7 @@
 {
   "name": "tongxin-backend",
   "version": "0.1.0",
-  "description": "Tongxin backend: quote proxy & cache for Polygon/Twelve Data",
+  "description": "Tongxin backend: stock/forex/crypto market proxy and cache",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

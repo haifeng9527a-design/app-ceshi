@@ -18,6 +18,14 @@ class PriceSection extends StatelessWidget {
     this.marketCap,
     this.turnoverRate,
     this.amplitude,
+    this.openLabel,
+    this.highLabel,
+    this.lowLabel,
+    this.prevCloseLabel,
+    this.turnoverLabel,
+    this.turnoverRateLabel,
+    this.amplitudeLabel,
+    this.hideNullMetrics = false,
   });
 
   final double? currentPrice;
@@ -31,6 +39,14 @@ class PriceSection extends StatelessWidget {
   final double? marketCap;
   final double? turnoverRate;
   final double? amplitude;
+  final String? openLabel;
+  final String? highLabel;
+  final String? lowLabel;
+  final String? prevCloseLabel;
+  final String? turnoverLabel;
+  final String? turnoverRateLabel;
+  final String? amplitudeLabel;
+  final bool hideNullMetrics;
 
   String _formatLarge(BuildContext context, double v) {
     final isZh = Localizations.localeOf(context).languageCode == 'zh';
@@ -58,22 +74,22 @@ class PriceSection extends StatelessWidget {
               ? _formatLarge(context, turnover!)
               : (marketCap != null ? _formatLarge(context, marketCap!) : null);
           final metricItems = [
-            (l10n.chartPriceOpen, open, null as bool?),
-            (l10n.chartPriceHigh, high, true as bool?),
-            (l10n.chartPriceLow, low, false as bool?),
-            (l10n.chartPricePrevClose, prevClose, null as bool?),
-            (l10n.chartPriceTotalTurnover, turnoverStr, null as bool?),
+            (openLabel ?? l10n.chartPriceOpen, open, null as bool?),
+            (highLabel ?? l10n.chartPriceHigh, high, true as bool?),
+            (lowLabel ?? l10n.chartPriceLow, low, false as bool?),
+            (prevCloseLabel ?? l10n.chartPricePrevClose, prevClose, null as bool?),
+            (turnoverLabel ?? l10n.chartPriceTotalTurnover, turnoverStr, null as bool?),
             (
-              l10n.chartPriceTurnoverRate,
+              turnoverRateLabel ?? l10n.chartPriceTurnoverRate,
               turnoverRate != null ? '${turnoverRate!.toStringAsFixed(1)}%' : null,
               null as bool?
             ),
             (
-              l10n.chartPriceAmplitude,
+              amplitudeLabel ?? l10n.chartPriceAmplitude,
               amplitude != null ? '${amplitude!.toStringAsFixed(1)}%' : null,
               null as bool?
             ),
-          ];
+          ].where((item) => !hideNullMetrics || item.$2 != null).toList();
 
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,

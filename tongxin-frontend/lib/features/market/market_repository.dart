@@ -1157,6 +1157,16 @@ class MarketRepository {
     return getQuotes(symbols);
   }
 
+  Future<({List<(double, int)> bids, List<(double, int)> asks})> getCryptoDepth(
+    String symbol, {
+    int limit = 5,
+  }) async {
+    if (_backend == null) {
+      return (bids: const <(double, int)>[], asks: const <(double, int)>[]);
+    }
+    return _backend!.getCryptoDepth(symbol, limit: limit);
+  }
+
   /// 将股票列表同步到服务器 stock_quote_cache（存在则更新，不存在则新增）
   /// 已停用：后端自行更新 tickers，前端不再调用 upsertTickersToServer
   Future<void> syncTickersToServer(List<MarketSearchResult> tickers) async {
@@ -1436,6 +1446,11 @@ class MarketQuote {
     this.high,
     this.low,
     this.volume,
+    this.quoteVolume,
+    this.weightedAvgPrice,
+    this.tradeCount,
+    this.openTimeMs,
+    this.closeTimeMs,
     this.bid,
     this.ask,
     this.bidSize,
@@ -1452,6 +1467,11 @@ class MarketQuote {
   final double? high;
   final double? low;
   final int? volume;
+  final double? quoteVolume;
+  final double? weightedAvgPrice;
+  final int? tradeCount;
+  final int? openTimeMs;
+  final int? closeTimeMs;
 
   /// 买一价（Polygon lastQuote，需 Stocks Quote 权限）
   final double? bid;
@@ -1502,6 +1522,11 @@ class MarketQuote {
       high: _toDouble(m['high']),
       low: _toDouble(m['low']),
       volume: _toInt(m['volume']),
+      quoteVolume: _toDouble(m['quote_volume']),
+      weightedAvgPrice: _toDouble(m['weighted_avg_price']),
+      tradeCount: _toInt(m['trade_count']),
+      openTimeMs: _toInt(m['open_time']),
+      closeTimeMs: _toInt(m['close_time']),
       bid: _toDouble(m['bid']),
       ask: _toDouble(m['ask']),
       bidSize: _toInt(m['bidSize']),
@@ -1522,6 +1547,11 @@ class MarketQuote {
         if (high != null) 'high': high,
         if (low != null) 'low': low,
         if (volume != null) 'volume': volume,
+        if (quoteVolume != null) 'quote_volume': quoteVolume,
+        if (weightedAvgPrice != null) 'weighted_avg_price': weightedAvgPrice,
+        if (tradeCount != null) 'trade_count': tradeCount,
+        if (openTimeMs != null) 'open_time': openTimeMs,
+        if (closeTimeMs != null) 'close_time': closeTimeMs,
         if (bid != null) 'bid': bid,
         if (ask != null) 'ask': ask,
         if (bidSize != null) 'bidSize': bidSize,

@@ -37,26 +37,13 @@ const STOCK_24H_SYMBOLS = new Set(
     .filter(Boolean)
 );
 
-/** Supabase crypto_pair_cache 未配置时 /api/crypto/pairs 的静态兜底列表 */
 const CRYPTO_PAIRS_FALLBACK = [
-  { symbol: 'BTC/USD', name: 'Bitcoin' },
-  { symbol: 'ETH/USD', name: 'Ethereum' },
-  { symbol: 'SOL/USD', name: 'Solana' },
-  { symbol: 'XRP/USD', name: 'XRP' },
-  { symbol: 'DOGE/USD', name: 'Dogecoin' },
-  { symbol: 'BNB/USD', name: 'BNB' },
-  { symbol: 'ADA/USD', name: 'Cardano' },
-  { symbol: 'AVAX/USD', name: 'Avalanche' },
-  { symbol: 'DOT/USD', name: 'Polkadot' },
-  { symbol: 'LINK/USD', name: 'Chainlink' },
-  { symbol: 'LTC/USD', name: 'Litecoin' },
-  { symbol: 'BCH/USD', name: 'Bitcoin Cash' },
-  { symbol: 'TRX/USD', name: 'TRON' },
-  { symbol: 'UNI/USD', name: 'Uniswap' },
-  { symbol: 'ATOM/USD', name: 'Cosmos' },
-  { symbol: 'MATIC/USD', name: 'Polygon' },
-  { symbol: 'ARB/USD', name: 'Arbitrum' },
-  { symbol: 'OP/USD', name: 'Optimism' },
+  { symbol: 'BTC/USD', name: 'Bitcoin / USD' },
+  { symbol: 'ETH/USD', name: 'Ethereum / USD' },
+  { symbol: 'SOL/USD', name: 'Solana / USD' },
+  { symbol: 'XRP/USD', name: 'XRP / USD' },
+  { symbol: 'DOGE/USD', name: 'Dogecoin / USD' },
+  { symbol: 'BNB/USD', name: 'BNB / USD' },
 ];
 
 function createRequireAdminRole() {
@@ -425,8 +412,8 @@ async function handleCandles(req, res, polygonKey, twelveKey) {
       list = (bars || []).map((b) => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));
     } catch (_) {}
   }
-  // Polygon 无数据时用 Twelve 兜底（含美股分钟级，Polygon 可能无权限）
-  const useTwelve = list.length === 0 && twelveKey;
+  // Crypto only uses Binance. Twelve fallback remains only for non-crypto instruments.
+  const useTwelve = !isCrypto(symbol) && list.length === 0 && twelveKey;
   if (useTwelve) {
     const twelveSymbol = r.polygon || r.twelve;
     const tdInterval = ['1day', '1week', '1month', '1year', '1h', '30min', '15min', '5min', '1min'].includes(interval) ? interval : '1day';
@@ -790,9 +777,58 @@ async function handleCryptoPairs(req, res) {
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   const pageSize = Math.max(1, Math.min(parseInt(req.query.pageSize, 10) || 30, 200));
   if (!supabaseCryptoCache.isConfigured()) {
-    const total = CRYPTO_PAIRS_FALLBACK.length;
+    try {
+      const livePairs = await binance.getTradingPairs();
+      const total = livePairs.length;
+      const from = (page - 1) * pageSize;
+      const slice = livePairs.slice(from, from + pageSize);
+      return res.json({
+        items: slice.map((r) => ({
+          symbol: r.symbol,
+          name: r.name || r.symbol,
+          market: 'crypto',
+        })),
+        total,
+        page,
+        pageSize,
+        hasMore: from + slice.length < total,
+      });
+    } catch (_) {
+      const total = CRYPTO_PAIRS_FALLBACK.length;
+      const from = (page - 1) * pageSize;
+      const slice = CRYPTO_PAIRS_FALLBACK.slice(from, from + pageSize);
+      return res.json({
+        items: slice.map((r) => ({
+          symbol: r.symbol,
+          name: r.name || r.symbol,
+          market: 'crypto',
+        })),
+        total,
+        page,
+        pageSize,
+        hasMore: from + slice.length < total,
+      });
+    }
+  }
+  const result = await supabaseCryptoCache.getCryptoPairsPage(page, pageSize);
+  if ((result.rows || []).length > 0) {
+    return res.json({
+      items: (result.rows || []).map((r) => ({
+        symbol: r.symbol,
+        name: r.name || r.symbol,
+        market: r.market || 'crypto',
+      })),
+      total: result.total || 0,
+      page: result.page || page,
+      pageSize: result.pageSize || pageSize,
+      hasMore: !!result.hasMore,
+    });
+  }
+  try {
+    const livePairs = await binance.getTradingPairs();
+    const total = livePairs.length;
     const from = (page - 1) * pageSize;
-    const slice = CRYPTO_PAIRS_FALLBACK.slice(from, from + pageSize);
+    const slice = livePairs.slice(from, from + pageSize);
     return res.json({
       items: slice.map((r) => ({
         symbol: r.symbol,
@@ -804,19 +840,15 @@ async function handleCryptoPairs(req, res) {
       pageSize,
       hasMore: from + slice.length < total,
     });
+  } catch (_) {
+    return res.json({
+      items: [],
+      total: 0,
+      page,
+      pageSize,
+      hasMore: false,
+    });
   }
-  const result = await supabaseCryptoCache.getCryptoPairsPage(page, pageSize);
-  return res.json({
-    items: (result.rows || []).map((r) => ({
-      symbol: r.symbol,
-      name: r.name || r.symbol,
-      market: r.market || 'crypto',
-    })),
-    total: result.total || 0,
-    page: result.page || page,
-    pageSize: result.pageSize || pageSize,
-    hasMore: !!result.hasMore,
-  });
 }
 
 /** GET /api/crypto/quotes?symbols=BTC/USD,ETH/USD — 从 Supabase 加密缓存读数据 */
@@ -846,6 +878,21 @@ async function handleCryptoQuotes(req, res) {
   }
 }
 
+/** GET /api/crypto/depth?symbol=BTC/USD&limit=5 — Binance 五档盘口 */
+async function handleCryptoDepth(req, res) {
+  const symbol = String(req.query.symbol || '').trim();
+  const limit = Math.max(1, Math.min(parseInt(req.query.limit, 10) || 5, 20));
+  if (!symbol) {
+    return res.status(400).json({ error: 'missing symbol' });
+  }
+  try {
+    const depth = await binance.getDepth(symbol, limit);
+    return res.json(depth);
+  } catch (e) {
+    return res.status(502).json({ error: String(e.message || e) });
+  }
+}
+
 function registerRoutes(app, polygonKey, twelveKey, requireAuth) {
   const requireAdminRole = createRequireAdminRole();
   rateLimiter.init(require('./config').POLYGON_RATE_LIMIT_PER_SEC);
@@ -858,6 +905,7 @@ function registerRoutes(app, polygonKey, twelveKey, requireAuth) {
   app.get('/api/forex/quotes', handleForexQuotes);
   app.get('/api/crypto/pairs', handleCryptoPairs);
   app.get('/api/crypto/quotes', handleCryptoQuotes);
+  app.get('/api/crypto/depth', handleCryptoDepth);
   app.get('/api/quotes', (req, res) => handleQuotes(req, res, polygonKey, twelveKey));
   app.get('/api/candles', (req, res) => handleCandles(req, res, polygonKey, twelveKey));
   app.get('/api/gainers', (req, res) => handleGainers(req, res, polygonKey));

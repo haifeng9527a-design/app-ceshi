@@ -2,10 +2,11 @@
  * 行情代理路由：/api/quotes 按 symbol 缓存 + 批量查/补拉；其余接口仍用 getOrStale/set
  */
 const { get, getOrStale, set, DEFAULT_TTL_MS } = require('./cache');
-const { resolve } = require('./symbolResolver');
+const { resolve, isCrypto, isUsStock } = require('./symbolResolver');
 const polygon = require('./polygon');
 const { getBatchSnapshotsV2, getBatchSnapshotsV3, V2_SNAPSHOT_BATCH_SIZE, V3_SNAPSHOT_BATCH_SIZE } = polygon;
 const twelveData = require('./twelveData');
+const binance = require('./binance');
 const db = require('./db');
 const quoteStore = require('./quoteStore');
 const singleFlight = require('./singleFlight');
@@ -36,9 +37,18 @@ const STOCK_24H_SYMBOLS = new Set(
     .filter(Boolean)
 );
 
+const CRYPTO_PAIRS_FALLBACK = [
+  { symbol: 'BTC/USD', name: 'Bitcoin / USD' },
+  { symbol: 'ETH/USD', name: 'Ethereum / USD' },
+  { symbol: 'SOL/USD', name: 'Solana / USD' },
+  { symbol: 'XRP/USD', name: 'XRP / USD' },
+  { symbol: 'DOGE/USD', name: 'Dogecoin / USD' },
+  { symbol: 'BNB/USD', name: 'BNB / USD' },
+];
+
 function createRequireAdminRole() {
   return async (req, res, next) => {
-    if (req.isAdminByKey === true) return next();
+    if (req.isAdminByKey === true || req.isAdminSession === true) return next();
     const uid = req.firebaseUid;
     if (!uid) return res.status(401).json({ error: '未鉴权' });
     const sb = supabaseClient.getClient();
@@ -61,6 +71,10 @@ function createRequireAdminRole() {
   };
 }
 
+function hasUsableQuotePayload(payload) {
+  return !!payload && Number(payload.close) > 0 && !payload.error_reason;
+}
+
 /** GET /api/quotes?symbols=AAPL,MSFT,... — 按 symbol 缓存，批量查 + 只补缺失/过期
  *  若 symbols=单只&realtime=1：跳过缓存，直连 Polygon 取实时数据（供详情页使用）
  */
@@ -75,9 +89,23 @@ async function handleQuotes(req, res, polygonKey, twelveKey) {
   }
 
   const realtime = req.query.realtime === '1' || req.query.realtime === 'true';
-  if (realtime && symbols.length === 1 && polygonKey) {
+  if (realtime && symbols.length === 1) {
     const sym = symbols[0];
     const r = resolve(sym);
+    if (isCrypto(sym)) {
+      try {
+        const liveMap = await binance.getQuotes([binance.toBinanceSymbol(sym)]);
+        const q = liveMap.get(binance.toBinanceSymbol(sym));
+        const snap = q
+          ? toQuoteSnapshot({ ...q, symbol: sym })
+          : toQuoteSnapshot({ symbol: sym, price: 0, change: 0, changePercent: 0, error_reason: 'Binance 无数据' });
+        return res.json({ [sym]: snap });
+      } catch (e) {
+        const snap = toQuoteSnapshot({ symbol: sym, price: 0, change: 0, changePercent: 0, error_reason: String(e.message || e) });
+        return res.json({ [sym]: snap });
+      }
+    }
+    if (polygonKey) {
     if (r.usePolygon) {
       try {
         const [snapshot, quote, prevBar] = await Promise.all([
@@ -125,6 +153,7 @@ async function handleQuotes(req, res, polygonKey, twelveKey) {
         return res.json({ [sym]: snap });
       }
     }
+    }
   }
 
   db.touchMetaSymbols(symbols, 2);
@@ -132,20 +161,53 @@ async function handleQuotes(req, res, polygonKey, twelveKey) {
   const { hit, miss } = await quoteStore.getQuotesBatch(symbols, metaMap);
 
   const out = {};
+  const invalidHitSymbols = [];
   for (const [s, payload] of hit) {
+    if (isUsStock(s) && !hasUsableQuotePayload(payload)) {
+      invalidHitSymbols.push(s);
+      continue;
+    }
     out[s] = payload;
   }
 
   const polygonToFetch = [];
   const twelveToFetch = [];
-  for (const s of miss) {
+  const binanceToFetch = [];
+  for (const s of [...invalidHitSymbols, ...miss]) {
     const r = resolve(s);
     if (!r.usePolygon && !r.useTwelve) {
       out[s] = toQuoteSnapshot({ symbol: s, price: 0, change: 0, changePercent: 0, error_reason: '无法解析 symbol' });
       continue;
     }
+    if (isCrypto(s)) {
+      binanceToFetch.push({
+        original: s,
+        binance: binance.toBinanceSymbol(s),
+      });
+      continue;
+    }
     if (r.usePolygon && polygonKey) polygonToFetch.push({ original: s, polygon: r.polygon });
     if (r.useTwelve && twelveKey) twelveToFetch.push({ original: s, twelve: r.twelve });
+  }
+
+  if (binanceToFetch.length > 0) {
+    try {
+      const liveMap = await binance.getQuotes(binanceToFetch.map((x) => x.binance));
+      const entries = [];
+      for (const { original, binance: binanceSymbol } of binanceToFetch) {
+        const q = liveMap.get(binanceSymbol);
+        const snap = q
+          ? toQuoteSnapshot({ ...q, symbol: original })
+          : toQuoteSnapshot({ symbol: original, price: 0, change: 0, changePercent: 0, error_reason: 'Binance 无数据' });
+        out[original] = snap;
+        entries.push({ symbol: original, payload: snap, priority: 2 });
+      }
+      if (entries.length > 0) quoteStore.setQuotesBatch(entries);
+    } catch (e) {
+      for (const { original } of binanceToFetch) {
+        out[original] = toQuoteSnapshot({ symbol: original, price: 0, change: 0, changePercent: 0, error_reason: String(e.message || e) });
+      }
+    }
   }
 
   if (twelveToFetch.length && twelveKey) {
@@ -328,6 +390,11 @@ async function handleCandles(req, res, polygonKey, twelveKey) {
   if (cached) return res.json(cached);
 
   let list = [];
+  if (isCrypto(symbol)) {
+    try {
+      list = await binance.getCandles(symbol, interval, fromMs, toMs);
+    } catch (_) {}
+  }
   if (r.usePolygon && polygonKey) {
     let multiplier = 1;
     let timespan = 'minute';
@@ -345,11 +412,17 @@ async function handleCandles(req, res, polygonKey, twelveKey) {
       list = (bars || []).map((b) => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));
     } catch (_) {}
   }
-  // Polygon 无数据时用 Twelve 兜底（仅默认范围；带 fromMs/toMs 时不再请求 Twelve）
-  if (list.length === 0 && twelveKey && !hasRange) {
+  // Crypto only uses Binance. Twelve fallback remains only for non-crypto instruments.
+  const useTwelve = !isCrypto(symbol) && list.length === 0 && twelveKey;
+  if (useTwelve) {
     const twelveSymbol = r.polygon || r.twelve;
     const tdInterval = ['1day', '1week', '1month', '1year', '1h', '30min', '15min', '5min', '1min'].includes(interval) ? interval : '1day';
-    const outputsize = (tdInterval === '1day' || tdInterval === '1week' || tdInterval === '1month' || tdInterval === '1year') ? 600 : 120;
+    let outputsize = (tdInterval === '1day' || tdInterval === '1week' || tdInterval === '1month' || tdInterval === '1year') ? 600 : 120;
+    if (hasRange && ['1min', '5min', '15min', '30min', '1h'].includes(tdInterval)) {
+      const days = (toMs - fromMs) / (24 * 60 * 60 * 1000);
+      const barsPerDay = tdInterval === '1min' ? 24 * 60 : tdInterval === '5min' ? 24 * 12 : tdInterval === '15min' ? 24 * 4 : tdInterval === '30min' ? 48 : 24;
+      outputsize = Math.min(5000, Math.max(120, Math.ceil(days * barsPerDay)));
+    }
     try {
       const bars = await twelveData.getTimeSeries(twelveKey, twelveSymbol, tdInterval, outputsize);
       list = (bars || []).map((b) => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));
@@ -459,6 +532,58 @@ async function handleSplits(req, res, polygonKey) {
     res.json(list);
   } catch (e) {
     res.status(502).json({ error: String(e.message || e) });
+  }
+}
+
+/** GET /api/news/hot?limit=6 — 热点英文新闻 */
+async function handleHotNews(req, res, polygonKey) {
+  const limit = Math.max(1, Math.min(parseInt(req.query.limit, 10) || 6, 20));
+  if (!polygonKey) return res.json([]);
+  const cacheKey = `news_hot_${limit}`;
+  const cached = getOrStale(cacheKey);
+  if (cached) return res.json(cached);
+  try {
+    const list = await polygon.getReferenceNews(polygonKey, { limit });
+    set(cacheKey, list, DEFAULT_TTL_MS.news);
+    return res.json(list);
+  } catch (e) {
+    return res.status(502).json({ error: String(e.message || e) });
+  }
+}
+
+/** GET /api/news?ticker=AAPL&limit=20 — 个股新闻 */
+async function handleTickerNews(req, res, polygonKey) {
+  const ticker = String(req.query.ticker || '').trim().toUpperCase();
+  const limit = Math.max(1, Math.min(parseInt(req.query.limit, 10) || 20, 50));
+  if (!ticker) return res.status(400).json({ error: 'missing ticker' });
+  if (!polygonKey) return res.json([]);
+  const cacheKey = `news_${ticker}_${limit}`;
+  const cached = getOrStale(cacheKey);
+  if (cached) return res.json(cached);
+  try {
+    const list = await polygon.getReferenceNews(polygonKey, { ticker, limit });
+    set(cacheKey, list, DEFAULT_TTL_MS.news);
+    return res.json(list);
+  } catch (e) {
+    return res.status(502).json({ error: String(e.message || e) });
+  }
+}
+
+/** GET /api/news/announcements?ticker=AAPL&limit=20 — 公告类新闻 */
+async function handleTickerAnnouncements(req, res, polygonKey) {
+  const ticker = String(req.query.ticker || '').trim().toUpperCase();
+  const limit = Math.max(1, Math.min(parseInt(req.query.limit, 10) || 20, 50));
+  if (!ticker) return res.status(400).json({ error: 'missing ticker' });
+  if (!polygonKey) return res.json([]);
+  const cacheKey = `news_ann_${ticker}_${limit}`;
+  const cached = getOrStale(cacheKey);
+  if (cached) return res.json(cached);
+  try {
+    const list = await polygon.getAnnouncementNews(polygonKey, ticker, limit);
+    set(cacheKey, list, DEFAULT_TTL_MS.news);
+    return res.json(list);
+  } catch (e) {
+    return res.status(502).json({ error: String(e.message || e) });
   }
 }
 
@@ -649,30 +774,85 @@ async function handleForexQuotes(req, res) {
 
 /** GET /api/crypto/pairs?page=1&pageSize=30 — 服务端分页加密货币交易对 */
 async function handleCryptoPairs(req, res) {
-  if (!supabaseCryptoCache.isConfigured()) {
-    return res.status(503).json({ error: 'crypto supabase cache not configured' });
-  }
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   const pageSize = Math.max(1, Math.min(parseInt(req.query.pageSize, 10) || 30, 200));
+  if (!supabaseCryptoCache.isConfigured()) {
+    try {
+      const livePairs = await binance.getTradingPairs();
+      const total = livePairs.length;
+      const from = (page - 1) * pageSize;
+      const slice = livePairs.slice(from, from + pageSize);
+      return res.json({
+        items: slice.map((r) => ({
+          symbol: r.symbol,
+          name: r.name || r.symbol,
+          market: 'crypto',
+        })),
+        total,
+        page,
+        pageSize,
+        hasMore: from + slice.length < total,
+      });
+    } catch (_) {
+      const total = CRYPTO_PAIRS_FALLBACK.length;
+      const from = (page - 1) * pageSize;
+      const slice = CRYPTO_PAIRS_FALLBACK.slice(from, from + pageSize);
+      return res.json({
+        items: slice.map((r) => ({
+          symbol: r.symbol,
+          name: r.name || r.symbol,
+          market: 'crypto',
+        })),
+        total,
+        page,
+        pageSize,
+        hasMore: from + slice.length < total,
+      });
+    }
+  }
   const result = await supabaseCryptoCache.getCryptoPairsPage(page, pageSize);
-  return res.json({
-    items: (result.rows || []).map((r) => ({
-      symbol: r.symbol,
-      name: r.name || r.symbol,
-      market: r.market || 'crypto',
-    })),
-    total: result.total || 0,
-    page: result.page || page,
-    pageSize: result.pageSize || pageSize,
-    hasMore: !!result.hasMore,
-  });
+  if ((result.rows || []).length > 0) {
+    return res.json({
+      items: (result.rows || []).map((r) => ({
+        symbol: r.symbol,
+        name: r.name || r.symbol,
+        market: r.market || 'crypto',
+      })),
+      total: result.total || 0,
+      page: result.page || page,
+      pageSize: result.pageSize || pageSize,
+      hasMore: !!result.hasMore,
+    });
+  }
+  try {
+    const livePairs = await binance.getTradingPairs();
+    const total = livePairs.length;
+    const from = (page - 1) * pageSize;
+    const slice = livePairs.slice(from, from + pageSize);
+    return res.json({
+      items: slice.map((r) => ({
+        symbol: r.symbol,
+        name: r.name || r.symbol,
+        market: 'crypto',
+      })),
+      total,
+      page,
+      pageSize,
+      hasMore: from + slice.length < total,
+    });
+  } catch (_) {
+    return res.json({
+      items: [],
+      total: 0,
+      page,
+      pageSize,
+      hasMore: false,
+    });
+  }
 }
 
 /** GET /api/crypto/quotes?symbols=BTC/USD,ETH/USD — 从 Supabase 加密缓存读数据 */
 async function handleCryptoQuotes(req, res) {
-  if (!supabaseCryptoCache.isConfigured()) {
-    return res.status(503).json({ error: 'crypto supabase cache not configured' });
-  }
   const raw = req.query.symbols;
   if (!raw || typeof raw !== 'string') {
     return res.status(400).json({ error: 'missing symbols' });
@@ -682,8 +862,35 @@ async function handleCryptoQuotes(req, res) {
   if (symbols.length > 100) {
     return res.status(400).json({ error: 'symbols 最多 100 个' });
   }
-  const out = await cryptoScheduler.getCryptoQuotesFromCache(symbols);
-  return res.json(out);
+  try {
+    const mapped = symbols.map((s) => ({ original: s, binance: binance.toBinanceSymbol(s) }));
+    const liveMap = await binance.getQuotes(mapped.map((x) => x.binance));
+    const out = {};
+    for (const { original, binance: binanceSymbol } of mapped) {
+      const q = liveMap.get(binanceSymbol);
+      out[original] = q
+        ? toQuoteSnapshot({ ...q, symbol: original })
+        : toQuoteSnapshot({ symbol: original, price: 0, change: 0, changePercent: 0, error_reason: 'Binance 无数据' });
+    }
+    return res.json(out);
+  } catch (e) {
+    return res.status(502).json({ error: String(e.message || e) });
+  }
+}
+
+/** GET /api/crypto/depth?symbol=BTC/USD&limit=5 — Binance 五档盘口 */
+async function handleCryptoDepth(req, res) {
+  const symbol = String(req.query.symbol || '').trim();
+  const limit = Math.max(1, Math.min(parseInt(req.query.limit, 10) || 5, 20));
+  if (!symbol) {
+    return res.status(400).json({ error: 'missing symbol' });
+  }
+  try {
+    const depth = await binance.getDepth(symbol, limit);
+    return res.json(depth);
+  } catch (e) {
+    return res.status(502).json({ error: String(e.message || e) });
+  }
 }
 
 function registerRoutes(app, polygonKey, twelveKey, requireAuth) {
@@ -698,6 +905,7 @@ function registerRoutes(app, polygonKey, twelveKey, requireAuth) {
   app.get('/api/forex/quotes', handleForexQuotes);
   app.get('/api/crypto/pairs', handleCryptoPairs);
   app.get('/api/crypto/quotes', handleCryptoQuotes);
+  app.get('/api/crypto/depth', handleCryptoDepth);
   app.get('/api/quotes', (req, res) => handleQuotes(req, res, polygonKey, twelveKey));
   app.get('/api/candles', (req, res) => handleCandles(req, res, polygonKey, twelveKey));
   app.get('/api/gainers', (req, res) => handleGainers(req, res, polygonKey));
@@ -706,6 +914,9 @@ function registerRoutes(app, polygonKey, twelveKey, requireAuth) {
   app.get('/api/ratios', (req, res) => handleRatios(req, res, polygonKey));
   app.get('/api/dividends', (req, res) => handleDividends(req, res, polygonKey));
   app.get('/api/splits', (req, res) => handleSplits(req, res, polygonKey));
+  app.get('/api/news/hot', (req, res) => handleHotNews(req, res, polygonKey));
+  app.get('/api/news', (req, res) => handleTickerNews(req, res, polygonKey));
+  app.get('/api/news/announcements', (req, res) => handleTickerAnnouncements(req, res, polygonKey));
 }
 
 module.exports = { registerRoutes };
