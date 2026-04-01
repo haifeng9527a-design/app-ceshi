@@ -1,4 +1,4 @@
-﻿import 'package:fl_chart/fl_chart.dart';
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
@@ -8,8 +8,8 @@ import 'chart/chart_theme.dart';
 import 'chart_viewport_controller.dart';
 import 'indicators.dart';
 
-/// K 绾胯鍙ｏ細鍩轰簬 ChartViewportController锛屾敮鎸佹嫋鍔ㄣ€佺缉鏀俱€佸姞杞芥洿澶氬巻鍙层€侀暱鎸夊崄瀛楀厜鏍?tooltip銆?
-/// 涓诲浘鍙犲姞锛歁A / EMA锛涘壇鍥撅細VOL / MACD / RSI銆?
+/// K 线视口：基于 ChartViewportController，支持拖动、缩放、加载更多历史、长按十字光标 tooltip。
+/// 主图叠加：MA / EMA；副图：VOL / MACD / RSI。
 class ChartViewport extends StatefulWidget {
   const ChartViewport({
     super.key,
@@ -22,16 +22,16 @@ class ChartViewport extends StatefulWidget {
     this.timeAxisHeight = 24,
     this.showVolume = true,
     this.showMa = true,
-    /// 涓诲浘鍙犲姞锛?ma' | 'ema'锛宯ull 鏃剁敤 showMa 鏄剧ず MA
+    /// 主图叠加：'ma' | 'ema'，null 时用 showMa 显示 MA
     this.overlayIndicator,
-    /// 鍓浘锛?vol' | 'macd' | 'rsi'锛宯ull 鏃剁敤 showVolume 鏄剧ず鎴愪氦閲?
+    /// 副图：'vol' | 'macd' | 'rsi'，null 时用 showVolume 显示成交量
     this.subChartIndicator,
     this.loadMoreThreshold = 20,
-    /// 鏄ㄦ敹浠凤紝鐢ㄤ簬鍙充晶娑ㄥ箙璁＄畻
+    /// 昨收价，用于右侧涨幅计算
     this.prevClose,
-    /// 鐜颁环锛岃櫄绾跨敾鍦ㄦ浠蜂綅銆佸彸渚т负鐩稿鏄ㄦ敹娑ㄨ穼骞咃紱涓嶄紶鍒欑敤鏈€鍚庝竴鏍?K 绾挎敹鐩?
+    /// 现价，虚线画在此价位、右侧为相对昨收涨跌幅；不传则用最后一根 K 线收盘
     this.currentPrice,
-    /// 鏄惁鏄剧ず鏄ㄦ敹浠疯櫄绾匡紙Prev Close锛夛紝鍙湪鎸囨爣闈㈡澘鍒囨崲
+    /// 是否显示昨收价虚线（Prev Close），可在指标面板切换
     this.showPrevCloseLine = true,
   });
 
@@ -60,7 +60,7 @@ class _ChartViewportState extends State<ChartViewport> {
   double _scaleStartIndex = 0;
   int? _tooltipIndex;
   Offset? _tooltipPosition;
-  /// 鍗佸瓧绾胯鎯呮樉绀烘椂闂达紝鐢ㄤ簬闃茶瑙︼細鏄剧ず涓嶈冻姝ゆ椂闂存椂鐐瑰嚮涓嶅叧闂?
+  /// 十字线详情显示时间，用于防误触：显示不足此时间时点击不关闭
   DateTime? _tooltipShownAt;
   static const _tooltipMinVisibleDuration = Duration(milliseconds: 500);
 
@@ -84,7 +84,7 @@ class _ChartViewportState extends State<ChartViewport> {
     _onPanByDelta(d.delta.dx, contentWidth);
   }
 
-  /// 鎸夋í鍚戜綅绉诲钩绉诲浘琛紙渚涘乏閿嫋鎷戒笌鍙抽敭鎷栨嫿鍏辩敤锛?
+  /// 按横向位移平移图表（供左键拖拽与右键拖拽共用）
   void _onPanByDelta(double dx, double contentWidth) {
     final n = _visibleCandles.length;
     final effectiveWidth = n > 0 ? contentWidth * n / (n + _kRightReservedCandleSlots) : contentWidth;
@@ -147,7 +147,7 @@ class _ChartViewportState extends State<ChartViewport> {
 
   void _dismissTooltip() {
     if (_tooltipIndex == null) return;
-    // 闃茶瑙︼細鍒氬脊鍑烘椂锛堝闀挎寜鏉炬墜瑙﹀彂鐨勭偣鍑伙級涓嶇珛鍗冲叧锛岃嚦灏戜繚鐣?0.5 绉掍究浜庣湅娓?
+    // 防误触：刚弹出时（如长按松手触发的点击）不立即关，至少保留 0.5 秒便于看清
     if (_tooltipShownAt != null &&
         DateTime.now().difference(_tooltipShownAt!) < _tooltipMinVisibleDuration) {
       return;
@@ -211,7 +211,7 @@ class _ChartViewportState extends State<ChartViewport> {
   static const Color _ma10Color = Color(0xFF3B82F6);
   static const Color _ma20Color = Color(0xFF8B5CF6);
 
-  /// MA 鍥句緥锛氫笁琛?MA5/MA10/MA20 + value锛屽搴旈鑹?
+  /// MA 图例：三行 MA5/MA10/MA20 + value，对应颜色
   Widget _buildMaLegend(String overlay, List<double?>? ma5, List<double?>? ma10, List<double?>? ma20, int candleCount) {
     final idx = (candleCount > 0) ? candleCount - 1 : 0;
     final label = overlay == 'ema' ? 'EMA' : 'MA';
@@ -229,7 +229,7 @@ class _ChartViewportState extends State<ChartViewport> {
     );
   }
 
-  /// 鏄ㄦ敹浠风嚎宸︿晶鏍囩锛堢伆鑹茶櫄绾匡紝鏂囨鍦ㄧ嚎鐨勪笂鏂逛究浜庤鲸璁わ級
+  /// 昨收价线左侧标签（灰色虚线，文案在线的上方便于辨认）
   Widget _buildPrevCloseLabel(double prevClose, double minY, double maxY, [double? chartHeight]) {
     final h = chartHeight ?? widget.chartHeight;
     const pad = 4.0;
@@ -259,14 +259,14 @@ class _ChartViewportState extends State<ChartViewport> {
     );
   }
 
-  /// 涓庡垎鏃跺浘涓€鑷达細娑ㄧ豢璺岀孩
+  /// 与分时图一致：涨绿跌红
   Color _refLineColor(double refPrice) {
     final prev = widget.prevClose;
     if (prev == null || prev <= 0) return ChartTheme.textSecondary;
     return refPrice >= prev ? ChartTheme.up : ChartTheme.down;
   }
 
-  /// 鍙充晶 Y 杞村垪涓婁粎鏄剧ず娑ㄨ穼骞呮爣绛撅紙涓嶆樉绀轰环鏍硷紝宸﹁竟鎵嶆槸浠锋牸锛?
+  /// 右侧 Y 轴列上仅显示涨跌幅标签（不显示价格，左边才是价格）
   Widget _buildRightAxisRefLabel(double refPrice, double minY, double maxY, double chartH) {
     const pad = 4.0;
     const rightLabelH = 40.0;
@@ -278,8 +278,7 @@ class _ChartViewportState extends State<ChartViewport> {
     final lineColor = _refLineColor(refPrice);
     final prev = widget.prevClose;
     final pct = (prev != null && prev > 0) ? ((refPrice - prev) / prev * 100) : null;
-    final pctStr =
-        pct != null ? "${pct >= 0 ? '+' : ''}${pct.toStringAsFixed(2)}%" : '--';
+    final pctStr = pct != null ? '${pct >= 0 ? '+' : ''}${pct.toStringAsFixed(2)}%' : '—';
     final boxDeco = BoxDecoration(
       color: lineColor.withValues(alpha: 0.22),
       border: Border.all(color: lineColor, width: 1),
@@ -323,7 +322,7 @@ class _ChartViewportState extends State<ChartViewport> {
     );
   }
 
-  /// 铏氱嚎鍙傝€冪嚎锛氱幇浠?鏄ㄦ敹绾垮彧鍦ㄥ浘鍐呯敾绾匡紝宸﹀彸渚т环鏍?娑ㄨ穼骞呭凡绉诲埌 Y 杞村垪锛圞 绾垮浘澶栵級
+  /// 虚线参考线：现价/昨收线只在图内画线，左右侧价格/涨跌幅已移到 Y 轴列（K 线图外）
   Widget _buildRefLineLabels(double refPrice, double minY, double maxY, Color lineColor, [double? chartHeight]) {
     return const SizedBox.shrink();
   }
@@ -339,7 +338,7 @@ class _ChartViewportState extends State<ChartViewport> {
     final changePct = c.open != 0 ? (change / c.open * 100) : 0.0;
     final isUp = c.close >= c.open;
     final color = isUp ? ChartTheme.up : ChartTheme.down;
-    final volStr = c.volume != null && c.volume! > 0 ? _formatVol(c.volume!) : '鈥?;
+    final volStr = c.volume != null && c.volume! > 0 ? _formatVol(c.volume!) : '—';
     return Stack(
       children: [
         Positioned(
@@ -386,8 +385,8 @@ class _ChartViewportState extends State<ChartViewport> {
   }
 
   static String _formatVol(int v) {
-    if (v >= 100000000) return '${(v / 100000000).toStringAsFixed(1)}浜?;
-    if (v >= 10000) return '${(v / 10000).toStringAsFixed(1)}涓?;
+    if (v >= 100000000) return '${(v / 100000000).toStringAsFixed(1)}亿';
+    if (v >= 10000) return '${(v / 10000).toStringAsFixed(1)}万';
     return v.toString();
   }
 
@@ -479,7 +478,7 @@ class _ChartViewportState extends State<ChartViewport> {
         }
       }
     }
-    /// 鐜颁环绾匡細浼樺厛鐢ㄧ埗缁勪欢浼犲叆鐨?currentPrice锛堜笌搴曢儴銆屾敹銆嶄竴鑷达級锛屼繚璇佽櫄绾夸笌 14.50 / -2.30% 瀵归綈
+    /// 现价线：优先用父组件传入的 currentPrice（与底部「收」一致），保证虚线与 14.50 / -2.30% 对齐
     final refPrice = widget.currentPrice ?? (candles.isNotEmpty ? candles.last.close : null);
     if (refPrice != null && refPrice > 0) {
       if (refPrice < minY) minY = refPrice;
@@ -495,7 +494,7 @@ class _ChartViewportState extends State<ChartViewport> {
     minY = minY - verticalPad;
     maxY = maxY + verticalPad;
     range = maxY - minY;
-    // 闃叉鍗曟牴鏋佺K绾匡紙濡傛毚娑ㄦ毚璺岋級鍘嬬缉鍏朵粬K绾匡細鑻ュ崟鏍瑰崰姣旇繃澶э紝鍒欓澶栨墿灞昚杞淬€?
+    // 防止单根极端K线（如暴涨暴跌）压缩其他K线：若单根占比过大，则额外扩展Y轴。
     final maxCandleRange = candles.fold<double>(0, (m, c) {
       final r = (c.high - c.low).clamp(0.0, double.infinity);
       return r > m ? r : m;
@@ -532,7 +531,7 @@ class _ChartViewportState extends State<ChartViewport> {
         const horizontalPad = 4.0;
         final chartAreaWidth = (layoutConstraints.maxWidth - horizontalPad - 2 - rightAxisWidth).clamp(0.0, double.infinity);
         const timeRatio = 28 / 376;
-        /// 鏃堕棿杞存渶灏忛珮搴︼紝纭繚搴曢儴鏃ユ湡鏍囩瀹屾暣鏄剧ず涓嶈瑁佸垏
+        /// 时间轴最小高度，确保底部日期标签完整显示不被裁切
         const minTimeAxisHeight = 28.0;
 
         return Padding(
@@ -564,7 +563,7 @@ class _ChartViewportState extends State<ChartViewport> {
                     final remaining = chartConstraints.maxHeight.clamp(120.0, double.infinity);
                     final timeH = (remaining * timeRatio).clamp(minTimeAxisHeight, 36.0);
                     final rest = remaining - timeH;
-                    // 鏀惧ぇ鍓浘锛圴OL / MACD / RSI锛夊尯鍩燂紝閬垮厤鍦ㄥ皬灞忎笂杩囦簬鎷ユ尋闅剧湅娓呫€?
+                    // 放大副图（VOL / MACD / RSI）区域，避免在小屏上过于拥挤难看清。
                     final chartH = rest * 0.84;
                     final subH = rest * 0.16;
                     return Column(
@@ -804,7 +803,7 @@ class _ChartViewportState extends State<ChartViewport> {
   }
 }
 
-/// 浣跨敤 fl_chart 缁樺埗缃戞牸涓?MA 绾匡紝CustomPaint 缁樺埗 K 绾?
+/// 使用 fl_chart 绘制网格与 MA 线，CustomPaint 绘制 K 线
 class _FlChartCandleLayer extends StatelessWidget {
   const _FlChartCandleLayer({
     required this.candles,
@@ -828,7 +827,7 @@ class _FlChartCandleLayer extends StatelessWidget {
   Widget build(BuildContext context) {
     if (candles.isEmpty) return const SizedBox.shrink();
     final n = candles.length;
-    // 鍧囩嚎鍓?period-1 涓负 null锛屽彧缁樺埗鏈夋晥鐐癸紝閬垮厤 null 琚綋鎴?0 瀵艰嚧鍨傜洿绾?
+    // 均线前 period-1 个为 null，只绘制有效点，避免 null 被当成 0 导致垂直线
     List<FlSpot> _maSpots(List<double?>? list) {
       if (list == null || list.length != n) return [];
       return [for (var i = 0; i < n; i++) if (list[i] != null) FlSpot(i.toDouble(), list[i]!)];
@@ -916,7 +915,7 @@ class _FlChartCandleLayer extends StatelessWidget {
   }
 }
 
-/// 涓诲浘妯悜铏氱嚎锛氫笌鍒嗘椂鍥?_CurrentPriceLinePainter 涓€鑷达紝鐜颁环绾夸粠宸﹀埌鍙宠疮绌匡紝杩炴帴宸︿晶浠锋牸涓庡彸渚ф定骞?
+/// 主图横向虚线：与分时图 _CurrentPriceLinePainter 一致，现价线从左到右贯穿，连接左侧价格与右侧涨幅
 class _ReferenceLinePainter extends CustomPainter {
   _ReferenceLinePainter({
     required this.refPrice,
@@ -936,7 +935,7 @@ class _ReferenceLinePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final rangeY = (maxY - minY).clamp(0.01, double.infinity);
     final chartH = size.height - _pad * 2;
-    // 涓?_CandlestickPainter 鍚屼竴鍧愭爣绯伙細pad + chartH - (v-minY)/range*chartH
+    // 与 _CandlestickPainter 同一坐标系：pad + chartH - (v-minY)/range*chartH
     final y = _pad + chartH * (maxY - refPrice) / rangeY;
     if (y.isNaN || y < 0 || y > size.height) return;
     const dashLen = 4.0;
@@ -958,7 +957,7 @@ class _ReferenceLinePainter extends CustomPainter {
       old.refPrice != refPrice || old.minY != minY || old.maxY != maxY || old.color != color;
 }
 
-/// 鍙充晶棰勭暀鐨?K 绾跨┖浣嶆暟锛岀暀鍑虹┖闂磋娑ㄥ箙/姣斾緥鏁板瓧瀹屾暣鏄剧ず锛岄伩鍏嶈鎴柇
+/// 右侧预留的 K 线空位数，留出空间让涨幅/比例数字完整显示，避免被截断
 const int _kRightReservedCandleSlots = 4;
 
 class _CandlestickPainter extends CustomPainter {
@@ -999,7 +998,7 @@ class _CandlestickPainter extends CustomPainter {
       var yLow = pad + chartH - (c.low - minY) / rangeY * chartH;
       var yOpen = pad + chartH - (c.open - minY) / rangeY * chartH;
       var yClose = pad + chartH - (c.close - minY) / rangeY * chartH;
-      // 闄愬埗鍦ㄥ浘琛ㄥ尯鍩熷唴锛岄伩鍏嶆瀬绔?K 绾垮奖绾胯秴鍑轰富鍥俱€佷镜鍏?VOL 鍖哄煙
+      // 限制在图表区域内，避免极端 K 线影线超出主图、侵入 VOL 区域
       yHigh = yHigh.clamp(yMin, yMax);
       yLow = yLow.clamp(yMin, yMax);
       yOpen = yOpen.clamp(yMin, yMax);
@@ -1204,4 +1203,3 @@ class _RsiPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _RsiPainter old) => old.rsiValues != rsiValues;
 }
-
