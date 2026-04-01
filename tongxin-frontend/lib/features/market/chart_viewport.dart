@@ -269,7 +269,7 @@ class _ChartViewportState extends State<ChartViewport> {
   /// 右侧 Y 轴列上仅显示涨跌幅标签（不显示价格，左边才是价格）
   Widget _buildRightAxisRefLabel(double refPrice, double minY, double maxY, double chartH) {
     const pad = 4.0;
-    const rightLabelH = 40.0;
+    const rightLabelH = 28.0;
     const margin = 2.0;
     final rangeY = (maxY - minY).clamp(0.01, double.infinity);
     final innerH = chartH - pad * 2;
@@ -292,31 +292,17 @@ class _ChartViewportState extends State<ChartViewport> {
     return Positioned(
       right: 0,
       top: rightTop,
-      width: 72,
+      width: 56,
       height: rightLabelH,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
         decoration: boxDeco,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              _fmt(refPrice),
-              style: textStyle,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            Text(
-              pctStr,
-              style: textStyle.copyWith(
-                fontSize: 10,
-                fontWeight: FontWeight.w600,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
+        alignment: Alignment.centerRight,
+        child: Text(
+          pctStr,
+          style: textStyle,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
         ),
       ),
     );
@@ -689,9 +675,23 @@ class _ChartViewportState extends State<ChartViewport> {
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: List.generate(5, (i) {
                               final v = maxY - (maxY - minY) * i / 4;
+                              final style = axisStyle.copyWith(fontSize: 9);
+                              final percentBase =
+                                  (widget.prevClose != null && widget.prevClose! > 0)
+                                      ? widget.prevClose!
+                                      : refPrice;
+                              if (percentBase != null && percentBase > 0) {
+                                final pct = (v - percentBase) / percentBase * 100;
+                                return Text(
+                                  '${pct >= 0 ? '+' : ''}${pct.toStringAsFixed(1)}%',
+                                  style: style,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                );
+                              }
                               return Text(
-                                _fmt(v),
-                                style: axisStyle.copyWith(fontSize: 9),
+                                '${(v >= 0 ? '+' : '')}${_fmt(v)}',
+                                style: style,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               );
