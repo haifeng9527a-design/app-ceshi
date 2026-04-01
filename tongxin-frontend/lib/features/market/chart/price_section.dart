@@ -3,15 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../l10n/app_localizations.dart';
 import 'chart_theme.dart';
 
-/// Price summary section shared by stock and crypto detail pages.
-class _MetricItem {
-  const _MetricItem(this.label, this.value, this.isUp);
-
-  final String label;
-  final dynamic value;
-  final bool? isUp;
-}
-
+/// 价格区（与特斯拉图完全一致）：价格+涨跌同行，指标 今开/最高/最低/昨收 | 成交额/换手率/振幅
 class PriceSection extends StatelessWidget {
   const PriceSection({
     super.key,
@@ -26,14 +18,6 @@ class PriceSection extends StatelessWidget {
     this.marketCap,
     this.turnoverRate,
     this.amplitude,
-    this.openLabel,
-    this.highLabel,
-    this.lowLabel,
-    this.prevCloseLabel,
-    this.turnoverLabel,
-    this.turnoverRateLabel,
-    this.amplitudeLabel,
-    this.hideNullMetrics = false,
   });
 
   final double? currentPrice;
@@ -47,37 +31,19 @@ class PriceSection extends StatelessWidget {
   final double? marketCap;
   final double? turnoverRate;
   final double? amplitude;
-  final String? openLabel;
-  final String? highLabel;
-  final String? lowLabel;
-  final String? prevCloseLabel;
-  final String? turnoverLabel;
-  final String? turnoverRateLabel;
-  final String? amplitudeLabel;
-  final bool hideNullMetrics;
 
   String _formatLarge(BuildContext context, double v) {
     final isZh = Localizations.localeOf(context).languageCode == 'zh';
     if (v >= 1000000000) return '${(v / 1000000000).toStringAsFixed(1)}B';
-    if (v >= 100000000) {
-      return isZh
-          ? '${(v / 100000000).toStringAsFixed(2)}亿'
-          : '${(v / 1000000).toStringAsFixed(1)}M';
-    }
-    if (v >= 10000) {
-      return isZh
-          ? '${(v / 10000).toStringAsFixed(2)}万'
-          : '${(v / 1000).toStringAsFixed(1)}K';
-    }
+    if (v >= 100000000) return isZh ? '${(v / 100000000).toStringAsFixed(2)}亿' : '${(v / 1000000).toStringAsFixed(1)}M';
+    if (v >= 10000) return isZh ? '${(v / 10000).toStringAsFixed(2)}万' : '${(v / 1000).toStringAsFixed(1)}K';
     return v.toStringAsFixed(0);
   }
 
   @override
   Widget build(BuildContext context) {
     final isUp = change != null && change! >= 0;
-    final color = change != null
-        ? (isUp ? ChartTheme.up : ChartTheme.down)
-        : ChartTheme.textPrimary;
+    final color = change != null ? (isUp ? ChartTheme.up : ChartTheme.down) : ChartTheme.textPrimary;
     final l10n = AppLocalizations.of(context)!;
 
     return Padding(
@@ -91,23 +57,23 @@ class PriceSection extends StatelessWidget {
           final turnoverStr = turnover != null
               ? _formatLarge(context, turnover!)
               : (marketCap != null ? _formatLarge(context, marketCap!) : null);
-          final metricItems = <_MetricItem>[
-            _MetricItem(openLabel ?? l10n.chartPriceOpen, open, null),
-            _MetricItem(highLabel ?? l10n.chartPriceHigh, high, true),
-            _MetricItem(lowLabel ?? l10n.chartPriceLow, low, false),
-            _MetricItem(prevCloseLabel ?? l10n.chartPricePrevClose, prevClose, null),
-            _MetricItem(turnoverLabel ?? l10n.chartPriceTotalTurnover, turnoverStr, null),
-            _MetricItem(
-              turnoverRateLabel ?? l10n.chartPriceTurnoverRate,
+          final metricItems = [
+            (l10n.chartPriceOpen, open, null as bool?),
+            (l10n.chartPriceHigh, high, true as bool?),
+            (l10n.chartPriceLow, low, false as bool?),
+            (l10n.chartPricePrevClose, prevClose, null as bool?),
+            (l10n.chartPriceTotalTurnover, turnoverStr, null as bool?),
+            (
+              l10n.chartPriceTurnoverRate,
               turnoverRate != null ? '${turnoverRate!.toStringAsFixed(1)}%' : null,
-              null,
+              null as bool?
             ),
-            _MetricItem(
-              amplitudeLabel ?? l10n.chartPriceAmplitude,
+            (
+              l10n.chartPriceAmplitude,
               amplitude != null ? '${amplitude!.toStringAsFixed(1)}%' : null,
-              null,
+              null as bool?
             ),
-          ].where((item) => !hideNullMetrics || item.value != null).toList();
+          ];
 
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -175,9 +141,9 @@ class PriceSection extends StatelessWidget {
                   return SizedBox(
                     width: metricWidth.clamp(140.0, 220.0),
                     child: _metricCard(
-                      item.label,
-                      item.value,
-                      isUp: item.isUp,
+                      item.$1,
+                      item.$2,
+                      isUp: item.$3,
                     ),
                   );
                 }).toList(),
@@ -190,16 +156,10 @@ class PriceSection extends StatelessWidget {
   }
 
   Widget _metricCard(String label, dynamic value, {bool? isUp}) {
-    final str = value is double
-        ? ChartTheme.formatPrice(value)
-        : (value is String ? value : '—');
+    final str = value is double ? ChartTheme.formatPrice(value) : (value is String ? value : '—');
     final valueColor = value == null || value == '—'
         ? ChartTheme.textSecondary
-        : (isUp == true
-            ? ChartTheme.up
-            : isUp == false
-                ? ChartTheme.down
-                : ChartTheme.textPrimary);
+        : (isUp == true ? ChartTheme.up : isUp == false ? ChartTheme.down : ChartTheme.textPrimary);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(

@@ -375,50 +375,6 @@ class BackendMarketClient {
     }
   }
 
-  Future<BackendCryptoDepth> getCryptoDepth(
-    String symbol, {
-    int limit = 5,
-  }) async {
-    final uri = Uri.parse('${_base}api/crypto/depth').replace(
-      queryParameters: {
-        'symbol': symbol,
-        'limit': limit.toString(),
-      },
-    );
-    try {
-      final resp = await http.get(uri).timeout(
-        const Duration(seconds: 15),
-        onTimeout: () => throw Exception('请求超时'),
-      );
-      if (resp.statusCode != 200) {
-        return const BackendCryptoDepth(bids: [], asks: []);
-      }
-      final map = jsonDecode(resp.body) as Map<String, dynamic>?;
-      if (map == null) {
-        return const BackendCryptoDepth(bids: [], asks: []);
-      }
-      List<(double, int)> parseSide(dynamic raw) {
-        if (raw is! List) return const <(double, int)>[];
-        final out = <(double, int)>[];
-        for (final item in raw) {
-          if (item is! List || item.length < 2) continue;
-          final price = (item[0] as num?)?.toDouble();
-          final qty = (item[1] as num?)?.toInt();
-          if (price == null || qty == null) continue;
-          out.add((price, qty));
-        }
-        return out;
-      }
-
-      return BackendCryptoDepth(
-        bids: parseSide(map['bids']),
-        asks: parseSide(map['asks']),
-      );
-    } catch (_) {
-      return const BackendCryptoDepth(bids: [], asks: []);
-    }
-  }
-
   /// 当日 OHLC + 昨收（详情页用），走后端 /api/quotes?realtime=1
   Future<PolygonGainer?> getDaySnapshot(String symbol) async {
     final m = await getQuotes([symbol.trim()], realtime: true);
@@ -977,16 +933,6 @@ class BackendCryptoPairsPage {
       hasMore: m['hasMore'] == true,
     );
   }
-}
-
-class BackendCryptoDepth {
-  const BackendCryptoDepth({
-    required this.bids,
-    required this.asks,
-  });
-
-  final List<(double, int)> bids;
-  final List<(double, int)> asks;
 }
 
 class BackendStockTickersPage {
