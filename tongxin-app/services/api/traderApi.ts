@@ -1,4 +1,4 @@
-import apiClient from './client';
+import appApiClient from './appClient';
 
 // ── Types ──
 
@@ -97,31 +97,31 @@ export interface FollowTraderRequest {
 // ── API Functions ──
 
 export async function submitApplication(req: SubmitApplicationRequest): Promise<TraderApplication> {
-  const { data } = await apiClient.post('/api/trader/apply', req);
+  const { data } = await appApiClient.post('/api/trader/apply', req);
   return data;
 }
 
 export async function getMyApplication(): Promise<{ application: TraderApplication | null }> {
-  const { data } = await apiClient.get('/api/trader/my-application');
+  const { data } = await appApiClient.get('/api/trader/my-application');
   return data;
 }
 
 export async function getMyStats(): Promise<TraderStats> {
-  const { data } = await apiClient.get('/api/trader/my-stats');
+  const { data } = await appApiClient.get('/api/trader/my-stats');
   return data;
 }
 
 export async function toggleCopyTrading(allow: boolean): Promise<void> {
-  await apiClient.put('/api/trader/copy-trading-toggle', { allow });
+  await appApiClient.put('/api/trader/copy-trading-toggle', { allow });
 }
 
 export async function getMyFollowers(): Promise<CopyTrading[]> {
-  const { data } = await apiClient.get('/api/trader/my-followers');
+  const { data } = await appApiClient.get('/api/trader/my-followers');
   return data;
 }
 
 export async function getMyFollowing(): Promise<CopyTrading[]> {
-  const { data } = await apiClient.get('/api/trader/my-following');
+  const { data } = await appApiClient.get('/api/trader/my-following');
   return data;
 }
 
@@ -134,22 +134,49 @@ export async function getTraderRankings(
   if (sort) params.sort = sort;
   if (limit) params.limit = String(limit);
   if (offset) params.offset = String(offset);
-  const { data } = await apiClient.get('/api/trader/rankings', { params });
+  const { data } = await appApiClient.get('/api/trader/rankings', { params });
   return data;
 }
 
 export async function getTraderProfile(uid: string): Promise<TraderProfile> {
-  const { data } = await apiClient.get(`/api/trader/${uid}/profile`);
+  const { data } = await appApiClient.get(`/api/trader/${uid}/profile`);
   return data;
 }
 
 export async function followTrader(uid: string, req?: FollowTraderRequest): Promise<CopyTrading> {
-  const { data } = await apiClient.post(`/api/trader/${uid}/follow`, req || {});
+  const { data } = await appApiClient.post(`/api/trader/${uid}/follow`, req || {});
   return data;
 }
 
 export async function unfollowTrader(uid: string): Promise<void> {
-  await apiClient.delete(`/api/trader/${uid}/follow`);
+  await appApiClient.delete(`/api/trader/${uid}/follow`);
+}
+
+export interface TraderPosition {
+  id: string;
+  symbol: string;
+  side: string;
+  qty: number;
+  entry_price: number;
+  leverage: number;
+  status: string;
+  realized_pnl: number;
+  close_price: number;
+  unrealized_pnl: number;
+  current_price: number;
+  roe: number;
+  created_at: string;
+  closed_at?: string;
+}
+
+export async function getTraderPositions(uid: string): Promise<TraderPosition[]> {
+  const { data } = await appApiClient.get(`/api/trader/${uid}/positions`);
+  return data || [];
+}
+
+export async function getTraderTrades(uid: string, limit = 10): Promise<TraderPosition[]> {
+  const { data } = await appApiClient.get(`/api/trader/${uid}/trades?limit=${limit}`);
+  return data || [];
 }
 
 // ── Admin API ──
@@ -163,14 +190,14 @@ export async function adminListApplications(
   if (status) params.status = status;
   if (limit) params.limit = String(limit);
   if (offset) params.offset = String(offset);
-  const { data } = await apiClient.get('/api/admin/trader-applications', { params });
+  const { data } = await appApiClient.get('/api/admin/trader-applications', { params });
   return data;
 }
 
 export async function adminApproveApplication(id: string): Promise<void> {
-  await apiClient.post(`/api/admin/trader-applications/${id}/approve`);
+  await appApiClient.post(`/api/admin/trader-applications/${id}/approve`);
 }
 
 export async function adminRejectApplication(id: string, reason?: string): Promise<void> {
-  await apiClient.post(`/api/admin/trader-applications/${id}/reject`, { reason });
+  await appApiClient.post(`/api/admin/trader-applications/${id}/reject`, { reason });
 }

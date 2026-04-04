@@ -10,11 +10,12 @@ import (
 )
 
 type TraderHandler struct {
-	svc *service.TraderService
+	svc        *service.TraderService
+	tradingSvc *service.TradingService
 }
 
-func NewTraderHandler(svc *service.TraderService) *TraderHandler {
-	return &TraderHandler{svc: svc}
+func NewTraderHandler(svc *service.TraderService, tradingSvc *service.TradingService) *TraderHandler {
+	return &TraderHandler{svc: svc, tradingSvc: tradingSvc}
 }
 
 // POST /api/trader/apply
@@ -223,6 +224,63 @@ func (h *TraderHandler) UnfollowTrader(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "unfollowed"})
+}
+
+// GET /api/trader/{uid}/positions — public: open positions of a trader
+func (h *TraderHandler) TraderPositions(w http.ResponseWriter, r *http.Request) {
+	traderUID := r.PathValue("uid")
+	if traderUID == "" {
+		writeError(w, http.StatusBadRequest, "missing trader uid")
+		return
+	}
+
+	if h.tradingSvc == nil {
+		writeJSON(w, http.StatusOK, []model.Position{})
+		return
+	}
+
+	positions, err := h.tradingSvc.ListPositionsWithPnL(r.Context(), traderUID)
+	if err != nil {
+		writeJSON(w, http.StatusOK, []model.Position{})
+		return
+	}
+	if positions == nil {
+		positions = []model.Position{}
+	}
+
+	writeJSON(w, http.StatusOK, positions)
+}
+
+// GET /api/trader/{uid}/trades — public: recent closed positions of a trader
+func (h *TraderHandler) TraderTrades(w http.ResponseWriter, r *http.Request) {
+	traderUID := r.PathValue("uid")
+	if traderUID == "" {
+		writeError(w, http.StatusBadRequest, "missing trader uid")
+		return
+	}
+
+	limit := 10
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if n, err := strconv.Atoi(l); err == nil && n > 0 {
+			limit = n
+		}
+	}
+
+	if h.tradingSvc == nil {
+		writeJSON(w, http.StatusOK, []model.Position{})
+		return
+	}
+
+	trades, err := h.tradingSvc.ListPositionHistory(r.Context(), traderUID, limit)
+	if err != nil {
+		writeJSON(w, http.StatusOK, []model.Position{})
+		return
+	}
+	if trades == nil {
+		trades = []model.Position{}
+	}
+
+	writeJSON(w, http.StatusOK, trades)
 }
 
 // ── Admin Handlers ──

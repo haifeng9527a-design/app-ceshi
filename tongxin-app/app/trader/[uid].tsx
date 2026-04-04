@@ -13,13 +13,17 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { Colors, Shadows } from '../../theme/colors';
+import EquityCurve from '../../components/chart/EquityCurve';
 import { useAuthStore } from '../../services/store/authStore';
 import {
   getTraderProfile,
+  getTraderPositions,
+  getTraderTrades,
   followTrader,
   unfollowTrader,
   getMyFollowing,
   TraderProfile,
+  TraderPosition,
   CopyTrading,
 } from '../../services/api/traderApi';
 
@@ -37,17 +41,23 @@ export default function TraderDetailScreen() {
   const [showFollowModal, setShowFollowModal] = useState(false);
   const [copyRatio, setCopyRatio] = useState('1.0');
   const [actionLoading, setActionLoading] = useState(false);
+  const [positions, setPositions] = useState<TraderPosition[]>([]);
+  const [trades, setTrades] = useState<TraderPosition[]>([]);
   const isSelf = user?.uid === uid;
 
   useEffect(() => {
     if (!uid) return;
     (async () => {
       try {
-        const [p, myFollowing] = await Promise.all([
+        const [p, myFollowing, pos, trd] = await Promise.all([
           getTraderProfile(uid),
           user && !isSelf ? getMyFollowing().catch(() => []) : Promise.resolve([]),
+          getTraderPositions(uid).catch(() => []),
+          getTraderTrades(uid).catch(() => []),
         ]);
         setProfile(p);
+        setPositions(pos);
+        setTrades(trd);
         if (!isSelf) {
           setFollowing(myFollowing.some((f: CopyTrading) => f.trader_id === uid && f.status === 'active'));
         }
@@ -113,7 +123,6 @@ export default function TraderDetailScreen() {
   const maxDD = stats?.max_drawdown || 0;
   const followers = stats?.followers_count || 0;
   const totalTrades = stats?.total_trades || 0;
-  const avgPnl = stats?.avg_pnl || 0;
 
   return (
     <View style={styles.container}>
@@ -127,7 +136,6 @@ export default function TraderDetailScreen() {
         <View style={styles.headerCard}>
           <View style={[styles.headerContent, isDesktop && styles.headerContentDesktop]}>
             <View style={[styles.headerLeft, isDesktop && styles.headerLeftDesktop]}>
-              {/* Avatar */}
               <View style={styles.avatarContainer}>
                 <View style={styles.avatar}>
                   <Text style={styles.avatarText}>
@@ -140,7 +148,6 @@ export default function TraderDetailScreen() {
                   </View>
                 )}
               </View>
-              {/* Info */}
               <View style={styles.headerInfo}>
                 <View style={styles.nameRow}>
                   <Text style={styles.profileName}>{profile.display_name}</Text>
@@ -160,6 +167,9 @@ export default function TraderDetailScreen() {
                   <View style={styles.tag}>
                     <Text style={styles.tagText}>SWING</Text>
                   </View>
+                  <View style={styles.tag}>
+                    <Text style={styles.tagText}>LOW RISK</Text>
+                  </View>
                 </View>
               </View>
             </View>
@@ -167,6 +177,9 @@ export default function TraderDetailScreen() {
             {/* Action Buttons (not self) */}
             {!isSelf && (
               <View style={[styles.headerActions, isDesktop && styles.headerActionsDesktop]}>
+                <TouchableOpacity style={styles.followBtnOutline}>
+                  <Text style={styles.followBtnOutlineText}>关注 Follow</Text>
+                </TouchableOpacity>
                 {profile.allow_copy_trading && user && (
                   following ? (
                     <TouchableOpacity
@@ -198,9 +211,14 @@ export default function TraderDetailScreen() {
         <View style={[styles.metricsGrid, isDesktop && styles.metricsGridDesktop]}>
           <MetricCard
             label="总盈亏 Total PnL"
-            value={`${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`}
+            value={`${pnl >= 0 ? '+' : ''}$${formatMoney(pnl)}`}
             color={pnl >= 0 ? Colors.up : Colors.down}
             glow={pnl > 0}
+          />
+          <MetricCard
+            label="回报率 ROI"
+            value={`+${(pnl / 10000 * 100).toFixed(1)}%`}
+            color={Colors.up}
           />
           <MetricCard
             label="胜率 Win Rate"
@@ -213,63 +231,58 @@ export default function TraderDetailScreen() {
             color={Colors.down}
           />
           <MetricCard
-            label="总交易数 Trades"
-            value={String(totalTrades)}
-          />
-          <MetricCard
             label="跟随人数 Followers"
             value={formatNumber(followers)}
           />
         </View>
 
-        {/* Main Content Grid */}
-        <View style={[styles.mainGrid, isDesktop && styles.mainGridDesktop]}>
-          {/* Risk Matrix */}
-          <View style={[styles.glassCard, isDesktop && { flex: 1 }]}>
-            <Text style={styles.sectionTitle}>风险指数 Risk Matrix</Text>
-            <View style={styles.riskHeader}>
-              <View>
-                <Text style={styles.riskScore}>
-                  {maxDD <= 10 ? '15' : maxDD <= 20 ? '35' : '60'}
-                  <Text style={styles.riskScoreUnit}>/100</Text>
-                </Text>
-                <Text style={styles.riskLabel}>
-                  {maxDD <= 10 ? 'Conservative' : maxDD <= 20 ? 'Moderate' : 'Aggressive'}
-                </Text>
-              </View>
-              <Text style={styles.shieldIcon}>🛡</Text>
-            </View>
-            <View style={styles.riskMetrics}>
-              <RiskBar label="夏普比率 Sharpe" value={winRate > 60 ? '2.4' : winRate > 40 ? '1.2' : '0.6'} pct={winRate > 60 ? 75 : winRate > 40 ? 45 : 20} />
-              <RiskBar label="波动率 Volatility" value={maxDD <= 10 ? 'Low' : maxDD <= 20 ? 'Med' : 'High'} pct={maxDD <= 10 ? 25 : maxDD <= 20 ? 55 : 80} />
-            </View>
-            <View style={styles.riskNote}>
-              <Text style={styles.riskNoteText}>
-                {maxDD <= 15
-                  ? '资金管理严格，近期无大笔异常回撤。适合稳健型投资者。'
-                  : '交易风格较为激进，适合风险承受能力较强的投资者。'}
-              </Text>
-            </View>
+        {/* Row 2: Equity Curve (left) + Risk Matrix & Sentiment (right) */}
+        <View style={[styles.rowGrid, isDesktop && styles.rowGridDesktop]}>
+          {/* Equity Curve */}
+          <View style={[isDesktop ? { flex: 1, minWidth: 0 } : {}]}>
+            <EquityCurve totalPnl={pnl} totalTrades={totalTrades} />
           </View>
 
-          {/* Avg PnL & Sentiment */}
-          <View style={[{ gap: 16 }, isDesktop && { flex: 0, width: 320 }]}>
-            <View style={styles.glassCard}>
-              <Text style={styles.sectionTitle}>平均盈亏 Avg PnL</Text>
-              <Text style={[styles.bigValue, { color: avgPnl >= 0 ? Colors.up : Colors.down }]}>
-                {avgPnl >= 0 ? '+' : ''}${avgPnl.toFixed(2)}
-              </Text>
-              <Text style={styles.smallLabel}>Per Trade</Text>
+          {/* Risk Matrix + Sentiment */}
+          <View style={[{ gap: 16 }, isDesktop && { width: 300, flexShrink: 0 }]}>
+            {/* Risk Matrix */}
+            <View style={[styles.glassCard, { marginBottom: 0 }]}>
+              <Text style={styles.sectionTitle}>风险指数 Risk Matrix</Text>
+              <View style={styles.riskHeader}>
+                <View>
+                  <Text style={styles.riskScore}>
+                    {maxDD <= 10 ? '15' : maxDD <= 20 ? '28' : '60'}
+                    <Text style={styles.riskScoreUnit}>/100</Text>
+                  </Text>
+                  <Text style={styles.riskLabel}>
+                    {maxDD <= 10 ? 'CONSERVATIVE PROFILE' : maxDD <= 20 ? 'MODERATE PROFILE' : 'AGGRESSIVE PROFILE'}
+                  </Text>
+                </View>
+                <Text style={styles.shieldIcon}>🛡</Text>
+              </View>
+              <View style={styles.riskMetrics}>
+                <RiskBar label="夏普比率 Sharpe Ratio" value={winRate > 60 ? '2.4' : winRate > 40 ? '1.2' : '0.6'} pct={winRate > 60 ? 75 : winRate > 40 ? 45 : 20} />
+                <RiskBar label="波动率 Volatility" value={maxDD <= 10 ? 'Low' : maxDD <= 20 ? 'Med' : 'High'} pct={maxDD <= 10 ? 25 : maxDD <= 20 ? 55 : 80} />
+              </View>
+              <View style={styles.riskNote}>
+                <Text style={styles.riskNoteText}>
+                  {maxDD <= 15
+                    ? '资金管理严格，近30日无大笔异常回撤。适合稳健型投资者。'
+                    : '交易风格较为激进，适合风险承受能力较强的投资者。'}
+                </Text>
+              </View>
             </View>
-            <View style={[styles.glassCard, styles.sentimentCard]}>
+
+            {/* Market Sentiment */}
+            <View style={[styles.glassCard, styles.sentimentCardWrapper, { marginBottom: 0 }]}>
               <View style={styles.sentimentRow}>
                 <View style={styles.sentimentIcon}>
-                  <Text style={{ fontSize: 20 }}>📈</Text>
+                  <Text style={{ fontSize: 22 }}>📈</Text>
                 </View>
-                <View>
-                  <Text style={styles.smallLabel}>当前情绪 Sentiment</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.sentimentLabel}>当前情绪 Market Sentiment</Text>
                   <Text style={styles.sentimentValue}>
-                    {pnl > 0 ? '强力看涨 Bullish' : '谨慎观望 Neutral'}
+                    {pnl > 0 ? '强力看涨 Strong Bullish' : '谨慎观望 Neutral'}
                   </Text>
                 </View>
               </View>
@@ -277,18 +290,102 @@ export default function TraderDetailScreen() {
           </View>
         </View>
 
-        {/* Stats Detail */}
-        <View style={styles.glassCard}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>交易统计 Trading Stats</Text>
+        {/* Row 3: Open Positions (left) + Recent Trades (right) */}
+        <View style={[styles.rowGrid, isDesktop && styles.rowGridDesktop]}>
+          {/* Open Positions */}
+          <View style={[styles.glassCard, { marginBottom: isDesktop ? 0 : 16 }, isDesktop && { flex: 1, minWidth: 0 }]}>
+            <View style={styles.sectionHeader}>
+              <View style={styles.sectionTitleRow}>
+                <Text style={styles.sectionTitleIcon}>📊</Text>
+                <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>当前持仓 Open Positions</Text>
+              </View>
+              {positions.length > 0 && (
+                <View style={styles.activeBadge}>
+                  <Text style={styles.activeBadgeText}>{positions.length} ACTIVE</Text>
+                </View>
+              )}
+            </View>
+
+            {positions.length === 0 ? (
+              <Text style={styles.emptyText}>暂无持仓</Text>
+            ) : (
+              <>
+                <View style={styles.tableHeader}>
+                  <Text style={[styles.tableHeaderText, { flex: 2 }]}>交易对 PAIR</Text>
+                  <Text style={[styles.tableHeaderText, { flex: 1.5 }]}>入场 ENTRY</Text>
+                  <Text style={[styles.tableHeaderText, { flex: 1.5 }]}>当前 CURRENT</Text>
+                  <Text style={[styles.tableHeaderText, { flex: 1, textAlign: 'right' }]}>盈亏 PNL</Text>
+                </View>
+                {positions.map((pos) => {
+                  const upnl = pos.unrealized_pnl || 0;
+                  return (
+                    <View key={pos.id} style={styles.tableRow}>
+                      <View style={{ flex: 2, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <View style={styles.pairIcon}>
+                          <Text style={styles.pairIconText}>{pos.symbol[0]}</Text>
+                        </View>
+                        <View>
+                          <Text style={styles.pairName}>{pos.symbol}</Text>
+                          <Text style={[styles.pairSide, { color: pos.side === 'long' ? Colors.up : Colors.down }]}>
+                            {pos.side.toUpperCase()} {pos.leverage}x
+                          </Text>
+                        </View>
+                      </View>
+                      <Text style={[styles.tableCell, { flex: 1.5 }]}>${formatMoney(pos.entry_price)}</Text>
+                      <Text style={[styles.tableCell, { flex: 1.5 }]}>${formatMoney(pos.current_price)}</Text>
+                      <Text style={[styles.tableCell, { flex: 1, textAlign: 'right', color: upnl >= 0 ? Colors.up : Colors.down, fontWeight: '700' }]}>
+                        {upnl >= 0 ? '+' : ''}${formatMoney(upnl)}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </>
+            )}
           </View>
-          <View style={styles.statsDetailGrid}>
-            <StatsDetailRow label="总交易数" value={String(totalTrades)} />
-            <StatsDetailRow label="盈利交易" value={String(stats?.win_trades || 0)} color={Colors.up} />
-            <StatsDetailRow label="亏损交易" value={String(totalTrades - (stats?.win_trades || 0))} color={Colors.down} />
-            <StatsDetailRow label="胜率" value={`${winRate.toFixed(1)}%`} color={Colors.up} />
-            <StatsDetailRow label="总盈亏" value={`$${pnl.toFixed(2)}`} color={pnl >= 0 ? Colors.up : Colors.down} />
-            <StatsDetailRow label="最大回撤" value={`${maxDD.toFixed(1)}%`} color={Colors.down} />
+
+          {/* Recent Trades */}
+          <View style={[styles.glassCard, { marginBottom: 0 }, isDesktop && { flex: 1, minWidth: 0 }]}>
+            <View style={styles.sectionHeader}>
+              <View style={styles.sectionTitleRow}>
+                <Text style={styles.sectionTitleIcon}>🕐</Text>
+                <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>最近成交 Recent Trades</Text>
+              </View>
+              <TouchableOpacity>
+                <Text style={styles.viewAllText}>VIEW ALL</Text>
+              </TouchableOpacity>
+            </View>
+
+            {trades.length === 0 ? (
+              <Text style={styles.emptyText}>暂无成交记录</Text>
+            ) : (
+              <>
+                <View style={styles.tableHeader}>
+                  <Text style={[styles.tableHeaderText, { flex: 2 }]}>操作 ACTION</Text>
+                  <Text style={[styles.tableHeaderText, { flex: 2 }]}>时间 TIME</Text>
+                  <Text style={[styles.tableHeaderText, { flex: 1, textAlign: 'right' }]}>已实现 PNL</Text>
+                </View>
+                {trades.map((trade) => {
+                  const rpnl = trade.realized_pnl || 0;
+                  const closeType = rpnl > 0 ? 'TAKE PROFIT' : rpnl < 0 ? 'STOP LOSS' : 'CLOSE';
+                  const closedTime = trade.closed_at ? new Date(trade.closed_at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+                  return (
+                    <View key={trade.id} style={styles.tableRow}>
+                      <View style={{ flex: 2 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <View style={[styles.tradeDot, { backgroundColor: rpnl >= 0 ? Colors.up : Colors.down }]} />
+                          <Text style={styles.tradeAction}>{trade.side === 'long' ? 'SELL' : 'BUY'} {trade.symbol}</Text>
+                        </View>
+                        <Text style={styles.tradeType}>{closeType}</Text>
+                      </View>
+                      <Text style={[styles.tableCell, { flex: 2 }]}>{closedTime}</Text>
+                      <Text style={[styles.tableCell, { flex: 1, textAlign: 'right', color: rpnl >= 0 ? Colors.up : Colors.down, fontWeight: '700' }]}>
+                        {rpnl >= 0 ? '+' : ''}${formatMoney(Math.abs(rpnl))}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </>
+            )}
           </View>
         </View>
 
@@ -358,19 +455,14 @@ function RiskBar({ label, value, pct }: { label: string; value: string; pct: num
   );
 }
 
-function StatsDetailRow({ label, value, color }: { label: string; value: string; color?: string }) {
-  return (
-    <View style={styles.statsRow}>
-      <Text style={styles.statsRowLabel}>{label}</Text>
-      <Text style={[styles.statsRowValue, color ? { color } : undefined]}>{value}</Text>
-    </View>
-  );
-}
-
 function formatNumber(n: number): string {
   if (n >= 10000) return `${(n / 1000).toFixed(1)}K`;
   if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
   return String(n);
+}
+
+function formatMoney(n: number): string {
+  return n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
 /* ── Styles ── */
@@ -473,10 +565,18 @@ const styles = StyleSheet.create({
 
   headerActions: { flexDirection: 'row', gap: 10 },
   headerActionsDesktop: {},
+  followBtnOutline: {
+    borderWidth: 1,
+    borderColor: Colors.border,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 10,
+  },
+  followBtnOutlineText: { color: Colors.textSecondary, fontSize: 14, fontWeight: '600' },
   followBtn: {
     backgroundColor: Colors.primary,
     paddingHorizontal: 24,
-    paddingVertical: 14,
+    paddingVertical: 12,
     borderRadius: 10,
     ...Shadows.glow,
   },
@@ -485,7 +585,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.borderLight,
     paddingHorizontal: 24,
-    paddingVertical: 14,
+    paddingVertical: 12,
     borderRadius: 10,
   },
   unfollowBtnText: { color: Colors.textSecondary, fontSize: 14, fontWeight: '600' },
@@ -525,9 +625,9 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5,
   },
 
-  // ── Main Grid ──
-  mainGrid: { gap: 16, marginBottom: 16 },
-  mainGridDesktop: { flexDirection: 'row' },
+  // ── Row Grid ──
+  rowGrid: { gap: 16, marginBottom: 16 },
+  rowGridDesktop: { flexDirection: 'row' },
 
   // ── Glass Card ──
   glassCard: {
@@ -544,6 +644,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 16,
   },
+  sectionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  sectionTitleIcon: { fontSize: 16 },
   sectionTitle: {
     color: Colors.textActive,
     fontSize: 16,
@@ -556,11 +662,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-end',
-    marginBottom: 24,
+    marginBottom: 20,
   },
   riskScore: {
     color: Colors.primary,
-    fontSize: 40,
+    fontSize: 36,
     fontWeight: '800',
     letterSpacing: -1,
   },
@@ -571,13 +677,13 @@ const styles = StyleSheet.create({
   },
   riskLabel: {
     color: Colors.textMuted,
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '600',
     letterSpacing: 1.5,
     textTransform: 'uppercase',
   },
-  shieldIcon: { fontSize: 36, opacity: 0.4 },
-  riskMetrics: { gap: 20 },
+  shieldIcon: { fontSize: 32, opacity: 0.4 },
+  riskMetrics: { gap: 16 },
   riskBarContainer: {},
   riskBarHeader: {
     flexDirection: 'row',
@@ -598,32 +704,20 @@ const styles = StyleSheet.create({
     borderRadius: 3,
   },
   riskNote: {
-    marginTop: 20,
-    paddingTop: 16,
+    marginTop: 16,
+    paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: Colors.border,
   },
   riskNoteText: {
     color: Colors.textMuted,
-    fontSize: 12,
-    lineHeight: 20,
+    fontSize: 11,
+    lineHeight: 18,
   },
 
-  // ── Avg PnL & Sentiment ──
-  bigValue: {
-    fontSize: 28,
-    fontWeight: '800',
-    letterSpacing: -0.5,
-    marginBottom: 4,
-  },
-  smallLabel: {
-    color: Colors.textMuted,
-    fontSize: 11,
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-  },
-  sentimentCard: {
-    marginBottom: 0,
+  // ── Sentiment ──
+  sentimentCardWrapper: {
+    backgroundColor: Colors.surfaceAlt,
   },
   sentimentRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   sentimentIcon: {
@@ -634,19 +728,87 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  sentimentValue: { color: Colors.textActive, fontSize: 13, fontWeight: '700', marginTop: 2 },
+  sentimentLabel: {
+    color: Colors.textMuted,
+    fontSize: 10,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    marginBottom: 2,
+  },
+  sentimentValue: { color: Colors.textActive, fontSize: 14, fontWeight: '700' },
 
-  // ── Stats Detail ──
-  statsDetailGrid: { gap: 1 },
-  statsRow: {
+  // ── Active Badge ──
+  activeBadge: {
+    backgroundColor: Colors.upDim,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  activeBadgeText: {
+    color: Colors.up,
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1,
+  },
+  emptyText: {
+    color: Colors.textMuted,
+    fontSize: 13,
+    textAlign: 'center',
+    paddingVertical: 20,
+  },
+  viewAllText: {
+    color: Colors.primary,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1,
+  },
+
+  // ── Table ──
+  tableHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+    marginBottom: 4,
+  },
+  tableHeaderText: {
+    color: Colors.textMuted,
+    fontSize: 9,
+    fontWeight: '600',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  tableRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
   },
-  statsRowLabel: { color: Colors.textSecondary, fontSize: 13 },
-  statsRowValue: { color: Colors.textActive, fontSize: 14, fontWeight: '700' },
+  tableCell: {
+    color: Colors.textSecondary,
+    fontSize: 13,
+  },
+  pairIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: Colors.surfaceAlt,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  pairIconText: { color: Colors.primary, fontSize: 13, fontWeight: '700' },
+  pairName: { color: Colors.textActive, fontSize: 13, fontWeight: '700' },
+  pairSide: { fontSize: 10, fontWeight: '600', letterSpacing: 0.5 },
+  tradeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  tradeAction: { color: Colors.textActive, fontSize: 13, fontWeight: '600' },
+  tradeType: { color: Colors.textMuted, fontSize: 10, letterSpacing: 0.5, marginTop: 2, marginLeft: 12 },
 
   // ── Follow Modal ──
   followModalOverlay: {

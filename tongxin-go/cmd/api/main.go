@@ -325,6 +325,7 @@ func main() {
 
 	// Native Trading + Wallet
 	var tradingHub *ws.TradingHub
+	var tradingSvc *service.TradingService
 	if pool != nil {
 		walletRepo := repository.NewWalletRepo(pool)
 		orderRepo := repository.NewOrderRepo(pool)
@@ -332,7 +333,7 @@ func main() {
 
 		tradingHub = ws.NewTradingHub()
 
-		tradingSvc := service.NewTradingService(walletRepo, orderRepo, positionRepo, binance, polygonClient, tradingHub)
+		tradingSvc = service.NewTradingService(walletRepo, orderRepo, positionRepo, binance, polygonClient, tradingHub)
 
 		// Load pending limit orders into memory and hook price updates
 		tradingSvc.LoadPendingOrders(context.Background())
@@ -403,11 +404,13 @@ func main() {
 	if pool != nil {
 		traderRepo := repository.NewTraderRepo(pool)
 		traderSvc = service.NewTraderService(traderRepo)
-		traderH := handler.NewTraderHandler(traderSvc)
+		traderH := handler.NewTraderHandler(traderSvc, tradingSvc)
 
 		// Public trader routes
 		mux.HandleFunc("GET /api/trader/rankings", traderH.Rankings)
 		mux.HandleFunc("GET /api/trader/{uid}/profile", traderH.TraderProfile)
+		mux.HandleFunc("GET /api/trader/{uid}/positions", traderH.TraderPositions)
+		mux.HandleFunc("GET /api/trader/{uid}/trades", traderH.TraderTrades)
 
 		// Authenticated trader routes
 		mux.Handle("POST /api/trader/apply", authMw.Authenticate(http.HandlerFunc(traderH.Apply)))

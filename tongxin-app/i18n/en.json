@@ -15,6 +15,7 @@
     "traderCenter": "Trader Center"
   },
   "common": {
+    "back": "Back",
     "cancel": "Cancel",
     "save": "Save",
     "retry": "Retry",
