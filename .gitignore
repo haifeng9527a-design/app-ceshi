@@ -1,2 +1,13 @@
 node_modules
 scripts/git-auto-pull.log
+.DS_Store
+*.db
+*.db-wal
+*.db-shm
+tongxin-go/tongxin-go
+tongxin-go/tongxin-server
+tongxin-app/dist/
+.worktree_*/
+_archive_*/
+*.env
+k5_logcat.txt

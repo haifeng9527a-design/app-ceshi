@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "tongxin-web",
+      "runtimeExecutable": "/bin/bash",
+      "runtimeArgs": ["-c", "export PATH=/opt/homebrew/bin:$PATH && cd /Users/arronlee/Documents/app-ceshi/tongxin-app && npx expo start --web --clear"],
+      "port": 8081,
+      "autoPort": false
+    }
+  ]
+}
