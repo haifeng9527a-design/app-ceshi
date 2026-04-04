@@ -24,6 +24,7 @@ const { requireAuth, optionalAuth } = require('./lib/authMiddleware');
 const { startRefreshScheduler } = require('./lib/refreshScheduler');
 const { startRotationScheduler } = require('./lib/rotationScheduler');
 const { createChatWsServer } = require('./lib/chatWebSocket');
+const { createMarketWsServer } = require('./lib/marketWebSocket');
 const { startForexScheduler } = require('./lib/forexScheduler');
 const { startStockRealtimeIngestor } = require('./lib/stockRealtimeIngestor');
 const { startForexRealtimeIngestor } = require('./lib/forexRealtimeIngestor');
@@ -109,8 +110,13 @@ registerAdminAuthRoutes(app);
 registerAdminConfigRoutes(app);
 registerAdminActivityRoutes(app);
 registerAdminRankingsContentRoutes(app);
+// Binance 加密货币实时推送：无需 API Key，始终启动
+startCryptoRealtimeIngestor();
+console.log('[backend] crypto realtime ingestor started (Binance, no key required)');
+
 if (enableBackgroundJobs) {
   startTradingMatchScheduler();
+  startCryptoScheduler();
   if (polygonKey) {
     startRefreshScheduler(polygonKey);
     startRotationScheduler(polygonKey);
@@ -120,15 +126,14 @@ if (enableBackgroundJobs) {
     startForexScheduler(twelveKey);
     startForexRealtimeIngestor(twelveKey);
   }
-  startCryptoScheduler();
-  startCryptoRealtimeIngestor();
 } else {
-  console.log('[backend] background jobs disabled (ENABLE_BACKGROUND_JOBS=false)');
+  console.log('[backend] background jobs disabled (ENABLE_BACKGROUND_JOBS=false), crypto realtime still active');
 }
 
 const httpServer = app.listen(PORT, '0.0.0.0', () => {
   console.log(`tongxin-backend listening on http://localhost:${PORT} (0.0.0.0:${PORT})`);
   createChatWsServer(httpServer);
+  createMarketWsServer(httpServer);
   const { isAuthConfigured } = require('./lib/authMiddleware');
   const credPath = process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim();
   const fs = require('fs');

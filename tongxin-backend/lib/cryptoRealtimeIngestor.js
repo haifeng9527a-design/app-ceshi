@@ -6,6 +6,7 @@ const WebSocket = require('ws');
 const binance = require('./binance');
 const supabaseCryptoCache = require('./supabaseCryptoCache');
 const { emitQuote } = require('./marketBroadcast');
+const quoteStore = require('./quoteStore');
 
 const WS_URL = process.env.BINANCE_STREAM_URL || 'wss://data-stream.binance.vision/stream?streams=!miniTicker@arr';
 const FLUSH_INTERVAL_MS = Math.max(300, parseInt(process.env.CRYPTO_WS_FLUSH_INTERVAL_MS || '1500', 10));
@@ -49,12 +50,35 @@ function flushPending() {
   if (pending.size === 0) return;
   const updates = [...pending.values()];
   pending.clear();
+  // 广播到 WebSocket 客户端
   for (const update of updates) {
     emitQuote({ ...update, market: 'crypto' });
   }
-  supabaseCryptoCache.setCryptoRealtimePricesBatch(updates).catch((e) => {
-    console.warn('[cryptoRealtimeIngestor] realtime batch write failed:', String(e.message || e));
-  });
+  // 同步写入 quoteStore（P0 = 2s TTL），REST /api/quotes 也能拿到新鲜价格
+  const storeEntries = updates.map((u) => ({
+    symbol: u.symbol,
+    priority: 0,
+    payload: {
+      symbol: u.symbol,
+      price: u.price,
+      change: u.change,
+      changePercent: u.percent_change,
+      open: u.open,
+      high: u.high,
+      low: u.low,
+      volume: u.volume,
+      timestamp: u.timestamp,
+      market: 'crypto',
+      error: false,
+    },
+  }));
+  quoteStore.setQuotesBatch(storeEntries);
+  // 写入 Supabase（可选）
+  if (supabaseCryptoCache.isConfigured()) {
+    supabaseCryptoCache.setCryptoRealtimePricesBatch(updates).catch((e) => {
+      console.warn('[cryptoRealtimeIngestor] realtime batch write failed:', String(e.message || e));
+    });
+  }
 }
 
 function scheduleReconnect() {
@@ -99,8 +123,7 @@ function connect() {
 function startCryptoRealtimeIngestor() {
   if (started) return;
   if (!supabaseCryptoCache.isConfigured()) {
-    console.warn('[cryptoRealtimeIngestor] Supabase 未配置，跳过实时入库');
-    return;
+    console.warn('[cryptoRealtimeIngestor] Supabase 未配置，仅广播行情不入库');
   }
   started = true;
   flushTimer = setInterval(flushPending, FLUSH_INTERVAL_MS);
