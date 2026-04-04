@@ -19,7 +19,7 @@ func (s *FriendService) SendRequest(ctx context.Context, fromUID, toUID, message
 	return s.repo.SendRequest(ctx, fromUID, toUID, message)
 }
 
-func (s *FriendService) AcceptRequest(ctx context.Context, requestID, currentUID string) error {
+func (s *FriendService) AcceptRequest(ctx context.Context, requestID, currentUID string) (fromUID string, err error) {
 	return s.repo.AcceptRequest(ctx, requestID, currentUID)
 }
 

@@ -188,6 +188,19 @@ export async function fetchKlines(
 }
 
 /**
+ * Fetch funding rate from Binance
+ * GET /api/funding-rate?symbol=BTC/USD
+ */
+export async function fetchFundingRate(symbol: string) {
+  try {
+    const { data } = await apiClient.get('/api/funding-rate', { params: { symbol } });
+    return data;
+  } catch {
+    return { fundingRate: null };
+  }
+}
+
+/**
  * Search symbols
  * GET /api/search?q=apple
  * Returns: [{ symbol, name, type, market }, ...]

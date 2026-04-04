@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useMemo } from 'react';
 import { View, Text, StyleSheet, Platform } from 'react-native';
 import { Colors } from '../../theme/colors';
 import type { DrawingTool } from './DrawingToolsSidebar';
@@ -286,12 +286,10 @@ export default function TradingViewChart({
     };
   }, []);
 
-  /* ─── Apply kline data ─── */
-  useEffect(() => {
-    const chart = chartRef.current;
-    if (!chart || !klines.length) return;
-
-    const data = klines.map((k) => ({
+  /* ─── Memoize kline data transformation ─── */
+  const chartData = useMemo(() => {
+    if (!klines.length) return [];
+    return klines.map((k) => ({
       timestamp: k.time * 1000,
       open: k.open,
       high: k.high,
@@ -299,9 +297,14 @@ export default function TradingViewChart({
       close: k.close,
       volume: k.volume || 0,
     }));
-
-    chart.applyNewData(data);
   }, [klines]);
+
+  /* ─── Apply kline data ─── */
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || !chartData.length) return;
+    chart.applyNewData(chartData);
+  }, [chartData]);
 
   /* ─── Real-time price update (last bar) ─── */
   useEffect(() => {

@@ -19,7 +19,7 @@ type FriendRequest struct {
 }
 
 type FriendProfile struct {
-	UID         string `json:"uid"`
+	UserID      string `json:"user_id"`
 	Email       string `json:"email"`
 	DisplayName string `json:"display_name"`
 	AvatarURL   string `json:"avatar_url,omitempty"`
@@ -29,8 +29,9 @@ type FriendProfile struct {
 }
 
 type FriendRequestBody struct {
-	ToUserID string `json:"to_user_id"`
-	Message  string `json:"message,omitempty"`
+	ToUserID     string `json:"to_user_id"`
+	TargetUserID string `json:"target_user_id"` // 兼容部分客户端字段名
+	Message      string `json:"message,omitempty"`
 }
 
 type AcceptRejectBody struct {

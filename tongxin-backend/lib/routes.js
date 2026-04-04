@@ -351,12 +351,11 @@ async function handleQuotes(req, res, polygonKey, twelveKey) {
   res.json(ordered);
 }
 
-// 日/周/月 K 线默认范围：2 年，首屏响应控制在数秒内；需更多历史可由前端「加载更多」分页请求
-const CANDLES_RANGE_YEARS = 2;
-const CANDLES_DAY_MS = CANDLES_RANGE_YEARS * 365.25 * 24 * 60 * 60 * 1000;
-const CANDLES_WEEK_MS = CANDLES_RANGE_YEARS * 365.25 * 24 * 60 * 60 * 1000;
-const CANDLES_MONTH_MS = CANDLES_RANGE_YEARS * 365.25 * 24 * 60 * 60 * 1000;
-const CANDLES_YEAR_MS = 20 * 365.25 * 24 * 60 * 60 * 1000; // 年K 默认 20 年
+// 首屏只加载必要数据量，减少Polygon请求时间；用户可通过「加载更多」分页获取更早数据
+const CANDLES_DAY_MS = 180 * 24 * 60 * 60 * 1000;        // 日K: 180天 (~180根)
+const CANDLES_WEEK_MS = 365 * 24 * 60 * 60 * 1000;       // 周K: 1年 (~52根)
+const CANDLES_MONTH_MS = 3 * 365.25 * 24 * 60 * 60 * 1000; // 月K: 3年 (~36根)
+const CANDLES_YEAR_MS = 20 * 365.25 * 24 * 60 * 60 * 1000; // 年K: 20年
 
 /** GET /api/candles?symbol=AAPL&interval=1day|1week|1month|5min|1min|1h
  *  可选 fromMs, toMs（毫秒时间戳）用于「加载更早」分页，不传则默认最近 CANDLES_RANGE_YEARS */
@@ -429,7 +428,8 @@ async function handleCandles(req, res, polygonKey, twelveKey) {
     } catch (_) {}
   }
   const isIntraday = ['1min', '5min', '15min', '30min', '1h'].includes(interval);
-  const candlesTtlMs = isIntraday ? 15 * 1000 : DEFAULT_TTL_MS.candles;
+  // 日线及以上缓存10分钟，分钟/小时线缓存15秒
+  const candlesTtlMs = isIntraday ? 15 * 1000 : 10 * 60 * 1000;
   set(cacheKey, list, candlesTtlMs);
   res.json(list);
 }
@@ -917,6 +917,23 @@ function registerRoutes(app, polygonKey, twelveKey, requireAuth) {
   app.get('/api/news/hot', (req, res) => handleHotNews(req, res, polygonKey));
   app.get('/api/news', (req, res) => handleTickerNews(req, res, polygonKey));
   app.get('/api/news/announcements', (req, res) => handleTickerAnnouncements(req, res, polygonKey));
+
+  // Funding rate (Binance perpetual)
+  app.get('/api/funding-rate', async (req, res) => {
+    const symbol = req.query.symbol?.trim();
+    if (!symbol) return res.status(400).json({ error: 'missing symbol' });
+    if (!isCrypto(symbol)) return res.json({ fundingRate: null });
+    const cacheKey = `funding_${symbol}`;
+    const cached = get(cacheKey);
+    if (cached) return res.json(cached);
+    try {
+      const data = await binance.getFundingRate(symbol);
+      if (data) set(cacheKey, data, 60 * 1000); // cache 1 min
+      res.json(data || { fundingRate: null });
+    } catch (e) {
+      res.json({ fundingRate: null });
+    }
+  });
 }
 
 module.exports = { registerRoutes };

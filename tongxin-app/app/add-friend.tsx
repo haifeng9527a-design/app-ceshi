@@ -1,9 +1,10 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
   View,
   Text,
   TextInput,
   TouchableOpacity,
+  Pressable,
   ScrollView,
   StyleSheet,
   useWindowDimensions,
@@ -12,6 +13,7 @@ import {
   Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import QRCode from 'react-native-qrcode-svg';
 import { Colors, Sizes } from '../theme/colors';
@@ -21,6 +23,7 @@ import apiClient from '../services/api/client';
 import {
   searchUsers,
   sendFriendRequest,
+  fetchOutgoingFriendRequests,
   createDirectConversation,
   type FriendProfile,
 } from '../services/api/messagesApi';
@@ -59,6 +62,10 @@ const TABS: { key: SearchTab; icon: string; label: string }[] = [
   { key: 'id', icon: '🔑', label: '账号ID' },
   { key: 'qrcode', icon: '⊞', label: '二维码' },
 ];
+
+function normId(s: string | undefined | null): string {
+  return String(s ?? '').trim();
+}
 
 /* ════════════════════════════════════════
    Avatar Helper
@@ -209,19 +216,36 @@ export default function AddFriendPage() {
   const { width } = useWindowDimensions();
   const isDesktop = width >= 768;
   const router = useRouter();
+  const { t } = useTranslation();
   const { user } = useAuthStore();
-  const { friends, loadFriends } = useMessagesStore();
+  const { friends, loadFriends, loadFriendRequests } = useMessagesStore();
+  const sendLockRef = useRef(false);
 
   const [activeTab, setActiveTab] = useState<SearchTab>('email');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<FriendProfile[]>([]);
   const [searching, setSearching] = useState(false);
-  const [requestSent, setRequestSent] = useState<Set<string>>(new Set());
+  /** 已发起过申请的目标用户 id（Object 比 Set 更易触发 React 重绘） */
+  const [requestSentMap, setRequestSentMap] = useState<Record<string, boolean>>({});
+  const [sendingId, setSendingId] = useState<string | null>(null);
   const [creating, setCreating] = useState<string | null>(null);
   const [recommendedTraders, setRecommendedTraders] = useState<RecommendedTrader[]>([]);
 
   useEffect(() => {
-    if (user) loadFriends();
+    if (!user) return;
+    loadFriends();
+    fetchOutgoingFriendRequests()
+      .then((out) => {
+        setRequestSentMap((prev) => {
+          const next = { ...prev };
+          out.forEach((r) => {
+            const k = normId(r.to_user_id);
+            if (k) next[k] = true;
+          });
+          return next;
+        });
+      })
+      .catch(() => {});
     // Fetch recommended traders (fallback to mock if API unavailable)
     apiClient
       .get('/api/teachers', { params: { limit: 6 } })
@@ -244,10 +268,15 @@ export default function AddFriendPage() {
     setSearching(true);
     try {
       const results = await searchUsers(q);
-      const friendIds = new Set(friends.map((f) => f.user_id));
-      // Also exclude self
+      const friendIds = new Set(
+        friends.map((f) => normId(f.user_id)).filter(Boolean),
+      );
+      const selfId = normId(user?.uid);
       setSearchResults(
-        results.filter((r) => r.user_id !== user?.uid && !friendIds.has(r.user_id)),
+        results.filter((r) => {
+          const rid = normId(r.user_id);
+          return !!rid && rid !== selfId && !friendIds.has(rid);
+        }),
       );
     } catch {
       setSearchResults([]);
@@ -256,14 +285,32 @@ export default function AddFriendPage() {
     }
   }, [searchQuery, friends, user?.uid]);
 
-  const handleSendRequest = useCallback(async (userId: string) => {
-    try {
-      await sendFriendRequest(userId);
-      setRequestSent((prev) => new Set(prev).add(userId));
-    } catch (e) {
-      console.error('[AddFriend] send request failed:', e);
-    }
-  }, []);
+  const handleSendRequest = useCallback(
+    (userId: string) => {
+      const id = normId(userId);
+      if (!id) {
+        Alert.alert(t('contacts.errorTitle'), t('messages.addFriendInvalidUser'));
+        return;
+      }
+      if (sendLockRef.current) return;
+      sendLockRef.current = true;
+      setSendingId(id);
+      sendFriendRequest(id)
+        .then(() => {
+          setRequestSentMap((prev) => ({ ...prev, [id]: true }));
+          void loadFriendRequests();
+        })
+        .catch((e) => {
+          console.error('[AddFriend] send request failed:', e);
+          Alert.alert(t('contacts.errorTitle'), t('messages.addFriendSendFailed'));
+        })
+        .finally(() => {
+          sendLockRef.current = false;
+          setSendingId(null);
+        });
+    },
+    [t, loadFriendRequests],
+  );
 
   const handleStartChat = useCallback(
     async (friendId: string) => {
@@ -314,14 +361,16 @@ export default function AddFriendPage() {
           <Text style={s.backArrow}>←</Text>
         </TouchableOpacity>
         <Text style={s.headerTitle}>添加好友</Text>
-        <View style={{ width: 36 }} />
+        <TouchableOpacity onPress={() => router.push('/contacts' as any)} style={s.headerRightLink} activeOpacity={0.7}>
+          <Text style={s.headerRightLinkText}>{t('contacts.title')}</Text>
+        </TouchableOpacity>
       </View>
 
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={[s.scrollContent, isDesktop && { maxWidth: 640, alignSelf: 'center' as const, width: '100%' }]}
         showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
+        keyboardShouldPersistTaps="always"
       >
         {/* Page Title */}
         <View style={s.titleSection}>
@@ -408,26 +457,38 @@ export default function AddFriendPage() {
         {activeTab !== 'qrcode' && searchResults.length > 0 && (
           <View style={s.resultsSection}>
             <Text style={s.sectionLabel}>搜索结果</Text>
-            {searchResults.map((u) => (
-              <View key={u.user_id} style={s.userCard}>
+            {searchResults.map((u) => {
+              const rowUid = normId(u.user_id);
+              return (
+              <View key={rowUid || u.email || u.short_id} style={s.userCard}>
                 <AvatarCircle name={u.display_name} size={48} />
-                <View style={{ flex: 1, gap: 2 }}>
-                  <Text style={s.userName}>{u.display_name}</Text>
-                  <Text style={s.userSub}>{u.email || u.short_id || ''}</Text>
+                <View style={s.userCardBody} pointerEvents="box-none">
+                  <Text style={s.userName} numberOfLines={1}>{u.display_name}</Text>
+                  <Text style={s.userSub} numberOfLines={1}>{u.email || u.short_id || ''}</Text>
                 </View>
-                {requestSent.has(u.user_id) ? (
-                  <Text style={s.sentText}>已发送</Text>
+                {sendingId === rowUid ? (
+                  <ActivityIndicator size="small" color={Colors.primary} style={{ flexShrink: 0 }} />
+                ) : requestSentMap[rowUid] ? (
+                  <View style={s.waitingBtn}>
+                    <Text style={s.waitingBtnText} numberOfLines={1}>
+                      {t('messages.addFriendWaiting')}
+                    </Text>
+                  </View>
                 ) : (
-                  <TouchableOpacity
-                    style={s.addBtn}
-                    onPress={() => handleSendRequest(u.user_id)}
-                    activeOpacity={0.7}
+                  <Pressable
+                    style={({ pressed }) => [
+                      s.addBtn,
+                      { zIndex: 10, elevation: 6 },
+                      pressed && { opacity: 0.88 },
+                    ]}
+                    onPress={() => handleSendRequest(rowUid)}
+                    hitSlop={{ top: 14, bottom: 14, left: 10, right: 10 }}
                   >
-                    <Text style={s.addBtnText}>+ 添加</Text>
-                  </TouchableOpacity>
+                    <Text style={s.addBtnText} numberOfLines={1}>+ 添加</Text>
+                  </Pressable>
                 )}
               </View>
-            ))}
+            );})}
           </View>
         )}
 
@@ -444,9 +505,9 @@ export default function AddFriendPage() {
                 disabled={creating === f.user_id}
               >
                 <AvatarCircle name={f.display_name} size={48} />
-                <View style={{ flex: 1, gap: 2 }}>
-                  <Text style={s.userName}>{f.display_name}</Text>
-                  <Text style={s.userSub}>
+                <View style={s.userCardBody}>
+                  <Text style={s.userName} numberOfLines={1}>{f.display_name}</Text>
+                  <Text style={s.userSub} numberOfLines={1}>
                     {f.short_id ? `ID: ${f.short_id}` : f.email || ''}
                   </Text>
                 </View>
@@ -472,30 +533,34 @@ export default function AddFriendPage() {
           <View style={s.resultsSection}>
             <Text style={s.recSectionTitle}>推荐交易员</Text>
             <View style={s.recGrid}>
-              {recommendedTraders.map((t) => (
+              {recommendedTraders.map((trader) => {
+                const tid = normId(trader.user_id);
+                return (
                 <TouchableOpacity
-                  key={t.user_id}
+                  key={tid || trader.display_name}
                   style={s.recCard}
                   activeOpacity={0.7}
-                  onPress={() => handleSendRequest(t.user_id)}
-                  disabled={requestSent.has(t.user_id)}
+                  onPress={() => handleSendRequest(tid)}
+                  disabled={!tid || !!requestSentMap[tid] || sendingId !== null}
                 >
-                  <AvatarCircle name={t.display_name} size={44} />
+                  <AvatarCircle name={trader.display_name} size={44} />
                   <View style={{ flex: 1, gap: 2 }}>
-                    <Text style={s.recName} numberOfLines={1}>{t.display_name}</Text>
+                    <Text style={s.recName} numberOfLines={1}>{trader.display_name}</Text>
                     <Text style={s.recRole} numberOfLines={1}>
-                      {t.signature || t.title || '交易员'}
+                      {trader.signature || trader.title || '交易员'}
                     </Text>
                   </View>
-                  {requestSent.has(t.user_id) ? (
-                    <Text style={s.sentText}>已发送</Text>
+                  {sendingId === tid ? (
+                    <ActivityIndicator size="small" color={Colors.primary} />
+                  ) : requestSentMap[tid] ? (
+                    <Text style={s.sentText}>{t('messages.addFriendWaiting')}</Text>
                   ) : (
                     <View style={s.addIconBtn}>
                       <Text style={s.addIconText}>+</Text>
                     </View>
                   )}
                 </TouchableOpacity>
-              ))}
+              );})}
             </View>
           </View>
         )}
@@ -547,6 +612,17 @@ const s = StyleSheet.create({
   headerTitle: {
     color: Colors.textActive,
     fontSize: 17,
+    fontWeight: '600',
+  },
+  headerRightLink: {
+    minWidth: 48,
+    paddingVertical: 4,
+    paddingHorizontal: 4,
+    alignItems: 'flex-end',
+  },
+  headerRightLinkText: {
+    color: Colors.primary,
+    fontSize: 14,
     fontWeight: '600',
   },
 
@@ -688,6 +764,12 @@ const s = StyleSheet.create({
     borderColor: 'rgba(77, 70, 53, 0.15)',
     padding: 16,
   },
+  userCardBody: {
+    flex: 1,
+    gap: 2,
+    minWidth: 0,
+    marginRight: 4,
+  },
   userName: {
     color: Colors.textActive,
     fontSize: 15,
@@ -698,23 +780,41 @@ const s = StyleSheet.create({
     fontSize: 12,
   },
   addBtn: {
-    backgroundColor: 'rgba(212, 175, 55, 0.1)',
-    borderRadius: 20,
-    width: 36,
-    height: 36,
-    justifyContent: 'center',
+    flexShrink: 0,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(212, 175, 55, 0.1)',
     borderWidth: 1,
     borderColor: 'rgba(212, 175, 55, 0.2)',
   },
   addBtnText: {
     color: Colors.primary,
-    fontSize: 18,
+    fontSize: 13,
     fontWeight: '700',
+    letterSpacing: 0.3,
   },
   sentText: {
     color: Colors.textMuted,
     fontSize: 12,
+    flexShrink: 0,
+  },
+  waitingBtn: {
+    flexShrink: 0,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(90, 90, 90, 0.35)',
+    borderWidth: 1,
+    borderColor: 'rgba(120, 120, 120, 0.4)',
+  },
+  waitingBtnText: {
+    color: Colors.textMuted,
+    fontSize: 12,
+    fontWeight: '600',
   },
   emptyState: {
     padding: 40,

@@ -18,12 +18,21 @@ func NewMessageService(msgRepo *repository.MessageRepo, convRepo *repository.Con
 }
 
 func (s *MessageService) SendMessage(ctx context.Context, uid string, req *model.SendMessageRequest) (*model.Message, error) {
+	ok, err := s.convRepo.IsUserInConversation(ctx, uid, req.ConversationID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, ErrNotConversationMember
+	}
+
 	msg := &model.Message{
 		ConversationID:   req.ConversationID,
 		SenderID:         uid,
 		Content:          req.Content,
 		MessageType:      req.MessageType,
 		MediaURL:         req.MediaURL,
+		Metadata:         req.Metadata,
 		ReplyToMessageID: req.ReplyToID,
 	}
 	if err := s.msgRepo.Create(ctx, msg); err != nil {
@@ -32,8 +41,26 @@ func (s *MessageService) SendMessage(ctx context.Context, uid string, req *model
 	return msg, nil
 }
 
-func (s *MessageService) ListMessages(ctx context.Context, conversationID string, limit int, before *time.Time) ([]model.Message, error) {
+func (s *MessageService) ListMessages(ctx context.Context, uid, conversationID string, limit int, before *time.Time) ([]model.Message, error) {
+	ok, err := s.convRepo.IsUserInConversation(ctx, uid, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, ErrNotConversationMember
+	}
 	return s.msgRepo.ListByConversation(ctx, conversationID, limit, before)
+}
+
+func (s *MessageService) SearchMessages(ctx context.Context, uid, conversationID, query string, limit int) ([]model.Message, error) {
+	ok, err := s.convRepo.IsUserInConversation(ctx, uid, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, ErrNotConversationMember
+	}
+	return s.msgRepo.SearchInConversation(ctx, conversationID, query, limit)
 }
 
 func (s *MessageService) DeleteMessage(ctx context.Context, id, senderID string) error {

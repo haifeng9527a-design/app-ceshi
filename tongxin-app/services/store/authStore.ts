@@ -11,6 +11,8 @@ export interface UserProfile {
   shortId?: string;
   role?: string;
   signature?: string;
+  isTrader?: boolean;
+  allowCopyTrading?: boolean;
 }
 
 interface AuthState {
@@ -145,5 +147,7 @@ function backendUserToProfile(user: any): UserProfile {
     shortId: user.short_id,
     role: user.role,
     signature: user.bio || user.signature,
+    isTrader: user.is_trader || false,
+    allowCopyTrading: user.allow_copy_trading || false,
   };
 }

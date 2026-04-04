@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -10,7 +10,7 @@ import {
   ActivityIndicator,
   RefreshControl,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { Colors, Sizes, Shadows } from '../../../theme/colors';
 import { useMarketStore } from '../../../services/store/marketStore';
@@ -21,35 +21,50 @@ import SentimentCard from '../../../components/market/SentimentCard';
 import NewsCard from '../../../components/market/NewsCard';
 import AssetListCard from '../../../components/market/AssetListCard';
 import SearchDropdown from '../../../components/market/SearchDropdown';
+import { Skeleton, SkeletonMarketItem, SkeletonCard } from '../../../components/Skeleton';
 
-// Default symbols per category
-const DEFAULT_CRYPTO = ['BTC/USD', 'ETH/USD', 'SOL/USD', 'XRP/USD', 'BNB/USD', 'DOGE/USD'];
-const DEFAULT_FOREX = ['EUR/USD', 'GBP/USD', 'USD/JPY', 'AUD/USD'];
-const DEFAULT_STOCKS = ['AAPL', 'GOOGL', 'MSFT', 'TSLA', 'AMZN', 'NVDA', 'META'];
+// Symbols synced with trading page
+const DEFAULT_CRYPTO = [
+  'BTC/USD','ETH/USD','SOL/USD','BNB/USD','XRP/USD','DOGE/USD','ADA/USD','AVAX/USD',
+  'DOT/USD','MATIC/USD','LINK/USD','UNI/USD','SHIB/USD','LTC/USD','TRX/USD',
+  'ATOM/USD','NEAR/USD','APT/USD','ARB/USD','OP/USD','FIL/USD','ICP/USD',
+  'AAVE/USD','GRT/USD','MKR/USD','IMX/USD','INJ/USD','RUNE/USD','FTM/USD',
+  'SUI/USD','SEI/USD','TIA/USD','JUP/USD','WIF/USD','BONK/USD','PEPE/USD',
+];
+const DEFAULT_FOREX = [
+  'EUR/USD','GBP/USD','USD/JPY','AUD/USD','USD/CAD','USD/CHF','NZD/USD',
+  'EUR/GBP','EUR/JPY','GBP/JPY','AUD/JPY','EUR/AUD','EUR/CAD',
+];
+const DEFAULT_STOCKS = [
+  'AAPL','MSFT','GOOGL','AMZN','NVDA','META','TSLA','BRK.B','JPM','V',
+  'UNH','JNJ','XOM','WMT','MA','PG','HD','CVX','MRK','ABBV',
+  'LLY','PEP','KO','COST','AVGO','TMO','MCD','CSCO','ACN','ABT',
+  'COIN','SQ','SHOP','PLTR','PYPL',
+];
+const DEFAULT_FUTURES = [
+  'ES','NQ','YM','RTY','CL','GC','SI','HG','NG','ZB',
+];
 const DEFAULT_INDICES = ['DJI', 'SPX', 'IXIC', 'VIX'];
 
-// Sub-tabs for "View All" mode
-type ViewMode = 'overview' | 'crypto' | 'forex' | 'stocks' | 'watchlist' | 'gainers';
+// Sub-tabs
+type ViewMode = 'overview' | 'crypto' | 'forex' | 'stocks' | 'futures' | 'gainers';
 
 export default function MarketScreen() {
   const { t } = useTranslation();
   const router = useRouter();
+  const { tab } = useLocalSearchParams<{ tab?: string }>();
   const { width: screenWidth } = useWindowDimensions();
   const isDesktop = screenWidth >= 768;
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const {
     quotes,
-    watchlist,
     indices,
     news,
     newsLoading,
-    gainers,
-    losers,
     loadQuotes,
     loadCryptoQuotes,
     loadForexQuotes,
-    loadGainersLosers,
     loadNews,
     loadIndices,
     wsConnected,
@@ -68,6 +83,13 @@ export default function MarketScreen() {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
+  // Switch to tab from URL param (e.g. sidebar Watchlist click)
+  useEffect(() => {
+    if (tab && ['overview', 'crypto', 'forex', 'stocks', 'futures', 'gainers'].includes(tab)) {
+      setViewMode(tab as ViewMode);
+    }
+  }, [tab]);
+
   // Load all data
   const loadAllData = useCallback(async () => {
     setLoading(true);
@@ -77,7 +99,7 @@ export default function MarketScreen() {
         loadCryptoQuotes(DEFAULT_CRYPTO),
         loadForexQuotes(DEFAULT_FOREX),
         loadQuotes(DEFAULT_STOCKS),
-        loadGainersLosers(),
+        loadQuotes(DEFAULT_FUTURES),
         loadNews(),
       ]);
     } catch (e) {
@@ -141,7 +163,7 @@ export default function MarketScreen() {
 
   // Subscribe to WS for all symbols
   useEffect(() => {
-    const allSymbols = [...DEFAULT_CRYPTO, ...DEFAULT_FOREX, ...DEFAULT_STOCKS, ...DEFAULT_INDICES];
+    const allSymbols = [...DEFAULT_CRYPTO, ...DEFAULT_FOREX, ...DEFAULT_STOCKS, ...DEFAULT_FUTURES, ...DEFAULT_INDICES];
     if (allSymbols.length > 0) {
       const handler = () => {};
       marketWs.subscribeMany(allSymbols, handler);
@@ -157,7 +179,19 @@ export default function MarketScreen() {
   const cryptoItems = DEFAULT_CRYPTO.map((s) => quotes[s]).filter(Boolean);
   const forexItems = DEFAULT_FOREX.map((s) => quotes[s]).filter(Boolean);
   const stockItems = DEFAULT_STOCKS.map((s) => quotes[s]).filter(Boolean);
-  const watchlistItems = watchlist.map((s) => quotes[s]).filter(Boolean);
+  const futuresItems = DEFAULT_FUTURES.map((s) => quotes[s]).filter(Boolean);
+  // Calculate gainers/losers from all loaded quotes (real-time, no extra API needed)
+  const { computedGainers, computedLosers } = useMemo(() => {
+    const allItems = [...cryptoItems, ...forexItems, ...stockItems, ...futuresItems]
+      .filter((q) => q.price != null && q.price > 0);
+    // Sort descending by percent_change
+    const sorted = [...allItems].sort((a, b) => (b.percent_change ?? 0) - (a.percent_change ?? 0));
+    // Gainers: top 10 with positive change
+    const g = sorted.filter((q) => (q.percent_change ?? 0) > 0).slice(0, 10);
+    // Losers: bottom 10 with negative change (sort ascending = most negative first)
+    const l = sorted.filter((q) => (q.percent_change ?? 0) < 0).reverse().slice(0, 10);
+    return { computedGainers: g, computedLosers: l };
+  }, [cryptoItems, forexItems, stockItems, futuresItems]);
 
   // Build index card data from store indices (BTC / DOW JONES / S&P 500 / NASDAQ / VIX)
   const formatIndexPrice = (p: number) =>
@@ -193,18 +227,37 @@ export default function MarketScreen() {
     { key: 'crypto', label: t('market.crypto') },
     { key: 'stocks', label: t('market.stocks') },
     { key: 'forex', label: t('market.forex') },
-    { key: 'watchlist', label: t('market.watchlist') },
+    { key: 'futures', label: t('market.futures', { defaultValue: '期货' }) },
     { key: 'gainers', label: t('market.gainersLosers') },
   ];
 
-  // ─── Loading State ─────────────────────────────────
+  // ─── Skeleton Loading State ─────────────────────────────────
   if (loading && cryptoItems.length === 0) {
     return (
       <View style={styles.container}>
-        <View style={styles.loadingWrap}>
-          <ActivityIndicator size="large" color={Colors.primary} />
-          <Text style={styles.loadingText}>{t('common.loading')}</Text>
+        <View style={styles.topBar}>
+          <View style={styles.searchBox}>
+            <Skeleton width="100%" height={36} borderRadius={8} />
+          </View>
         </View>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 40 }}>
+          {/* Index cards skeleton */}
+          <View style={{ flexDirection: 'row', paddingHorizontal: 12, gap: 8, marginTop: 12 }}>
+            {[1, 2, 3, 4].map(i => (
+              <View key={i} style={{ flex: 1, backgroundColor: '#1a1a1a', borderRadius: 8, padding: 12 }}>
+                <Skeleton width={50} height={12} />
+                <Skeleton width={70} height={18} style={{ marginTop: 8 }} />
+                <Skeleton width={40} height={10} style={{ marginTop: 4 }} />
+              </View>
+            ))}
+          </View>
+          {/* Tab skeleton */}
+          <View style={{ flexDirection: 'row', paddingHorizontal: 16, gap: 16, marginTop: 16, marginBottom: 8 }}>
+            {[1, 2, 3, 4, 5].map(i => <Skeleton key={i} width={50} height={14} />)}
+          </View>
+          {/* List skeleton */}
+          {[1, 2, 3, 4, 5, 6, 7, 8].map(i => <SkeletonMarketItem key={i} />)}
+        </ScrollView>
       </View>
     );
   }
@@ -286,7 +339,7 @@ export default function MarketScreen() {
         {viewMode === 'crypto' && renderCategoryList(cryptoItems, t('market.crypto'), '₿', true)}
         {viewMode === 'stocks' && renderCategoryList(stockItems, t('market.stocks'), '📊', true)}
         {viewMode === 'forex' && renderCategoryList(forexItems, t('market.forex'), '💱', true)}
-        {viewMode === 'watchlist' && renderWatchlist()}
+        {viewMode === 'futures' && renderCategoryList(futuresItems, t('market.futures', { defaultValue: '期货' }), '📋', true)}
         {viewMode === 'gainers' && renderGainersLosers()}
       </ScrollView>
     </View>
@@ -357,6 +410,14 @@ export default function MarketScreen() {
             showWatchlistToggle
             onViewAll={() => setViewMode('crypto')}
           />
+          <AssetListCard
+            title={t('market.futures', { defaultValue: '期货' })}
+            subtitle="FUTURES"
+            icon="📋"
+            items={futuresItems.slice(0, 4)}
+            showWatchlistToggle
+            onViewAll={() => setViewMode('futures')}
+          />
         </View>
       </>
     );
@@ -392,40 +453,6 @@ export default function MarketScreen() {
     );
   }
 
-  function renderWatchlist() {
-    return (
-      <>
-        <View style={styles.categoryHeader}>
-          <TouchableOpacity onPress={() => setViewMode('overview')} style={styles.backBtn}>
-            <Text style={styles.backText}>← {t('market.title')}</Text>
-          </TouchableOpacity>
-          <Text style={styles.categoryTitle}>⭐ {t('market.watchlist')}</Text>
-          <Text style={styles.categoryCount}>{watchlist.length} {t('market.pair')}</Text>
-        </View>
-        {watchlistItems.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>{t('market.noWatchlist')}</Text>
-            <Text style={styles.emptyHint}>
-              Search for symbols and tap ☆ to add
-            </Text>
-          </View>
-        ) : (
-          <>
-            <View style={styles.colHeader}>
-              <Text style={[styles.colText, { flex: 1 }]}>{t('market.pair')}</Text>
-              <Text style={[styles.colText, { width: 100, textAlign: 'right' }]}>{t('market.lastPrice')}</Text>
-              <Text style={[styles.colText, { width: 80, textAlign: 'right' }]}>{t('market.change')}</Text>
-              <Text style={[styles.colText, { width: 30 }]} />
-            </View>
-            {watchlistItems.map((item) => (
-              <FullListRow key={item.symbol} item={item} showStar />
-            ))}
-          </>
-        )}
-      </>
-    );
-  }
-
   function renderGainersLosers() {
     return (
       <>
@@ -442,10 +469,10 @@ export default function MarketScreen() {
             <View style={styles.glHeader}>
               <Text style={[styles.glTitle, { color: Colors.up }]}>📈 {t('market.topGainers')}</Text>
             </View>
-            {gainers.length === 0 ? (
+            {computedGainers.length === 0 ? (
               <Text style={styles.emptyText}>{t('common.noData')}</Text>
             ) : (
-              gainers.map((item, i) => (
+              computedGainers.map((item, i) => (
                 <TouchableOpacity
                   key={item.symbol}
                   style={styles.glRow}
@@ -453,9 +480,10 @@ export default function MarketScreen() {
                 >
                   <Text style={styles.glRank}>#{i + 1}</Text>
                   <Text style={styles.glSymbol}>{item.symbol}</Text>
+                  {item.name ? <Text style={styles.glName}>{item.name}</Text> : null}
                   <View style={{ flex: 1 }} />
                   <Text style={[styles.glPrice, { color: Colors.up }]}>
-                    {item.price?.toFixed(2) ?? '--'}
+                    {formatPrice(item.price ?? 0)}
                   </Text>
                   <View style={[styles.glBadge, { backgroundColor: Colors.upDim }]}>
                     <Text style={[styles.glPct, { color: Colors.up }]}>
@@ -472,10 +500,10 @@ export default function MarketScreen() {
             <View style={styles.glHeader}>
               <Text style={[styles.glTitle, { color: Colors.down }]}>📉 {t('market.topLosers')}</Text>
             </View>
-            {losers.length === 0 ? (
+            {computedLosers.length === 0 ? (
               <Text style={styles.emptyText}>{t('common.noData')}</Text>
             ) : (
-              losers.map((item, i) => (
+              computedLosers.map((item, i) => (
                 <TouchableOpacity
                   key={item.symbol}
                   style={styles.glRow}
@@ -483,9 +511,10 @@ export default function MarketScreen() {
                 >
                   <Text style={styles.glRank}>#{i + 1}</Text>
                   <Text style={styles.glSymbol}>{item.symbol}</Text>
+                  {item.name ? <Text style={styles.glName}>{item.name}</Text> : null}
                   <View style={{ flex: 1 }} />
                   <Text style={[styles.glPrice, { color: Colors.down }]}>
-                    {item.price?.toFixed(2) ?? '--'}
+                    {formatPrice(item.price ?? 0)}
                   </Text>
                   <View style={[styles.glBadge, { backgroundColor: Colors.downDim }]}>
                     <Text style={[styles.glPct, { color: Colors.down }]}>
@@ -722,6 +751,7 @@ const styles = StyleSheet.create({
   },
   glRank: { color: Colors.textMuted, fontSize: 12, fontWeight: '700', width: 28 },
   glSymbol: { color: Colors.textActive, fontSize: 14, fontWeight: '600', fontFamily: 'monospace' },
+  glName: { color: Colors.textMuted, fontSize: 11, marginLeft: 8, maxWidth: 120 },
   glPrice: { fontSize: 14, fontWeight: '600', fontFamily: 'monospace', marginRight: 8 },
   glBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12 },
   glPct: { fontSize: 12, fontWeight: '700', fontFamily: 'monospace' },

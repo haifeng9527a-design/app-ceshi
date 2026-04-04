@@ -326,6 +326,44 @@ func (h *MarketHandler) CryptoDepth(w http.ResponseWriter, r *http.Request) {
 	io.Copy(w, resp.Body)
 }
 
+// GET /api/funding-rate?symbol=BTC/USD
+func (h *MarketHandler) FundingRate(w http.ResponseWriter, r *http.Request) {
+	symbol := r.URL.Query().Get("symbol")
+	if symbol == "" {
+		writeError(w, http.StatusBadRequest, "symbol required")
+		return
+	}
+	binanceSym := cryptoToBinanceSymbol(symbol)
+	url := fmt.Sprintf("https://fapi.binance.com/fapi/v1/premiumIndex?symbol=%s", binanceSym)
+	resp, err := h.httpClient.Get(url)
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"fundingRate": nil})
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		writeJSON(w, http.StatusOK, map[string]any{"fundingRate": nil})
+		return
+	}
+	var raw struct {
+		LastFundingRate string `json:"lastFundingRate"`
+		NextFundingTime int64  `json:"nextFundingTime"`
+		MarkPrice       string `json:"markPrice"`
+		IndexPrice      string `json:"indexPrice"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"fundingRate": nil})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"symbol":          symbol,
+		"fundingRate":     raw.LastFundingRate,
+		"nextFundingTime": raw.NextFundingTime,
+		"markPrice":       raw.MarkPrice,
+		"indexPrice":      raw.IndexPrice,
+	})
+}
+
 // GET /api/tickers-page?page=1&pageSize=30&sortColumn=pct
 func (h *MarketHandler) TickersPage(w http.ResponseWriter, r *http.Request) {
 	// Use Polygon gainers as a stock list source

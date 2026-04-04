@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,81 +6,44 @@ import {
   TouchableOpacity,
   StyleSheet,
   useWindowDimensions,
-  Image,
   RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
-import { Colors, Sizes, Shadows } from '../../theme/colors';
+import { Colors, Shadows } from '../../theme/colors';
+import { getTraderRankings, TraderRankingItem } from '../../services/api/traderApi';
 
-// ─── Types ───────────────────────────────────────────
-interface TraderProfile {
-  rank: number;
-  name: string;
-  subtitle: string;
-  avatar?: string;
-  pnl: number;
-  winRate: number;
-  totalTrades: number;
-}
-
-type TimeFilter = 'all' | 'weekly' | 'monthly';
-
-// ─── Mock Data ───────────────────────────────────────
-const TOP3: TraderProfile[] = [
-  {
-    rank: 1,
-    name: 'VaultMaster_X',
-    subtitle: 'Strategic Lead',
-    pnl: 452,
-    winRate: 92,
-    totalTrades: 3241,
-  },
-  {
-    rank: 2,
-    name: 'Aurelius_Capital',
-    subtitle: 'Institutional Grade',
-    pnl: 380,
-    winRate: 88,
-    totalTrades: 2108,
-  },
-  {
-    rank: 3,
-    name: 'Quant_Oracle',
-    subtitle: 'Algorithm Driven',
-    pnl: 310,
-    winRate: 85,
-    totalTrades: 1876,
-  },
-];
-
-const TABLE_DATA: TraderProfile[] = [
-  { rank: 4, name: 'Zenith_Protocol', subtitle: 'Joined Oct 2023', pnl: 284.1, winRate: 82.4, totalTrades: 1402 },
-  { rank: 5, name: 'IronBank_Lead', subtitle: 'Institutional Partner', pnl: 210.5, winRate: 79.1, totalTrades: 894 },
-  { rank: 6, name: 'Crypto_Nomad', subtitle: 'Independent', pnl: 192.3, winRate: 74.8, totalTrades: 2119 },
-  { rank: 7, name: 'Alpha_Stream', subtitle: 'Quant Fund', pnl: 156.8, winRate: 81.0, totalTrades: 452 },
-];
+type SortBy = 'pnl' | 'win_rate' | 'followers' | 'trades';
 
 // ─── Avatar Component ────────────────────────────────
-function AvatarCircle({ name, size = 40, borderColor }: { name: string; size?: number; borderColor?: string }) {
-  const letter = name.charAt(0).toUpperCase();
+function AvatarCircle({ name, size = 40, borderColor, certified }: { name: string; size?: number; borderColor?: string; certified?: boolean }) {
+  const letter = (name || '?').charAt(0).toUpperCase();
   const colors = ['#D4AF37', '#66e4b9', '#f2ca50', '#ffb4ab', '#627EEA', '#9945FF'];
-  const idx = name.charCodeAt(0) % colors.length;
+  const idx = (name || '').charCodeAt(0) % colors.length;
   const bg = colors[idx];
 
   return (
-    <View
-      style={[
-        avatarStyles.circle,
-        {
-          width: size,
-          height: size,
-          borderRadius: size / 2,
-          backgroundColor: bg + '20',
-          borderColor: borderColor || bg + '40',
-        },
-      ]}
-    >
-      <Text style={[avatarStyles.letter, { fontSize: size * 0.4, color: bg }]}>{letter}</Text>
+    <View style={{ position: 'relative' }}>
+      <View
+        style={[
+          avatarStyles.circle,
+          {
+            width: size,
+            height: size,
+            borderRadius: size / 2,
+            backgroundColor: bg + '20',
+            borderColor: borderColor || bg + '40',
+          },
+        ]}
+      >
+        <Text style={[avatarStyles.letter, { fontSize: size * 0.4, color: bg }]}>{letter}</Text>
+      </View>
+      {certified && (
+        <View style={[avatarStyles.badge, { right: -2, bottom: -2 }]}>
+          <Text style={avatarStyles.badgeText}>✓</Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -94,78 +57,79 @@ const avatarStyles = StyleSheet.create({
   letter: {
     fontWeight: '800',
   },
+  badge: {
+    position: 'absolute',
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: Colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: Colors.background,
+  },
+  badgeText: {
+    color: Colors.textOnPrimary,
+    fontSize: 9,
+    fontWeight: '800',
+  },
 });
 
 // ─── Top 3 Spotlight Card ────────────────────────────
-function SpotlightCard({ trader, isChampion }: { trader: TraderProfile; isChampion: boolean }) {
-  const cardHeight = isChampion ? 440 : 380;
-  const avatarSize = isChampion ? 96 : 72;
+function SpotlightCard({ trader, rank, isChampion, onPress }: { trader: TraderRankingItem; rank: number; isChampion: boolean; onPress: () => void }) {
+  const cardHeight = isChampion ? 420 : 360;
+  const avatarSize = isChampion ? 88 : 64;
 
   return (
-    <View
-      style={[
-        spotStyles.card,
-        { height: cardHeight },
-        isChampion && spotStyles.cardChampion,
-      ]}
+    <TouchableOpacity
+      style={[spotStyles.card, { height: cardHeight }, isChampion && spotStyles.cardChampion]}
+      activeOpacity={0.8}
+      onPress={onPress}
     >
-      {/* Rank watermark */}
       <Text style={[spotStyles.rankWatermark, isChampion && spotStyles.rankWatermarkChampion]}>
-        {String(trader.rank).padStart(2, '0')}
+        {String(rank).padStart(2, '0')}
       </Text>
-
-      {/* Champion glow */}
       {isChampion && <View style={spotStyles.glowOrb} />}
 
-      {/* Avatar */}
-      <View style={{ marginBottom: isChampion ? 16 : 12 }}>
+      <View style={{ marginBottom: isChampion ? 14 : 10 }}>
         <AvatarCircle
-          name={trader.name}
+          name={trader.display_name}
           size={avatarSize}
           borderColor={isChampion ? Colors.primary : undefined}
+          certified
         />
-        {isChampion && (
-          <View style={spotStyles.starBadge}>
-            <Text style={spotStyles.starIcon}>★</Text>
-          </View>
-        )}
       </View>
 
-      {/* Name */}
       <Text style={[spotStyles.name, isChampion && spotStyles.nameChampion]}>
-        {trader.name}
+        {trader.display_name}
       </Text>
-      <Text style={[spotStyles.subtitle, isChampion && spotStyles.subtitleChampion]}>
-        {trader.subtitle.toUpperCase()}
+      <Text style={spotStyles.subtitle}>
+        {trader.followers_count} FOLLOWERS
       </Text>
 
-      {/* Stats */}
-      <View style={[spotStyles.statsArea, { marginBottom: isChampion ? 20 : 16 }]}>
+      <View style={[spotStyles.statsArea, { marginBottom: isChampion ? 16 : 12 }]}>
         <View style={[spotStyles.statRow, isChampion && spotStyles.statRowChampion]}>
-          <Text style={spotStyles.statLabel}>{isChampion ? 'Total PnL' : 'PnL'}</Text>
-          <Text style={[spotStyles.statValue, spotStyles.statPnl, isChampion && spotStyles.statValueBig]}>
-            +{trader.pnl}%
+          <Text style={spotStyles.statLabel}>PnL</Text>
+          <Text style={[spotStyles.statValue, { color: trader.total_pnl >= 0 ? Colors.up : Colors.down }, isChampion && spotStyles.statValueBig]}>
+            {trader.total_pnl >= 0 ? '+' : ''}${trader.total_pnl.toFixed(2)}
           </Text>
         </View>
         <View style={spotStyles.statRow}>
           <Text style={spotStyles.statLabel}>Win Rate</Text>
-          <Text style={[spotStyles.statValue, isChampion && { fontSize: 18 }]}>
-            {trader.winRate}%
-          </Text>
+          <Text style={spotStyles.statValue}>{trader.win_rate.toFixed(1)}%</Text>
         </View>
       </View>
 
-      {/* CTA Button */}
-      {isChampion ? (
-        <TouchableOpacity style={spotStyles.ctaPrimary} activeOpacity={0.85}>
-          <Text style={spotStyles.ctaPrimaryText}>CONNECT & FOLLOW</Text>
-        </TouchableOpacity>
-      ) : (
-        <TouchableOpacity style={spotStyles.ctaOutline} activeOpacity={0.7}>
-          <Text style={spotStyles.ctaOutlineText}>COPY PORTFOLIO</Text>
-        </TouchableOpacity>
-      )}
-    </View>
+      <TouchableOpacity
+        style={isChampion ? spotStyles.ctaPrimary : spotStyles.ctaOutline}
+        activeOpacity={0.7}
+        onPress={onPress}
+      >
+        <Text style={isChampion ? spotStyles.ctaPrimaryText : spotStyles.ctaOutlineText}>
+          {trader.allow_copy_trading ? 'COPY PORTFOLIO' : 'VIEW PROFILE'}
+        </Text>
+      </TouchableOpacity>
+    </TouchableOpacity>
   );
 }
 
@@ -215,50 +179,10 @@ const spotStyles = StyleSheet.create({
     color: Colors.primaryLight,
     opacity: 0.2,
   },
-  starBadge: {
-    position: 'absolute',
-    bottom: -4,
-    right: -4,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: Colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: Colors.background,
-    ...Shadows.card,
-  },
-  starIcon: {
-    color: Colors.background,
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  name: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: Colors.textActive,
-    marginBottom: 4,
-  },
-  nameChampion: {
-    fontSize: 22,
-    fontWeight: '800',
-  },
-  subtitle: {
-    fontSize: 10,
-    color: Colors.textSecondary,
-    letterSpacing: 2,
-    marginBottom: 20,
-  },
-  subtitleChampion: {
-    color: Colors.primaryLight,
-    letterSpacing: 3,
-    marginBottom: 24,
-  },
-  statsArea: {
-    width: '100%',
-    gap: 10,
-  },
+  name: { fontSize: 17, fontWeight: '700', color: Colors.textActive, marginBottom: 4 },
+  nameChampion: { fontSize: 22, fontWeight: '800' },
+  subtitle: { fontSize: 10, color: Colors.textSecondary, letterSpacing: 2, marginBottom: 20 },
+  statsArea: { width: '100%', gap: 10 },
   statRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -275,21 +199,9 @@ const spotStyles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 20,
   },
-  statLabel: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-  },
-  statValue: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: Colors.textActive,
-  },
-  statValueBig: {
-    fontSize: 22,
-  },
-  statPnl: {
-    color: Colors.up,
-  },
+  statLabel: { fontSize: 12, color: Colors.textSecondary },
+  statValue: { fontSize: 15, fontWeight: '700', color: Colors.textActive },
+  statValueBig: { fontSize: 22 },
   ctaPrimary: {
     width: '100%',
     backgroundColor: Colors.primaryLight,
@@ -298,12 +210,7 @@ const spotStyles = StyleSheet.create({
     alignItems: 'center',
     ...Shadows.glow,
   },
-  ctaPrimaryText: {
-    color: Colors.background,
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 2,
-  },
+  ctaPrimaryText: { color: Colors.background, fontSize: 12, fontWeight: '800', letterSpacing: 2 },
   ctaOutline: {
     width: '100%',
     borderWidth: 1,
@@ -312,51 +219,33 @@ const spotStyles = StyleSheet.create({
     borderRadius: 10,
     alignItems: 'center',
   },
-  ctaOutlineText: {
-    color: Colors.primaryLight,
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 2,
-  },
+  ctaOutlineText: { color: Colors.primaryLight, fontSize: 11, fontWeight: '700', letterSpacing: 2 },
 });
 
-// ─── Table Row ───────────────────────────────────────
-function RankingRow({ trader }: { trader: TraderProfile }) {
-  const barWidth = Math.min(trader.pnl / 300 * 100, 100);
-
+// ─── Table Row (Desktop) ───────────────────────────────
+function RankingRow({ trader, rank, onPress }: { trader: TraderRankingItem; rank: number; onPress: () => void }) {
+  const { t } = useTranslation();
   return (
-    <View style={rowStyles.container}>
-      {/* Rank */}
-      <Text style={rowStyles.rank}>{String(trader.rank).padStart(2, '0')}</Text>
-
-      {/* Avatar + Name */}
+    <TouchableOpacity style={rowStyles.container} onPress={onPress} activeOpacity={0.7}>
+      <Text style={rowStyles.rank}>{String(rank).padStart(2, '0')}</Text>
       <View style={rowStyles.traderInfo}>
-        <AvatarCircle name={trader.name} size={36} />
+        <AvatarCircle name={trader.display_name} size={36} certified />
         <View>
-          <Text style={rowStyles.traderName}>{trader.name}</Text>
-          <Text style={rowStyles.traderSub}>{trader.subtitle}</Text>
+          <Text style={rowStyles.traderName}>{trader.display_name}</Text>
+          <Text style={rowStyles.traderSub}>{trader.followers_count} followers</Text>
         </View>
       </View>
-
-      {/* PnL */}
       <View style={rowStyles.pnlCol}>
-        <Text style={rowStyles.pnlText}>+{trader.pnl}%</Text>
-        <View style={rowStyles.pnlBarTrack}>
-          <View style={[rowStyles.pnlBarFill, { width: `${barWidth}%` }]} />
-        </View>
+        <Text style={[rowStyles.pnlText, { color: trader.total_pnl >= 0 ? Colors.up : Colors.down }]}>
+          {trader.total_pnl >= 0 ? '+' : ''}${trader.total_pnl.toFixed(2)}
+        </Text>
       </View>
-
-      {/* Win Rate */}
-      <Text style={rowStyles.winRate}>{trader.winRate}%</Text>
-
-      {/* Total Trades */}
-      <Text style={rowStyles.trades}>{trader.totalTrades.toLocaleString()}</Text>
-
-      {/* Follow */}
+      <Text style={rowStyles.winRate}>{trader.win_rate.toFixed(1)}%</Text>
+      <Text style={rowStyles.trades}>{trader.total_trades.toLocaleString()}</Text>
       <TouchableOpacity style={rowStyles.followBtn} activeOpacity={0.7}>
-        <Text style={rowStyles.followText}>Follow</Text>
+        <Text style={rowStyles.followText}>{t('rankings.follow')}</Text>
       </TouchableOpacity>
-    </View>
+    </TouchableOpacity>
   );
 }
 
@@ -369,65 +258,14 @@ const rowStyles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(77,70,53,0.1)',
   },
-  rank: {
-    width: 40,
-    fontSize: 16,
-    fontWeight: '700',
-    color: Colors.textSecondary,
-    opacity: 0.4,
-  },
-  traderInfo: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  traderName: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: Colors.textActive,
-  },
-  traderSub: {
-    fontSize: 10,
-    color: Colors.textSecondary,
-    marginTop: 1,
-  },
-  pnlCol: {
-    width: 110,
-    alignItems: 'flex-end',
-  },
-  pnlText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: Colors.up,
-  },
-  pnlBarTrack: {
-    width: 80,
-    height: 3,
-    backgroundColor: Colors.border,
-    borderRadius: 2,
-    overflow: 'hidden',
-    marginTop: 4,
-  },
-  pnlBarFill: {
-    height: '100%',
-    backgroundColor: Colors.up,
-    borderRadius: 2,
-  },
-  winRate: {
-    width: 70,
-    textAlign: 'right',
-    fontSize: 14,
-    fontWeight: '600',
-    color: Colors.textActive,
-  },
-  trades: {
-    width: 80,
-    textAlign: 'right',
-    fontSize: 14,
-    color: Colors.textSecondary,
-    opacity: 0.6,
-  },
+  rank: { width: 40, fontSize: 16, fontWeight: '700', color: Colors.textSecondary, opacity: 0.4 },
+  traderInfo: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  traderName: { fontSize: 14, fontWeight: '700', color: Colors.textActive },
+  traderSub: { fontSize: 10, color: Colors.textSecondary, marginTop: 1 },
+  pnlCol: { width: 110, alignItems: 'flex-end' },
+  pnlText: { fontSize: 14, fontWeight: '700' },
+  winRate: { width: 70, textAlign: 'right', fontSize: 14, fontWeight: '600', color: Colors.textActive },
+  trades: { width: 80, textAlign: 'right', fontSize: 14, color: Colors.textSecondary, opacity: 0.6 },
   followBtn: {
     marginLeft: 20,
     backgroundColor: '#2a2a2a',
@@ -437,28 +275,26 @@ const rowStyles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
   },
-  followText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: Colors.textActive,
-  },
+  followText: { fontSize: 12, fontWeight: '700', color: Colors.textActive },
 });
 
-// ─── Mobile Row (compact) ────────────────────────────
-function MobileRankingRow({ trader }: { trader: TraderProfile }) {
+// ─── Mobile Row ────────────────────────────────────────
+function MobileRankingRow({ trader, rank, onPress }: { trader: TraderRankingItem; rank: number; onPress: () => void }) {
   return (
-    <View style={mobileRowStyles.container}>
-      <Text style={mobileRowStyles.rank}>#{trader.rank}</Text>
-      <AvatarCircle name={trader.name} size={36} />
+    <TouchableOpacity style={mobileRowStyles.container} onPress={onPress} activeOpacity={0.7}>
+      <Text style={mobileRowStyles.rank}>#{rank}</Text>
+      <AvatarCircle name={trader.display_name} size={36} certified />
       <View style={mobileRowStyles.info}>
-        <Text style={mobileRowStyles.name}>{trader.name}</Text>
-        <Text style={mobileRowStyles.sub}>{trader.subtitle}</Text>
+        <Text style={mobileRowStyles.name}>{trader.display_name}</Text>
+        <Text style={mobileRowStyles.sub}>{trader.followers_count} followers</Text>
       </View>
       <View style={mobileRowStyles.statsCol}>
-        <Text style={mobileRowStyles.pnl}>+{trader.pnl}%</Text>
-        <Text style={mobileRowStyles.wr}>{trader.winRate}% WR</Text>
+        <Text style={[mobileRowStyles.pnl, { color: trader.total_pnl >= 0 ? Colors.up : Colors.down }]}>
+          {trader.total_pnl >= 0 ? '+' : ''}${trader.total_pnl.toFixed(2)}
+        </Text>
+        <Text style={mobileRowStyles.wr}>{trader.win_rate.toFixed(1)}% WR</Text>
       </View>
-    </View>
+    </TouchableOpacity>
   );
 }
 
@@ -472,60 +308,68 @@ const mobileRowStyles = StyleSheet.create({
     borderBottomColor: Colors.border,
     gap: 10,
   },
-  rank: {
-    width: 28,
-    fontSize: 13,
-    fontWeight: '700',
-    color: Colors.textMuted,
-  },
+  rank: { width: 28, fontSize: 13, fontWeight: '700', color: Colors.textMuted },
   info: { flex: 1 },
-  name: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: Colors.textActive,
-  },
-  sub: {
-    fontSize: 10,
-    color: Colors.textMuted,
-    marginTop: 1,
-  },
+  name: { fontSize: 14, fontWeight: '600', color: Colors.textActive },
+  sub: { fontSize: 10, color: Colors.textMuted, marginTop: 1 },
   statsCol: { alignItems: 'flex-end' },
-  pnl: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: Colors.up,
-  },
-  wr: {
-    fontSize: 11,
-    color: Colors.textSecondary,
-    marginTop: 2,
-  },
+  pnl: { fontSize: 14, fontWeight: '700' },
+  wr: { fontSize: 11, color: Colors.textSecondary, marginTop: 2 },
 });
 
 // ─── Main Screen ─────────────────────────────────────
 export default function RankingsScreen() {
   const { t } = useTranslation();
+  const router = useRouter();
   const { width } = useWindowDimensions();
   const isDesktop = width >= 768;
-  const [timeFilter, setTimeFilter] = useState<TimeFilter>('weekly');
+  const [sortBy, setSortBy] = useState<SortBy>('pnl');
+  const [traders, setTraders] = useState<TraderRankingItem[]>([]);
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const onRefresh = useCallback(async () => {
+  const fetchData = useCallback(async () => {
+    try {
+      const res = await getTraderRankings(sortBy, 50, 0);
+      setTraders(res.traders || []);
+    } catch {
+      // keep existing data
+    } finally {
+      setLoading(false);
+    }
+  }, [sortBy]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  const onRefresh = async () => {
     setRefreshing(true);
-    // TODO: fetch real data
-    await new Promise((r) => setTimeout(r, 800));
+    await fetchData();
     setRefreshing(false);
-  }, []);
+  };
 
-  const champion = TOP3[0];
-  const second = TOP3[1];
-  const third = TOP3[2];
+  const navigateToTrader = (uid: string) => {
+    router.push(`/trader/${uid}` as any);
+  };
 
-  const TIME_FILTERS: { key: TimeFilter; label: string }[] = [
-    { key: 'all', label: t('rankings.allTime') },
-    { key: 'weekly', label: t('rankings.weekly') },
-    { key: 'monthly', label: t('rankings.monthly') },
+  const SORT_OPTIONS: { key: SortBy; label: string }[] = [
+    { key: 'pnl', label: t('rankings.pnl') },
+    { key: 'win_rate', label: t('rankings.winRate') },
+    { key: 'followers', label: t('rankings.follow') },
+    { key: 'trades', label: t('rankings.totalTrades') },
   ];
+
+  const top3 = traders.slice(0, 3);
+  const rest = traders.slice(3);
+
+  if (loading) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -534,28 +378,23 @@ export default function RankingsScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={Colors.primary}
-            colors={[Colors.primary]}
-          />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />
         }
       >
-        {/* ── Header & Filters ── */}
+        {/* Header */}
         <View style={[styles.header, isDesktop && styles.headerDesktop]}>
           <View style={{ flex: 1 }}>
             <Text style={styles.title}>{t('rankings.title')}</Text>
             <Text style={styles.subtitle}>{t('rankings.subtitle')}</Text>
           </View>
           <View style={styles.filterBar}>
-            {TIME_FILTERS.map((f) => (
+            {SORT_OPTIONS.map((f) => (
               <TouchableOpacity
                 key={f.key}
-                style={[styles.filterBtn, timeFilter === f.key && styles.filterBtnActive]}
-                onPress={() => setTimeFilter(f.key)}
+                style={[styles.filterBtn, sortBy === f.key && styles.filterBtnActive]}
+                onPress={() => setSortBy(f.key)}
               >
-                <Text style={[styles.filterText, timeFilter === f.key && styles.filterTextActive]}>
+                <Text style={[styles.filterText, sortBy === f.key && styles.filterTextActive]}>
                   {f.label}
                 </Text>
               </TouchableOpacity>
@@ -563,104 +402,82 @@ export default function RankingsScreen() {
           </View>
         </View>
 
-        {/* ── Top 3 Spotlight (desktop: side by side, mobile: stacked) ── */}
-        {isDesktop ? (
-          <View style={styles.spotlightGrid}>
-            <SpotlightCard trader={second} isChampion={false} />
-            <SpotlightCard trader={champion} isChampion />
-            <SpotlightCard trader={third} isChampion={false} />
-          </View>
-        ) : (
-          <View style={styles.spotlightMobile}>
-            <SpotlightCard trader={champion} isChampion />
-            <View style={styles.spotlightMobileRow}>
-              <SpotlightCard trader={second} isChampion={false} />
-              <SpotlightCard trader={third} isChampion={false} />
+        {/* Top 3 Spotlight */}
+        {top3.length >= 3 ? (
+          isDesktop ? (
+            <View style={styles.spotlightGrid}>
+              <SpotlightCard trader={top3[1]} rank={2} isChampion={false} onPress={() => navigateToTrader(top3[1].uid)} />
+              <SpotlightCard trader={top3[0]} rank={1} isChampion onPress={() => navigateToTrader(top3[0].uid)} />
+              <SpotlightCard trader={top3[2]} rank={3} isChampion={false} onPress={() => navigateToTrader(top3[2].uid)} />
             </View>
+          ) : (
+            <View style={styles.spotlightMobile}>
+              <SpotlightCard trader={top3[0]} rank={1} isChampion onPress={() => navigateToTrader(top3[0].uid)} />
+              <View style={styles.spotlightMobileRow}>
+                <SpotlightCard trader={top3[1]} rank={2} isChampion={false} onPress={() => navigateToTrader(top3[1].uid)} />
+                <SpotlightCard trader={top3[2]} rank={3} isChampion={false} onPress={() => navigateToTrader(top3[2].uid)} />
+              </View>
+            </View>
+          )
+        ) : top3.length > 0 ? (
+          <View style={styles.spotlightMobile}>
+            {top3.map((tr, i) => (
+              <SpotlightCard key={tr.uid} trader={tr} rank={i + 1} isChampion={i === 0} onPress={() => navigateToTrader(tr.uid)} />
+            ))}
+          </View>
+        ) : null}
+
+        {/* Table */}
+        {(rest.length > 0 || traders.length === 0) && (
+          <View style={styles.tableCard}>
+            <View style={styles.tableHeader}>
+              <Text style={styles.tableTitle}>{t('rankings.topManagers')}</Text>
+            </View>
+
+            {isDesktop && (
+              <View style={styles.colHeaders}>
+                <Text style={[styles.colText, { width: 40 }]}>RANK</Text>
+                <Text style={[styles.colText, { flex: 1 }]}>TRADER</Text>
+                <Text style={[styles.colText, { width: 110, textAlign: 'right' }]}>PNL</Text>
+                <Text style={[styles.colText, { width: 70, textAlign: 'right' }]}>WIN RATE</Text>
+                <Text style={[styles.colText, { width: 80, textAlign: 'right' }]}>TRADES</Text>
+                <Text style={[styles.colText, { width: 76, textAlign: 'center', marginLeft: 20 }]}>ACTION</Text>
+              </View>
+            )}
+
+            {traders.length === 0 && (
+              <View style={{ padding: 40, alignItems: 'center' }}>
+                <Text style={{ color: Colors.textMuted, fontSize: 14 }}>{t('common.noData')}</Text>
+              </View>
+            )}
+
+            {rest.map((trader, i) =>
+              isDesktop ? (
+                <RankingRow key={trader.uid} trader={trader} rank={i + 4} onPress={() => navigateToTrader(trader.uid)} />
+              ) : (
+                <MobileRankingRow key={trader.uid} trader={trader} rank={i + 4} onPress={() => navigateToTrader(trader.uid)} />
+              )
+            )}
           </View>
         )}
-
-        {/* ── Rankings Table ── */}
-        <View style={styles.tableCard}>
-          {/* Table Header */}
-          <View style={styles.tableHeader}>
-            <Text style={styles.tableTitle}>{t('rankings.topManagers')}</Text>
-            <View style={styles.legendRow}>
-              <View style={styles.legendItem}>
-                <View style={[styles.legendDot, { backgroundColor: Colors.up }]} />
-                <Text style={styles.legendText}>Net Positive</Text>
-              </View>
-              <View style={styles.legendItem}>
-                <View style={[styles.legendDot, { backgroundColor: Colors.down }]} />
-                <Text style={styles.legendText}>Net Negative</Text>
-              </View>
-            </View>
-          </View>
-
-          {/* Column Headers (desktop) */}
-          {isDesktop && (
-            <View style={styles.colHeaders}>
-              <Text style={[styles.colText, { width: 40 }]}>RANK</Text>
-              <Text style={[styles.colText, { flex: 1 }]}>TRADER ENTITY</Text>
-              <Text style={[styles.colText, { width: 110, textAlign: 'right' }]}>PNL (WEEKLY)</Text>
-              <Text style={[styles.colText, { width: 70, textAlign: 'right' }]}>WIN RATE</Text>
-              <Text style={[styles.colText, { width: 80, textAlign: 'right' }]}>TOTAL TRADES</Text>
-              <Text style={[styles.colText, { width: 76, textAlign: 'center', marginLeft: 20 }]}>PROTOCOL ACTION</Text>
-            </View>
-          )}
-
-          {/* Rows */}
-          {TABLE_DATA.map((trader) =>
-            isDesktop ? (
-              <RankingRow key={trader.rank} trader={trader} />
-            ) : (
-              <MobileRankingRow key={trader.rank} trader={trader} />
-            )
-          )}
-
-          {/* Load More */}
-          <TouchableOpacity style={styles.loadMore} activeOpacity={0.7}>
-            <Text style={styles.loadMoreText}>{t('rankings.loadFull')} ↓</Text>
-          </TouchableOpacity>
-        </View>
       </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
+  container: { flex: 1, backgroundColor: Colors.background },
   scrollView: { flex: 1 },
   scrollContent: { padding: 20, paddingBottom: 40 },
-
-  // Header
-  header: {
-    marginBottom: 24,
-  },
+  header: { marginBottom: 24 },
   headerDesktop: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     justifyContent: 'space-between',
     marginBottom: 32,
   },
-  title: {
-    fontSize: 32,
-    fontWeight: '800',
-    color: Colors.textActive,
-    letterSpacing: -0.5,
-    marginBottom: 6,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    maxWidth: 400,
-    lineHeight: 20,
-  },
-
-  // Time Filter
+  title: { fontSize: 32, fontWeight: '800', color: Colors.textActive, letterSpacing: -0.5, marginBottom: 6 },
+  subtitle: { fontSize: 14, color: Colors.textSecondary, maxWidth: 400, lineHeight: 20 },
   filterBar: {
     flexDirection: 'row',
     backgroundColor: '#1c1b1b',
@@ -670,11 +487,7 @@ const styles = StyleSheet.create({
     padding: 5,
     marginTop: 12,
   },
-  filterBtn: {
-    paddingHorizontal: 18,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
+  filterBtn: { paddingHorizontal: 18, paddingVertical: 8, borderRadius: 8 },
   filterBtnActive: {
     backgroundColor: '#3a3939',
     shadowColor: '#000',
@@ -683,33 +496,11 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 4,
   },
-  filterText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: Colors.textSecondary,
-  },
-  filterTextActive: {
-    color: Colors.primaryLight,
-    fontWeight: '700',
-  },
-
-  // Spotlight
-  spotlightGrid: {
-    flexDirection: 'row',
-    gap: 16,
-    marginBottom: 32,
-    alignItems: 'flex-end',
-  },
-  spotlightMobile: {
-    gap: 12,
-    marginBottom: 24,
-  },
-  spotlightMobileRow: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-
-  // Table
+  filterText: { fontSize: 12, fontWeight: '600', color: Colors.textSecondary },
+  filterTextActive: { color: Colors.primaryLight, fontWeight: '700' },
+  spotlightGrid: { flexDirection: 'row', gap: 16, marginBottom: 32, alignItems: 'flex-end' },
+  spotlightMobile: { gap: 12, marginBottom: 24 },
+  spotlightMobileRow: { flexDirection: 'row', gap: 12 },
   tableCard: {
     backgroundColor: '#201f1f',
     borderRadius: 16,
@@ -728,31 +519,7 @@ const styles = StyleSheet.create({
     borderBottomColor: 'rgba(77,70,53,0.2)',
     backgroundColor: Colors.background,
   },
-  tableTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: Colors.textActive,
-  },
-  legendRow: {
-    flexDirection: 'row',
-    gap: 16,
-  },
-  legendItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  legendDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  legendText: {
-    fontSize: 11,
-    color: Colors.textSecondary,
-  },
-
-  // Column Headers
+  tableTitle: { fontSize: 16, fontWeight: '700', color: Colors.textActive },
   colHeaders: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -760,23 +527,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     backgroundColor: '#1c1b1b',
   },
-  colText: {
-    fontSize: 9,
-    fontWeight: '600',
-    color: Colors.textSecondary,
-    letterSpacing: 1.5,
-  },
-
-  // Load More
-  loadMore: {
-    paddingVertical: 20,
-    alignItems: 'center',
-    backgroundColor: '#1c1b1b',
-  },
-  loadMoreText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: Colors.textSecondary,
-    letterSpacing: 2,
-  },
+  colText: { fontSize: 9, fontWeight: '600', color: Colors.textSecondary, letterSpacing: 1.5 },
 });

@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useRouter, usePathname } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { Colors, Sizes, Shadows } from '../../theme/colors';
 import { useAuthStore } from '../../services/store/authStore';
+import { marketWs } from '../../services/websocket/marketWs';
 
 interface NavItem {
   key: string;
@@ -22,10 +23,29 @@ export default function Sidebar() {
   const { user, signOut } = useAuthStore();
   const [collapsed, setCollapsed] = useState(false);
 
+  // Network status
+  const [netConnected, setNetConnected] = useState(true);
+  const [netLatency, setNetLatency] = useState(-1);
+  useEffect(() => {
+    const handler = (msg: any) => {
+      if (msg.type === 'ws_status') {
+        setNetConnected(msg.connected);
+        if (!msg.connected) setNetLatency(-1);
+      }
+      if (msg.type === 'ws_latency') {
+        setNetLatency(msg.latency);
+        setNetConnected(true);
+      }
+    };
+    marketWs.onMessage(handler);
+    return () => { marketWs.offMessage(handler); };
+  }, []);
+
   const navItems: NavItem[] = [
     { key: 'market', label: t('nav.market'), icon: '📊', route: '/(tabs)/market' },
-    { key: 'watchlist', label: t('nav.watchlist'), icon: '⭐', route: '/(tabs)/market' },
+    { key: 'watchlist', label: t('nav.watchlist'), icon: '⭐', route: '/(tabs)/watchlist' },
     { key: 'trading', label: t('nav.trading'), icon: '📈', route: '/(tabs)/trading' },
+    { key: 'trader-center', label: t('nav.traderCenter'), icon: '🏅', route: '/(tabs)/trader-center' },
     { key: 'rankings', label: t('nav.rankings'), icon: '🏆', route: '/(tabs)/rankings' },
     { key: 'messages', label: t('messages.title'), icon: '💬', route: '/(tabs)/messages' },
     { key: 'profile', label: t('nav.profile'), icon: '👤', route: '/(tabs)/profile' },
@@ -155,6 +175,16 @@ export default function Sidebar() {
           <Text style={[styles.navIcon, collapsed && styles.navIconCollapsed]}>⚙️</Text>
           {!collapsed && <Text style={styles.navLabel}>{t('nav.settings')}</Text>}
         </TouchableOpacity>
+
+        {/* Network Status */}
+        <View style={[styles.netStatus, collapsed && styles.netStatusCollapsed]}>
+          <View style={[styles.netDot, { backgroundColor: !netConnected ? '#F6465D' : netLatency < 100 ? '#0ECB81' : netLatency < 300 ? '#F0B90B' : '#F6465D' }]} />
+          {!collapsed && (
+            <Text style={[styles.netText, { color: !netConnected ? '#F6465D' : netLatency < 100 ? '#0ECB81' : netLatency < 300 ? '#F0B90B' : '#F6465D' }]}>
+              {!netConnected ? '网络断开' : netLatency >= 0 ? `${netLatency}ms` : '连接中...'}
+            </Text>
+          )}
+        </View>
       </View>
     </View>
   );
@@ -370,5 +400,29 @@ const styles = StyleSheet.create({
   userEmail: {
     color: Colors.textMuted,
     fontSize: 11,
+  },
+
+  /* ── Network Status ── */
+  netStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    gap: 8,
+  },
+  netStatusCollapsed: {
+    justifyContent: 'center',
+    paddingHorizontal: 0,
+    gap: 0,
+  },
+  netDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  netText: {
+    fontSize: 12,
+    fontWeight: '500',
+    fontFamily: 'monospace',
   },
 });

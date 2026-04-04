@@ -51,11 +51,13 @@ func (r *UserRepo) GetByUID(ctx context.Context, uid string) (*model.User, error
 	err := r.pool.QueryRow(ctx, `
 		SELECT uid, email, display_name, COALESCE(avatar_url,''), COALESCE(role,'user'),
 		       COALESCE(status,'active'), COALESCE(short_id,''), COALESCE(phone,''),
-		       COALESCE(bio,''), created_at, updated_at
+		       COALESCE(bio,''), COALESCE(is_trader, false), COALESCE(allow_copy_trading, false),
+		       trader_approved_at, created_at, updated_at
 		FROM users WHERE uid = $1
 	`, uid).Scan(
 		&u.UID, &u.Email, &u.DisplayName, &u.AvatarURL, &u.Role,
-		&u.Status, &u.ShortID, &u.Phone, &u.Bio, &u.CreatedAt, &u.UpdatedAt,
+		&u.Status, &u.ShortID, &u.Phone, &u.Bio, &u.IsTrader, &u.AllowCopyTrading,
+		&u.TraderApprovedAt, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -68,11 +70,13 @@ func (r *UserRepo) GetByEmail(ctx context.Context, email string) (*model.User, e
 	err := r.pool.QueryRow(ctx, `
 		SELECT uid, email, display_name, COALESCE(avatar_url,''), COALESCE(role,'user'),
 		       COALESCE(status,'active'), COALESCE(short_id,''), COALESCE(phone,''),
-		       COALESCE(bio,''), created_at, updated_at
+		       COALESCE(bio,''), COALESCE(is_trader, false), COALESCE(allow_copy_trading, false),
+		       trader_approved_at, created_at, updated_at
 		FROM users WHERE email = $1
 	`, email).Scan(
 		&u.UID, &u.Email, &u.DisplayName, &u.AvatarURL, &u.Role,
-		&u.Status, &u.ShortID, &u.Phone, &u.Bio, &u.CreatedAt, &u.UpdatedAt,
+		&u.Status, &u.ShortID, &u.Phone, &u.Bio, &u.IsTrader, &u.AllowCopyTrading,
+		&u.TraderApprovedAt, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -123,7 +127,7 @@ func (r *UserRepo) Search(ctx context.Context, query string, limit int) ([]model
 	var results []model.FriendProfile
 	for rows.Next() {
 		var p model.FriendProfile
-		if err := rows.Scan(&p.UID, &p.Email, &p.DisplayName, &p.AvatarURL, &p.Role, &p.Status, &p.ShortID); err != nil {
+		if err := rows.Scan(&p.UserID, &p.Email, &p.DisplayName, &p.AvatarURL, &p.Role, &p.Status, &p.ShortID); err != nil {
 			return nil, err
 		}
 		results = append(results, p)
@@ -145,7 +149,7 @@ func (r *UserRepo) BatchGetProfiles(ctx context.Context, uids []string) ([]model
 	var results []model.FriendProfile
 	for rows.Next() {
 		var p model.FriendProfile
-		if err := rows.Scan(&p.UID, &p.Email, &p.DisplayName, &p.AvatarURL, &p.Role, &p.Status, &p.ShortID); err != nil {
+		if err := rows.Scan(&p.UserID, &p.Email, &p.DisplayName, &p.AvatarURL, &p.Role, &p.Status, &p.ShortID); err != nil {
 			return nil, err
 		}
 		results = append(results, p)
@@ -163,7 +167,8 @@ func (r *UserRepo) ListAll(ctx context.Context, limit, offset int) ([]model.User
 	rows, err := r.pool.Query(ctx, `
 		SELECT uid, email, display_name, COALESCE(avatar_url,''), COALESCE(role,'user'),
 		       COALESCE(status,'active'), COALESCE(short_id,''), COALESCE(phone,''),
-		       COALESCE(bio,''), created_at, updated_at
+		       COALESCE(bio,''), COALESCE(is_trader, false), COALESCE(allow_copy_trading, false),
+		       trader_approved_at, created_at, updated_at
 		FROM users ORDER BY created_at DESC LIMIT $1 OFFSET $2
 	`, limit, offset)
 	if err != nil {
@@ -175,12 +180,83 @@ func (r *UserRepo) ListAll(ctx context.Context, limit, offset int) ([]model.User
 	for rows.Next() {
 		var u model.User
 		if err := rows.Scan(&u.UID, &u.Email, &u.DisplayName, &u.AvatarURL, &u.Role,
-			&u.Status, &u.ShortID, &u.Phone, &u.Bio, &u.CreatedAt, &u.UpdatedAt); err != nil {
+			&u.Status, &u.ShortID, &u.Phone, &u.Bio, &u.IsTrader, &u.AllowCopyTrading,
+			&u.TraderApprovedAt, &u.CreatedAt, &u.UpdatedAt); err != nil {
 			return nil, 0, err
 		}
 		users = append(users, u)
 	}
 	return users, total, nil
+}
+
+func (r *UserRepo) GetAdminStats(ctx context.Context) (totalUsers, adminCount, traderCount, pendingApps, activeUsers int, err error) {
+	err = r.pool.QueryRow(ctx, `
+		SELECT
+			(SELECT COUNT(*) FROM users),
+			(SELECT COUNT(*) FROM users WHERE role = 'admin'),
+			(SELECT COUNT(*) FROM users WHERE is_trader = true),
+			(SELECT COUNT(*) FROM trader_applications WHERE status = 'pending'),
+			(SELECT COUNT(*) FROM users WHERE status = 'active')
+	`).Scan(&totalUsers, &adminCount, &traderCount, &pendingApps, &activeUsers)
+	return
+}
+
+func (r *UserRepo) ListByRole(ctx context.Context, role string) ([]model.User, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT uid, email, display_name, COALESCE(avatar_url,''), COALESCE(role,'user'),
+		       COALESCE(status,'active'), COALESCE(short_id,''), COALESCE(phone,''),
+		       COALESCE(bio,''), COALESCE(is_trader, false), COALESCE(allow_copy_trading, false),
+		       trader_approved_at, created_at, updated_at
+		FROM users WHERE role = $1 ORDER BY created_at DESC
+	`, role)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []model.User
+	for rows.Next() {
+		var u model.User
+		if err := rows.Scan(&u.UID, &u.Email, &u.DisplayName, &u.AvatarURL, &u.Role,
+			&u.Status, &u.ShortID, &u.Phone, &u.Bio, &u.IsTrader, &u.AllowCopyTrading,
+			&u.TraderApprovedAt, &u.CreatedAt, &u.UpdatedAt); err != nil {
+			return nil, err
+		}
+		users = append(users, u)
+	}
+	return users, nil
+}
+
+func (r *UserRepo) SearchAll(ctx context.Context, query string, limit int) ([]model.User, error) {
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+	rows, err := r.pool.Query(ctx, `
+		SELECT uid, email, display_name, COALESCE(avatar_url,''), COALESCE(role,'user'),
+		       COALESCE(status,'active'), COALESCE(short_id,''), COALESCE(phone,''),
+		       COALESCE(bio,''), COALESCE(is_trader, false), COALESCE(allow_copy_trading, false),
+		       trader_approved_at, created_at, updated_at
+		FROM users
+		WHERE display_name ILIKE $1 OR email ILIKE $1 OR short_id ILIKE $1
+		ORDER BY created_at DESC
+		LIMIT $2
+	`, "%"+query+"%", limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []model.User
+	for rows.Next() {
+		var u model.User
+		if err := rows.Scan(&u.UID, &u.Email, &u.DisplayName, &u.AvatarURL, &u.Role,
+			&u.Status, &u.ShortID, &u.Phone, &u.Bio, &u.IsTrader, &u.AllowCopyTrading,
+			&u.TraderApprovedAt, &u.CreatedAt, &u.UpdatedAt); err != nil {
+			return nil, err
+		}
+		users = append(users, u)
+	}
+	return users, nil
 }
 
 func generateShortID() string {

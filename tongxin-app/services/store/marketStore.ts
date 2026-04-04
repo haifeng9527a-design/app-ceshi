@@ -34,6 +34,7 @@ interface MarketState {
   // K-line
   klines: KlineBar[];
   klinesLoading: boolean;
+  klinesCache: Record<string, { data: KlineBar[]; ts: number }>;
 
   // Search
   searchResults: SearchResult[];
@@ -90,6 +91,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
   indicesLoading: false,
   klines: [],
   klinesLoading: false,
+  klinesCache: {},
   searchResults: [],
   searchLoading: false,
   gainers: [],
@@ -138,7 +140,8 @@ export const useMarketStore = create<MarketState>((set, get) => ({
   },
 
   loadIndices: async () => {
-    set({ indicesLoading: true });
+    // Don't show loading if we already have indices (SWR: stale-while-revalidate)
+    if (get().indices.length === 0) set({ indicesLoading: true });
     try {
       const data = await fetchIndices();
       set({ indices: data, indicesLoading: false });
@@ -149,14 +152,35 @@ export const useMarketStore = create<MarketState>((set, get) => ({
   },
 
   loadKlines: async (symbol, interval = '1D') => {
-    set({ klinesLoading: true });
+    const apiInterval = INTERVAL_MAP[interval] || interval;
+    const cacheKey = `${symbol}_${apiInterval}`;
+    const cached = get().klinesCache[cacheKey];
+    const CACHE_TTL = 60 * 1000; // 前端缓存60秒，避免频繁切换时间周期重复请求
+
+    // 有缓存且未过期：直接使用，不请求
+    if (cached && Date.now() - cached.ts < CACHE_TTL) {
+      set({ klines: cached.data, klinesLoading: false });
+      return;
+    }
+
+    // 有缓存但过期：先展示旧数据，后台刷新
+    if (cached) {
+      set({ klines: cached.data, klinesLoading: true });
+    } else {
+      set({ klinesLoading: true });
+    }
+
     try {
-      const apiInterval = INTERVAL_MAP[interval] || interval;
       const data = await fetchKlines(symbol, apiInterval);
-      set({ klines: data, klinesLoading: false });
+      set((s) => ({
+        klines: data,
+        klinesLoading: false,
+        klinesCache: { ...s.klinesCache, [cacheKey]: { data, ts: Date.now() } },
+      }));
     } catch (e) {
       console.error('[Store] loadKlines error:', e);
-      set({ klinesLoading: false, klines: [] });
+      if (!cached) set({ klinesLoading: false, klines: [] });
+      else set({ klinesLoading: false });
     }
   },
 
@@ -190,7 +214,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
   },
 
   loadNews: async (ticker?: string) => {
-    set({ newsLoading: true });
+    if (get().news.length === 0) set({ newsLoading: true });
     try {
       const data = await fetchNews(ticker, 6);
       set({ news: data || [], newsLoading: false });

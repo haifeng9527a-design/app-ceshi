@@ -12,6 +12,10 @@ type Config struct {
 	DatabaseURL string
 	CORSOrigins []string
 
+	// Redis (optional): chat WebSocket cross-instance fan-out via Pub/Sub.
+	// Messages are still persisted only in Postgres; Redis is not a source of truth.
+	RedisURL string
+
 	// JWT Auth
 	JWTSecret string
 
@@ -34,6 +38,7 @@ func Load() *Config {
 	c := &Config{
 		Port:        getEnv("PORT", "3000"),
 		DatabaseURL: getEnv("DATABASE_URL", ""),
+		RedisURL:    getEnv("REDIS_URL", ""),
 		JWTSecret:   getEnv("JWT_SECRET", ""),
 		PolygonAPIKey:           getEnv("POLYGON_API_KEY", ""),
 		AlpacaAPIKey:            getEnv("ALPACA_API_KEY", ""),

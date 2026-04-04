@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type contextKey string
@@ -79,6 +81,26 @@ func (a *AuthMiddleware) OptionalAuth(next http.Handler) http.Handler {
 func GetUserUID(ctx context.Context) string {
 	uid, _ := ctx.Value(UserUIDKey).(string)
 	return uid
+}
+
+// RequireAdmin wraps an authenticated handler and checks users.role = 'admin'.
+func RequireAdmin(pool *pgxpool.Pool) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			uid := GetUserUID(r.Context())
+			if uid == "" {
+				http.Error(w, `{"error":"authentication required"}`, http.StatusUnauthorized)
+				return
+			}
+			var role string
+			err := pool.QueryRow(r.Context(), `SELECT COALESCE(role,'user') FROM users WHERE uid = $1`, uid).Scan(&role)
+			if err != nil || role != "admin" {
+				http.Error(w, `{"error":"admin access required"}`, http.StatusForbidden)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // ── JWT helpers (HMAC-SHA256) ──

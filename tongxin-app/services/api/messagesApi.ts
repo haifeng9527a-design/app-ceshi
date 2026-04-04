@@ -14,6 +14,8 @@ export interface ApiConversation {
   last_time?: string;
   unread_count: number;
   peer_id?: string;
+  /** Server: users.is_trader for direct peer (from Postgres) */
+  peer_is_trader?: boolean;
   announcement?: string;
   created_at?: string;
 }
@@ -26,6 +28,8 @@ export interface ApiMessage {
   content: string;
   message_type: 'text' | 'image' | 'video' | 'audio' | 'system_join' | 'system_leave' | 'teacher_share';
   media_url?: string;
+  /** Strategy cards / AI payloads (JSON object) */
+  metadata?: Record<string, unknown>;
   duration_ms?: number;
   created_at: string;
   reply_to_message_id?: string;
@@ -49,6 +53,30 @@ export interface FriendProfile {
   short_id?: string;
   role?: string;
   last_online_at?: string;
+}
+
+/** Server: friend_requests row */
+export interface ApiFriendRequest {
+  id: string;
+  from_user_id: string;
+  to_user_id: string;
+  status: string;
+  message?: string;
+  created_at: string;
+}
+
+function mapFriendProfile(raw: any): FriendProfile {
+  const user_id = String(raw?.user_id ?? raw?.uid ?? raw?.id ?? '').trim();
+  return {
+    user_id,
+    display_name: String(raw?.display_name ?? ''),
+    email: String(raw?.email ?? ''),
+    avatar_url: raw?.avatar_url,
+    status: raw?.status,
+    short_id: raw?.short_id,
+    role: raw?.role,
+    last_online_at: raw?.last_online_at,
+  };
 }
 
 export interface GroupInfo {
@@ -89,6 +117,21 @@ export async function fetchMessages(
   const params: Record<string, any> = { limit };
   if (before) params.before = before;
   const { data } = await apiClient.get(`/api/conversations/${conversationId}/messages`, { params });
+  if (Array.isArray(data)) return data;
+  if (data && typeof data === 'object' && Array.isArray((data as { messages?: unknown }).messages)) {
+    return (data as { messages: ApiMessage[] }).messages;
+  }
+  return [];
+}
+
+export async function searchConversationMessages(
+  conversationId: string,
+  q: string,
+  limit = 40,
+): Promise<ApiMessage[]> {
+  const { data } = await apiClient.get(`/api/conversations/${conversationId}/messages/search`, {
+    params: { q, limit },
+  });
   return data || [];
 }
 
@@ -154,7 +197,19 @@ export async function fetchUserProfilesBatch(
   const { data } = await apiClient.get('/api/user-profiles/batch', {
     params: { ids: userIds.join(',') },
   });
-  return data || {};
+  const list = Array.isArray(data) ? data : [];
+  const map: Record<string, PeerProfile> = {};
+  for (const raw of list) {
+    const id = String(raw?.user_id ?? raw?.uid ?? raw?.id ?? '').trim();
+    if (!id) continue;
+    map[id] = {
+      display_name: raw.display_name ?? '',
+      avatar_url: raw.avatar_url ?? null,
+      email: raw.email ?? null,
+      short_id: raw.short_id ?? null,
+    };
+  }
+  return map;
 }
 
 /* ════════════════════════════════════════
@@ -163,14 +218,40 @@ export async function fetchUserProfilesBatch(
 
 export async function fetchFriends(): Promise<FriendProfile[]> {
   const { data } = await apiClient.get('/api/friends');
-  return data || [];
+  const list = Array.isArray(data) ? data : [];
+  return list.map(mapFriendProfile);
 }
 
 export async function searchUsers(query: string): Promise<FriendProfile[]> {
   const { data } = await apiClient.get('/api/friends/search', { params: { q: query } });
-  return data || [];
+  const list = Array.isArray(data) ? data : [];
+  return list.map(mapFriendProfile);
 }
 
-export async function sendFriendRequest(targetUserId: string): Promise<void> {
-  await apiClient.post('/api/friends/requests', { target_user_id: targetUserId });
+export async function sendFriendRequest(targetUserId: string): Promise<{ id?: string }> {
+  const { data, status } = await apiClient.post('/api/friends/requests', {
+    target_user_id: targetUserId,
+  });
+  if (status !== 201 && status !== 200) {
+    throw new Error(`unexpected status ${status}`);
+  }
+  return data ?? {};
+}
+
+export async function fetchIncomingFriendRequests(): Promise<ApiFriendRequest[]> {
+  const { data } = await apiClient.get('/api/friends/incoming');
+  return Array.isArray(data) ? data : [];
+}
+
+export async function fetchOutgoingFriendRequests(): Promise<ApiFriendRequest[]> {
+  const { data } = await apiClient.get('/api/friends/outgoing');
+  return Array.isArray(data) ? data : [];
+}
+
+export async function acceptFriendRequest(requestId: string): Promise<void> {
+  await apiClient.post('/api/friends/accept', { request_id: requestId });
+}
+
+export async function rejectFriendRequest(requestId: string): Promise<void> {
+  await apiClient.post('/api/friends/reject', { request_id: requestId });
 }

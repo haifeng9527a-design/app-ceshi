@@ -312,6 +312,28 @@ async function getTradingPairs() {
   return normalized;
 }
 
+/**
+ * 获取 Binance 永续合约资金费率
+ * GET https://fapi.binance.com/fapi/v1/premiumIndex?symbol=BTCUSDT
+ */
+const BINANCE_FAPI = process.env.BINANCE_FAPI_BASE || 'https://fapi.binance.com';
+
+async function getFundingRate(displaySymbol) {
+  const binSym = toBinanceSymbol(displaySymbol);
+  if (!binSym) return null;
+  const url = `${BINANCE_FAPI}/fapi/v1/premiumIndex?symbol=${binSym}`;
+  const res = await fetch(url);
+  if (!res.ok) return null;
+  const data = await res.json();
+  return {
+    symbol: displaySymbol,
+    fundingRate: parseFloat(data.lastFundingRate),       // e.g. 0.0001 = 0.01%
+    nextFundingTime: data.nextFundingTime,               // unix ms
+    markPrice: parseFloat(data.markPrice),
+    indexPrice: parseFloat(data.indexPrice),
+  };
+}
+
 module.exports = {
   toBinanceSymbol,
   fromBinanceSymbol,
@@ -320,4 +342,5 @@ module.exports = {
   getQuotes,
   getDepth,
   getCandles,
+  getFundingRate,
 };

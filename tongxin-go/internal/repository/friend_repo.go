@@ -32,40 +32,43 @@ func (r *FriendRepo) SendRequest(ctx context.Context, fromUID, toUID, message st
 	return req, err
 }
 
-func (r *FriendRepo) AcceptRequest(ctx context.Context, requestID, currentUID string) error {
+// AcceptRequest marks the request accepted and creates friendship rows. Returns from_user_id (requester) for notifications.
+func (r *FriendRepo) AcceptRequest(ctx context.Context, requestID, currentUID string) (fromUID string, err error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer tx.Rollback(ctx)
 
-	var fromUID, toUID string
+	var toUID string
 	err = tx.QueryRow(ctx, `
 		UPDATE friend_requests SET status = 'accepted'
 		WHERE id = $1 AND to_user_id = $2 AND status = 'pending'
 		RETURNING from_user_id, to_user_id
 	`, requestID, currentUID).Scan(&fromUID, &toUID)
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	// Insert bidirectional friendship
 	_, err = tx.Exec(ctx, `
 		INSERT INTO friends (user_id, friend_id, status) VALUES ($1, $2, 'accepted')
 		ON CONFLICT DO NOTHING
 	`, fromUID, toUID)
 	if err != nil {
-		return err
+		return "", err
 	}
 	_, err = tx.Exec(ctx, `
 		INSERT INTO friends (user_id, friend_id, status) VALUES ($1, $2, 'accepted')
 		ON CONFLICT DO NOTHING
 	`, toUID, fromUID)
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	return tx.Commit(ctx)
+	if err = tx.Commit(ctx); err != nil {
+		return "", err
+	}
+	return fromUID, nil
 }
 
 func (r *FriendRepo) RejectRequest(ctx context.Context, requestID, currentUID string) error {
@@ -139,7 +142,7 @@ func (r *FriendRepo) ListFriends(ctx context.Context, uid string) ([]model.Frien
 	var friends []model.FriendProfile
 	for rows.Next() {
 		var p model.FriendProfile
-		if err := rows.Scan(&p.UID, &p.Email, &p.DisplayName, &p.AvatarURL, &p.Role, &p.Status, &p.ShortID); err != nil {
+		if err := rows.Scan(&p.UserID, &p.Email, &p.DisplayName, &p.AvatarURL, &p.Role, &p.Status, &p.ShortID); err != nil {
 			return nil, err
 		}
 		friends = append(friends, p)

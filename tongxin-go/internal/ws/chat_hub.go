@@ -5,12 +5,26 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/gorilla/websocket"
+	"github.com/redis/go-redis/v9"
+
 	"tongxin-go/internal/model"
 	"tongxin-go/internal/service"
 )
+
+func wsHasMetadata(m json.RawMessage) bool {
+	if len(m) == 0 {
+		return false
+	}
+	s := strings.TrimSpace(string(m))
+	return s != "" && s != "null" && s != "{}"
+}
+
+// Redis Pub/Sub channel for fan-out only. Payload is still written to Postgres first.
+const redisChatEventsChannel = "tongxin:chat:events"
 
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
@@ -19,17 +33,94 @@ var upgrader = websocket.Upgrader{
 }
 
 type ChatHub struct {
-	clients  map[string]*Client // userID -> client
-	mu       sync.RWMutex
-	msgSvc   *service.MessageService
-	userSvc  *service.UserService
+	clients map[string]*Client // userID -> client
+	mu      sync.RWMutex
+	msgSvc  *service.MessageService
+	userSvc *service.UserService
+	rdb     *redis.Client // optional: multi-instance WebSocket delivery
 }
 
-func NewChatHub(msgSvc *service.MessageService, userSvc *service.UserService) *ChatHub {
+// NewChatHub creates a chat hub. rdb may be nil (single-process: broadcast stays in-memory only).
+func NewChatHub(msgSvc *service.MessageService, userSvc *service.UserService, rdb *redis.Client) *ChatHub {
 	return &ChatHub{
 		clients: make(map[string]*Client),
 		msgSvc:  msgSvc,
 		userSvc: userSvc,
+		rdb:     rdb,
+	}
+}
+
+// RunRedisSubscriber listens for fan-out events from other API instances. Cancel ctx on shutdown.
+func (h *ChatHub) RunRedisSubscriber(ctx context.Context) {
+	if h.rdb == nil {
+		return
+	}
+	sub := h.rdb.Subscribe(ctx, redisChatEventsChannel)
+	defer sub.Close()
+
+	ch := sub.Channel()
+	log.Printf("[chat-ws] redis subscriber listening on %s", redisChatEventsChannel)
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("[chat-ws] redis subscriber stopped")
+			return
+		case msg, ok := <-ch:
+			if !ok {
+				return
+			}
+			if msg == nil {
+				continue
+			}
+			h.deliverFromRedis([]byte(msg.Payload))
+		}
+	}
+}
+
+type chatRedisEnvelope struct {
+	MemberIDs []string       `json:"member_ids"`
+	Frame     map[string]any `json:"frame"`
+}
+
+func (h *ChatHub) deliverFromRedis(raw []byte) {
+	var env chatRedisEnvelope
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return
+	}
+	h.broadcastToLocalMembers(env.MemberIDs, env.Frame)
+}
+
+func (h *ChatHub) broadcastToLocalMembers(memberIDs []string, frame map[string]any) {
+	if len(memberIDs) == 0 || frame == nil {
+		return
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, memberID := range memberIDs {
+		if c, ok := h.clients[memberID]; ok {
+			c.SendJSON(frame)
+		}
+	}
+}
+
+func (h *ChatHub) publishChatFanout(ctx context.Context, memberIDs []string, frame map[string]any) {
+	if len(memberIDs) == 0 || frame == nil {
+		return
+	}
+	if h.rdb == nil {
+		h.broadcastToLocalMembers(memberIDs, frame)
+		return
+	}
+	env := chatRedisEnvelope{MemberIDs: memberIDs, Frame: frame}
+	b, err := json.Marshal(env)
+	if err != nil {
+		log.Printf("[chat-ws] redis marshal: %v", err)
+		h.broadcastToLocalMembers(memberIDs, frame)
+		return
+	}
+	if err := h.rdb.Publish(ctx, redisChatEventsChannel, b).Err(); err != nil {
+		log.Printf("[chat-ws] redis publish: %v (fallback local)", err)
+		h.broadcastToLocalMembers(memberIDs, frame)
 	}
 }
 
@@ -65,11 +156,13 @@ func (h *ChatHub) HandleWS(w http.ResponseWriter, r *http.Request, userID string
 }
 
 type wsMessage struct {
-	Type           string `json:"type"`
-	ConversationID string `json:"conversation_id,omitempty"`
-	Content        string `json:"content,omitempty"`
-	MessageType    string `json:"message_type,omitempty"`
-	MediaURL       string `json:"media_url,omitempty"`
+	Type             string          `json:"type"`
+	ConversationID   string          `json:"conversation_id,omitempty"`
+	ConversationIDs  []string        `json:"conversation_ids,omitempty"`
+	Content          string          `json:"content,omitempty"`
+	MessageType      string          `json:"message_type,omitempty"`
+	MediaURL         string          `json:"media_url,omitempty"`
+	Metadata         json.RawMessage `json:"metadata,omitempty"`
 }
 
 func (h *ChatHub) onMessage(client *Client, raw []byte) {
@@ -94,18 +187,36 @@ func (h *ChatHub) onMessage(client *Client, raw []byte) {
 }
 
 func (h *ChatHub) handleSubscribe(client *Client, msg wsMessage) {
-	if msg.ConversationID == "" {
+	ids := append([]string{}, msg.ConversationIDs...)
+	if msg.ConversationID != "" {
+		ids = append(ids, msg.ConversationID)
+	}
+	seen := make(map[string]struct{})
+	var uniq []string
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		uniq = append(uniq, id)
+		client.Subscribe(id)
+	}
+	if len(uniq) == 0 {
 		return
 	}
-	client.Subscribe(msg.ConversationID)
-	client.SendJSON(map[string]string{
-		"type":            "subscribed",
-		"conversation_id": msg.ConversationID,
+	client.SendJSON(map[string]any{
+		"type":              "subscribed",
+		"conversation_ids":  uniq,
+		"conversation_id":   uniq[0],
 	})
 }
 
 func (h *ChatHub) handleSend(client *Client, msg wsMessage) {
-	if msg.ConversationID == "" || msg.Content == "" {
+	if msg.ConversationID == "" || (strings.TrimSpace(msg.Content) == "" && !wsHasMetadata(msg.Metadata)) {
 		client.SendJSON(map[string]string{"type": "error", "message": "missing fields"})
 		return
 	}
@@ -122,39 +233,35 @@ func (h *ChatHub) handleSend(client *Client, msg wsMessage) {
 		Content:        msg.Content,
 		MessageType:    msgType,
 		MediaURL:       msg.MediaURL,
+		Metadata:       msg.Metadata,
 	}
 
 	saved, err := h.msgSvc.SendMessage(ctx, client.UserID(), req)
 	if err != nil {
+		if err == service.ErrNotConversationMember {
+			client.SendJSON(map[string]string{"type": "error", "message": "forbidden"})
+			return
+		}
 		client.SendJSON(map[string]string{"type": "error", "message": "send failed"})
 		return
 	}
 
-	// Get sender name
 	senderName := ""
 	if user, err := h.userSvc.GetProfile(ctx, client.UserID()); err == nil {
 		senderName = user.DisplayName
 	}
 	saved.SenderName = senderName
 
-	// Broadcast to all conversation members
 	memberIDs, err := h.msgSvc.GetMemberIDs(ctx, msg.ConversationID)
 	if err != nil {
 		return
 	}
 
-	payload := map[string]any{
+	frame := map[string]any{
 		"type":    "new_message",
 		"message": saved,
 	}
-
-	h.mu.RLock()
-	for _, memberID := range memberIDs {
-		if c, ok := h.clients[memberID]; ok {
-			c.SendJSON(payload)
-		}
-	}
-	h.mu.RUnlock()
+	h.publishChatFanout(ctx, memberIDs, frame)
 }
 
 func (h *ChatHub) handleTyping(client *Client, msg wsMessage) {
@@ -167,28 +274,63 @@ func (h *ChatHub) handleTyping(client *Client, msg wsMessage) {
 		return
 	}
 
-	payload := map[string]string{
+	frame := map[string]any{
 		"type":            "typing",
 		"conversation_id": msg.ConversationID,
 		"user_id":         client.UserID(),
 	}
 
-	h.mu.RLock()
+	var recipients []string
 	for _, memberID := range memberIDs {
 		if memberID != client.UserID() {
-			if c, ok := h.clients[memberID]; ok {
-				c.SendJSON(payload)
-			}
+			recipients = append(recipients, memberID)
 		}
 	}
-	h.mu.RUnlock()
+	h.publishChatFanout(context.Background(), recipients, frame)
 }
 
-// BroadcastToUser sends a message to a specific user if connected
-func (h *ChatHub) BroadcastToUser(userID string, payload any) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	if c, ok := h.clients[userID]; ok {
-		c.SendJSON(payload)
+// PublishNewMessageREST notifies all conversation members after POST /api/messages persisted a row.
+// The app sends via HTTP, not WS handleSend — without this, other members never get new_message.
+func (h *ChatHub) PublishNewMessageREST(ctx context.Context, conversationID string, msg *model.Message, senderUID string) {
+	if h == nil || msg == nil || conversationID == "" {
+		return
 	}
+	senderName := strings.TrimSpace(msg.SenderName)
+	if senderName == "" && h.userSvc != nil {
+		if user, err := h.userSvc.GetProfile(ctx, senderUID); err == nil {
+			senderName = strings.TrimSpace(user.DisplayName)
+		}
+	}
+	msg.SenderName = senderName
+	memberIDs, err := h.msgSvc.GetMemberIDs(ctx, conversationID)
+	if err != nil {
+		log.Printf("[chat-ws] PublishNewMessageREST get members: %v", err)
+		return
+	}
+	frame := map[string]any{
+		"type":    "new_message",
+		"message": msg,
+	}
+	h.publishChatFanout(ctx, memberIDs, frame)
+}
+
+// BroadcastToUser sends a payload to a user if they have a local WS (or via Redis fan-out).
+func (h *ChatHub) BroadcastToUser(userID string, payload any) {
+	if userID == "" {
+		return
+	}
+	var frame map[string]any
+	switch p := payload.(type) {
+	case map[string]any:
+		frame = p
+	default:
+		b, err := json.Marshal(payload)
+		if err != nil {
+			return
+		}
+		if err := json.Unmarshal(b, &frame); err != nil {
+			return
+		}
+	}
+	h.publishChatFanout(context.Background(), []string{userID}, frame)
 }

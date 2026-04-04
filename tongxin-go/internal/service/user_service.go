@@ -113,6 +113,64 @@ func (s *UserService) ListAll(ctx context.Context, limit, offset int) ([]model.U
 	return s.repo.ListAll(ctx, limit, offset)
 }
 
+func (s *UserService) UpdateRole(ctx context.Context, uid, role string) error {
+	return s.repo.UpdateRole(ctx, uid, role)
+}
+
+func (s *UserService) UpdateStatus(ctx context.Context, uid, status string) error {
+	return s.repo.UpdateStatus(ctx, uid, status)
+}
+
+func (s *UserService) GetAdminStats(ctx context.Context) (map[string]int, error) {
+	totalUsers, adminCount, traderCount, pendingApps, activeUsers, err := s.repo.GetAdminStats(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]int{
+		"total_users":  totalUsers,
+		"admin_count":  adminCount,
+		"trader_count": traderCount,
+		"pending_apps": pendingApps,
+		"active_users": activeUsers,
+	}, nil
+}
+
+func (s *UserService) ListByRole(ctx context.Context, role string) ([]model.User, error) {
+	return s.repo.ListByRole(ctx, role)
+}
+
+func (s *UserService) SearchAll(ctx context.Context, query string, limit int) ([]model.User, error) {
+	return s.repo.SearchAll(ctx, query, limit)
+}
+
+func (s *UserService) AddAdmin(ctx context.Context, email string) (*model.User, error) {
+	user, err := s.repo.GetByEmail(ctx, email)
+	if err != nil {
+		return nil, errors.New("user not found")
+	}
+	if user.Role == "admin" {
+		return nil, errors.New("user is already an admin")
+	}
+	if err := s.repo.UpdateRole(ctx, user.UID, "admin"); err != nil {
+		return nil, err
+	}
+	return s.repo.GetByUID(ctx, user.UID)
+}
+
+func (s *UserService) RemoveAdmin(ctx context.Context, uid, currentAdminUID string) error {
+	if uid == currentAdminUID {
+		return errors.New("cannot demote yourself")
+	}
+	user, err := s.repo.GetByUID(ctx, uid)
+	if err != nil {
+		return errors.New("user not found")
+	}
+	if user.Role != "admin" {
+		return errors.New("user is not an admin")
+	}
+	return s.repo.UpdateRole(ctx, uid, "user")
+}
+
 func (s *UserService) EnsureUser(ctx context.Context, uid, email, displayName string) (*model.User, error) {
 	u, err := s.repo.GetByUID(ctx, uid)
 	if err != nil {

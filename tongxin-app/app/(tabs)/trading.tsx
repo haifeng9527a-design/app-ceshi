@@ -20,6 +20,8 @@ import PositionCard from '../../components/trading/PositionCard';
 import ClosedPositionCard from '../../components/trading/ClosedPositionCard';
 import OrderCard from '../../components/trading/OrderCard';
 import { usePriceFlash } from '../../hooks/usePriceFlash';
+import { fetchFundingRate } from '../../services/api/client';
+import { Skeleton, SkeletonChart, SkeletonPosition } from '../../components/Skeleton';
 import type { MarketQuote, KlineBar } from '../../services/api/client';
 import TradingViewChart, { type CrosshairData, MA_COLORS, type ChartType, type ActiveIndicator } from '../../components/chart/TradingViewChart';
 import IndicatorsPanel from '../../components/chart/IndicatorsPanel';
@@ -352,6 +354,21 @@ function OrderBookCurrentPrice({ price, percentChange, symbol }: { price: number
       <Text style={s.obCurrentSub}>≈ ${formatPrice(price, symbol)}</Text>
     </Animated.View>
   );
+}
+
+/** Funding rate countdown timer */
+function FundingCountdown({ nextTime }: { nextTime?: number }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  if (!nextTime) return <Text style={s.statValue}>--</Text>;
+  const diff = Math.max(0, nextTime - now);
+  const h = String(Math.floor(diff / 3600000)).padStart(2, '0');
+  const m = String(Math.floor((diff % 3600000) / 60000)).padStart(2, '0');
+  const sec = String(Math.floor((diff % 60000) / 1000)).padStart(2, '0');
+  return <Text style={s.statValue}>{h}:{m}:{sec}</Text>;
 }
 
 function MobilePriceHeader({ price, percentChange, symbol }: { price: number; percentChange?: number; symbol?: string }) {
@@ -761,6 +778,13 @@ export default function TradingScreen() {
   const [enabledTools, setEnabledTools] = useState<DrawingTool[]>(DEFAULT_ENABLED_TOOLS);
   const [showDrawingToolsSettings, setShowDrawingToolsSettings] = useState(false);
 
+  // Network status monitoring
+  const [netConnected, setNetConnected] = useState(true);
+  const [netLatency, setNetLatency] = useState(-1); // ms
+
+  // Funding rate
+  const [fundingRate, setFundingRate] = useState<{ fundingRate: string | null; nextFundingTime?: number } | null>(null);
+
   // Load enabled tools from localStorage on mount
   useEffect(() => {
     if (Platform.OS !== 'web') return;
@@ -919,12 +943,13 @@ export default function TradingScreen() {
     if (side === 'long') return price * (1 - 1 / leverage + mmr);
     return price * (1 + 1 / leverage - mmr);
   }, [priceInput, orderType, currentPrice, leverage]);
-  // Tick counter drives order book refresh (~300ms) for realistic order flow
+  // Tick counter drives order book refresh (~300ms) - stops when network disconnected
   const [obTick, setObTick] = useState(0);
   useEffect(() => {
+    if (!netConnected) return; // 网络断开时盘口冻结
     const id = setInterval(() => setObTick(t => t + 1), 300);
     return () => clearInterval(id);
-  }, []);
+  }, [netConnected]);
   const orderBook = useMemo(() => generateOrderBook(currentPrice || 64289, selectedSymbol, obTick), [currentPrice, selectedSymbol, obTick]);
 
   // Slider percentage → qty calculation
@@ -935,7 +960,9 @@ export default function TradingScreen() {
     if (!price || price <= 0) return;
     const available = account.available || 0;
     const maxQtyCoin = (available * leverage) / price;
-    const qtyCoin = maxQtyCoin * (pct / 100);
+    // 100%时留0.1%余量，避免浮点精度和价格微波动导致 insufficient balance
+    const safePct = pct >= 100 ? 99.9 : pct;
+    const qtyCoin = maxQtyCoin * (safePct / 100);
     if (qtyCoin <= 0) { setQtyInput(''); return; }
     const decimals = price >= 1000 ? 4 : price >= 1 ? 2 : 0;
     if (qtyMode === 'coin') {
@@ -989,7 +1016,17 @@ export default function TradingScreen() {
     }
   }, [selectedSymbol, timeframe]);
 
-  // WebSocket: subscribe ALL symbols for real-time updates
+  // Fetch funding rate on symbol change (crypto only)
+  useEffect(() => {
+    if (!selectedSymbol) return;
+    setFundingRate(null);
+    fetchFundingRate(selectedSymbol).then(setFundingRate);
+    // Refresh every 60s
+    const id = setInterval(() => fetchFundingRate(selectedSymbol).then(setFundingRate), 60000);
+    return () => clearInterval(id);
+  }, [selectedSymbol]);
+
+  // WebSocket: subscribe ALL symbols for real-time updates + network monitoring
   useEffect(() => {
     marketWs.connect();
     const handler = (msg: any) => {
@@ -997,10 +1034,23 @@ export default function TradingScreen() {
         updateQuote(msg.symbol, msg);
       }
     };
+    // Network status listener
+    const statusHandler = (msg: any) => {
+      if (msg.type === 'ws_status') {
+        setNetConnected(msg.connected);
+        if (!msg.connected) setNetLatency(-1);
+      }
+      if (msg.type === 'ws_latency') {
+        setNetLatency(msg.latency);
+        setNetConnected(true);
+      }
+    };
+    marketWs.onMessage(statusHandler);
     const allSubs = [...CRYPTO_SYMBOLS, ...STOCK_SYMBOLS, ...FOREX_SYMBOLS, ...FUTURES_SYMBOLS];
     marketWs.subscribeMany(allSubs, handler);
     return () => {
       allSubs.forEach((sym) => marketWs.unsubscribe(sym, handler));
+      marketWs.offMessage(statusHandler);
     };
   }, []);
 
@@ -1123,7 +1173,31 @@ export default function TradingScreen() {
                 </Text>
               </View>
 
+              {fundingRate?.fundingRate != null && (
+                <>
+                  <View style={s.statDivider} />
+                  <View style={s.statItem}>
+                    <Text style={s.statLabel}>资金费率</Text>
+                    <Text style={[s.statValue, { color: parseFloat(fundingRate.fundingRate) >= 0 ? '#0ECB81' : '#F6465D' }]}>
+                      {(parseFloat(fundingRate.fundingRate) * 100).toFixed(4)}%
+                    </Text>
+                  </View>
+                  <View style={s.statItem}>
+                    <Text style={s.statLabel}>倒计时</Text>
+                    <FundingCountdown nextTime={fundingRate.nextFundingTime} />
+                  </View>
+                </>
+              )}
+
             </View>
+
+            {/* Network disconnected banner */}
+            {!netConnected && (
+              <View style={{ backgroundColor: 'rgba(246,70,93,0.15)', paddingVertical: 6, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#F6465D' }} />
+                <Text style={{ color: '#F6465D', fontSize: 12 }}>网络连接已断开，行情数据已暂停，正在重连...</Text>
+              </View>
+            )}
 
             {/* Timeframe bar (separate row like Binance) */}
             <View style={s.timeframeBar}>
@@ -1232,8 +1306,8 @@ export default function TradingScreen() {
                 {/* Chart */}
                 <View style={{ flex: 1, position: 'relative' }}>
                   <OhlcOverlay data={crosshairData} symbol={selectedSymbol} />
-                  {klinesLoading ? (
-                    <ActivityIndicator color={Colors.primary} size="large" style={{ flex: 1 }} />
+                  {klinesLoading && klines.length === 0 ? (
+                    <SkeletonChart />
                   ) : klines.length > 0 ? (
                     <TradingViewChart
                       klines={klines}
@@ -1261,8 +1335,8 @@ export default function TradingScreen() {
               <View style={s.bottomTabRow}>
                 {([
                   ['positions', '当前持仓'],
-                  ['posHistory', '历史仓位'],
                   ['orders', '当前委托'],
+                  ['posHistory', '历史仓位'],
                   ['history', '历史委托'],
                   ['analysis', '资产分析'],
                 ] as [BottomTab, string][]).map(([key, label]) => (
@@ -1272,9 +1346,21 @@ export default function TradingScreen() {
                     onPress={() => setBottomTab(key)}
                     activeOpacity={0.7}
                   >
-                    <Text style={[s.bottomTabText, bottomTab === key && s.bottomTabTextActive]}>
-                      {label}
-                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <Text style={[s.bottomTabText, bottomTab === key && s.bottomTabTextActive]}>
+                        {label}
+                      </Text>
+                      {key === 'orders' && pendingOrders.length > 0 && (
+                        <View style={{ backgroundColor: '#C9A84C', borderRadius: 8, minWidth: 16, height: 16, alignItems: 'center', justifyContent: 'center', marginLeft: 4, paddingHorizontal: 4 }}>
+                          <Text style={{ color: '#000', fontSize: 10, fontWeight: '700' }}>{pendingOrders.length}</Text>
+                        </View>
+                      )}
+                      {key === 'positions' && positions.length > 0 && (
+                        <View style={{ backgroundColor: '#C9A84C', borderRadius: 8, minWidth: 16, height: 16, alignItems: 'center', justifyContent: 'center', marginLeft: 4, paddingHorizontal: 4 }}>
+                          <Text style={{ color: '#000', fontSize: 10, fontWeight: '700' }}>{positions.length}</Text>
+                        </View>
+                      )}
+                    </View>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -1731,7 +1817,32 @@ export default function TradingScreen() {
                 : '--'}
             </Text>
           </View>
+          {fundingRate?.fundingRate != null && (
+            <View style={s.mobileStatItem}>
+              <Text style={s.statLabel}>资金费率</Text>
+              <Text style={[s.statValue, { color: parseFloat(fundingRate.fundingRate) >= 0 ? '#0ECB81' : '#F6465D', fontSize: 10 }]}>
+                {(parseFloat(fundingRate.fundingRate) * 100).toFixed(4)}%
+              </Text>
+            </View>
+          )}
+          <View style={[s.mobileStatItem, { flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
+            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: !netConnected ? '#F6465D' : netLatency < 100 ? '#0ECB81' : netLatency < 300 ? '#F0B90B' : '#F6465D' }} />
+            <View>
+              <Text style={s.statLabel}>延迟</Text>
+              <Text style={[s.statValue, { color: !netConnected ? '#F6465D' : netLatency < 100 ? '#0ECB81' : netLatency < 300 ? '#F0B90B' : '#F6465D', fontSize: 10 }]}>
+                {!netConnected ? '断开' : netLatency >= 0 ? `${netLatency}ms` : '...'}
+              </Text>
+            </View>
+          </View>
         </View>
+
+        {/* Mobile network disconnected banner */}
+        {!netConnected && (
+          <View style={{ backgroundColor: 'rgba(246,70,93,0.15)', paddingVertical: 6, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 6, marginHorizontal: 8, marginBottom: 4, borderRadius: 4 }}>
+            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#F6465D' }} />
+            <Text style={{ color: '#F6465D', fontSize: 11 }}>网络已断开，行情暂停，重连中...</Text>
+          </View>
+        )}
 
         {/* Timeframe + chart type bar */}
         <View style={s.mobileTfRow}>
@@ -1774,8 +1885,8 @@ export default function TradingScreen() {
         {/* Chart */}
         <View style={s.mobileChart}>
           <OhlcOverlay data={crosshairData} symbol={selectedSymbol} />
-          {klinesLoading ? (
-            <ActivityIndicator color={Colors.primary} />
+          {klinesLoading && klines.length === 0 ? (
+            <SkeletonChart />
           ) : klines.length > 0 ? (
             <TradingViewChart
               klines={klines}

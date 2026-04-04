@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
+
 	"tongxin-go/internal/config"
 	"tongxin-go/internal/handler"
 	"tongxin-go/internal/market"
@@ -22,6 +24,8 @@ import (
 
 func main() {
 	cfg := config.Load()
+	var chatRedisCancel context.CancelFunc
+	var rdb *redis.Client
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -127,11 +131,36 @@ func main() {
 		log.Println("[OK] Polygon WebSocket started (stocks + forex)")
 	}
 
+	// ── Redis (optional: chat WS fan-out across instances; Postgres remains source of truth) ──
+	if cfg.RedisURL != "" {
+		opt, err := redis.ParseURL(cfg.RedisURL)
+		if err != nil {
+			log.Printf("[WARN] REDIS_URL invalid: %v (chat uses in-process broadcast only)", err)
+		} else {
+			rdb = redis.NewClient(opt)
+			pingCtx, pingCancel := context.WithTimeout(context.Background(), 3*time.Second)
+			err = rdb.Ping(pingCtx).Err()
+			pingCancel()
+			if err != nil {
+				log.Printf("[WARN] Redis ping failed: %v (chat uses in-process broadcast only)", err)
+				_ = rdb.Close()
+				rdb = nil
+			} else {
+				log.Println("[OK] Redis connected (chat Pub/Sub)")
+			}
+		}
+	}
+
 	// ── WebSocket Hubs ──
 	var chatHub *ws.ChatHub
 	if msgSvc != nil && userSvc != nil {
-		chatHub = ws.NewChatHub(msgSvc, userSvc)
+		chatHub = ws.NewChatHub(msgSvc, userSvc, rdb)
 		log.Println("[OK] Chat WebSocket hub initialized")
+		if rdb != nil {
+			var redisSubCtx context.Context
+			redisSubCtx, chatRedisCancel = context.WithCancel(context.Background())
+			go chatHub.RunRedisSubscriber(redisSubCtx)
+		}
 	}
 
 	marketHub := ws.NewMarketHub(polygonClient, polygonWS, binance)
@@ -170,6 +199,7 @@ func main() {
 		mux.HandleFunc("GET /api/gainers", marketH.Gainers)
 		mux.HandleFunc("GET /api/losers", marketH.Losers)
 		mux.HandleFunc("GET /api/tickers-page", marketH.TickersPage)
+		mux.HandleFunc("GET /api/funding-rate", marketH.FundingRate)
 
 		// Crypto routes
 		mux.HandleFunc("GET /api/crypto/quotes", marketH.CryptoQuotes)
@@ -219,7 +249,7 @@ func main() {
 
 	// Friends
 	if friendSvc != nil && userSvc != nil {
-		friendsH := handler.NewFriendsHandler(friendSvc)
+		friendsH := handler.NewFriendsHandler(friendSvc, userSvc, chatHub)
 		usersH := handler.NewUsersHandler(userSvc)
 		mux.Handle("GET /api/friends", authMw.Authenticate(http.HandlerFunc(friendsH.ListFriends)))
 		mux.Handle("GET /api/friends/search", authMw.Authenticate(http.HandlerFunc(usersH.SearchUsers)))
@@ -237,7 +267,7 @@ func main() {
 	// Conversations + Messages
 	if msgSvc != nil {
 		convH := handler.NewConversationsHandler(msgSvc)
-		msgsH := handler.NewMessagesHandler(msgSvc)
+		msgsH := handler.NewMessagesHandler(msgSvc, chatHub)
 		mux.Handle("GET /api/conversations", authMw.Authenticate(http.HandlerFunc(convH.List)))
 		mux.Handle("GET /api/conversations/unread-count", authMw.Authenticate(http.HandlerFunc(convH.UnreadCount)))
 		mux.Handle("GET /api/conversations/{id}", authMw.Authenticate(http.HandlerFunc(convH.GetByID)))
@@ -245,6 +275,7 @@ func main() {
 		mux.Handle("POST /api/conversations/group", authMw.Authenticate(http.HandlerFunc(convH.CreateGroup)))
 		mux.Handle("PATCH /api/conversations/{id}/read", authMw.Authenticate(http.HandlerFunc(convH.MarkAsRead)))
 		mux.Handle("GET /api/conversations/{id}/group-info", authMw.Authenticate(http.HandlerFunc(convH.GroupInfo)))
+		mux.Handle("GET /api/conversations/{id}/messages/search", authMw.Authenticate(http.HandlerFunc(msgsH.Search)))
 		mux.Handle("GET /api/conversations/{id}/messages", authMw.Authenticate(http.HandlerFunc(msgsH.ListByConversation)))
 		mux.Handle("POST /api/messages", authMw.Authenticate(http.HandlerFunc(msgsH.Send)))
 		mux.Handle("DELETE /api/messages/{id}", authMw.Authenticate(http.HandlerFunc(msgsH.Delete)))
@@ -367,16 +398,58 @@ func main() {
 	// Upload
 	mux.Handle("POST /api/upload", authMw.Authenticate(http.HandlerFunc(uploadH.Upload)))
 
+	// Trader system
+	var traderSvc *service.TraderService
+	if pool != nil {
+		traderRepo := repository.NewTraderRepo(pool)
+		traderSvc = service.NewTraderService(traderRepo)
+		traderH := handler.NewTraderHandler(traderSvc)
+
+		// Public trader routes
+		mux.HandleFunc("GET /api/trader/rankings", traderH.Rankings)
+		mux.HandleFunc("GET /api/trader/{uid}/profile", traderH.TraderProfile)
+
+		// Authenticated trader routes
+		mux.Handle("POST /api/trader/apply", authMw.Authenticate(http.HandlerFunc(traderH.Apply)))
+		mux.Handle("GET /api/trader/my-application", authMw.Authenticate(http.HandlerFunc(traderH.MyApplication)))
+		mux.Handle("GET /api/trader/my-stats", authMw.Authenticate(http.HandlerFunc(traderH.MyStats)))
+		mux.Handle("PUT /api/trader/copy-trading-toggle", authMw.Authenticate(http.HandlerFunc(traderH.ToggleCopyTrading)))
+		mux.Handle("GET /api/trader/my-followers", authMw.Authenticate(http.HandlerFunc(traderH.MyFollowers)))
+		mux.Handle("GET /api/trader/my-following", authMw.Authenticate(http.HandlerFunc(traderH.MyFollowing)))
+		mux.Handle("POST /api/trader/{uid}/follow", authMw.Authenticate(http.HandlerFunc(traderH.FollowTrader)))
+		mux.Handle("DELETE /api/trader/{uid}/follow", authMw.Authenticate(http.HandlerFunc(traderH.UnfollowTrader)))
+
+		// Admin trader routes (require auth + admin role)
+		adminTraderAuth := func(h http.HandlerFunc) http.Handler {
+			return authMw.Authenticate(mw.RequireAdmin(pool)(http.HandlerFunc(h)))
+		}
+		mux.Handle("GET /api/admin/trader-applications", adminTraderAuth(traderH.AdminListApplications))
+		mux.Handle("POST /api/admin/trader-applications/{id}/approve", adminTraderAuth(traderH.AdminApprove))
+		mux.Handle("POST /api/admin/trader-applications/{id}/reject", adminTraderAuth(traderH.AdminReject))
+
+		log.Println("[OK] Trader system routes registered")
+	}
+
 	// Admin
 	if userSvc != nil && teacherSvc != nil {
-		adminH := handler.NewAdminHandler(userSvc, teacherSvc)
-		mux.Handle("GET /api/admin/users", authMw.Authenticate(http.HandlerFunc(adminH.ListUsers)))
-		mux.Handle("GET /api/admin/teachers/pending", authMw.Authenticate(http.HandlerFunc(adminH.PendingTeachers)))
-		mux.Handle("POST /api/admin/teachers/{id}/approve", authMw.Authenticate(http.HandlerFunc(adminH.ApproveTeacher)))
-		mux.Handle("POST /api/admin/teachers/{id}/reject", authMw.Authenticate(http.HandlerFunc(adminH.RejectTeacher)))
-		mux.Handle("GET /api/admin/stats", authMw.Authenticate(http.HandlerFunc(adminH.Stats)))
-		mux.Handle("POST /api/admin/announcements", authMw.Authenticate(http.HandlerFunc(adminH.CreateAnnouncement)))
-		mux.Handle("GET /api/admin/reports", authMw.Authenticate(http.HandlerFunc(adminH.ListReports)))
+		adminH := handler.NewAdminHandler(userSvc, teacherSvc, traderSvc)
+		adminAuth := func(h http.HandlerFunc) http.Handler {
+			return authMw.Authenticate(mw.RequireAdmin(pool)(http.HandlerFunc(h)))
+		}
+		mux.Handle("GET /api/admin/users", adminAuth(adminH.ListUsers))
+		mux.Handle("POST /api/admin/users/{uid}/role", adminAuth(adminH.UpdateUserRole))
+		mux.Handle("POST /api/admin/users/{uid}/status", adminAuth(adminH.UpdateUserStatus))
+		mux.Handle("POST /api/admin/users/{uid}/trader", adminAuth(adminH.SetTrader))
+		mux.Handle("GET /api/admin/teachers/pending", adminAuth(adminH.PendingTeachers))
+		mux.Handle("POST /api/admin/teachers/{id}/approve", adminAuth(adminH.ApproveTeacher))
+		mux.Handle("POST /api/admin/teachers/{id}/reject", adminAuth(adminH.RejectTeacher))
+		mux.Handle("GET /api/admin/stats", adminAuth(adminH.Stats))
+		mux.Handle("GET /api/admin/users/search", adminAuth(adminH.SearchUsers))
+		mux.Handle("GET /api/admin/admins", adminAuth(adminH.ListAdmins))
+		mux.Handle("POST /api/admin/admins", adminAuth(adminH.AddAdmin))
+		mux.Handle("DELETE /api/admin/admins/{uid}", adminAuth(adminH.RemoveAdmin))
+		mux.Handle("POST /api/admin/announcements", adminAuth(adminH.CreateAnnouncement))
+		mux.Handle("GET /api/admin/reports", adminAuth(adminH.ListReports))
 		mux.HandleFunc("GET /api/announcements", adminH.ListAnnouncements)
 		log.Println("[OK] Admin routes registered")
 	}
@@ -410,6 +483,15 @@ func main() {
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 		<-sigCh
 		log.Println("Shutting down...")
+
+		if chatRedisCancel != nil {
+			chatRedisCancel()
+		}
+		if rdb != nil {
+			if err := rdb.Close(); err != nil {
+				log.Printf("Redis close: %v", err)
+			}
+		}
 
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer shutdownCancel()

@@ -14,6 +14,7 @@ type Conversation struct {
 	LastTime       string    `json:"last_time,omitempty"`
 	UnreadCount    int       `json:"unread_count"`
 	PeerID         string    `json:"peer_id,omitempty"`
+	PeerIsTrader   bool      `json:"peer_is_trader"`
 }
 
 type ConversationMember struct {

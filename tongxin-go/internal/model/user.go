@@ -11,9 +11,12 @@ type User struct {
 	Status      string    `json:"status,omitempty"`
 	ShortID     string    `json:"short_id,omitempty"`
 	Phone       string    `json:"phone,omitempty"`
-	Bio         string    `json:"bio,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	Bio              string     `json:"bio,omitempty"`
+	IsTrader         bool       `json:"is_trader"`
+	AllowCopyTrading bool       `json:"allow_copy_trading"`
+	TraderApprovedAt *time.Time `json:"trader_approved_at,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
 }
 
 type RegisterRequest struct {

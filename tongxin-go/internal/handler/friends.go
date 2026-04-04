@@ -1,19 +1,23 @@
 package handler
 
 import (
+	"log"
 	"net/http"
 
 	"tongxin-go/internal/middleware"
 	"tongxin-go/internal/model"
 	"tongxin-go/internal/service"
+	"tongxin-go/internal/ws"
 )
 
 type FriendsHandler struct {
 	friendSvc *service.FriendService
+	userSvc   *service.UserService
+	chatHub   *ws.ChatHub // optional: real-time friend notifications
 }
 
-func NewFriendsHandler(friendSvc *service.FriendService) *FriendsHandler {
-	return &FriendsHandler{friendSvc: friendSvc}
+func NewFriendsHandler(friendSvc *service.FriendService, userSvc *service.UserService, chatHub *ws.ChatHub) *FriendsHandler {
+	return &FriendsHandler{friendSvc: friendSvc, userSvc: userSvc, chatHub: chatHub}
 }
 
 // GET /api/friends
@@ -49,19 +53,38 @@ func (h *FriendsHandler) SendRequest(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if body.ToUserID == "" {
+	toID := body.ToUserID
+	if toID == "" {
+		toID = body.TargetUserID
+	}
+	if toID == "" {
 		writeError(w, http.StatusBadRequest, "to_user_id is required")
 		return
 	}
-	if body.ToUserID == uid {
+	if toID == uid {
 		writeError(w, http.StatusBadRequest, "cannot send request to yourself")
 		return
 	}
 
-	req, err := h.friendSvc.SendRequest(r.Context(), uid, body.ToUserID, body.Message)
+	req, err := h.friendSvc.SendRequest(r.Context(), uid, toID, body.Message)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to send request")
 		return
+	}
+
+	if h.chatHub != nil && h.userSvc != nil {
+		fromName := ""
+		if u, err := h.userSvc.GetProfile(r.Context(), uid); err == nil {
+			fromName = u.DisplayName
+		}
+		h.chatHub.BroadcastToUser(toID, map[string]any{
+			"type":              "friend_request",
+			"request_id":        req.ID,
+			"from_user_id":      uid,
+			"from_display_name": fromName,
+		})
+	} else if h.chatHub == nil {
+		log.Printf("[friends] chat hub unavailable (messages/WS not initialized): realtime friend_request push skipped, to_user=%s", toID)
 	}
 
 	writeJSON(w, http.StatusCreated, req)
@@ -81,9 +104,22 @@ func (h *FriendsHandler) AcceptRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.friendSvc.AcceptRequest(r.Context(), body.RequestID, uid); err != nil {
+	fromUID, err := h.friendSvc.AcceptRequest(r.Context(), body.RequestID, uid)
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to accept request")
 		return
+	}
+
+	if h.chatHub != nil && h.userSvc != nil && fromUID != "" {
+		name := ""
+		if u, err := h.userSvc.GetProfile(r.Context(), uid); err == nil {
+			name = u.DisplayName
+		}
+		h.chatHub.BroadcastToUser(fromUID, map[string]any{
+			"type":                   "friend_accepted",
+			"accepter_user_id":       uid,
+			"accepter_display_name":  name,
+		})
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "accepted"})

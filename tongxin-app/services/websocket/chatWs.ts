@@ -1,10 +1,33 @@
 import { Config } from '../config';
+
+function wsChatOrigin(): string {
+  try {
+    const u = new URL(Config.WS_CHAT_URL);
+    return `${u.protocol}//${u.host}${u.pathname}`;
+  } catch {
+    return Config.WS_CHAT_URL;
+  }
+}
 import { getStoredToken } from '../api/client';
 import type { ApiMessage } from '../api/messagesApi';
 
 type NewMessageCallback = (message: ApiMessage) => void;
 type ErrorCallback = (error: string) => void;
 type ConnectedCallback = (conversationIds: string[]) => void;
+
+export type FriendRequestWsPayload = {
+  request_id: string;
+  from_user_id: string;
+  from_display_name?: string;
+};
+
+export type FriendAcceptedWsPayload = {
+  accepter_user_id: string;
+  accepter_display_name?: string;
+};
+
+type FriendRequestCallback = (payload: FriendRequestWsPayload) => void;
+type FriendAcceptedCallback = (payload: FriendAcceptedWsPayload) => void;
 
 /**
  * Chat WebSocket Service
@@ -23,65 +46,127 @@ class ChatWebSocket {
   private newMessageListeners = new Set<NewMessageCallback>();
   private errorListeners = new Set<ErrorCallback>();
   private connectedListeners = new Set<ConnectedCallback>();
+  private friendRequestListeners = new Set<FriendRequestCallback>();
+  private friendAcceptedListeners = new Set<FriendAcceptedCallback>();
 
   private _connected = false;
+  /** 供 zustand 同步 wsConnected（含断线重连成功） */
+  private connectionStateHandler: ((open: boolean) => void) | null = null;
 
   get connected() {
     return this._connected;
   }
 
-  /** Connect using stored JWT token */
-  async connect(): Promise<void> {
-    if (this.ws?.readyState === WebSocket.OPEN) return;
+  /** 连接/断开时回调（open=true 含首次连接与重连成功） */
+  setConnectionStateHandler(handler: ((open: boolean) => void) | null) {
+    this.connectionStateHandler = handler;
+  }
+
+  private emitConnectionState(open: boolean) {
+    try {
+      this.connectionStateHandler?.(open);
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  /**
+   * Connect using stored JWT token.
+   * @returns true when the socket is OPEN（此前实现未等待 onopen，导致 store 里 wsConnected 长期为 false、订阅被跳过）
+   */
+  async connect(): Promise<boolean> {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      return true;
+    }
 
     let token: string | null;
     try {
       token = await getStoredToken();
       if (!token) {
         console.warn('[ChatWS] No JWT token, cannot connect');
-        return;
+        return false;
       }
     } catch (e) {
       console.warn('[ChatWS] Failed to get token:', e);
-      return;
+      return false;
     }
 
     const url = `${Config.WS_CHAT_URL}?token=${encodeURIComponent(token)}`;
-    console.log('[ChatWS] Connecting...');
+    console.log('[ChatWS] Connecting to', wsChatOrigin(), '(token hidden)');
 
-    this.ws = new WebSocket(url);
+    return new Promise((resolve) => {
+      const ws = new WebSocket(url);
+      this.ws = ws;
+      let settled = false;
 
-    this.ws.onopen = () => {
-      console.log('[ChatWS] Connected');
-      this._connected = true;
-      this.reconnectAttempts = 0;
-      this.startHeartbeat();
+      const finish = (success: boolean) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeoutId);
+        resolve(success);
+      };
 
-      // Re-subscribe pending conversations
-      if (this.pendingSubscriptions.length > 0) {
-        this.subscribe(this.pendingSubscriptions);
-      }
-    };
+      const timeoutId = setTimeout(() => {
+        if (settled) return;
+        try {
+          ws.close();
+        } catch {
+          /* ignore */
+        }
+        finish(false);
+      }, 20000);
 
-    this.ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data as string);
-        this.handleMessage(data);
-      } catch (e) {
-        console.warn('[ChatWS] Parse error:', e);
-      }
-    };
+      const isCurrent = () => this.ws === ws;
 
-    this.ws.onerror = () => {
-      console.error('[ChatWS] Connection error');
-    };
+      ws.onopen = () => {
+        if (!isCurrent()) return;
+        console.log('[ChatWS] Connected');
+        this._connected = true;
+        this.reconnectAttempts = 0;
+        this.startHeartbeat();
+        if (this.pendingSubscriptions.length > 0) {
+          this.subscribe(this.pendingSubscriptions);
+        }
+        this.emitConnectionState(true);
+        finish(true);
+      };
 
-    this.ws.onclose = () => {
-      console.log('[ChatWS] Disconnected');
-      this._connected = false;
-      this.stopHeartbeat();
-      this.scheduleReconnect();
-    };
+      ws.onmessage = (event) => {
+        if (!isCurrent()) return;
+        try {
+          const data = JSON.parse(event.data as string);
+          this.handleMessage(data);
+        } catch (e) {
+          console.warn('[ChatWS] Parse error:', e);
+        }
+      };
+
+      // React Native 上部分环境会先触发 onerror 仍能 onopen，此处勿 resolve(false)，由 onclose 判定失败
+      ws.onerror = (ev) => {
+        if (!isCurrent()) return;
+        console.error(
+          '[ChatWS] Connection error — 若 API 用局域网 IP，请确认 WS 也指向同一主机；Node 服务端需 Firebase ID Token，Go 服务端需与登录相同的 JWT（见 services/config.ts）',
+          ev,
+        );
+      };
+
+      ws.onclose = (ev) => {
+        if (!isCurrent()) return;
+        console.warn('[ChatWS] Disconnected', {
+          code: ev.code,
+          reason: ev.reason || '(none)',
+          wasClean: ev.wasClean,
+        });
+        this._connected = false;
+        this.stopHeartbeat();
+        this.emitConnectionState(false);
+        if (!settled) {
+          finish(false);
+        } else {
+          this.scheduleReconnect();
+        }
+      };
+    });
   }
 
   /** Disconnect and clean up */
@@ -95,6 +180,7 @@ class ChatWebSocket {
     this.ws = null;
     this._connected = false;
     this.reconnectAttempts = 0;
+    this.emitConnectionState(false);
   }
 
   /** Subscribe to conversation updates */
@@ -156,6 +242,22 @@ class ChatWebSocket {
     this.connectedListeners.delete(callback);
   }
 
+  onFriendRequest(callback: FriendRequestCallback) {
+    this.friendRequestListeners.add(callback);
+  }
+
+  offFriendRequest(callback: FriendRequestCallback) {
+    this.friendRequestListeners.delete(callback);
+  }
+
+  onFriendAccepted(callback: FriendAcceptedCallback) {
+    this.friendAcceptedListeners.add(callback);
+  }
+
+  offFriendAccepted(callback: FriendAcceptedCallback) {
+    this.friendAcceptedListeners.delete(callback);
+  }
+
   private send(data: Record<string, any>) {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(data));
@@ -180,6 +282,23 @@ class ChatWebSocket {
         break;
       case 'pong':
         // heartbeat response
+        break;
+      case 'friend_request':
+        this.friendRequestListeners.forEach((cb) =>
+          cb({
+            request_id: String(data.request_id ?? ''),
+            from_user_id: String(data.from_user_id ?? ''),
+            from_display_name: data.from_display_name,
+          }),
+        );
+        break;
+      case 'friend_accepted':
+        this.friendAcceptedListeners.forEach((cb) =>
+          cb({
+            accepter_user_id: String(data.accepter_user_id ?? ''),
+            accepter_display_name: data.accepter_display_name,
+          }),
+        );
         break;
       default:
         break;
@@ -209,7 +328,7 @@ class ChatWebSocket {
     console.log(`[ChatWS] Reconnecting in ${delay}ms...`);
     this.reconnectTimer = setTimeout(() => {
       this.reconnectAttempts++;
-      this.connect();
+      void this.connect();
     }, delay);
   }
 }

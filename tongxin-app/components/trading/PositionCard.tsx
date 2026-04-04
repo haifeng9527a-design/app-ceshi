@@ -226,7 +226,7 @@ export default function PositionCard({ position, onClose, onUpdated }: Props) {
         <DetailItem label="开仓均价" value={fmt(position.entry_price)} />
         <DetailItem label="标记价格" value={fmt(position.current_price)} />
         <DetailItem label="强平价格" value={position.liq_price ? fmt(position.liq_price) : '--'} />
-        <TouchableOpacity style={{ width: '66.66%', marginBottom: 8 }} activeOpacity={0.7} onPress={() => {
+        <TouchableOpacity style={st.detailCell} activeOpacity={0.7} onPress={() => {
           const tp = position.tp_price != null ? String(position.tp_price) : '';
           const sl = position.sl_price != null ? String(position.sl_price) : '';
           setTpInput(tp);
@@ -238,7 +238,7 @@ export default function PositionCard({ position, onClose, onUpdated }: Props) {
           setShowTPSL(true);
         }}>
           <Text style={st.detailLabel}>TP/SL</Text>
-          <Text style={[st.detailValue, { color: position.tp_price != null || position.sl_price != null ? '#C9A84C' : '#bbb' }]} numberOfLines={1}>
+          <Text style={[st.detailValue, { color: position.tp_price != null || position.sl_price != null ? '#C9A84C' : '#bbb', fontSize: 10 }]} numberOfLines={1}>
             {position.tp_price != null ? fmt(position.tp_price) : '--'} / {position.sl_price != null ? fmt(position.sl_price) : '--'}
           </Text>
         </TouchableOpacity>

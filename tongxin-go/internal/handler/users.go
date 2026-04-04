@@ -22,6 +22,9 @@ func NewUsersHandler(userSvc *service.UserService) *UsersHandler {
 func (h *UsersHandler) BatchProfiles(w http.ResponseWriter, r *http.Request) {
 	uidsParam := r.URL.Query().Get("uids")
 	if uidsParam == "" {
+		uidsParam = r.URL.Query().Get("ids")
+	}
+	if uidsParam == "" {
 		writeJSON(w, http.StatusOK, []model.FriendProfile{})
 		return
 	}

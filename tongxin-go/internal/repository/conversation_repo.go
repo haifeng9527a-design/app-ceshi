@@ -33,13 +33,17 @@ func (r *ConversationRepo) ListByUser(ctx context.Context, uid string) ([]model.
 		            AND m2.sender_id != $1
 		         ), 0
 		       ) AS unread_count,
-		       COALESCE(
-		         (SELECT cm2.user_id FROM conversation_members cm2
-		          WHERE cm2.conversation_id = c.id AND cm2.user_id != $1
-		          LIMIT 1), ''
-		       ) AS peer_id
+		       COALESCE(peer.peer_uid,'') AS peer_id,
+		       (c.type = 'direct' AND COALESCE(u_peer.is_trader, false)) AS peer_is_trader
 		FROM conversations c
 		JOIN conversation_members cm ON cm.conversation_id = c.id AND cm.user_id = $1
+		LEFT JOIN LATERAL (
+		  SELECT cm2.user_id AS peer_uid
+		  FROM conversation_members cm2
+		  WHERE cm2.conversation_id = c.id AND cm2.user_id <> $1
+		  LIMIT 1
+		) peer ON true
+		LEFT JOIN users u_peer ON u_peer.uid = peer.peer_uid
 		LEFT JOIN LATERAL (
 		  SELECT content, sender_id, created_at FROM messages
 		  WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1
@@ -57,7 +61,7 @@ func (r *ConversationRepo) ListByUser(ctx context.Context, uid string) ([]model.
 		var c model.Conversation
 		var lastTime time.Time
 		if err := rows.Scan(&c.ID, &c.Type, &c.Title, &c.AvatarURL, &c.CreatedBy, &c.CreatedAt,
-			&c.LastMessage, &c.LastSenderName, &lastTime, &c.UnreadCount, &c.PeerID); err != nil {
+			&c.LastMessage, &c.LastSenderName, &lastTime, &c.UnreadCount, &c.PeerID, &c.PeerIsTrader); err != nil {
 			return nil, err
 		}
 		c.LastTime = lastTime.Format(time.RFC3339)
@@ -208,6 +212,17 @@ func (r *ConversationRepo) GetGroupInfo(ctx context.Context, conversationID stri
 		members = append(members, m)
 	}
 	return c, members, nil
+}
+
+func (r *ConversationRepo) IsUserInConversation(ctx context.Context, uid, conversationID string) (bool, error) {
+	var ok bool
+	err := r.pool.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM conversation_members
+			WHERE conversation_id = $1 AND user_id = $2
+		)
+	`, conversationID, uid).Scan(&ok)
+	return ok, err
 }
 
 func (r *ConversationRepo) GetMemberIDs(ctx context.Context, conversationID string) ([]string, error) {

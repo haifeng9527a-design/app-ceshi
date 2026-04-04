@@ -7,6 +7,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { SkeletonChart } from '../../components/Skeleton';
 import { useTranslation } from 'react-i18next';
 import { Colors, Sizes, Shadows } from '../../theme/colors';
 import { useMarketStore } from '../../services/store/marketStore';
@@ -136,10 +137,8 @@ export default function ChartDetailScreen() {
         )}
 
         {/* Chart */}
-        {klinesLoading ? (
-          <View style={styles.loading}>
-            <Text style={styles.loadingText}>{t('chart.loadingKlines')}</Text>
-          </View>
+        {klinesLoading && klines.length === 0 ? (
+          <SkeletonChart />
         ) : klines.length > 0 ? (
           <TradingViewChart klines={klines} symbol={symbol ?? ''} />
         ) : (

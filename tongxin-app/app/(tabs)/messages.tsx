@@ -12,22 +12,28 @@ import {
   ActivityIndicator,
   Modal,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
+import { SkeletonConversation } from '../../components/Skeleton';
 import { useTranslation } from 'react-i18next';
 import { Colors, Sizes, Shadows } from '../../theme/colors';
 import { useAuthStore } from '../../services/store/authStore';
 import { useMessagesStore } from '../../services/store/messagesStore';
 import {
   createGroupConversation,
+  searchConversationMessages,
   type ApiConversation,
   type ApiMessage,
   type PeerProfile,
   type FriendProfile,
 } from '../../services/api/messagesApi';
+import { getTraderProfile, type TraderProfile } from '../../services/api/traderApi';
 
 /* ════════════════════════════════════════
    UI-layer types (unchanged from design)
    ════════════════════════════════════════ */
+
+/** 视为「当前在线」：最近 N 分钟内有心跳（与好友 last_online_at 对齐） */
+const PRESENCE_ACTIVE_MS = 15 * 60 * 1000;
 
 interface Conversation {
   id: string;
@@ -36,12 +42,25 @@ interface Conversation {
   time: string;
   unread: number;
   online?: boolean;
+  /** 好友接口返回的对方 last_online_at；无则不在标题显示「离线」，避免无数据时误判 */
+  peerLastOnlineAt?: string;
   pinned?: boolean;
   verified?: boolean;
   badge?: string;
   isGroup?: boolean;
   members?: number;
   isSupport?: boolean;
+  peerUserId?: string;
+  isTraderPeer?: boolean;
+}
+
+/** Rich message: strategy / share card (JSON in content or message_type teacher_share). */
+interface StrategyCardPayload {
+  symbol?: string;
+  title?: string;
+  pnl_pct?: number;
+  side?: string;
+  leverage?: number;
 }
 
 interface ChatMessage {
@@ -51,6 +70,8 @@ interface ChatMessage {
   text: string;
   time: string;
   date?: string;
+  messageType?: string;
+  card?: StrategyCardPayload;
 }
 
 /* ════════════════════════════════════════
@@ -96,13 +117,58 @@ function formatDateLabel(isoString: string): string {
   return d.toLocaleDateString();
 }
 
+function isRecentlyOnline(isoString?: string, withinMs = 5 * 60 * 1000): boolean {
+  if (!isoString) return false;
+  return Date.now() - new Date(isoString).getTime() < withinMs;
+}
+
+function parseStrategyCard(content: string, messageType: string): StrategyCardPayload | undefined {
+  if (messageType !== 'teacher_share' && !content.trim().startsWith('{')) {
+    return undefined;
+  }
+  try {
+    const o = JSON.parse(content) as Record<string, unknown>;
+    return strategyFieldsFromObject(o);
+  } catch {
+    return undefined;
+  }
+}
+
+function strategyFieldsFromObject(o: Record<string, unknown>): StrategyCardPayload | undefined {
+  if (typeof o !== 'object' || o == null) return undefined;
+  const title = typeof o.title === 'string' ? o.title : undefined;
+  const symbol = typeof o.symbol === 'string' ? o.symbol : undefined;
+  const side = typeof o.side === 'string' ? o.side : undefined;
+  const pnl = typeof o.pnl_pct === 'number' ? o.pnl_pct : undefined;
+  const lev = typeof o.leverage === 'number' ? o.leverage : undefined;
+  if (!title && !symbol && pnl == null && lev == null) return undefined;
+  return { title, symbol, side, pnl_pct: pnl, leverage: lev };
+}
+
+function parseStrategyCardFromMetadata(meta: Record<string, unknown> | undefined): StrategyCardPayload | undefined {
+  if (!meta || typeof meta !== 'object') return undefined;
+  return strategyFieldsFromObject(meta);
+}
+
+function sameConvoId(a: string | null | undefined, b: string | null | undefined): boolean {
+  return String(a ?? '').trim() === String(b ?? '').trim();
+}
+
 function mapConversation(
   c: ApiConversation,
   peerProfiles: Record<string, PeerProfile>,
+  friendsByUserId: Record<string, FriendProfile>,
 ): Conversation {
   const isGroup = c.type === 'group';
   const peer = c.peer_id ? peerProfiles[c.peer_id] : undefined;
+  const friend = c.peer_id ? friendsByUserId[c.peer_id] : undefined;
   const name = isGroup ? (c.title || 'Group') : (peer?.display_name || 'User');
+  const role = friend?.role?.toLowerCase() ?? '';
+  const fromFriendRole =
+    role === 'trader' || role === 'teacher' || role === 'approved' || role === 'certified';
+  const isTraderPeer = c.peer_is_trader === true || fromFriendRole;
+  const peerLo = friend?.last_online_at;
+  const online = peerLo ? isRecentlyOnline(peerLo, PRESENCE_ACTIVE_MS) : false;
 
   return {
     id: c.id,
@@ -111,6 +177,12 @@ function mapConversation(
     time: formatRelativeTime(c.last_time),
     unread: c.unread_count || 0,
     isGroup,
+    peerUserId: c.peer_id,
+    isTraderPeer,
+    verified: isTraderPeer,
+    badge: isTraderPeer ? 'trader' : undefined,
+    online,
+    peerLastOnlineAt: peerLo || undefined,
   };
 }
 
@@ -149,12 +221,17 @@ function mapMessages(
       });
     }
 
+    const cardMeta = parseStrategyCardFromMetadata(msg.metadata);
+    const card = cardMeta ?? parseStrategyCard(msg.content, msg.message_type);
     result.push({
       id: msg.id,
-      senderId: msg.sender_id === currentUserId ? 'me' : msg.sender_id,
+      senderId:
+        String(msg.sender_id ?? '') === String(currentUserId ?? '') ? 'me' : msg.sender_id,
       senderName: msg.sender_name,
-      text: msg.content,
+      text: card ? '' : msg.content,
       time: formatMessageTime(msg.created_at),
+      messageType: msg.message_type,
+      card,
     });
   }
 
@@ -166,12 +243,6 @@ function mapMessages(
    ════════════════════════════════════════ */
 
 type ConvoFilter = 'all' | 'traders' | 'groups';
-
-const FILTERS: { key: ConvoFilter; label: string }[] = [
-  { key: 'all', label: 'All' },
-  { key: 'traders', label: 'Traders' },
-  { key: 'groups', label: 'Groups' },
-];
 
 /* ════════════════════════════════════════
    Helper: Avatar
@@ -229,6 +300,64 @@ function AvatarCircle({
           <Text style={styles.badgeTagText}>{badge}</Text>
         </View>
       )}
+    </View>
+  );
+}
+
+function StrategyCardBubble({
+  card,
+  isMe,
+}: {
+  card: StrategyCardPayload;
+  isMe: boolean;
+}) {
+  const { t } = useTranslation();
+  const pct = card.pnl_pct;
+  const pctColor =
+    pct == null ? Colors.textSecondary : pct >= 0 ? Colors.up : Colors.down;
+  const title =
+    card.title ||
+    (card.symbol
+      ? `${card.symbol}${card.leverage ? ` · ${card.leverage}${t('messages.leverage')}` : ''}`
+      : t('messages.strategyShare'));
+  const barPct = Math.min(100, Math.max(8, 50 + (pct ?? 0) * 2));
+
+  return (
+    <View
+      style={[
+        styles.strategyCard,
+        isMe ? styles.strategyCardMe : styles.strategyCardOther,
+      ]}
+    >
+      <View style={styles.strategyCardHeader}>
+        <Text style={styles.strategyCardTitle} numberOfLines={2}>
+          {title}
+        </Text>
+        {pct != null && (
+          <Text style={[styles.strategyCardPct, { color: pctColor }]}>
+            {pct >= 0 ? '+' : ''}
+            {pct.toFixed(1)}%
+          </Text>
+        )}
+      </View>
+      {(card.symbol || card.side) && (
+        <Text style={styles.strategyCardMeta}>
+          {[card.symbol, card.side?.toUpperCase()]
+            .filter(Boolean)
+            .join(' · ')}
+        </Text>
+      )}
+      <View style={styles.strategyCardBar}>
+        <View
+          style={[
+            styles.strategyCardBarFill,
+            {
+              width: `${barPct}%`,
+              backgroundColor: pctColor,
+            },
+          ]}
+        />
+      </View>
     </View>
   );
 }
@@ -408,6 +537,9 @@ function ConversationList({
   loading,
   onAddFriend,
   onCreateGroup,
+  onOpenContacts,
+  friendRequestBadgeCount = 0,
+  chatWsConnected,
 }: {
   conversations: Conversation[];
   activeId: string;
@@ -417,20 +549,53 @@ function ConversationList({
   loading?: boolean;
   onAddFriend: () => void;
   onCreateGroup: () => void;
+  onOpenContacts: () => void;
+  friendRequestBadgeCount?: number;
+  chatWsConnected: boolean;
 }) {
   const { t } = useTranslation();
+  const [listQuery, setListQuery] = useState('');
 
+  const filterTabs: { key: ConvoFilter; label: string }[] = [
+    { key: 'all', label: t('messages.filterAll') },
+    { key: 'traders', label: t('messages.filterTraders') },
+    { key: 'groups', label: t('messages.filterGroups') },
+  ];
+
+  const q = listQuery.trim().toLowerCase();
   const filtered = conversations.filter((c) => {
-    if (filter === 'traders') return !c.isGroup && !c.isSupport;
-    if (filter === 'groups') return c.isGroup;
-    return true;
+    if (filter === 'traders') {
+      if (!(!c.isGroup && !!c.isTraderPeer)) return false;
+    } else if (filter === 'groups') {
+      if (!c.isGroup) return false;
+    }
+    if (!q) return true;
+    return (
+      c.name.toLowerCase().includes(q) ||
+      (c.lastMessage || '').toLowerCase().includes(q)
+    );
   });
 
   return (
     <View style={styles.listPanel}>
       {/* Header */}
       <View style={styles.listHeader}>
-        <Text style={styles.listTitle}>{t('messages.title')}</Text>
+        <View style={styles.listHeaderLeft}>
+          <Text style={styles.listTitle}>{t('messages.title')}</Text>
+          <View style={styles.listSocketRow}>
+            <View
+              style={[
+                styles.socketDot,
+                { backgroundColor: chatWsConnected ? Colors.online : Colors.offline },
+              ]}
+            />
+            <Text style={styles.socketStatusText} numberOfLines={1}>
+              {chatWsConnected
+                ? t('messages.chatSocketConnected')
+                : t('messages.chatSocketDisconnected')}
+            </Text>
+          </View>
+        </View>
         <View style={styles.headerActions}>
           <TouchableOpacity style={styles.headerActionBtn} activeOpacity={0.7} onPress={onAddFriend}>
             <Text style={styles.headerActionIcon}>👤+</Text>
@@ -438,8 +603,17 @@ function ConversationList({
           <TouchableOpacity style={styles.headerActionBtn} activeOpacity={0.7} onPress={onCreateGroup}>
             <Text style={styles.headerActionIcon}>👥+</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.headerActionBtn} activeOpacity={0.7}>
-            <Text style={styles.headerActionIcon}>🔔</Text>
+          <TouchableOpacity style={styles.headerActionBtn} activeOpacity={0.7} onPress={onOpenContacts}>
+            <View style={styles.headerIconWrap}>
+              <Text style={styles.headerActionIcon}>📇</Text>
+              {friendRequestBadgeCount > 0 ? (
+                <View style={styles.headerBadge}>
+                  <Text style={styles.headerBadgeText}>
+                    {friendRequestBadgeCount > 99 ? '99+' : friendRequestBadgeCount}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
           </TouchableOpacity>
         </View>
       </View>
@@ -451,12 +625,15 @@ function ConversationList({
           style={styles.searchInput}
           placeholder={t('common.search')}
           placeholderTextColor={Colors.textMuted}
+          value={listQuery}
+          onChangeText={setListQuery}
+          autoCapitalize="none"
         />
       </View>
 
       {/* Filter Tabs */}
       <View style={styles.filterRow}>
-        {FILTERS.map((f) => (
+        {filterTabs.map((f) => (
           <TouchableOpacity
             key={f.key}
             style={[styles.filterTab, filter === f.key && styles.filterTabActive]}
@@ -476,10 +653,14 @@ function ConversationList({
       </View>
 
       {/* Conversations */}
-      <ScrollView style={styles.convoScroll} showsVerticalScrollIndicator={false}>
-        {loading && (
-          <View style={{ padding: 20, alignItems: 'center' }}>
-            <ActivityIndicator color={Colors.primary} />
+      <ScrollView
+        style={styles.convoScroll}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="always"
+      >
+        {loading && filtered.length === 0 && (
+          <View>
+            {[1, 2, 3, 4, 5].map(i => <SkeletonConversation key={i} />)}
           </View>
         )}
         {!loading && filtered.length === 0 && (
@@ -493,7 +674,7 @@ function ConversationList({
           <ConvoRow
             key={c.id}
             convo={c}
-            active={c.id === activeId}
+            active={sameConvoId(c.id, activeId)}
             onPress={() => onSelect(c)}
           />
         ))}
@@ -512,6 +693,10 @@ function ConvoRow({
   active: boolean;
   onPress: () => void;
 }) {
+  const { t } = useTranslation();
+  const badgeLabel =
+    convo.badge === 'trader' ? t('messages.badgeTrader') : convo.badge;
+
   return (
     <TouchableOpacity
       style={[
@@ -530,9 +715,9 @@ function ConvoRow({
             {convo.isGroup ? '👥 ' : ''}{convo.name}
           </Text>
           {convo.verified && <Text style={styles.verifiedIcon}>✓</Text>}
-          {convo.badge && (
+          {!!badgeLabel && (
             <View style={styles.convoTagBadge}>
-              <Text style={styles.convoTagBadgeText}>{convo.badge}</Text>
+              <Text style={styles.convoTagBadgeText}>{badgeLabel}</Text>
             </View>
           )}
         </View>
@@ -561,6 +746,7 @@ function ConvoRow({
 
 function ChatPanel({
   conversation,
+  conversationId,
   messages,
   onBack,
   showBack,
@@ -568,8 +754,12 @@ function ChatPanel({
   loading,
   onLoadMore,
   hasMore,
+  peerUserId,
+  onOpenTrader,
+  chatWsConnected,
 }: {
   conversation: Conversation;
+  conversationId: string;
   messages: ChatMessage[];
   onBack?: () => void;
   showBack?: boolean;
@@ -577,9 +767,17 @@ function ChatPanel({
   loading?: boolean;
   onLoadMore?: () => void;
   hasMore?: boolean;
+  peerUserId?: string | null;
+  onOpenTrader?: (uid: string) => void;
+  chatWsConnected: boolean;
 }) {
   const { t } = useTranslation();
   const [inputText, setInputText] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQ, setSearchQ] = useState('');
+  const [searchRemote, setSearchRemote] = useState<ApiMessage[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRef = useRef<ScrollView>(null);
 
   useEffect(() => {
@@ -603,12 +801,102 @@ function ChatPanel({
     [hasMore, onLoadMore],
   );
 
+  useEffect(() => {
+    if (!searchOpen || !conversationId) {
+      return;
+    }
+    const q = searchQ.trim();
+    if (q.length < 1) {
+      setSearchRemote([]);
+      return;
+    }
+    if (searchDebounceRef.current) {
+      clearTimeout(searchDebounceRef.current);
+    }
+    searchDebounceRef.current = setTimeout(async () => {
+      setSearchLoading(true);
+      try {
+        const rows = await searchConversationMessages(conversationId, q, 40);
+        setSearchRemote(rows);
+      } catch {
+        setSearchRemote([]);
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 320);
+    return () => {
+      if (searchDebounceRef.current) {
+        clearTimeout(searchDebounceRef.current);
+      }
+    };
+  }, [searchOpen, searchQ, conversationId]);
+
+  const statusLabel = (() => {
+    if (conversation.isGroup) {
+      return null;
+    }
+    const lo = conversation.peerLastOnlineAt;
+    if (!lo) {
+      return null;
+    }
+    if (conversation.online) {
+      return t('messages.activeNow');
+    }
+    return `${t('messages.lastSeen')} · ${formatRelativeTime(lo)}`;
+  })();
+
+  const showCopyStrategy =
+    !!peerUserId && !!conversation.isTraderPeer && !conversation.isGroup;
+
   return (
     <KeyboardAvoidingView
       style={styles.chatPanel}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={90}
     >
+      <Modal visible={searchOpen} transparent animationType="fade" onRequestClose={() => setSearchOpen(false)}>
+        <View style={modalStyles.overlay}>
+          <View style={[modalStyles.container, { maxHeight: '70%' }]}>
+            <View style={modalStyles.header}>
+              <Text style={modalStyles.title}>{t('messages.searchInConversation')}</Text>
+              <TouchableOpacity onPress={() => setSearchOpen(false)} activeOpacity={0.7}>
+                <Text style={modalStyles.closeBtn}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={[modalStyles.fieldGroup, { marginBottom: 8 }]}>
+              <TextInput
+                style={modalStyles.fieldInput}
+                placeholder={t('common.search')}
+                placeholderTextColor={Colors.textMuted}
+                value={searchQ}
+                onChangeText={setSearchQ}
+                autoFocus
+                autoCapitalize="none"
+              />
+            </View>
+            <ScrollView style={{ flexGrow: 0 }} keyboardShouldPersistTaps="handled">
+              {searchLoading && (
+                <ActivityIndicator color={Colors.primary} style={{ marginVertical: 12 }} />
+              )}
+              {!searchLoading && searchQ.trim() && searchRemote.length === 0 ? (
+                <Text style={{ color: Colors.textMuted, padding: 16 }}>{t('common.noResults')}</Text>
+              ) : (
+                searchRemote.map((m) => (
+                  <View key={m.id} style={{ paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: Colors.border }}>
+                    <Text style={{ color: Colors.primary, fontSize: 12 }}>
+                      {m.sender_name || '—'} · {formatMessageTime(m.created_at)}
+                    </Text>
+                    <Text style={{ color: Colors.textActive, marginTop: 4 }} numberOfLines={3}>
+                      {m.content || (m.metadata && typeof m.metadata === 'object' ? t('messages.strategyShare') : '')}
+                    </Text>
+                  </View>
+                ))
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
       {/* Chat Header */}
       <View style={styles.chatHeader}>
         {showBack && (
@@ -622,12 +910,36 @@ function ChatPanel({
             <Text style={styles.chatHeaderName}>{conversation.name}</Text>
             {conversation.verified && <Text style={styles.verifiedIcon}>✓</Text>}
           </View>
-          <Text style={styles.chatHeaderStatus}>
-            {conversation.online ? t('messages.online') : t('messages.offline')}
-          </Text>
+          {statusLabel ? (
+            <Text style={[styles.chatHeaderStatus, conversation.online && { color: Colors.up }]}>
+              {statusLabel}
+            </Text>
+          ) : null}
         </View>
         <View style={{ flex: 1 }} />
-        <TouchableOpacity style={styles.chatActionBtn} activeOpacity={0.7}>
+        <View style={styles.chatSocketBadge}>
+          <View
+            style={[
+              styles.socketDotSm,
+              { backgroundColor: chatWsConnected ? Colors.online : Colors.offline },
+            ]}
+          />
+          <Text style={styles.chatSocketBadgeText} numberOfLines={1}>
+            {chatWsConnected
+              ? t('messages.chatSocketConnected')
+              : t('messages.chatSocketDisconnected')}
+          </Text>
+        </View>
+        {showCopyStrategy && (
+          <TouchableOpacity
+            style={styles.chatActionBtnGold}
+            activeOpacity={0.7}
+            onPress={() => peerUserId && onOpenTrader?.(peerUserId)}
+          >
+            <Text style={styles.chatActionBtnGoldText}>{t('messages.copyStrategy')}</Text>
+          </TouchableOpacity>
+        )}
+        <TouchableOpacity style={styles.chatActionBtn} activeOpacity={0.7} onPress={() => setSearchOpen(true)}>
           <Text style={styles.chatActionBtnText}>🔍 {t('messages.searchMessages')}</Text>
         </TouchableOpacity>
       </View>
@@ -674,19 +986,24 @@ function ChatPanel({
                 style={[
                   styles.messageBubble,
                   isMe ? styles.bubbleMe : styles.bubbleOther,
+                  msg.card && { backgroundColor: 'transparent', paddingHorizontal: 0, paddingVertical: 0 },
                 ]}
               >
                 {!isMe && conversation.isGroup && (
                   <Text style={styles.senderLabel}>{msg.senderName}</Text>
                 )}
-                <Text
-                  style={[
-                    styles.messageText,
-                    isMe ? styles.messageTextMe : styles.messageTextOther,
-                  ]}
-                >
-                  {msg.text}
-                </Text>
+                {msg.card ? (
+                  <StrategyCardBubble card={msg.card} isMe={isMe} />
+                ) : (
+                  <Text
+                    style={[
+                      styles.messageText,
+                      isMe ? styles.messageTextMe : styles.messageTextOther,
+                    ]}
+                  >
+                    {msg.text}
+                  </Text>
+                )}
                 <Text style={styles.messageTime}>{msg.time}</Text>
               </View>
             </View>
@@ -704,7 +1021,7 @@ function ChatPanel({
         </TouchableOpacity>
         <TextInput
           style={styles.chatInput}
-          placeholder={t('messages.inputPlaceholder')}
+          placeholder={t('messages.encryptPlaceholder', { name: conversation.name })}
           placeholderTextColor={Colors.textMuted}
           value={inputText}
           onChangeText={setInputText}
@@ -730,7 +1047,39 @@ function ChatPanel({
    Sub-component: Peer Info Sidebar
    ════════════════════════════════════════ */
 
-function PeerSidebar({ profile }: { profile: PeerProfile }) {
+function PeerSidebar({
+  profile,
+  peerUserId,
+  onViewPublicProfile,
+}: {
+  profile: PeerProfile;
+  peerUserId: string;
+  onViewPublicProfile: (uid: string) => void;
+}) {
+  const { t } = useTranslation();
+  const [trader, setTrader] = useState<TraderProfile | null>(null);
+
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      try {
+        const tp = await getTraderProfile(peerUserId);
+        if (!cancel) setTrader(tp);
+      } catch {
+        if (!cancel) setTrader(null);
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [peerUserId]);
+
+  const stats = trader?.stats;
+  const winRatePct =
+    stats && stats.win_rate != null ? Number(stats.win_rate).toFixed(1) : null;
+  const copiers =
+    stats?.followers_count != null ? stats.followers_count : null;
+
   return (
     <View style={styles.traderPanel}>
       <ScrollView showsVerticalScrollIndicator={false}>
@@ -743,9 +1092,27 @@ function PeerSidebar({ profile }: { profile: PeerProfile }) {
           {profile.email && (
             <Text style={styles.traderHandle}>{profile.email}</Text>
           )}
+          {trader?.is_trader && (
+            <>
+              {winRatePct != null && (
+                <Text style={styles.traderStatLine}>
+                  {t('messages.winRate')}: {winRatePct}%
+                </Text>
+              )}
+              {copiers != null && (
+                <Text style={styles.traderStatLine}>
+                  {t('messages.copiers')}: {copiers >= 1000 ? `${(copiers / 1000).toFixed(1)}k` : copiers}
+                </Text>
+              )}
+            </>
+          )}
         </View>
-        <TouchableOpacity style={styles.viewProfileBtn} activeOpacity={0.8}>
-          <Text style={styles.viewProfileText}>View Profile</Text>
+        <TouchableOpacity
+          style={styles.viewProfileBtn}
+          activeOpacity={0.8}
+          onPress={() => onViewPublicProfile(peerUserId)}
+        >
+          <Text style={styles.viewProfileText}>{t('messages.viewPublicProfile')}</Text>
         </TouchableOpacity>
       </ScrollView>
     </View>
@@ -762,6 +1129,8 @@ export default function MessagesScreen() {
   const isXL = width >= 1280;
   const { t } = useTranslation();
   const router = useRouter();
+  const params = useLocalSearchParams<{ conversationId?: string | string[] }>();
+  const openedFromRouteRef = useRef<string | null>(null);
   const { user } = useAuthStore();
 
   const {
@@ -773,14 +1142,15 @@ export default function MessagesScreen() {
     hasMoreMessages,
     peerProfiles,
     friends,
-    wsConnected,
     loadConversations,
     setActiveConversation,
     sendMessage,
     loadMoreMessages,
-    connectWs,
-    disconnectWs,
     loadFriends,
+    loadFriendRequests,
+    incomingFriendRequests,
+    refreshActiveMessages,
+    wsConnected: chatWsConnected,
   } = useMessagesStore();
 
   const [filter, setFilter] = useState<ConvoFilter>('all');
@@ -792,17 +1162,59 @@ export default function MessagesScreen() {
     if (!user) return;
     loadConversations();
     loadFriends();
-    connectWs();
-    return () => {
-      disconnectWs();
-    };
+    loadFriendRequests();
   }, [user?.uid]);
+
+  // 当前会话定时拉取：接收方在 WS 未连上或未推送时仍能看见新消息
+  useEffect(() => {
+    if (!user?.uid || !activeConversationId) return;
+    const t = setInterval(() => {
+      refreshActiveMessages();
+    }, 3500);
+    return () => clearInterval(t);
+  }, [user?.uid, activeConversationId, refreshActiveMessages]);
+
+  // 停留在消息 Tab 时定期刷新会话列表（最后一条预览等；不依赖 WS）
+  useFocusEffect(
+    useCallback(() => {
+      if (!user?.uid) return;
+      const t = setInterval(() => {
+        loadConversations();
+      }, 10000);
+      return () => clearInterval(t);
+    }, [user?.uid, loadConversations]),
+  );
+
+  const friendsById = useMemo(
+    () => Object.fromEntries(friends.map((f) => [f.user_id, f])),
+    [friends],
+  );
 
   // Map API conversations to UI conversations
   const uiConversations = useMemo(
-    () => apiConversations.map((c) => mapConversation(c, peerProfiles)),
-    [apiConversations, peerProfiles],
+    () => apiConversations.map((c) => mapConversation(c, peerProfiles, friendsById)),
+    [apiConversations, peerProfiles, friendsById],
   );
+
+  // 从通讯录/加好友等带 conversationId 进入时打开对应会话
+  useEffect(() => {
+    const raw = params.conversationId;
+    const cid =
+      typeof raw === 'string'
+        ? raw
+        : Array.isArray(raw) && raw.length > 0
+          ? raw[0]
+          : undefined;
+    if (!user) return;
+    if (!cid?.trim()) {
+      openedFromRouteRef.current = null;
+      return;
+    }
+    if (openedFromRouteRef.current === cid) return;
+    openedFromRouteRef.current = cid;
+    setActiveConversation(cid);
+    if (!isDesktop) setMobileShowChat(true);
+  }, [params.conversationId, user?.uid, isDesktop, setActiveConversation]);
 
   // Map API messages to UI messages
   const uiMessages = useMemo(
@@ -810,18 +1222,28 @@ export default function MessagesScreen() {
     [apiMessages, user?.uid],
   );
 
-  // Active conversation UI object
-  const activeConvo = useMemo(
-    () => uiConversations.find((c) => c.id === activeConversationId) ?? null,
-    [uiConversations, activeConversationId],
-  );
+  // Active conversation UI object（优先 ui 列表；否则从原始 api 映射，避免 activeConvo 为空导致聊天页不渲染）
+  const activeConvo = useMemo(() => {
+    const aid = activeConversationId;
+    if (!aid) return null;
+    const fromUi = uiConversations.find((c) => sameConvoId(c.id, aid));
+    if (fromUi) return fromUi;
+    const raw = apiConversations.find((c) => sameConvoId(c.id, aid));
+    if (!raw) return null;
+    return mapConversation(raw, peerProfiles, friendsById);
+  }, [activeConversationId, uiConversations, apiConversations, peerProfiles, friendsById]);
 
   // Active conversation's peer profile (for sidebar)
   const activePeerProfile = useMemo(() => {
-    const apiConvo = apiConversations.find((c) => c.id === activeConversationId);
+    const apiConvo = apiConversations.find((c) => sameConvoId(c.id, activeConversationId));
     if (!apiConvo?.peer_id) return null;
     return peerProfiles[apiConvo.peer_id] ?? null;
   }, [apiConversations, activeConversationId, peerProfiles]);
+
+  const activePeerId = useMemo(() => {
+    const c = apiConversations.find((x) => sameConvoId(x.id, activeConversationId));
+    return c?.peer_id ?? null;
+  }, [apiConversations, activeConversationId]);
 
   const handleSelectConversation = (c: Conversation) => {
     setActiveConversation(c.id);
@@ -876,6 +1298,9 @@ export default function MessagesScreen() {
           loading={conversationsLoading}
           onAddFriend={() => router.push('/add-friend' as any)}
           onCreateGroup={() => { loadFriends(); setShowCreateGroup(true); }}
+          onOpenContacts={() => router.push('/contacts' as any)}
+          friendRequestBadgeCount={incomingFriendRequests.length}
+          chatWsConnected={chatWsConnected}
         />
       )}
 
@@ -887,10 +1312,23 @@ export default function MessagesScreen() {
         friends={friends}
       />
 
+      {/* 手机端：已选会话但列表映射尚未就绪时避免白屏 */}
+      {showChat &&
+        !isDesktop &&
+        mobileShowChat &&
+        activeConversationId &&
+        !activeConvo && (
+          <View style={styles.chatBootstrapping}>
+            <ActivityIndicator color={Colors.primary} size="large" />
+            <Text style={styles.chatBootstrappingText}>{t('common.loading')}</Text>
+          </View>
+        )}
+
       {/* Chat Panel */}
-      {showChat && activeConvo && (
+      {showChat && activeConvo && activeConversationId && (
         <ChatPanel
           conversation={activeConvo}
+          conversationId={activeConversationId}
           messages={uiMessages}
           onBack={handleBack}
           showBack={!isDesktop}
@@ -898,6 +1336,9 @@ export default function MessagesScreen() {
           loading={messagesLoading}
           onLoadMore={loadMoreMessages}
           hasMore={hasMoreMessages}
+          peerUserId={activeConvo.peerUserId ?? activePeerId}
+          onOpenTrader={(uid) => router.push(`/trader/${uid}` as any)}
+          chatWsConnected={chatWsConnected}
         />
       )}
 
@@ -911,8 +1352,12 @@ export default function MessagesScreen() {
       )}
 
       {/* Peer Sidebar (XL desktop, direct conversations) */}
-      {isXL && activePeerProfile && (
-        <PeerSidebar profile={activePeerProfile} />
+      {isXL && activePeerProfile && activePeerId && (
+        <PeerSidebar
+          profile={activePeerProfile}
+          peerUserId={activePeerId}
+          onViewPublicProfile={(uid) => router.push(`/trader/${uid}` as any)}
+        />
       )}
     </View>
   );
@@ -927,6 +1372,18 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     backgroundColor: Colors.background,
+  },
+  chatBootstrapping: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: Colors.background,
+    padding: 24,
+  },
+  chatBootstrappingText: {
+    marginTop: 12,
+    color: Colors.textMuted,
+    fontSize: 14,
   },
 
   /* ── Conversation List Panel ── */
@@ -945,10 +1402,37 @@ const styles = StyleSheet.create({
     paddingTop: 20,
     paddingBottom: 12,
   },
+  listHeaderLeft: {
+    flex: 1,
+    minWidth: 0,
+    marginRight: 8,
+  },
   listTitle: {
     color: Colors.textActive,
     fontSize: 22,
     fontWeight: '700',
+  },
+  listSocketRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 6,
+  },
+  socketDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  socketDotSm: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    flexShrink: 0,
+  },
+  socketStatusText: {
+    fontSize: 11,
+    color: Colors.textMuted,
+    flex: 1,
   },
   headerActions: {
     flexDirection: 'row',
@@ -964,6 +1448,28 @@ const styles = StyleSheet.create({
   headerActionIcon: {
     fontSize: 18,
     color: Colors.textSecondary,
+  },
+  headerIconWrap: {
+    position: 'relative',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerBadge: {
+    position: 'absolute',
+    top: -6,
+    right: -10,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#c62828',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  headerBadgeText: {
+    color: '#fff',
+    fontSize: 9,
+    fontWeight: '800',
   },
   searchBox: {
     flexDirection: 'row',
@@ -1170,6 +1676,23 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     fontSize: 12,
   },
+  chatSocketBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    maxWidth: 140,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: Sizes.borderRadiusSm,
+    backgroundColor: Colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  chatSocketBadgeText: {
+    fontSize: 10,
+    color: Colors.textMuted,
+    flex: 1,
+  },
   chatActionBtn: {
     backgroundColor: Colors.surfaceAlt,
     borderRadius: Sizes.borderRadiusSm,
@@ -1269,6 +1792,54 @@ const styles = StyleSheet.create({
     fontSize: 10,
     marginTop: 6,
     alignSelf: 'flex-end',
+  },
+
+  strategyCard: {
+    borderRadius: 12,
+    padding: 12,
+    minWidth: 220,
+    borderWidth: 1,
+    borderColor: Colors.primaryBorder,
+    backgroundColor: Colors.surfaceAlt,
+  },
+  strategyCardMe: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primaryDim,
+  },
+  strategyCardOther: {
+    borderColor: Colors.glassBorder,
+  },
+  strategyCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  strategyCardTitle: {
+    flex: 1,
+    color: Colors.textActive,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  strategyCardPct: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  strategyCardMeta: {
+    marginTop: 6,
+    color: Colors.textMuted,
+    fontSize: 11,
+  },
+  strategyCardBar: {
+    marginTop: 10,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: Colors.border,
+    overflow: 'hidden',
+  },
+  strategyCardBarFill: {
+    height: '100%',
+    borderRadius: 2,
   },
 
   /* ── Input Bar ── */
@@ -1389,6 +1960,12 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     fontSize: 13,
     marginTop: 2,
+  },
+  traderStatLine: {
+    color: Colors.textSecondary,
+    fontSize: 13,
+    marginTop: 8,
+    fontWeight: '600',
   },
   traderStatsGrid: {
     flexDirection: 'row',
