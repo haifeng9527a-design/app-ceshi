@@ -13,6 +13,7 @@ export default function TabLayout() {
   const { width } = useWindowDimensions();
   const isDesktop = width >= 1024;
   const user = useAuthStore((s) => s.user);
+  const totalUnread = useMessagesStore((s) => s.totalUnread);
   const connectWs = useMessagesStore((s) => s.connectWs);
   const disconnectWs = useMessagesStore((s) => s.disconnectWs);
   const loadConversations = useMessagesStore((s) => s.loadConversations);
@@ -139,6 +140,8 @@ export default function TabLayout() {
             options={{
               title: t('messages.title'),
               tabBarIcon: ({ color }) => null,
+              tabBarBadge: totalUnread > 0 ? (totalUnread > 99 ? '99+' : totalUnread) : undefined,
+              tabBarBadgeStyle: { backgroundColor: '#F6465D', fontSize: 10, fontWeight: '700' },
             }}
           />
           <Tabs.Screen

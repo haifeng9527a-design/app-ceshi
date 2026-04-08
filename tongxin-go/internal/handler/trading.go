@@ -258,3 +258,23 @@ func (h *TradingHandler) GetHistory(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, orders)
 }
+
+// GET /api/trading/fee-schedule — public, returns VIP fee tiers
+func (h *TradingHandler) GetFeeSchedule(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, service.GetFeeSchedule())
+}
+
+// GET /api/trading/vip-info — authenticated, returns user's VIP level and fee rates
+func (h *TradingHandler) GetVipInfo(w http.ResponseWriter, r *http.Request) {
+	uid := middleware.GetUserUID(r.Context())
+	if uid == "" {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	info, err := h.tradingSvc.GetVipInfo(r.Context(), uid)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get VIP info")
+		return
+	}
+	writeJSON(w, http.StatusOK, info)
+}

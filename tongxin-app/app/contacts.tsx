@@ -53,6 +53,7 @@ export default function ContactsScreen() {
   const outgoingFriendRequests = useMessagesStore((s) => s.outgoingFriendRequests);
   const loadFriends = useMessagesStore((s) => s.loadFriends);
   const loadFriendRequests = useMessagesStore((s) => s.loadFriendRequests);
+  const friendsError = useMessagesStore((s) => s.friendsError);
 
   const [profiles, setProfiles] = useState<Record<string, PeerProfile>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -74,6 +75,7 @@ export default function ContactsScreen() {
 
   const refresh = useCallback(() => {
     if (!user) return;
+    console.log('[Contacts] refresh start:', { uid: user.uid });
     loadFriends();
     void loadFriendRequests();
   }, [user, loadFriends, loadFriendRequests]);
@@ -85,6 +87,17 @@ export default function ContactsScreen() {
   );
 
   const profileIdsKey = profileIds.join(',');
+
+  useEffect(() => {
+    console.log('[Contacts] render state:', {
+      userId: user?.uid ?? null,
+      friendsCount: friends.length,
+      sortedFriendsCount: sortedFriends.length,
+      incomingCount: incomingFriendRequests.length,
+      outgoingCount: outgoingFriendRequests.length,
+      friendsError,
+    });
+  }, [user?.uid, friends.length, sortedFriends.length, incomingFriendRequests.length, outgoingFriendRequests.length, friendsError]);
 
   useEffect(() => {
     if (profileIds.length === 0) {
@@ -252,8 +265,16 @@ export default function ContactsScreen() {
         {/* 好友列表 */}
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>{t('contacts.myFriends')}</Text>
+          {friendsError ? (
+            <Text style={[styles.emptyHint, { color: Colors.down }]}>
+              好友列表加载失败: {friendsError}
+            </Text>
+          ) : null}
           {sortedFriends.length === 0 ? (
-            <Text style={styles.emptyHint}>{t('contacts.noFriendsYet')}</Text>
+            <Text style={styles.emptyHint}>
+              {t('contacts.noFriendsYet')}
+              {user?.uid ? ` (uid: ${user.uid})` : ''}
+            </Text>
           ) : (
             sortedFriends.map((f) => (
               <TouchableOpacity

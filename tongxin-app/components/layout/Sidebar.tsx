@@ -4,6 +4,7 @@ import { useRouter, usePathname } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { Colors, Sizes, Shadows } from '../../theme/colors';
 import { useAuthStore } from '../../services/store/authStore';
+import { useMessagesStore } from '../../services/store/messagesStore';
 import { marketWs } from '../../services/websocket/marketWs';
 
 interface NavItem {
@@ -21,6 +22,7 @@ export default function Sidebar() {
   const router = useRouter();
   const pathname = usePathname();
   const { user, signOut } = useAuthStore();
+  const totalUnread = useMessagesStore((s) => s.totalUnread);
   const [collapsed, setCollapsed] = useState(false);
 
   // Network status
@@ -102,15 +104,27 @@ export default function Sidebar() {
               activeOpacity={0.7}
               onPress={() => router.push(item.route as any)}
             >
-              <Text style={[styles.navIcon, collapsed && styles.navIconCollapsed]}>
-                {item.icon}
-              </Text>
+              <View style={{ position: 'relative' }}>
+                <Text style={[styles.navIcon, collapsed && styles.navIconCollapsed]}>
+                  {item.icon}
+                </Text>
+                {item.key === 'messages' && totalUnread > 0 && collapsed && (
+                  <View style={styles.badgeDotSmall} />
+                )}
+              </View>
               {!collapsed && (
                 <Text style={[styles.navLabel, active && styles.navLabelActive]}>
                   {item.label}
                 </Text>
               )}
-              {active && !collapsed && <View style={styles.activeDot} />}
+              {item.key === 'messages' && totalUnread > 0 && !collapsed && (
+                <View style={styles.unreadBadge}>
+                  <Text style={styles.unreadBadgeText}>
+                    {totalUnread > 99 ? '99+' : totalUnread}
+                  </Text>
+                </View>
+              )}
+              {active && !collapsed && item.key !== 'messages' && <View style={styles.activeDot} />}
             </TouchableOpacity>
           );
         })}
@@ -313,6 +327,29 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 3,
     backgroundColor: Colors.primary,
+  },
+  unreadBadge: {
+    backgroundColor: '#F6465D',
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 5,
+  },
+  unreadBadgeText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  badgeDotSmall: {
+    position: 'absolute',
+    top: -2,
+    right: -4,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#F6465D',
   },
 
   /* ── Bottom ── */

@@ -1,0 +1,12 @@
+-- VIP 等级 + 交易手续费
+-- VIP0-VIP5，不同等级对应不同 maker/taker 费率
+
+-- 用户 VIP 等级（默认 VIP0）
+ALTER TABLE users ADD COLUMN IF NOT EXISTS vip_level INT NOT NULL DEFAULT 0;
+
+-- 订单手续费（开仓时记录）
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS fee NUMERIC(20,8) NOT NULL DEFAULT 0;
+
+-- 仓位手续费（开仓 + 平仓分开记录）
+ALTER TABLE positions ADD COLUMN IF NOT EXISTS open_fee NUMERIC(20,8) NOT NULL DEFAULT 0;
+ALTER TABLE positions ADD COLUMN IF NOT EXISTS close_fee NUMERIC(20,8) NOT NULL DEFAULT 0;

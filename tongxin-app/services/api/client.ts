@@ -398,3 +398,27 @@ export async function fetchIndices(): Promise<IndexQuote[]> {
 
   return [];
 }
+
+// ── VIP & Fee ──
+
+export interface VipFeeRate {
+  level: number;
+  maker_fee: number;
+  taker_fee: number;
+}
+
+export interface VipInfo {
+  vip_level: number;
+  maker_fee: number;
+  taker_fee: number;
+}
+
+export async function fetchFeeSchedule(): Promise<VipFeeRate[]> {
+  const { data } = await apiClient.get('/api/trading/fee-schedule');
+  return data;
+}
+
+export async function fetchVipInfo(): Promise<VipInfo> {
+  const { data } = await apiClient.get('/api/trading/vip-info');
+  return data;
+}

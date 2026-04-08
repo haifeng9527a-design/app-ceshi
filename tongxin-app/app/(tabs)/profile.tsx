@@ -94,8 +94,8 @@ export default function ProfileScreen() {
           {/* Avatar with level badge */}
           <View style={s.avatarWrap}>
             <AvatarCircle name={user.displayName || user.email || 'U'} size={80} />
-            <View style={s.levelBadge}>
-              <Text style={s.levelText}>Lv.0</Text>
+            <View style={[s.levelBadge, (user.vipLevel ?? 0) >= 3 && { backgroundColor: '#FFB800' }]}>
+              <Text style={s.levelText}>VIP{user.vipLevel ?? 0}</Text>
             </View>
           </View>
 

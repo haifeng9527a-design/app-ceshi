@@ -133,19 +133,18 @@ func (h *MarketHandler) Candles(w http.ResponseWriter, r *http.Request) {
 		to = msToDate(toMs)
 	}
 
-	// Route crypto symbols to Binance, everything else to Polygon
+	// Route crypto symbols to Binance first, fallback to Polygon
 	if isCryptoDisplaySymbol(symbol) {
 		data, err := h.binance.GetKlines(symbol, timeframe, 0, 0, 500)
-		if err != nil {
-			log.Printf("[candles] binance error for %s: %v", symbol, err)
-			writeError(w, http.StatusBadGateway, "binance request failed")
+		if err == nil {
+			writeJSON(w, http.StatusOK, data)
 			return
 		}
-		writeJSON(w, http.StatusOK, data)
-		return
+		log.Printf("[candles] binance error for %s, falling back to polygon: %v", symbol, err)
+		// Fall through to Polygon
 	}
 
-	// Non-crypto: use Polygon
+	// Use Polygon for all symbols (stocks, forex, crypto fallback)
 	if from == "" {
 		from = time.Now().AddDate(-1, 0, 0).Format("2006-01-02")
 	}
@@ -155,7 +154,7 @@ func (h *MarketHandler) Candles(w http.ResponseWriter, r *http.Request) {
 
 	data, err := h.polygon.GetCandlesParsed(symbol, timeframe, from, to)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "polygon request failed")
+		writeError(w, http.StatusBadGateway, "data request failed")
 		return
 	}
 

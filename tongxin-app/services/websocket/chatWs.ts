@@ -10,6 +10,7 @@ function wsChatOrigin(): string {
 }
 import { getStoredToken } from '../api/client';
 import type { ApiMessage } from '../api/messagesApi';
+import type { CallRecord } from '../api/callsApi';
 
 type NewMessageCallback = (message: ApiMessage) => void;
 type ErrorCallback = (error: string) => void;
@@ -28,6 +29,13 @@ export type FriendAcceptedWsPayload = {
 
 type FriendRequestCallback = (payload: FriendRequestWsPayload) => void;
 type FriendAcceptedCallback = (payload: FriendAcceptedWsPayload) => void;
+type CallEventType = 'call_invite' | 'call_accepted' | 'call_rejected' | 'call_ended';
+export type CallWsPayload = {
+  type: CallEventType;
+  call: CallRecord;
+  actor_id?: string;
+};
+type CallEventCallback = (payload: CallWsPayload) => void;
 
 /**
  * Chat WebSocket Service
@@ -48,6 +56,7 @@ class ChatWebSocket {
   private connectedListeners = new Set<ConnectedCallback>();
   private friendRequestListeners = new Set<FriendRequestCallback>();
   private friendAcceptedListeners = new Set<FriendAcceptedCallback>();
+  private callEventListeners = new Set<CallEventCallback>();
 
   private _connected = false;
   /** 供 zustand 同步 wsConnected（含断线重连成功） */
@@ -258,6 +267,14 @@ class ChatWebSocket {
     this.friendAcceptedListeners.delete(callback);
   }
 
+  onCallEvent(callback: CallEventCallback) {
+    this.callEventListeners.add(callback);
+  }
+
+  offCallEvent(callback: CallEventCallback) {
+    this.callEventListeners.delete(callback);
+  }
+
   private send(data: Record<string, any>) {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(data));
@@ -277,8 +294,11 @@ class ChatWebSocket {
         }
         break;
       case 'error':
-        console.warn('[ChatWS] Server error:', data.error);
-        this.errorListeners.forEach((cb) => cb(data.error));
+        {
+          const message = String(data.message ?? data.error ?? 'unknown error');
+          console.warn('[ChatWS] Server error:', message);
+          this.errorListeners.forEach((cb) => cb(message));
+        }
         break;
       case 'pong':
         // heartbeat response
@@ -299,6 +319,20 @@ class ChatWebSocket {
             accepter_display_name: data.accepter_display_name,
           }),
         );
+        break;
+      case 'call_invite':
+      case 'call_accepted':
+      case 'call_rejected':
+      case 'call_ended':
+        if (data.call) {
+          this.callEventListeners.forEach((cb) =>
+            cb({
+              type: data.type,
+              call: data.call,
+              actor_id: data.actor_id ? String(data.actor_id) : undefined,
+            }),
+          );
+        }
         break;
       default:
         break;

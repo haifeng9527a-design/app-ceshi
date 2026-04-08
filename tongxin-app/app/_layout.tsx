@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { Platform } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Colors } from '../theme/colors';
@@ -7,9 +8,22 @@ import { useMarketStore } from '../services/store/marketStore';
 import { useAuthStore } from '../services/store/authStore';
 import '../i18n';
 
+let livekitGlobalsReady = false;
+
 export default function RootLayout() {
   const setWsConnected = useMarketStore((s) => s.setWsConnected);
   const initialize = useAuthStore((s) => s.initialize);
+
+  useEffect(() => {
+    if (Platform.OS === 'web' || livekitGlobalsReady) return;
+    try {
+      const { registerGlobals } = require('@livekit/react-native');
+      registerGlobals();
+      livekitGlobalsReady = true;
+    } catch (e) {
+      console.warn('[LiveKit] registerGlobals failed:', e);
+    }
+  }, []);
 
   // Initialize Firebase auth listener
   useEffect(() => {

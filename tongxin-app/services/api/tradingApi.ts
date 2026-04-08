@@ -49,6 +49,8 @@ export interface PositionResponse {
   status: string;
   realized_pnl: number;
   close_price?: number;
+  open_fee?: number;
+  close_fee?: number;
   created_at: string;
   closed_at?: string;
 }

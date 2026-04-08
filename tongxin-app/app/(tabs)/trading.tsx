@@ -20,7 +20,7 @@ import PositionCard from '../../components/trading/PositionCard';
 import ClosedPositionCard from '../../components/trading/ClosedPositionCard';
 import OrderCard from '../../components/trading/OrderCard';
 import { usePriceFlash } from '../../hooks/usePriceFlash';
-import { fetchFundingRate } from '../../services/api/client';
+import { fetchFundingRate, fetchVipInfo, type VipInfo } from '../../services/api/client';
 import { Skeleton, SkeletonChart, SkeletonPosition } from '../../components/Skeleton';
 import type { MarketQuote, KlineBar } from '../../services/api/client';
 import TradingViewChart, { type CrosshairData, MA_COLORS, type ChartType, type ActiveIndicator } from '../../components/chart/TradingViewChart';
@@ -767,6 +767,7 @@ export default function TradingScreen() {
   const [showLeverageModal, setShowLeverageModal] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const [crosshairData, setCrosshairData] = useState<CrosshairData | null>(null);
+  const [vipInfo, setVipInfo] = useState<VipInfo | null>(null);
   const [chartType, setChartType] = useState<ChartType>('candle');
   const [showMoreTf, setShowMoreTf] = useState(false);
   const [showIndicatorsPanel, setShowIndicatorsPanel] = useState(false);
@@ -784,6 +785,12 @@ export default function TradingScreen() {
 
   // Funding rate
   const [fundingRate, setFundingRate] = useState<{ fundingRate: string | null; nextFundingTime?: number } | null>(null);
+
+  // Fetch VIP info when user logs in
+  useEffect(() => {
+    if (!user) { setVipInfo(null); return; }
+    fetchVipInfo().then(setVipInfo).catch(() => {});
+  }, [user]);
 
   // Load enabled tools from localStorage on mount
   useEffect(() => {
@@ -1553,6 +1560,35 @@ export default function TradingScreen() {
                 <Text style={s.infoValue}>{calcLiqPrice('long').toFixed(2)} / {calcLiqPrice('short').toFixed(2)}</Text>
               </View>
 
+              {/* VIP & Fee Info */}
+              {vipInfo && (
+                <>
+                  <View style={s.infoRow}>
+                    <Text style={s.infoLabel}>VIP 等级</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <View style={{ backgroundColor: vipInfo.vip_level >= 3 ? '#FFB800' : '#C9A84C', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 1 }}>
+                        <Text style={{ color: '#000', fontSize: 10, fontWeight: '700' }}>VIP{vipInfo.vip_level}</Text>
+                      </View>
+                      <Text style={s.infoValue}>
+                        {orderType === 'limit' ? `Maker ${(vipInfo.maker_fee * 100).toFixed(3)}%` : `Taker ${(vipInfo.taker_fee * 100).toFixed(3)}%`}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={s.infoRow}>
+                    <Text style={s.infoLabel}>预估手续费</Text>
+                    <Text style={s.infoValue}>
+                      {(() => {
+                        const qty = getActualQty();
+                        const price = orderType === 'limit' ? (parseInputNumber(priceInput) || currentPrice) : currentPrice;
+                        const rate = orderType === 'limit' ? vipInfo.maker_fee : vipInfo.taker_fee;
+                        const fee = qty * price * rate;
+                        return fee > 0 ? `${fee.toFixed(4)} USDT` : '--';
+                      })()}
+                    </Text>
+                  </View>
+                </>
+              )}
+
               {/* ── Margin Ratio ── */}
               <View style={s.acctSection}>
                 <View style={s.acctSectionHeader}>
@@ -2046,6 +2082,35 @@ export default function TradingScreen() {
             <Text style={s.infoLabel}>预估强平价</Text>
             <Text style={s.infoValue}>{calcLiqPrice('long').toFixed(2)} / {calcLiqPrice('short').toFixed(2)}</Text>
           </View>
+
+          {/* VIP & Fee Info */}
+          {vipInfo && (
+            <>
+              <View style={s.infoRow}>
+                <Text style={s.infoLabel}>VIP 等级</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <View style={{ backgroundColor: vipInfo.vip_level >= 3 ? '#FFB800' : '#C9A84C', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 1 }}>
+                    <Text style={{ color: '#000', fontSize: 10, fontWeight: '700' }}>VIP{vipInfo.vip_level}</Text>
+                  </View>
+                  <Text style={s.infoValue}>
+                    {orderType === 'limit' ? `Maker ${(vipInfo.maker_fee * 100).toFixed(3)}%` : `Taker ${(vipInfo.taker_fee * 100).toFixed(3)}%`}
+                  </Text>
+                </View>
+              </View>
+              <View style={s.infoRow}>
+                <Text style={s.infoLabel}>预估手续费</Text>
+                <Text style={s.infoValue}>
+                  {(() => {
+                    const qty = getActualQty();
+                    const price = orderType === 'limit' ? (parseInputNumber(priceInput) || currentPrice) : currentPrice;
+                    const rate = orderType === 'limit' ? vipInfo.maker_fee : vipInfo.taker_fee;
+                    const fee = qty * price * rate;
+                    return fee > 0 ? `${fee.toFixed(4)} USDT` : '--';
+                  })()}
+                </Text>
+              </View>
+            </>
+          )}
           </>) : (
           /* Close Position Panel (mobile) */
           <View style={{ gap: 8, paddingHorizontal: 4 }}>

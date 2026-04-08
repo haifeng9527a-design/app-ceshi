@@ -2,6 +2,8 @@ package repository
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -11,6 +13,8 @@ import (
 type ConversationRepo struct {
 	pool *pgxpool.Pool
 }
+
+var ErrForbidden = errors.New("forbidden")
 
 func NewConversationRepo(pool *pgxpool.Pool) *ConversationRepo {
 	return &ConversationRepo{pool: pool}
@@ -195,8 +199,13 @@ func (r *ConversationRepo) GetGroupInfo(ctx context.Context, conversationID stri
 	}
 
 	rows, err := r.pool.Query(ctx, `
-		SELECT conversation_id, user_id, role, joined_at
-		FROM conversation_members WHERE conversation_id = $1
+		SELECT cm.conversation_id, cm.user_id, cm.role,
+		       COALESCE(u.display_name,''), COALESCE(u.avatar_url,''), COALESCE(u.short_id,''),
+		       cm.joined_at
+		FROM conversation_members cm
+		LEFT JOIN users u ON u.uid = cm.user_id
+		WHERE cm.conversation_id = $1
+		ORDER BY CASE WHEN cm.role = 'admin' THEN 0 ELSE 1 END, cm.joined_at ASC
 	`, conversationID)
 	if err != nil {
 		return nil, nil, err
@@ -206,12 +215,179 @@ func (r *ConversationRepo) GetGroupInfo(ctx context.Context, conversationID stri
 	var members []model.ConversationMember
 	for rows.Next() {
 		var m model.ConversationMember
-		if err := rows.Scan(&m.ConversationID, &m.UserID, &m.Role, &m.JoinedAt); err != nil {
+		if err := rows.Scan(&m.ConversationID, &m.UserID, &m.Role, &m.DisplayName, &m.AvatarURL, &m.ShortID, &m.JoinedAt); err != nil {
 			return nil, nil, err
 		}
 		members = append(members, m)
 	}
 	return c, members, nil
+}
+
+func (r *ConversationRepo) UpdateGroupInfo(ctx context.Context, requesterUID, conversationID string, req *model.UpdateGroupRequest) error {
+	ok, err := r.isGroupAdmin(ctx, requesterUID, conversationID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrForbidden
+	}
+	_, err = r.pool.Exec(ctx, `
+		UPDATE conversations
+		SET title = COALESCE(NULLIF($2, ''), title),
+		    avatar_url = COALESCE($3, avatar_url)
+		WHERE id = $1 AND type = 'group'
+	`, conversationID, strings.TrimSpace(req.Title), strings.TrimSpace(req.AvatarURL))
+	return err
+}
+
+func (r *ConversationRepo) AddGroupMembers(ctx context.Context, requesterUID, conversationID string, memberIDs []string) error {
+	ok, err := r.isGroupAdmin(ctx, requesterUID, conversationID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrForbidden
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	for _, memberID := range memberIDs {
+		memberID = strings.TrimSpace(memberID)
+		if memberID == "" || memberID == requesterUID {
+			continue
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO conversation_members (conversation_id, user_id, role)
+			VALUES ($1, $2, 'member')
+			ON CONFLICT (conversation_id, user_id) DO NOTHING
+		`, conversationID, memberID); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit(ctx)
+}
+
+func (r *ConversationRepo) RemoveGroupMember(ctx context.Context, requesterUID, conversationID, memberUID string) error {
+	ok, err := r.isGroupAdmin(ctx, requesterUID, conversationID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrForbidden
+	}
+	memberUID = strings.TrimSpace(memberUID)
+	if memberUID == "" {
+		return errors.New("member uid is required")
+	}
+
+	var role string
+	err = r.pool.QueryRow(ctx, `
+		SELECT role FROM conversation_members
+		WHERE conversation_id = $1 AND user_id = $2
+	`, conversationID, memberUID).Scan(&role)
+	if err != nil {
+		return err
+	}
+	if role == "admin" {
+		var adminCount int
+		if err := r.pool.QueryRow(ctx, `
+			SELECT COUNT(*) FROM conversation_members
+			WHERE conversation_id = $1 AND role = 'admin'
+		`, conversationID).Scan(&adminCount); err != nil {
+			return err
+		}
+		if adminCount <= 1 {
+			return errors.New("cannot remove the last admin")
+		}
+	}
+
+	_, err = r.pool.Exec(ctx, `
+		DELETE FROM conversation_members
+		WHERE conversation_id = $1 AND user_id = $2
+	`, conversationID, memberUID)
+	return err
+}
+
+func (r *ConversationRepo) UpdateGroupMemberRole(ctx context.Context, requesterUID, conversationID, memberUID, role string) error {
+	ok, err := r.isGroupOwner(ctx, requesterUID, conversationID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrForbidden
+	}
+
+	memberUID = strings.TrimSpace(memberUID)
+	role = strings.TrimSpace(strings.ToLower(role))
+	if memberUID == "" {
+		return errors.New("member uid is required")
+	}
+	if memberUID == requesterUID {
+		return errors.New("owner role cannot be changed")
+	}
+	if role != "admin" && role != "member" {
+		return errors.New("invalid role")
+	}
+
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE conversation_members
+		SET role = $3
+		WHERE conversation_id = $1 AND user_id = $2
+	`, conversationID, memberUID, role)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return errors.New("member not found")
+	}
+	return nil
+}
+
+func (r *ConversationRepo) DissolveGroup(ctx context.Context, requesterUID, conversationID string) error {
+	ok, err := r.isGroupAdmin(ctx, requesterUID, conversationID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrForbidden
+	}
+	_, err = r.pool.Exec(ctx, `DELETE FROM conversations WHERE id = $1 AND type = 'group'`, conversationID)
+	return err
+}
+
+func (r *ConversationRepo) isGroupAdmin(ctx context.Context, uid, conversationID string) (bool, error) {
+	var ok bool
+	err := r.pool.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1
+			FROM conversation_members cm
+			JOIN conversations c ON c.id = cm.conversation_id
+			WHERE cm.conversation_id = $1
+			  AND cm.user_id = $2
+			  AND cm.role = 'admin'
+			  AND c.type = 'group'
+		)
+	`, conversationID, uid).Scan(&ok)
+	return ok, err
+}
+
+func (r *ConversationRepo) isGroupOwner(ctx context.Context, uid, conversationID string) (bool, error) {
+	var ok bool
+	err := r.pool.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1
+			FROM conversations c
+			WHERE c.id = $1
+			  AND c.type = 'group'
+			  AND c.created_by = $2
+		)
+	`, conversationID, uid).Scan(&ok)
+	return ok, err
 }
 
 func (r *ConversationRepo) IsUserInConversation(ctx context.Context, uid, conversationID string) (bool, error) {

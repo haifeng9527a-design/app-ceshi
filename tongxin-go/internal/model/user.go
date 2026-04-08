@@ -15,6 +15,7 @@ type User struct {
 	IsTrader         bool       `json:"is_trader"`
 	AllowCopyTrading bool       `json:"allow_copy_trading"`
 	TraderApprovedAt *time.Time `json:"trader_approved_at,omitempty"`
+	VipLevel         int        `json:"vip_level"`
 	CreatedAt        time.Time  `json:"created_at"`
 	UpdatedAt        time.Time  `json:"updated_at"`
 }

@@ -25,6 +25,7 @@ type Order struct {
 	MarginAmount float64    `json:"margin_amount"`
 	Status       string     `json:"status"`
 	RejectReason string     `json:"reject_reason,omitempty"`
+	Fee          float64    `json:"fee"`
 	CreatedAt    time.Time  `json:"created_at"`
 	FilledAt     *time.Time `json:"filled_at,omitempty"`
 	CancelledAt  *time.Time `json:"cancelled_at,omitempty"`
@@ -46,6 +47,8 @@ type Position struct {
 	Status       string     `json:"status"`
 	RealizedPnl  float64    `json:"realized_pnl"`
 	ClosePrice   float64    `json:"close_price,omitempty"`
+	OpenFee      float64    `json:"open_fee"`
+	CloseFee     float64    `json:"close_fee"`
 	CreatedAt    time.Time  `json:"created_at"`
 	UpdatedAt    time.Time  `json:"updated_at"`
 	ClosedAt     *time.Time `json:"closed_at,omitempty"`
@@ -89,4 +92,16 @@ type PlaceOrderRequest struct {
 
 type DepositRequest struct {
 	Amount float64 `json:"amount"`
+}
+
+type VipFeeRate struct {
+	Level    int     `json:"level"`
+	MakerFee float64 `json:"maker_fee"`
+	TakerFee float64 `json:"taker_fee"`
+}
+
+type VipInfo struct {
+	VipLevel int     `json:"vip_level"`
+	MakerFee float64 `json:"maker_fee"`
+	TakerFee float64 `json:"taker_fee"`
 }

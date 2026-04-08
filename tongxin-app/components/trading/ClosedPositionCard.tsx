@@ -20,14 +20,18 @@ function formatTime(iso?: string) {
 
 export default function ClosedPositionCard({ position }: Props) {
   const isLong = position.side === 'long';
-  const pnl = position.realized_pnl ?? 0;
-  const pnlColor = pnl >= 0 ? '#0ECB81' : '#F6465D';
+  const grossPnl = position.realized_pnl ?? 0;
+  const openFee = position.open_fee ?? 0;
+  const closeFee = position.close_fee ?? 0;
+  const totalFee = openFee + closeFee;
+  const netPnl = grossPnl - totalFee;
+  const pnlColor = netPnl >= 0 ? '#0ECB81' : '#F6465D';
   const sideColor = isLong ? '#0ECB81' : '#F6465D';
   const sideLabel = isLong ? '多' : '空';
   const marginAmt = position.margin_amount || 1;
-  const roe = marginAmt > 0 ? (pnl / marginAmt) * 100 : 0;
+  const roe = marginAmt > 0 ? (netPnl / marginAmt) * 100 : 0;
   const roeStr = roe >= 0 ? `+${fmt(roe)}%` : `${fmt(roe)}%`;
-  const pnlStr = pnl >= 0 ? `+${fmt(pnl)}` : fmt(pnl);
+  const pnlStr = netPnl >= 0 ? `+${fmt(netPnl)}` : fmt(netPnl);
   const isLiquidated = position.status === 'liquidated';
 
   return (
@@ -73,6 +77,9 @@ export default function ClosedPositionCard({ position }: Props) {
         <DetailItem label="平仓均价" value={position.close_price ? fmt(position.close_price) : '--'} />
         <DetailItem label="开仓时间" value={formatTime(position.created_at)} />
         <DetailItem label="平仓时间" value={formatTime(position.closed_at)} />
+        <DetailItem label="开仓手续费" value={fmt(openFee)} />
+        <DetailItem label="平仓手续费" value={fmt(closeFee)} />
+        <DetailItem label="净盈亏" value={pnlStr} color={pnlColor} />
       </View>
     </View>
   );

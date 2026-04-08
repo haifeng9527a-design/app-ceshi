@@ -123,6 +123,23 @@ export default function TraderDetailScreen() {
   const maxDD = stats?.max_drawdown || 0;
   const followers = stats?.followers_count || 0;
   const totalTrades = stats?.total_trades || 0;
+  const avgPnl = stats?.avg_pnl || 0;
+
+  // Calculate risk score from multiple factors
+  const riskScore = Math.min(100, Math.max(0,
+    Math.round(maxDD * 2 + (100 - winRate) * 0.3 + (totalTrades < 10 ? 20 : 0))
+  ));
+  const riskLevel = riskScore <= 30 ? 'CONSERVATIVE' : riskScore <= 60 ? 'MODERATE' : 'AGGRESSIVE';
+
+  // Sharpe Ratio: normalized to -3..3 range
+  const sharpeRatio = totalTrades > 0
+    ? Math.min(3.0, Math.max(-3.0, (avgPnl / (Math.abs(avgPnl) + Math.abs(maxDD) + 100)) * 3)).toFixed(1)
+    : '0.0';
+  const sharpePct = Math.min(100, Math.max(0, parseFloat(sharpeRatio) / 3 * 100));
+
+  // Volatility from maxDD
+  const volLevel = maxDD <= 5 ? 'Low' : maxDD <= 15 ? 'Medium' : maxDD <= 30 ? 'High' : 'Extreme';
+  const volPct = Math.min(100, maxDD * 3);
 
   return (
     <View style={styles.container}>
@@ -216,9 +233,9 @@ export default function TraderDetailScreen() {
             glow={pnl > 0}
           />
           <MetricCard
-            label="回报率 ROI"
-            value={`+${(pnl / 10000 * 100).toFixed(1)}%`}
-            color={Colors.up}
+            label="平均盈亏 Avg PnL"
+            value={`${avgPnl >= 0 ? '+' : ''}$${formatMoney(avgPnl)}`}
+            color={avgPnl >= 0 ? Colors.up : Colors.down}
           />
           <MetricCard
             label="胜率 Win Rate"
@@ -237,34 +254,34 @@ export default function TraderDetailScreen() {
         </View>
 
         {/* Row 2: Equity Curve (left) + Risk Matrix & Sentiment (right) */}
-        <View style={[styles.rowGrid, isDesktop && styles.rowGridDesktop]}>
+        <View style={[styles.rowGrid, isDesktop && styles.rowGridDesktop, isDesktop && { alignItems: 'stretch' }]}>
           {/* Equity Curve */}
           <View style={[isDesktop ? { flex: 1, minWidth: 0 } : {}]}>
             <EquityCurve totalPnl={pnl} totalTrades={totalTrades} />
           </View>
 
           {/* Risk Matrix + Sentiment */}
-          <View style={[{ gap: 16 }, isDesktop && { width: 300, flexShrink: 0 }]}>
+          <View style={[{ gap: 12 }, isDesktop && { width: 340, flexShrink: 0 }]}>
             {/* Risk Matrix */}
-            <View style={[styles.glassCard, { marginBottom: 0 }]}>
+            <View style={[styles.glassCard, { marginBottom: 0, flex: 1 }]}>
               <Text style={styles.sectionTitle}>风险指数 Risk Matrix</Text>
               <View style={styles.riskHeader}>
                 <View>
                   <Text style={styles.riskScore}>
-                    {maxDD <= 10 ? '15' : maxDD <= 20 ? '28' : '60'}
+                    {riskScore}
                     <Text style={styles.riskScoreUnit}>/100</Text>
                   </Text>
                   <Text style={styles.riskLabel}>
-                    {maxDD <= 10 ? 'CONSERVATIVE PROFILE' : maxDD <= 20 ? 'MODERATE PROFILE' : 'AGGRESSIVE PROFILE'}
+                    {riskLevel} PROFILE
                   </Text>
                 </View>
                 <Text style={styles.shieldIcon}>🛡</Text>
               </View>
               <View style={styles.riskMetrics}>
-                <RiskBar label="夏普比率 Sharpe Ratio" value={winRate > 60 ? '2.4' : winRate > 40 ? '1.2' : '0.6'} pct={winRate > 60 ? 75 : winRate > 40 ? 45 : 20} />
-                <RiskBar label="波动率 Volatility" value={maxDD <= 10 ? 'Low' : maxDD <= 20 ? 'Med' : 'High'} pct={maxDD <= 10 ? 25 : maxDD <= 20 ? 55 : 80} />
+                <RiskBar label="夏普比率 Sharpe Ratio" value={sharpeRatio} pct={sharpePct} />
+                <RiskBar label="波动率 Volatility" value={volLevel} pct={volPct} />
               </View>
-              <View style={styles.riskNote}>
+              <View style={[styles.riskNote, { flex: 1, justifyContent: 'flex-end' }]}>
                 <Text style={styles.riskNoteText}>
                   {maxDD <= 15
                     ? '资金管理严格，近30日无大笔异常回撤。适合稳健型投资者。'

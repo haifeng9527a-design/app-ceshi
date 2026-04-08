@@ -106,20 +106,51 @@ func (r *WalletRepo) UnfreezeMargin(ctx context.Context, userID string, amount f
 	return nil
 }
 
+// ChargeFee deducts a fee from the user's balance and records a wallet transaction.
+func (r *WalletRepo) ChargeFee(ctx context.Context, userID string, amount float64, refID, note string) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("charge fee begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var balanceAfter float64
+	err = tx.QueryRow(ctx,
+		`UPDATE wallets SET balance = balance - $2, updated_at = NOW()
+		 WHERE user_id = $1
+		 RETURNING balance`,
+		userID, amount).Scan(&balanceAfter)
+	if err != nil {
+		return fmt.Errorf("charge fee update: %w", err)
+	}
+
+	_, err = tx.Exec(ctx,
+		`INSERT INTO wallet_transactions (user_id, type, amount, balance_after, ref_id, note)
+		 VALUES ($1, 'fee', $2, $3, $4, $5)`,
+		userID, -amount, balanceAfter, refID, note)
+	if err != nil {
+		return fmt.Errorf("charge fee record tx: %w", err)
+	}
+
+	return tx.Commit(ctx)
+}
+
 // SettleTrade unfreezes margin and applies PnL when closing a position.
-func (r *WalletRepo) SettleTrade(ctx context.Context, userID string, unfreezeAmount, pnl float64) error {
+// closeFee is deducted from the settlement amount.
+func (r *WalletRepo) SettleTrade(ctx context.Context, userID string, unfreezeAmount, pnl, closeFee float64) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("settle begin tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
+	// balance += margin + pnl - closeFee
 	var balanceAfter float64
 	err = tx.QueryRow(ctx,
-		`UPDATE wallets SET balance = balance + $2 + $3, frozen = frozen - $2, updated_at = NOW()
+		`UPDATE wallets SET balance = balance + $2 + $3 - $4, frozen = frozen - $2, updated_at = NOW()
 		 WHERE user_id = $1
 		 RETURNING balance`,
-		userID, unfreezeAmount, pnl).Scan(&balanceAfter)
+		userID, unfreezeAmount, pnl, closeFee).Scan(&balanceAfter)
 	if err != nil {
 		return fmt.Errorf("settle update: %w", err)
 	}
@@ -127,9 +158,19 @@ func (r *WalletRepo) SettleTrade(ctx context.Context, userID string, unfreezeAmo
 	_, err = tx.Exec(ctx,
 		`INSERT INTO wallet_transactions (user_id, type, amount, balance_after, note)
 		 VALUES ($1, 'trade_pnl', $2, $3, 'Position closed')`,
-		userID, pnl, balanceAfter)
+		userID, pnl, balanceAfter+closeFee)
 	if err != nil {
-		return fmt.Errorf("settle record tx: %w", err)
+		return fmt.Errorf("settle record pnl tx: %w", err)
+	}
+
+	if closeFee > 0 {
+		_, err = tx.Exec(ctx,
+			`INSERT INTO wallet_transactions (user_id, type, amount, balance_after, note)
+			 VALUES ($1, 'fee', $2, $3, 'Close position fee')`,
+			userID, -closeFee, balanceAfter)
+		if err != nil {
+			return fmt.Errorf("settle record fee tx: %w", err)
+		}
 	}
 
 	return tx.Commit(ctx)

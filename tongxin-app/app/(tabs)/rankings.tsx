@@ -13,6 +13,7 @@ import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { Colors, Shadows } from '../../theme/colors';
 import { getTraderRankings, TraderRankingItem } from '../../services/api/traderApi';
+import TraderDetailPanel from '../../components/trader/TraderDetailPanel';
 
 type SortBy = 'pnl' | 'win_rate' | 'followers' | 'trades';
 
@@ -327,6 +328,7 @@ export default function RankingsScreen() {
   const [traders, setTraders] = useState<TraderRankingItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedTrader, setSelectedTrader] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
@@ -350,7 +352,7 @@ export default function RankingsScreen() {
   };
 
   const navigateToTrader = (uid: string) => {
-    router.push(`/trader/${uid}` as any);
+    setSelectedTrader(uid);
   };
 
   const SORT_OPTIONS: { key: SortBy; label: string }[] = [
@@ -367,6 +369,20 @@ export default function RankingsScreen() {
     return (
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
         <ActivityIndicator size="large" color={Colors.primary} />
+      </View>
+    );
+  }
+
+  // Show trader detail (full page within tab)
+  if (selectedTrader) {
+    return (
+      <View style={styles.container}>
+        <TraderDetailPanel
+          key={selectedTrader}
+          uid={selectedTrader}
+          embedded
+          onClose={() => setSelectedTrader(null)}
+        />
       </View>
     );
   }
@@ -528,4 +544,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#1c1b1b',
   },
   colText: { fontSize: 9, fontWeight: '600', color: Colors.textSecondary, letterSpacing: 1.5 },
+
+  // ── Split Layout ──
+  splitLayout: {
+    flexDirection: 'row',
+  },
+  detailPanel: {
+    width: 420,
+    flexShrink: 0,
+    borderLeftWidth: 1,
+    borderLeftColor: Colors.border,
+    backgroundColor: Colors.background,
+  },
 });

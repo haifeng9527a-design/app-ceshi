@@ -37,11 +37,11 @@ func (r *PositionRepo) UpsertPosition(ctx context.Context, p *model.Position) (*
 		// Create new position
 		err = tx.QueryRow(ctx,
 			`INSERT INTO positions (user_id, symbol, side, qty, entry_price, leverage,
-			 margin_mode, margin_amount, liq_price, tp_price, sl_price, status)
-			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'open')
+			 margin_mode, margin_amount, liq_price, tp_price, sl_price, open_fee, status)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'open')
 			 RETURNING id, created_at, updated_at`,
 			p.UserID, p.Symbol, p.Side, p.Qty, p.EntryPrice, p.Leverage,
-			p.MarginMode, p.MarginAmount, p.LiqPrice, p.TpPrice, p.SlPrice).
+			p.MarginMode, p.MarginAmount, p.LiqPrice, p.TpPrice, p.SlPrice, p.OpenFee).
 			Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt)
 		if err != nil {
 			return nil, fmt.Errorf("insert position: %w", err)
@@ -58,14 +58,14 @@ func (r *PositionRepo) UpsertPosition(ctx context.Context, p *model.Position) (*
 		// liq_price will be recalculated by the service layer after upsert
 		err = tx.QueryRow(ctx,
 			`UPDATE positions SET qty = $2, entry_price = $3, margin_amount = $4,
-			 updated_at = NOW()
+			 open_fee = open_fee + $5, updated_at = NOW()
 			 WHERE id = $1
 			 RETURNING id, user_id, symbol, side, qty, entry_price, leverage,
-			 margin_mode, margin_amount, liq_price, status, realized_pnl, created_at, updated_at`,
-			existing.ID, newQty, newAvgEntry, newMargin).
+			 margin_mode, margin_amount, liq_price, status, realized_pnl, open_fee, close_fee, created_at, updated_at`,
+			existing.ID, newQty, newAvgEntry, newMargin, p.OpenFee).
 			Scan(&p.ID, &p.UserID, &p.Symbol, &p.Side, &p.Qty, &p.EntryPrice,
 				&p.Leverage, &p.MarginMode, &p.MarginAmount, &p.LiqPrice,
-				&p.Status, &p.RealizedPnl, &p.CreatedAt, &p.UpdatedAt)
+				&p.Status, &p.RealizedPnl, &p.OpenFee, &p.CloseFee, &p.CreatedAt, &p.UpdatedAt)
 		if err != nil {
 			return nil, fmt.Errorf("update position: %w", err)
 		}
@@ -82,12 +82,12 @@ func (r *PositionRepo) GetByID(ctx context.Context, id string) (*model.Position,
 	err := r.pool.QueryRow(ctx,
 		`SELECT id, user_id, symbol, side, qty, entry_price, leverage,
 		 margin_mode, margin_amount, liq_price, tp_price, sl_price,
-		 status, realized_pnl, created_at, updated_at
+		 status, realized_pnl, open_fee, close_fee, created_at, updated_at
 		 FROM positions WHERE id = $1`, id).
 		Scan(&p.ID, &p.UserID, &p.Symbol, &p.Side, &p.Qty, &p.EntryPrice,
 			&p.Leverage, &p.MarginMode, &p.MarginAmount, &p.LiqPrice,
 			&p.TpPrice, &p.SlPrice, &p.Status, &p.RealizedPnl,
-			&p.CreatedAt, &p.UpdatedAt)
+			&p.OpenFee, &p.CloseFee, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("get position: %w", err)
 	}
@@ -98,7 +98,7 @@ func (r *PositionRepo) ListOpen(ctx context.Context, userID string) ([]model.Pos
 	rows, err := r.pool.Query(ctx,
 		`SELECT id, user_id, symbol, side, qty, entry_price, leverage,
 		 margin_mode, margin_amount, liq_price, tp_price, sl_price,
-		 status, realized_pnl, created_at, updated_at
+		 status, realized_pnl, open_fee, close_fee, created_at, updated_at
 		 FROM positions WHERE user_id = $1 AND status = 'open'
 		 ORDER BY created_at DESC`, userID)
 	if err != nil {
@@ -112,7 +112,7 @@ func (r *PositionRepo) ListOpen(ctx context.Context, userID string) ([]model.Pos
 		if err := rows.Scan(&p.ID, &p.UserID, &p.Symbol, &p.Side, &p.Qty, &p.EntryPrice,
 			&p.Leverage, &p.MarginMode, &p.MarginAmount, &p.LiqPrice,
 			&p.TpPrice, &p.SlPrice, &p.Status, &p.RealizedPnl,
-			&p.CreatedAt, &p.UpdatedAt); err != nil {
+			&p.OpenFee, &p.CloseFee, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, err
 		}
 		positions = append(positions, p)
@@ -125,7 +125,7 @@ func (r *PositionRepo) ListAllOpen(ctx context.Context) ([]model.Position, error
 	rows, err := r.pool.Query(ctx,
 		`SELECT id, user_id, symbol, side, qty, entry_price, leverage,
 		 margin_mode, margin_amount, liq_price, tp_price, sl_price,
-		 status, realized_pnl, created_at, updated_at
+		 status, realized_pnl, open_fee, close_fee, created_at, updated_at
 		 FROM positions WHERE status = 'open'`)
 	if err != nil {
 		return nil, fmt.Errorf("list all open positions: %w", err)
@@ -138,7 +138,7 @@ func (r *PositionRepo) ListAllOpen(ctx context.Context) ([]model.Position, error
 		if err := rows.Scan(&p.ID, &p.UserID, &p.Symbol, &p.Side, &p.Qty, &p.EntryPrice,
 			&p.Leverage, &p.MarginMode, &p.MarginAmount, &p.LiqPrice,
 			&p.TpPrice, &p.SlPrice, &p.Status, &p.RealizedPnl,
-			&p.CreatedAt, &p.UpdatedAt); err != nil {
+			&p.OpenFee, &p.CloseFee, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, err
 		}
 		positions = append(positions, p)
@@ -162,12 +162,12 @@ func (r *PositionRepo) UpdateLiqPrice(ctx context.Context, id string, liqPrice f
 	return err
 }
 
-func (r *PositionRepo) ClosePosition(ctx context.Context, id string, realizedPnl float64, closePrice float64) error {
+func (r *PositionRepo) ClosePosition(ctx context.Context, id string, realizedPnl float64, closePrice float64, closeFee float64) error {
 	_, err := r.pool.Exec(ctx,
 		`UPDATE positions SET status = 'closed', realized_pnl = $2, close_price = $3,
-		 closed_at = NOW(), updated_at = NOW()
+		 close_fee = close_fee + $4, closed_at = NOW(), updated_at = NOW()
 		 WHERE id = $1 AND status = 'open'`,
-		id, realizedPnl, closePrice)
+		id, realizedPnl, closePrice, closeFee)
 	if err != nil {
 		return fmt.Errorf("close position: %w", err)
 	}
@@ -187,11 +187,11 @@ func (r *PositionRepo) LiquidatePosition(ctx context.Context, id string, realize
 }
 
 // ReducePosition decreases the qty and margin of an open position (partial close).
-func (r *PositionRepo) ReducePosition(ctx context.Context, id string, newQty, newMargin float64) error {
+func (r *PositionRepo) ReducePosition(ctx context.Context, id string, newQty, newMargin, closeFee float64) error {
 	_, err := r.pool.Exec(ctx,
-		`UPDATE positions SET qty = $2, margin_amount = $3, updated_at = NOW()
+		`UPDATE positions SET qty = $2, margin_amount = $3, close_fee = close_fee + $4, updated_at = NOW()
 		 WHERE id = $1 AND status = 'open'`,
-		id, newQty, newMargin)
+		id, newQty, newMargin, closeFee)
 	return err
 }
 
@@ -203,7 +203,7 @@ func (r *PositionRepo) ListClosed(ctx context.Context, userID string, limit int)
 	rows, err := r.pool.Query(ctx,
 		`SELECT id, user_id, symbol, side, qty, entry_price, leverage,
 		 margin_mode, margin_amount, liq_price, tp_price, sl_price,
-		 status, realized_pnl, COALESCE(close_price, 0),
+		 status, realized_pnl, open_fee, close_fee, COALESCE(close_price, 0),
 		 created_at, updated_at, closed_at
 		 FROM positions WHERE user_id = $1 AND status IN ('closed','liquidated')
 		 ORDER BY closed_at DESC LIMIT $2`, userID, limit)
@@ -217,7 +217,7 @@ func (r *PositionRepo) ListClosed(ctx context.Context, userID string, limit int)
 		var p model.Position
 		if err := rows.Scan(&p.ID, &p.UserID, &p.Symbol, &p.Side, &p.Qty, &p.EntryPrice,
 			&p.Leverage, &p.MarginMode, &p.MarginAmount, &p.LiqPrice,
-			&p.TpPrice, &p.SlPrice, &p.Status, &p.RealizedPnl, &p.ClosePrice,
+			&p.TpPrice, &p.SlPrice, &p.Status, &p.RealizedPnl, &p.OpenFee, &p.CloseFee, &p.ClosePrice,
 			&p.CreatedAt, &p.UpdatedAt, &p.ClosedAt); err != nil {
 			return nil, err
 		}

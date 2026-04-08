@@ -1,6 +1,7 @@
 import { View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { Colors, Sizes } from '../../theme/colors';
+import { useAuthStore } from '../../services/store/authStore';
 
 interface TopBarProps {
   searchQuery: string;
@@ -10,6 +11,7 @@ interface TopBarProps {
 
 export default function TopBar({ searchQuery, onSearchChange, wsConnected }: TopBarProps) {
   const { t } = useTranslation();
+  const user = useAuthStore((s) => s.user);
 
   return (
     <View style={styles.container}>
@@ -50,8 +52,15 @@ export default function TopBar({ searchQuery, onSearchChange, wsConnected }: Top
         {/* User Avatar */}
         <TouchableOpacity style={styles.userArea}>
           <View style={styles.avatar}>
-            <Text style={styles.avatarText}>S</Text>
+            <Text style={styles.avatarText}>
+              {(user?.displayName || user?.email || 'U').charAt(0).toUpperCase()}
+            </Text>
           </View>
+          {user && (
+            <View style={[styles.vipBadge, (user.vipLevel ?? 0) >= 3 && { backgroundColor: '#FFB800' }]}>
+              <Text style={styles.vipBadgeText}>V{user.vipLevel ?? 0}</Text>
+            </View>
+          )}
         </TouchableOpacity>
       </View>
     </View>
@@ -138,6 +147,23 @@ const styles = StyleSheet.create({
   },
   userArea: {
     marginLeft: 4,
+    position: 'relative' as const,
+  },
+  vipBadge: {
+    position: 'absolute' as const,
+    bottom: -4,
+    right: -6,
+    backgroundColor: '#C9A84C',
+    borderRadius: 6,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderWidth: 1.5,
+    borderColor: Colors.topBarBg,
+  },
+  vipBadgeText: {
+    color: '#000',
+    fontSize: 8,
+    fontWeight: '700' as const,
   },
   avatar: {
     width: 36,

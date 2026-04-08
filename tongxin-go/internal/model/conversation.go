@@ -21,6 +21,9 @@ type ConversationMember struct {
 	ConversationID string    `json:"conversation_id"`
 	UserID         string    `json:"user_id"`
 	Role           string    `json:"role,omitempty"` // "admin", "member"
+	DisplayName    string    `json:"display_name,omitempty"`
+	AvatarURL      string    `json:"avatar_url,omitempty"`
+	ShortID        string    `json:"short_id,omitempty"`
 	JoinedAt       time.Time `json:"joined_at"`
 }
 
@@ -31,4 +34,17 @@ type CreateDirectRequest struct {
 type CreateGroupRequest struct {
 	Title     string   `json:"title"`
 	MemberIDs []string `json:"member_ids"`
+}
+
+type UpdateGroupRequest struct {
+	Title     string `json:"title"`
+	AvatarURL string `json:"avatar_url,omitempty"`
+}
+
+type AddGroupMembersRequest struct {
+	MemberIDs []string `json:"member_ids"`
+}
+
+type UpdateGroupMemberRoleRequest struct {
+	Role string `json:"role"`
 }

@@ -6,6 +6,7 @@
  */
 
 const apiBase = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3001';
+const messagesApiBase = process.env.EXPO_PUBLIC_MESSAGES_API_URL || 'http://localhost:4001';
 
 function inferWsUrl(base: string, path: string): string {
   try {
@@ -46,8 +47,9 @@ function resolveWsUrl(explicit: string | undefined, api: string, path: string): 
 
 export const Config = {
   API_BASE_URL: apiBase,
+  MESSAGES_API_BASE_URL: messagesApiBase,
   WS_MARKET_URL: resolveWsUrl(process.env.EXPO_PUBLIC_WS_MARKET_URL, apiBase, '/ws/market'),
   /** 须与 API 同主机；Token：tongxin-go 用登录 JWT；tongxin-backend(Node) 的 /ws/chat 仅校验 Firebase ID Token，与邮箱登录 JWT 不一致时无法连接 */
-  WS_CHAT_URL: resolveWsUrl(process.env.EXPO_PUBLIC_WS_CHAT_URL, apiBase, '/ws/chat'),
+  WS_CHAT_URL: resolveWsUrl(process.env.EXPO_PUBLIC_WS_CHAT_URL, messagesApiBase, '/ws/chat'),
   WS_TRADING_URL: resolveWsUrl(process.env.EXPO_PUBLIC_WS_TRADING_URL, apiBase, '/ws/trading'),
 } as const;

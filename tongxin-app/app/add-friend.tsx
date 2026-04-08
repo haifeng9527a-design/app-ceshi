@@ -268,22 +268,15 @@ export default function AddFriendPage() {
     setSearching(true);
     try {
       const results = await searchUsers(q);
-      const friendIds = new Set(
-        friends.map((f) => normId(f.user_id)).filter(Boolean),
-      );
-      const selfId = normId(user?.uid);
-      setSearchResults(
-        results.filter((r) => {
-          const rid = normId(r.user_id);
-          return !!rid && rid !== selfId && !friendIds.has(rid);
-        }),
-      );
-    } catch {
+      setSearchResults(results.filter((r) => !!normId(r.user_id)));
+    } catch (e) {
+      console.error('[AddFriend] search failed:', e);
       setSearchResults([]);
+      Alert.alert(t('contacts.errorTitle'), t('contacts.actionFailed'));
     } finally {
       setSearching(false);
     }
-  }, [searchQuery, friends, user?.uid]);
+  }, [searchQuery, friends, user?.uid, t]);
 
   const handleSendRequest = useCallback(
     (userId: string) => {
@@ -345,6 +338,8 @@ export default function AddFriendPage() {
   // Filter friends by search locally
   const filteredFriends = friends.filter((f) => {
     if (!searchQuery.trim()) return false;
+    const searchResultIds = new Set(searchResults.map((u) => normId(u.user_id)).filter(Boolean));
+    if (searchResultIds.has(normId(f.user_id))) return false;
     const q = searchQuery.toLowerCase();
     return (
       f.display_name.toLowerCase().includes(q) ||
@@ -459,6 +454,8 @@ export default function AddFriendPage() {
             <Text style={s.sectionLabel}>搜索结果</Text>
             {searchResults.map((u) => {
               const rowUid = normId(u.user_id);
+              const isSelf = rowUid === normId(user?.uid);
+              const isFriend = friends.some((f) => normId(f.user_id) === rowUid);
               return (
               <View key={rowUid || u.email || u.short_id} style={s.userCard}>
                 <AvatarCircle name={u.display_name} size={48} />
@@ -468,6 +465,14 @@ export default function AddFriendPage() {
                 </View>
                 {sendingId === rowUid ? (
                   <ActivityIndicator size="small" color={Colors.primary} style={{ flexShrink: 0 }} />
+                ) : isSelf ? (
+                  <View style={s.selfBtn}>
+                    <Text style={s.selfBtnText} numberOfLines={1}>你自己</Text>
+                  </View>
+                ) : isFriend ? (
+                  <View style={s.addedBtn}>
+                    <Text style={s.addedBtnText} numberOfLines={1}>已添加</Text>
+                  </View>
                 ) : requestSentMap[rowUid] ? (
                   <View style={s.waitingBtn}>
                     <Text style={s.waitingBtnText} numberOfLines={1}>
@@ -813,6 +818,34 @@ const s = StyleSheet.create({
   },
   waitingBtnText: {
     color: Colors.textMuted,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  addedBtn: {
+    flexShrink: 0,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(100, 196, 132, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(100, 196, 132, 0.35)',
+  },
+  addedBtnText: {
+    color: '#8dd3a4',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  selfBtn: {
+    flexShrink: 0,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(116, 116, 140, 0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(136, 136, 166, 0.28)',
+  },
+  selfBtnText: {
+    color: '#b4b7cb',
     fontSize: 12,
     fontWeight: '600',
   },

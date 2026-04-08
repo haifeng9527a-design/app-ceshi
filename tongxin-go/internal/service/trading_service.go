@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -39,6 +40,7 @@ type TradingService struct {
 	walletRepo   *repository.WalletRepo
 	orderRepo    *repository.OrderRepo
 	positionRepo *repository.PositionRepo
+	userRepo     *repository.UserRepo
 	binance      *market.BinanceIngestor
 	polygon      *market.PolygonClient
 	pusher       TradingPusher
@@ -52,10 +54,45 @@ type TradingService struct {
 	openBySymbol map[string][]cachedPosition
 }
 
+// VIP fee schedule: level → (makerFee, takerFee)
+// Market orders = taker, Limit orders = maker
+var vipFeeSchedule = []model.VipFeeRate{
+	{Level: 0, MakerFee: 0.00020, TakerFee: 0.00050},
+	{Level: 1, MakerFee: 0.00016, TakerFee: 0.00040},
+	{Level: 2, MakerFee: 0.00014, TakerFee: 0.00035},
+	{Level: 3, MakerFee: 0.00012, TakerFee: 0.00030},
+	{Level: 4, MakerFee: 0.00010, TakerFee: 0.00025},
+	{Level: 5, MakerFee: 0.00008, TakerFee: 0.00020},
+}
+
+func getVipFeeRates(vipLevel int) (makerFee, takerFee float64) {
+	if vipLevel < 0 || vipLevel >= len(vipFeeSchedule) {
+		vipLevel = 0
+	}
+	r := vipFeeSchedule[vipLevel]
+	return r.MakerFee, r.TakerFee
+}
+
+// GetFeeSchedule returns the full VIP fee schedule.
+func GetFeeSchedule() []model.VipFeeRate {
+	return vipFeeSchedule
+}
+
+// GetVipInfo returns the user's VIP level and fee rates.
+func (s *TradingService) GetVipInfo(ctx context.Context, userID string) (*model.VipInfo, error) {
+	level, err := s.userRepo.GetVipLevel(ctx, userID)
+	if err != nil {
+		level = 0
+	}
+	maker, taker := getVipFeeRates(level)
+	return &model.VipInfo{VipLevel: level, MakerFee: maker, TakerFee: taker}, nil
+}
+
 func NewTradingService(
 	wr *repository.WalletRepo,
 	or *repository.OrderRepo,
 	pr *repository.PositionRepo,
+	ur *repository.UserRepo,
 	bi *market.BinanceIngestor,
 	pg *market.PolygonClient,
 	pusher TradingPusher,
@@ -64,6 +101,7 @@ func NewTradingService(
 		walletRepo:      wr,
 		orderRepo:       or,
 		positionRepo:    pr,
+		userRepo:        ur,
 		binance:         bi,
 		polygon:         pg,
 		pusher:          pusher,
@@ -97,6 +135,14 @@ func (s *TradingService) LoadOpenPositions(ctx context.Context) {
 	s.posMu.Lock()
 	defer s.posMu.Unlock()
 	for _, p := range positions {
+		// For isolated margin, ensure liq_price is correct in DB
+		if p.MarginMode == "isolated" {
+			newLiq := calcLiqPrice(p.EntryPrice, p.Side, p.Qty, p.MarginAmount, "isolated", 0)
+			p.LiqPrice = &newLiq
+			_ = s.positionRepo.UpdateLiqPrice(ctx, p.ID, newLiq)
+		}
+		// For cross margin, liq_price is calculated in real-time (not stored)
+
 		cp := cachedPosition{
 			UserID:       p.UserID,
 			PositionID:   p.ID,
@@ -201,12 +247,94 @@ func (s *TradingService) OnPriceUpdate(symbol string, price float64) {
 
 	// Push real-time PnL updates for all open positions of this symbol
 	s.posMu.RLock()
-	openPositions := s.openBySymbol[symbol]
+	openPositions := make([]cachedPosition, len(s.openBySymbol[symbol]))
+	copy(openPositions, s.openBySymbol[symbol])
+
+	// For cross margin: pre-compute total equity per user
+	// totalEquity = balance + frozen + all unrealized PnL from ALL cross positions (all symbols)
+	type userEquityInfo struct {
+		totalEquity float64
+		allCross    []cachedPosition
+	}
+	equityCache := make(map[string]*userEquityInfo)
+	mmr := 0.005
+
+	// Collect users with cross positions in current symbol
+	crossUsers := make(map[string]bool)
+	for _, cp := range openPositions {
+		if cp.MarginMode == "cross" {
+			crossUsers[cp.UserID] = true
+		}
+	}
+
+	// For each user with cross positions, gather ALL their cross positions across all symbols
+	for uid := range crossUsers {
+		info := &userEquityInfo{}
+		for sym, positions := range s.openBySymbol {
+			for _, p := range positions {
+				if p.UserID != uid || p.MarginMode != "cross" {
+					continue
+				}
+				var symPrice float64
+				if sym == symbol {
+					symPrice = price
+				} else {
+					symPrice, _ = s.getPrice(sym)
+				}
+				var pnl float64
+				if symPrice > 0 {
+					if p.Side == "long" {
+						pnl = (symPrice - p.EntryPrice) * p.Qty
+					} else {
+						pnl = (p.EntryPrice - symPrice) * p.Qty
+					}
+				}
+				info.totalEquity += pnl
+				info.allCross = append(info.allCross, p)
+			}
+		}
+		equityCache[uid] = info
+	}
 	s.posMu.RUnlock()
 
 	var toLiquidate []cachedPosition
 	var toTPSL []cachedPosition
+	ctx := context.Background()
+
+	// Now fetch wallet balances (outside of posMu lock to avoid deadlock)
+	for uid, info := range equityCache {
+		if w, wErr := s.walletRepo.GetWallet(ctx, uid); wErr == nil {
+			info.totalEquity += w.Balance + w.Frozen
+		}
+	}
+
 	for _, cp := range openPositions {
+		// For cross margin, recalculate liq price using total equity
+		if cp.MarginMode == "cross" {
+			if info, ok := equityCache[cp.UserID]; ok {
+				// Available for this position = totalEquity - other positions' maintenance margin
+				var otherMM float64
+				for _, other := range info.allCross {
+					if other.PositionID == cp.PositionID {
+						continue
+					}
+					// Use correct price for each symbol
+					var otherPrice float64
+					if other.Symbol == symbol {
+						otherPrice = price
+					} else {
+						otherPrice, _ = s.getPrice(other.Symbol)
+					}
+					if otherPrice > 0 {
+						otherMM += otherPrice * other.Qty * mmr
+					}
+				}
+				equity := info.totalEquity - otherMM
+				liq := calcLiqPrice(cp.EntryPrice, cp.Side, cp.Qty, cp.MarginAmount, "cross", equity)
+				cp.LiqPrice = &liq
+			}
+		}
+
 		// Check if price hit liquidation level
 		if cp.LiqPrice != nil {
 			liq := *cp.LiqPrice
@@ -324,19 +452,32 @@ func (s *TradingService) placeMarketOrder(ctx context.Context, userID string, re
 
 	margin := (req.Qty * currentPrice) / float64(req.Leverage)
 
+	// Calculate taker fee (market order = taker)
+	vipLevel, _ := s.userRepo.GetVipLevel(ctx, userID)
+	_, takerRate := getVipFeeRates(vipLevel)
+	openFee := math.Round(currentPrice*req.Qty*takerRate*1e8) / 1e8
+
 	// Freeze margin
 	if err := s.walletRepo.FreezeMargin(ctx, userID, margin); err != nil {
 		return nil, fmt.Errorf("%w", err)
 	}
 
-	// Calculate liquidation price
-	var walletBal float64
-	if req.MarginMode == "cross" {
-		if w, err := s.walletRepo.GetWallet(ctx, userID); err == nil {
-			walletBal = w.Balance
+	// Charge opening fee from balance
+	if openFee > 0 {
+		if err := s.walletRepo.ChargeFee(ctx, userID, openFee, "", "Open position fee (taker)"); err != nil {
+			s.walletRepo.UnfreezeMargin(ctx, userID, margin)
+			return nil, fmt.Errorf("insufficient balance for fee: %w", err)
 		}
 	}
-	liqPrice := calcLiqPrice(currentPrice, req.Side, req.Qty, margin, req.MarginMode, walletBal)
+
+	// Calculate liquidation price
+	var liqEquity float64
+	if req.MarginMode == "cross" {
+		if w, err := s.walletRepo.GetWallet(ctx, userID); err == nil {
+			liqEquity = w.Balance + w.Frozen
+		}
+	}
+	liqPrice := calcLiqPrice(currentPrice, req.Side, req.Qty, margin, req.MarginMode, liqEquity)
 
 	now := time.Now()
 	order := &model.Order{
@@ -350,11 +491,11 @@ func (s *TradingService) placeMarketOrder(ctx context.Context, userID string, re
 		MarginMode:   req.MarginMode,
 		MarginAmount: margin,
 		Status:       "filled",
+		Fee:          openFee,
 		FilledAt:     &now,
 	}
 
 	if err := s.orderRepo.Create(ctx, order); err != nil {
-		// Unfreeze on failure
 		s.walletRepo.UnfreezeMargin(ctx, userID, margin)
 		return nil, fmt.Errorf("create order: %w", err)
 	}
@@ -372,6 +513,7 @@ func (s *TradingService) placeMarketOrder(ctx context.Context, userID string, re
 		LiqPrice:     &liqPrice,
 		TpPrice:      req.TpPrice,
 		SlPrice:      req.SlPrice,
+		OpenFee:      openFee,
 	}
 	pos, err = s.positionRepo.UpsertPosition(ctx, pos)
 	if err != nil {
@@ -386,13 +528,13 @@ func (s *TradingService) placeMarketOrder(ctx context.Context, userID string, re
 	}
 
 	// Recalculate liq price based on merged position data
-	var walletBal2 float64
+	var liqEquity2 float64
 	if pos.MarginMode == "cross" {
 		if w, err := s.walletRepo.GetWallet(ctx, userID); err == nil {
-			walletBal2 = w.Balance
+			liqEquity2 = w.Balance + w.Frozen
 		}
 	}
-	newLiq := calcLiqPrice(pos.EntryPrice, pos.Side, pos.Qty, pos.MarginAmount, pos.MarginMode, walletBal2)
+	newLiq := calcLiqPrice(pos.EntryPrice, pos.Side, pos.Qty, pos.MarginAmount, pos.MarginMode, liqEquity2)
 	pos.LiqPrice = &newLiq
 	s.positionRepo.UpdateLiqPrice(ctx, pos.ID, newLiq)
 
@@ -457,17 +599,27 @@ func (s *TradingService) placeLimitOrder(ctx context.Context, userID string, req
 }
 
 func (s *TradingService) fillLimitOrder(ctx context.Context, o *model.Order, fillPrice float64) error {
-	if err := s.orderRepo.FillOrder(ctx, o.ID, fillPrice); err != nil {
+	// Calculate maker fee (limit order = maker)
+	vipLevel, _ := s.userRepo.GetVipLevel(ctx, o.UserID)
+	makerRate, _ := getVipFeeRates(vipLevel)
+	openFee := math.Round(fillPrice*o.Qty*makerRate*1e8) / 1e8
+
+	// Charge fee
+	if openFee > 0 {
+		_ = s.walletRepo.ChargeFee(ctx, o.UserID, openFee, o.ID, "Open position fee (maker)")
+	}
+
+	if err := s.orderRepo.FillOrder(ctx, o.ID, fillPrice, openFee); err != nil {
 		return err
 	}
 
-	var walletBal float64
+	var liqEquity float64
 	if o.MarginMode == "cross" {
 		if w, err := s.walletRepo.GetWallet(ctx, o.UserID); err == nil {
-			walletBal = w.Balance
+			liqEquity = w.Balance + w.Frozen
 		}
 	}
-	liqPrice := calcLiqPrice(fillPrice, o.Side, o.Qty, o.MarginAmount, o.MarginMode, walletBal)
+	liqPrice := calcLiqPrice(fillPrice, o.Side, o.Qty, o.MarginAmount, o.MarginMode, liqEquity)
 
 	pos := &model.Position{
 		UserID:       o.UserID,
@@ -479,6 +631,7 @@ func (s *TradingService) fillLimitOrder(ctx context.Context, o *model.Order, fil
 		MarginMode:   o.MarginMode,
 		MarginAmount: o.MarginAmount,
 		LiqPrice:     &liqPrice,
+		OpenFee:      openFee,
 	}
 	pos, err := s.positionRepo.UpsertPosition(ctx, pos)
 	if err != nil {
@@ -486,13 +639,13 @@ func (s *TradingService) fillLimitOrder(ctx context.Context, o *model.Order, fil
 	}
 
 	// Recalculate liq price based on merged position data
-	var walletBal2 float64
+	var liqEquity2 float64
 	if pos.MarginMode == "cross" {
 		if w, err := s.walletRepo.GetWallet(ctx, o.UserID); err == nil {
-			walletBal2 = w.Balance
+			liqEquity2 = w.Balance + w.Frozen
 		}
 	}
-	newLiq := calcLiqPrice(pos.EntryPrice, pos.Side, pos.Qty, pos.MarginAmount, pos.MarginMode, walletBal2)
+	newLiq := calcLiqPrice(pos.EntryPrice, pos.Side, pos.Qty, pos.MarginAmount, pos.MarginMode, liqEquity2)
 	pos.LiqPrice = &newLiq
 	s.positionRepo.UpdateLiqPrice(ctx, pos.ID, newLiq)
 
@@ -545,17 +698,23 @@ func (s *TradingService) ClosePosition(ctx context.Context, userID, positionID s
 		pnl = (pos.EntryPrice - currentPrice) * pos.Qty
 	}
 
-	// Settle: unfreeze margin + apply PnL
-	if err := s.walletRepo.SettleTrade(ctx, userID, pos.MarginAmount, pnl); err != nil {
+	// Calculate close fee (taker)
+	vipLevel, _ := s.userRepo.GetVipLevel(ctx, userID)
+	_, takerRate := getVipFeeRates(vipLevel)
+	closeFee := math.Round(currentPrice*pos.Qty*takerRate*1e8) / 1e8
+
+	// Settle: unfreeze margin + apply PnL - close fee
+	if err := s.walletRepo.SettleTrade(ctx, userID, pos.MarginAmount, pnl, closeFee); err != nil {
 		return nil, fmt.Errorf("settle trade: %w", err)
 	}
 
-	if err := s.positionRepo.ClosePosition(ctx, positionID, pnl, currentPrice); err != nil {
+	if err := s.positionRepo.ClosePosition(ctx, positionID, pnl, currentPrice, closeFee); err != nil {
 		return nil, fmt.Errorf("close position: %w", err)
 	}
 
 	pos.Status = "closed"
 	pos.RealizedPnl = pnl
+	pos.CloseFee += closeFee
 	pos.ClosePrice = currentPrice
 	pos.CurrentPrice = currentPrice
 	pos.UnrealizedPnl = 0
@@ -605,19 +764,24 @@ func (s *TradingService) PartialClosePosition(ctx context.Context, userID, posit
 		pnl = (pos.EntryPrice - currentPrice) * closeQty
 	}
 
+	// Calculate close fee on partial qty (taker)
+	vipLevel, _ := s.userRepo.GetVipLevel(ctx, userID)
+	_, takerRate := getVipFeeRates(vipLevel)
+	closeFee := math.Round(currentPrice*closeQty*takerRate*1e8) / 1e8
+
 	// Proportional margin release
 	closeFraction := closeQty / pos.Qty
 	releasedMargin := pos.MarginAmount * closeFraction
 	remainingQty := pos.Qty - closeQty
 	remainingMargin := pos.MarginAmount - releasedMargin
 
-	// Settle the closed portion: release proportional margin + PnL
-	if err := s.walletRepo.SettleTrade(ctx, userID, releasedMargin, pnl); err != nil {
+	// Settle the closed portion: release proportional margin + PnL - fee
+	if err := s.walletRepo.SettleTrade(ctx, userID, releasedMargin, pnl, closeFee); err != nil {
 		return nil, fmt.Errorf("settle partial close: %w", err)
 	}
 
-	// Update position with reduced qty and margin
-	if err := s.positionRepo.ReducePosition(ctx, positionID, remainingQty, remainingMargin); err != nil {
+	// Update position with reduced qty and margin, accumulate close_fee
+	if err := s.positionRepo.ReducePosition(ctx, positionID, remainingQty, remainingMargin, closeFee); err != nil {
 		return nil, fmt.Errorf("reduce position: %w", err)
 	}
 
@@ -663,7 +827,7 @@ func (s *TradingService) liquidatePosition(ctx context.Context, cp cachedPositio
 	pnl := -cp.MarginAmount
 
 	// Settle: unfreeze margin, apply PnL (margin is fully lost)
-	if err := s.walletRepo.SettleTrade(ctx, cp.UserID, cp.MarginAmount, pnl); err != nil {
+	if err := s.walletRepo.SettleTrade(ctx, cp.UserID, cp.MarginAmount, pnl, 0); err != nil {
 		log.Printf("[trading] liquidation settle error for %s: %v", cp.PositionID, err)
 		return
 	}
@@ -717,12 +881,17 @@ func (s *TradingService) closePositionByTPSL(ctx context.Context, cp cachedPosit
 		pnl = (cp.EntryPrice - currentPrice) * cp.Qty
 	}
 
-	if err := s.walletRepo.SettleTrade(ctx, cp.UserID, cp.MarginAmount, pnl); err != nil {
+	// Calculate close fee (taker)
+	vipLevel, _ := s.userRepo.GetVipLevel(ctx, cp.UserID)
+	_, takerRate := getVipFeeRates(vipLevel)
+	closeFee := math.Round(currentPrice*cp.Qty*takerRate*1e8) / 1e8
+
+	if err := s.walletRepo.SettleTrade(ctx, cp.UserID, cp.MarginAmount, pnl, closeFee); err != nil {
 		log.Printf("[trading] TP/SL settle error for %s: %v", cp.PositionID, err)
 		return
 	}
 
-	if err := s.positionRepo.ClosePosition(ctx, cp.PositionID, pnl, currentPrice); err != nil {
+	if err := s.positionRepo.ClosePosition(ctx, cp.PositionID, pnl, currentPrice, closeFee); err != nil {
 		log.Printf("[trading] TP/SL close error for %s: %v", cp.PositionID, err)
 		return
 	}
@@ -836,6 +1005,7 @@ func (s *TradingService) ListPositionsWithPnL(ctx context.Context, userID string
 		return nil, err
 	}
 
+	// First pass: compute unrealized PnL and current price for all positions
 	for i := range positions {
 		price, err := s.getPrice(positions[i].Symbol)
 		if err != nil {
@@ -849,6 +1019,15 @@ func (s *TradingService) ListPositionsWithPnL(ctx context.Context, userID string
 		}
 		if positions[i].MarginAmount > 0 {
 			positions[i].ROE = (positions[i].UnrealizedPnl / positions[i].MarginAmount) * 100
+		}
+	}
+
+	// Second pass: recalculate liq price for cross margin using total equity
+	for i := range positions {
+		if positions[i].MarginMode == "cross" {
+			equity := s.calcCrossEquityForPosition(ctx, userID, positions[i].ID, positions)
+			liq := calcLiqPrice(positions[i].EntryPrice, positions[i].Side, positions[i].Qty, positions[i].MarginAmount, "cross", equity)
+			positions[i].LiqPrice = &liq
 		}
 	}
 
@@ -1017,30 +1196,89 @@ func (s *TradingService) getPrice(symbol string) (float64, error) {
 }
 
 // calcLiqPrice calculates the liquidation price.
-//   - isolated: only the position's margin is at risk
-//   - cross: the entire wallet balance backs the position
 //
-// walletBalance is the user's available balance (only used for cross mode).
-func calcLiqPrice(entryPrice float64, side string, qty float64, marginAmount float64, marginMode string, walletBalance float64) float64 {
+// For isolated margin:
+//   availableMargin = marginAmount (only this position's margin)
+//
+// For cross margin:
+//   availableMargin = totalEquity (balance + frozen + all unrealized PnL)
+//     minus maintenance margin of OTHER positions
+//   This is passed in via the walletEquity parameter.
+//
+// Formula:
+//   Long:  liq = (entryPrice * qty - availableMargin) / (qty * (1 - mmr))
+//   Short: liq = (entryPrice * qty + availableMargin) / (qty * (1 + mmr))
+func calcLiqPrice(entryPrice float64, side string, qty float64, marginAmount float64, marginMode string, walletEquity float64) float64 {
+	if qty <= 0 || entryPrice <= 0 {
+		return 0
+	}
+
 	mmr := 0.005 // 0.5% maintenance margin rate
-	maintenanceMargin := entryPrice * qty * mmr
 
 	var availableMargin float64
 	if marginMode == "cross" {
-		availableMargin = walletBalance + marginAmount
+		// walletEquity = total equity available for this position
+		// (total balance + frozen + unrealized PnL - other positions' maintenance margin)
+		availableMargin = walletEquity
 	} else {
-		// isolated: only the position's own margin
 		availableMargin = marginAmount
 	}
 
-	buffer := availableMargin - maintenanceMargin
-	if buffer <= 0 {
-		// Already at or past liquidation
-		return entryPrice
+	notional := entryPrice * qty
+
+	var liqPrice float64
+	if side == "long" {
+		denom := qty * (1.0 - mmr)
+		if denom <= 0 {
+			return 0
+		}
+		liqPrice = (notional - availableMargin) / denom
+		if liqPrice < 0 {
+			liqPrice = 0
+		}
+	} else {
+		denom := qty * (1.0 + mmr)
+		if denom <= 0 {
+			return entryPrice * 2
+		}
+		liqPrice = (notional + availableMargin) / denom
 	}
 
-	if side == "long" {
-		return entryPrice - buffer/qty
+	return math.Round(liqPrice*100) / 100
+}
+
+// calcCrossEquityForPosition calculates the available equity for a specific cross-margin position.
+// totalEquity = balance + frozen + sum(all unrealized PnL)
+// availableForPos = totalEquity - sum(other positions' maintenance margin)
+func (s *TradingService) calcCrossEquityForPosition(ctx context.Context, userID string, positionID string, allPositions []model.Position) float64 {
+	w, err := s.walletRepo.GetWallet(ctx, userID)
+	if err != nil {
+		return 0
 	}
-	return entryPrice + buffer/qty
+	totalEquity := w.Balance + w.Frozen
+
+	mmr := 0.005
+	var otherMM float64
+	for _, p := range allPositions {
+		if p.ID == positionID {
+			continue
+		}
+		// Add unrealized PnL of all positions to equity
+		totalEquity += p.UnrealizedPnl
+		// Subtract maintenance margin of other positions
+		price, _ := s.getPrice(p.Symbol)
+		if price <= 0 {
+			price = p.EntryPrice
+		}
+		otherMM += price * p.Qty * mmr
+	}
+	// Also add this position's unrealized PnL
+	for _, p := range allPositions {
+		if p.ID == positionID {
+			totalEquity += p.UnrealizedPnl
+			break
+		}
+	}
+
+	return totalEquity - otherMM
 }

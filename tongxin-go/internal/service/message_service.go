@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"tongxin-go/internal/model"
@@ -98,4 +99,54 @@ func (s *MessageService) GetGroupInfo(ctx context.Context, conversationID string
 
 func (s *MessageService) GetMemberIDs(ctx context.Context, conversationID string) ([]string, error) {
 	return s.convRepo.GetMemberIDs(ctx, conversationID)
+}
+
+func (s *MessageService) UpdateGroupInfo(ctx context.Context, uid, conversationID string, req *model.UpdateGroupRequest) error {
+	if err := s.convRepo.UpdateGroupInfo(ctx, uid, conversationID, req); err != nil {
+		if errors.Is(err, repository.ErrForbidden) {
+			return ErrForbidden
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *MessageService) AddGroupMembers(ctx context.Context, uid, conversationID string, memberIDs []string) error {
+	if err := s.convRepo.AddGroupMembers(ctx, uid, conversationID, memberIDs); err != nil {
+		if errors.Is(err, repository.ErrForbidden) {
+			return ErrForbidden
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *MessageService) RemoveGroupMember(ctx context.Context, uid, conversationID, memberUID string) error {
+	if err := s.convRepo.RemoveGroupMember(ctx, uid, conversationID, memberUID); err != nil {
+		if errors.Is(err, repository.ErrForbidden) {
+			return ErrForbidden
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *MessageService) DissolveGroup(ctx context.Context, uid, conversationID string) error {
+	if err := s.convRepo.DissolveGroup(ctx, uid, conversationID); err != nil {
+		if errors.Is(err, repository.ErrForbidden) {
+			return ErrForbidden
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *MessageService) UpdateGroupMemberRole(ctx context.Context, uid, conversationID, memberUID, role string) error {
+	if err := s.convRepo.UpdateGroupMemberRole(ctx, uid, conversationID, memberUID, role); err != nil {
+		if errors.Is(err, repository.ErrForbidden) {
+			return ErrForbidden
+		}
+		return err
+	}
+	return nil
 }

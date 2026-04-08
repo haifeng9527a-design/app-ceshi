@@ -39,6 +39,7 @@ interface MessagesState {
 
   // Friends list
   friends: FriendProfile[];
+  friendsError: string | null;
 
   /** 待处理的好友申请（收到的） */
   incomingFriendRequests: ApiFriendRequest[];
@@ -55,7 +56,12 @@ interface MessagesState {
   loadConversations: () => Promise<void>;
   loadMessages: (conversationId: string, previousActiveId?: string | null) => Promise<void>;
   loadMoreMessages: () => Promise<void>;
-  sendMessage: (content: string, messageType?: string) => Promise<void>;
+  sendMessage: (payload: {
+    content?: string;
+    messageType?: ApiMessage['message_type'];
+    mediaUrl?: string;
+    metadata?: Record<string, unknown>;
+  }) => Promise<void>;
   markConversationRead: (conversationId: string) => Promise<void>;
   setActiveConversation: (id: string | null) => void;
   connectWs: () => Promise<void>;
@@ -83,6 +89,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => {
     hasMoreMessages: true,
     peerProfiles: {},
     friends: [],
+    friendsError: null,
     incomingFriendRequests: [],
     outgoingFriendRequests: [],
     totalUnread: 0,
@@ -181,10 +188,11 @@ export const useMessagesStore = create<MessagesState>((set, get) => {
       }
     },
 
-    sendMessage: async (content: string, messageType = 'text') => {
+    sendMessage: async ({ content = '', messageType = 'text', mediaUrl, metadata }) => {
       const { activeConversationId } = get();
       const text = content.trim();
-      if (!activeConversationId || !text) return;
+      const hasMetadata = metadata && Object.keys(metadata).length > 0;
+      if (!activeConversationId || (!text && !mediaUrl && !hasMetadata)) return;
 
       const u = useAuthStore.getState().user;
       const tempId = `opt-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -195,6 +203,8 @@ export const useMessagesStore = create<MessagesState>((set, get) => {
         sender_name: u?.displayName ?? '',
         content: text,
         message_type: (messageType || 'text') as ApiMessage['message_type'],
+        media_url: mediaUrl,
+        metadata,
         created_at: new Date().toISOString(),
       };
 
@@ -226,16 +236,13 @@ export const useMessagesStore = create<MessagesState>((set, get) => {
       try {
         if (chatWs.connected) {
           chatWs.subscribe([activeConversationId]);
-          chatWs.sendMessage(activeConversationId, text, messageType);
-          await new Promise((r) => setTimeout(r, 450));
-          await pullServer();
-          return;
         }
-
         await sendMessageHttp({
           conversation_id: activeConversationId,
           content: text,
           message_type: messageType,
+          media_url: mediaUrl,
+          metadata,
         });
         await pullServer();
       } catch (e) {
@@ -345,9 +352,11 @@ export const useMessagesStore = create<MessagesState>((set, get) => {
     loadFriends: async () => {
       try {
         const friends = await fetchFriends();
-        set({ friends });
+        console.log('[MessagesStore] loadFriends success:', friends.length);
+        set({ friends, friendsError: null });
       } catch (e) {
         console.error('[MessagesStore] loadFriends failed:', e);
+        set({ friendsError: e instanceof Error ? e.message : 'loadFriends failed' });
       }
     },
 

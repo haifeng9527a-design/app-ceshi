@@ -4,12 +4,20 @@
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
+    "start:dev-client": "expo start --dev-client",
     "android": "expo start --android",
+    "android:dev": "expo run:android",
     "ios": "expo start --ios",
+    "ios:dev": "expo run:ios",
     "web": "expo start --web"
   },
   "dependencies": {
+    "@10play/tentap-editor": "^1.0.1",
+    "@config-plugins/react-native-webrtc": "^13.0.0",
     "@expo/metro-runtime": "~6.1.2",
+    "@livekit/react-native": "^2.10.0",
+    "@livekit/react-native-expo-plugin": "^1.0.2",
+    "@livekit/react-native-webrtc": "^144.0.0",
     "@react-native-async-storage/async-storage": "^2.2.0",
     "@supabase/supabase-js": "^2.101.1",
     "axios": "^1.14.0",
@@ -17,6 +25,7 @@
     "expo-barcode-scanner": "^13.0.1",
     "expo-camera": "~17.0.10",
     "expo-constants": "~18.0.13",
+    "expo-dev-client": "^55.0.23",
     "expo-linking": "~8.0.11",
     "expo-localization": "^55.0.11",
     "expo-router": "~6.0.23",
@@ -25,6 +34,7 @@
     "i18next": "^26.0.3",
     "klinecharts": "^9.8.12",
     "lightweight-charts": "^5.1.0",
+    "livekit-client": "^2.18.1",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-i18next": "^17.0.2",
@@ -34,6 +44,7 @@
     "react-native-screens": "~4.16.0",
     "react-native-svg": "15.12.1",
     "react-native-web": "^0.21.0",
+    "react-native-webview": "13.15.0",
     "zustand": "^5.0.12"
   },
   "devDependencies": {

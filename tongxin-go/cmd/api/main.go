@@ -37,6 +37,7 @@ func main() {
 	var msgRepo *repository.MessageRepo
 	var teacherRepo *repository.TeacherRepo
 	var watchlistRepo *repository.WatchlistRepo
+	var callRepo *repository.CallRepo
 
 	var dbCloser func()
 	var pool *pgxpool.Pool
@@ -52,6 +53,7 @@ func main() {
 			friendRepo = repository.NewFriendRepo(pool)
 			convRepo = repository.NewConversationRepo(pool)
 			msgRepo = repository.NewMessageRepo(pool)
+			callRepo = repository.NewCallRepo(pool)
 			teacherRepo = repository.NewTeacherRepo(pool)
 			watchlistRepo = repository.NewWatchlistRepo(pool)
 			log.Println("[OK] Database connected")
@@ -74,6 +76,7 @@ func main() {
 	var friendSvc *service.FriendService
 	var msgSvc *service.MessageService
 	var teacherSvc *service.TeacherService
+	var callSvc *service.CallService
 
 	if userRepo != nil {
 		userSvc = service.NewUserService(userRepo)
@@ -83,6 +86,9 @@ func main() {
 	}
 	if msgRepo != nil && convRepo != nil {
 		msgSvc = service.NewMessageService(msgRepo, convRepo)
+	}
+	if callRepo != nil && convRepo != nil {
+		callSvc = service.NewCallService(callRepo, convRepo)
 	}
 	if teacherRepo != nil {
 		teacherSvc = service.NewTeacherService(teacherRepo)
@@ -275,11 +281,27 @@ func main() {
 		mux.Handle("POST /api/conversations/group", authMw.Authenticate(http.HandlerFunc(convH.CreateGroup)))
 		mux.Handle("PATCH /api/conversations/{id}/read", authMw.Authenticate(http.HandlerFunc(convH.MarkAsRead)))
 		mux.Handle("GET /api/conversations/{id}/group-info", authMw.Authenticate(http.HandlerFunc(convH.GroupInfo)))
+		mux.Handle("PUT /api/conversations/{id}/group-info", authMw.Authenticate(http.HandlerFunc(convH.UpdateGroupInfo)))
+		mux.Handle("POST /api/conversations/{id}/members", authMw.Authenticate(http.HandlerFunc(convH.AddMembers)))
+		mux.Handle("PATCH /api/conversations/{id}/members/{userId}/role", authMw.Authenticate(http.HandlerFunc(convH.UpdateMemberRole)))
+		mux.Handle("DELETE /api/conversations/{id}/members/{userId}", authMw.Authenticate(http.HandlerFunc(convH.RemoveMember)))
+		mux.Handle("DELETE /api/conversations/{id}", authMw.Authenticate(http.HandlerFunc(convH.Dissolve)))
 		mux.Handle("GET /api/conversations/{id}/messages/search", authMw.Authenticate(http.HandlerFunc(msgsH.Search)))
 		mux.Handle("GET /api/conversations/{id}/messages", authMw.Authenticate(http.HandlerFunc(msgsH.ListByConversation)))
 		mux.Handle("POST /api/messages", authMw.Authenticate(http.HandlerFunc(msgsH.Send)))
 		mux.Handle("DELETE /api/messages/{id}", authMw.Authenticate(http.HandlerFunc(msgsH.Delete)))
 		log.Println("[OK] Conversations + Messages routes registered")
+	}
+
+	if callSvc != nil {
+		callsH := handler.NewCallsHandler(callSvc, chatHub, cfg)
+		mux.Handle("POST /api/calls/start", authMw.Authenticate(http.HandlerFunc(callsH.Start)))
+		mux.Handle("GET /api/calls/{id}", authMw.Authenticate(http.HandlerFunc(callsH.Get)))
+		mux.Handle("GET /api/calls/{id}/livekit-token", authMw.Authenticate(http.HandlerFunc(callsH.LiveKitToken)))
+		mux.Handle("POST /api/calls/{id}/accept", authMw.Authenticate(http.HandlerFunc(callsH.Accept)))
+		mux.Handle("POST /api/calls/{id}/reject", authMw.Authenticate(http.HandlerFunc(callsH.Reject)))
+		mux.Handle("POST /api/calls/{id}/end", authMw.Authenticate(http.HandlerFunc(callsH.End)))
+		log.Println("[OK] Calls routes registered")
 	}
 
 	// Chat WebSocket
@@ -333,7 +355,7 @@ func main() {
 
 		tradingHub = ws.NewTradingHub()
 
-		tradingSvc = service.NewTradingService(walletRepo, orderRepo, positionRepo, binance, polygonClient, tradingHub)
+		tradingSvc = service.NewTradingService(walletRepo, orderRepo, positionRepo, userRepo, binance, polygonClient, tradingHub)
 
 		// Load pending limit orders into memory and hook price updates
 		tradingSvc.LoadPendingOrders(context.Background())
@@ -354,6 +376,8 @@ func main() {
 		mux.Handle("GET /api/trading/positions/history", authMw.Authenticate(http.HandlerFunc(tradingH.ListPositionHistory)))
 		mux.Handle("PUT /api/trading/positions/{id}/tp-sl", authMw.Authenticate(http.HandlerFunc(tradingH.UpdateTPSL)))
 		mux.Handle("POST /api/trading/positions/{id}/partial-close", authMw.Authenticate(http.HandlerFunc(tradingH.PartialClosePosition)))
+		mux.HandleFunc("GET /api/trading/fee-schedule", tradingH.GetFeeSchedule)
+		mux.Handle("GET /api/trading/vip-info", authMw.Authenticate(http.HandlerFunc(tradingH.GetVipInfo)))
 
 		// Wallet routes
 		mux.Handle("POST /api/wallet/deposit", authMw.Authenticate(http.HandlerFunc(walletH.Deposit)))
@@ -431,6 +455,24 @@ func main() {
 		mux.Handle("POST /api/admin/trader-applications/{id}/reject", adminTraderAuth(traderH.AdminReject))
 
 		log.Println("[OK] Trader system routes registered")
+
+		// Trader strategies
+		traderStrategyRepo := repository.NewTraderStrategyRepo(pool)
+		traderStrategySvc := service.NewTraderStrategyService(traderStrategyRepo, traderRepo)
+		traderStrategyH := handler.NewTraderStrategyHandler(traderStrategySvc)
+
+		// Public strategy routes
+		mux.HandleFunc("GET /api/strategies/feed", traderStrategyH.Feed)
+		mux.HandleFunc("GET /api/strategies/author/{uid}", traderStrategyH.ListByAuthor)
+		mux.HandleFunc("GET /api/strategies/{id}", traderStrategyH.GetByID)
+
+		// Authenticated strategy routes
+		mux.Handle("POST /api/strategies", authMw.Authenticate(http.HandlerFunc(traderStrategyH.Create)))
+		mux.Handle("GET /api/strategies/my", authMw.Authenticate(http.HandlerFunc(traderStrategyH.ListMy)))
+		mux.Handle("PUT /api/strategies/{id}", authMw.Authenticate(http.HandlerFunc(traderStrategyH.Update)))
+		mux.Handle("DELETE /api/strategies/{id}", authMw.Authenticate(http.HandlerFunc(traderStrategyH.Delete)))
+		mux.Handle("POST /api/strategies/{id}/like", authMw.Authenticate(http.HandlerFunc(traderStrategyH.Like)))
+		log.Println("[OK] Trader strategy routes registered")
 	}
 
 	// Admin

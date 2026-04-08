@@ -13,6 +13,7 @@ export interface UserProfile {
   signature?: string;
   isTrader?: boolean;
   allowCopyTrading?: boolean;
+  vipLevel?: number;
 }
 
 interface AuthState {
@@ -149,5 +150,6 @@ function backendUserToProfile(user: any): UserProfile {
     signature: user.bio || user.signature,
     isTrader: user.is_trader || false,
     allowCopyTrading: user.allow_copy_trading || false,
+    vipLevel: user.vip_level || 0,
   };
 }
