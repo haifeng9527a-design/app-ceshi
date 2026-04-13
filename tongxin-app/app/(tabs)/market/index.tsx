@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo, memo } from 'react';
 import {
   View,
   Text,
@@ -22,6 +22,7 @@ import NewsCard from '../../../components/market/NewsCard';
 import AssetListCard from '../../../components/market/AssetListCard';
 import SearchDropdown from '../../../components/market/SearchDropdown';
 import { Skeleton, SkeletonMarketItem, SkeletonCard } from '../../../components/Skeleton';
+import AppIcon, { type AppIconName } from '../../../components/ui/AppIcon';
 
 // Symbols synced with trading page
 const DEFAULT_CRYPTO = [
@@ -57,26 +58,25 @@ export default function MarketScreen() {
   const isDesktop = screenWidth >= 768;
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const {
-    quotes,
-    indices,
-    news,
-    newsLoading,
-    loadQuotes,
-    loadCryptoQuotes,
-    loadForexQuotes,
-    loadFuturesQuotes,
-    loadNews,
-    loadIndices,
-    wsConnected,
-    updateQuote,
-    updateIndex,
-    setWsConnected,
-    search,
-    searchResults,
-    searchLoading,
-    clearSearch,
-  } = useMarketStore();
+  // Fine-grained selectors to avoid full-store re-renders
+  const quotes = useMarketStore((s) => s.quotes);
+  const indices = useMarketStore((s) => s.indices);
+  const news = useMarketStore((s) => s.news);
+  const newsLoading = useMarketStore((s) => s.newsLoading);
+  const loadQuotes = useMarketStore((s) => s.loadQuotes);
+  const loadCryptoQuotes = useMarketStore((s) => s.loadCryptoQuotes);
+  const loadForexQuotes = useMarketStore((s) => s.loadForexQuotes);
+  const loadFuturesQuotes = useMarketStore((s) => s.loadFuturesQuotes);
+  const loadNews = useMarketStore((s) => s.loadNews);
+  const loadIndices = useMarketStore((s) => s.loadIndices);
+  const wsConnected = useMarketStore((s) => s.wsConnected);
+  const updateQuote = useMarketStore((s) => s.updateQuote);
+  const updateIndex = useMarketStore((s) => s.updateIndex);
+  const setWsConnected = useMarketStore((s) => s.setWsConnected);
+  const search = useMarketStore((s) => s.search);
+  const searchResults = useMarketStore((s) => s.searchResults);
+  const searchLoading = useMarketStore((s) => s.searchLoading);
+  const clearSearch = useMarketStore((s) => s.clearSearch);
 
   const [viewMode, setViewMode] = useState<ViewMode>('overview');
   const [searchQuery, setSearchQuery] = useState('');
@@ -269,7 +269,7 @@ export default function MarketScreen() {
       {/* ── Top Bar ── */}
       <View style={styles.topBar}>
         <View style={styles.searchBox}>
-          <Text style={styles.searchIcon}>🔍</Text>
+          <AppIcon name="search" size={14} color={Colors.textMuted} />
           <TextInput
             style={styles.searchInput}
             placeholder={t('market.searchPairs')}
@@ -294,7 +294,7 @@ export default function MarketScreen() {
             </Text>
           </View>
           <TouchableOpacity style={styles.iconBtn}>
-            <Text style={styles.iconEmoji}>🔔</Text>
+            <AppIcon name="bell" size={16} color={Colors.textSecondary} />
           </TouchableOpacity>
           <View style={styles.avatar}>
             <Text style={styles.avatarText}>S</Text>
@@ -337,10 +337,10 @@ export default function MarketScreen() {
         }
       >
         {viewMode === 'overview' && renderOverview()}
-        {viewMode === 'crypto' && renderCategoryList(cryptoItems, t('market.crypto'), '₿', true)}
-        {viewMode === 'stocks' && renderCategoryList(stockItems, t('market.stocks'), '📊', true)}
-        {viewMode === 'forex' && renderCategoryList(forexItems, t('market.forex'), '💱', true)}
-        {viewMode === 'futures' && renderCategoryList(futuresItems, t('market.futures', { defaultValue: '期货' }), '📋', true)}
+        {viewMode === 'crypto' && renderCategoryList(cryptoItems, t('market.crypto'), 'bitcoin', true)}
+        {viewMode === 'stocks' && renderCategoryList(stockItems, t('market.stocks'), 'market', true)}
+        {viewMode === 'forex' && renderCategoryList(forexItems, t('market.forex'), 'forex', true)}
+        {viewMode === 'futures' && renderCategoryList(futuresItems, t('market.futures', { defaultValue: '期货' }), 'futures', true)}
         {viewMode === 'gainers' && renderGainersLosers()}
       </ScrollView>
     </View>
@@ -390,7 +390,7 @@ export default function MarketScreen() {
           <AssetListCard
             title={t('market.forex')}
             subtitle="GLOBAL MAJORS"
-            icon="💱"
+            icon={<AppIcon name="forex" size={18} color={Colors.primary} />}
             items={forexItems.slice(0, 4)}
             showWatchlistToggle
             onViewAll={() => setViewMode('forex')}
@@ -398,7 +398,7 @@ export default function MarketScreen() {
           <AssetListCard
             title={t('market.stocks')}
             subtitle="ACTIVE NYSE"
-            icon="📊"
+            icon={<AppIcon name="market" size={18} color={Colors.primary} />}
             items={stockItems.slice(0, 4)}
             showWatchlistToggle
             onViewAll={() => setViewMode('stocks')}
@@ -406,7 +406,7 @@ export default function MarketScreen() {
           <AssetListCard
             title={t('market.crypto')}
             subtitle="LIQUIDITY POOL"
-            icon="₿"
+            icon={<AppIcon name="bitcoin" size={18} color={Colors.primary} />}
             items={cryptoItems.slice(0, 4)}
             showWatchlistToggle
             onViewAll={() => setViewMode('crypto')}
@@ -414,7 +414,7 @@ export default function MarketScreen() {
           <AssetListCard
             title={t('market.futures', { defaultValue: '期货' })}
             subtitle="FUTURES"
-            icon="📋"
+            icon={<AppIcon name="futures" size={18} color={Colors.primary} />}
             items={futuresItems.slice(0, 4)}
             showWatchlistToggle
             onViewAll={() => setViewMode('futures')}
@@ -424,14 +424,20 @@ export default function MarketScreen() {
     );
   }
 
-  function renderCategoryList(items: MarketQuote[], title: string, icon: string, showStar: boolean) {
+  function renderCategoryList(items: MarketQuote[], title: string, icon: AppIconName, showStar: boolean) {
     return (
       <>
         <View style={styles.categoryHeader}>
           <TouchableOpacity onPress={() => setViewMode('overview')} style={styles.backBtn}>
-            <Text style={styles.backText}>← {t('market.title')}</Text>
+            <View style={styles.backTextWrap}>
+              <AppIcon name="back" size={16} color={Colors.textMuted} />
+              <Text style={styles.backText}>{t('market.title')}</Text>
+            </View>
           </TouchableOpacity>
-          <Text style={styles.categoryTitle}>{icon} {title}</Text>
+          <View style={styles.categoryTitleWrap}>
+            <AppIcon name={icon} size={18} color={Colors.primary} />
+            <Text style={styles.categoryTitle}>{title}</Text>
+          </View>
           <Text style={styles.categoryCount}>{items.length} {t('market.pair')}</Text>
         </View>
         {/* Column headers */}
@@ -459,16 +465,25 @@ export default function MarketScreen() {
       <>
         <View style={styles.categoryHeader}>
           <TouchableOpacity onPress={() => setViewMode('overview')} style={styles.backBtn}>
-            <Text style={styles.backText}>← {t('market.title')}</Text>
+            <View style={styles.backTextWrap}>
+              <AppIcon name="back" size={16} color={Colors.textMuted} />
+              <Text style={styles.backText}>{t('market.title')}</Text>
+            </View>
           </TouchableOpacity>
-          <Text style={styles.categoryTitle}>🔥 {t('market.gainersLosers')}</Text>
+          <View style={styles.categoryTitleWrap}>
+            <AppIcon name="flame" size={18} color={Colors.primary} />
+            <Text style={styles.categoryTitle}>{t('market.gainersLosers')}</Text>
+          </View>
         </View>
 
         <View style={[styles.glGrid, isDesktop && styles.glGridDesktop]}>
           {/* Gainers */}
           <View style={styles.glCard}>
             <View style={styles.glHeader}>
-              <Text style={[styles.glTitle, { color: Colors.up }]}>📈 {t('market.topGainers')}</Text>
+              <View style={styles.glTitleWrap}>
+                <AppIcon name="trend-up" size={16} color={Colors.up} />
+                <Text style={[styles.glTitle, { color: Colors.up }]}>{t('market.topGainers')}</Text>
+              </View>
             </View>
             {computedGainers.length === 0 ? (
               <Text style={styles.emptyText}>{t('common.noData')}</Text>
@@ -499,7 +514,10 @@ export default function MarketScreen() {
           {/* Losers */}
           <View style={styles.glCard}>
             <View style={styles.glHeader}>
-              <Text style={[styles.glTitle, { color: Colors.down }]}>📉 {t('market.topLosers')}</Text>
+              <View style={styles.glTitleWrap}>
+                <AppIcon name="trend-down" size={16} color={Colors.down} />
+                <Text style={[styles.glTitle, { color: Colors.down }]}>{t('market.topLosers')}</Text>
+              </View>
             </View>
             {computedLosers.length === 0 ? (
               <Text style={styles.emptyText}>{t('common.noData')}</Text>
@@ -534,10 +552,11 @@ export default function MarketScreen() {
 
 // ─── Full list row (used in category views) ──────────
 
-function FullListRow({ item, showStar }: { item: MarketQuote; showStar?: boolean }) {
+const FullListRow = memo(function FullListRow({ item, showStar }: { item: MarketQuote; showStar?: boolean }) {
   const router = useRouter();
-  const { addWatchlist, removeWatchlist, watchlist } = useMarketStore();
-  const isWatched = watchlist.includes(item.symbol);
+  const addWatchlist = useMarketStore((s) => s.addWatchlist);
+  const removeWatchlist = useMarketStore((s) => s.removeWatchlist);
+  const isWatched = useMarketStore((s) => s.watchlist.includes(item.symbol));
   const pct = item.percent_change ?? 0;
   const isUp = pct >= 0;
   const color = isUp ? Colors.up : Colors.down;
@@ -566,14 +585,12 @@ function FullListRow({ item, showStar }: { item: MarketQuote; showStar?: boolean
           onPress={() => isWatched ? removeWatchlist(item.symbol) : addWatchlist(item.symbol)}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
-          <Text style={{ fontSize: 16, color: isWatched ? Colors.primary : Colors.textMuted }}>
-            {isWatched ? '★' : '☆'}
-          </Text>
+          <AppIcon name="watchlist" size={16} color={isWatched ? Colors.primary : Colors.textMuted} />
         </TouchableOpacity>
       )}
     </TouchableOpacity>
   );
-}
+});
 
 function formatPrice(price: number): string {
   if (price >= 10000) return price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -621,7 +638,6 @@ const styles = StyleSheet.create({
     minWidth: 240,
     maxWidth: 360,
   },
-  searchIcon: { fontSize: 13, marginRight: 8 },
   searchInput: { flex: 1, color: Colors.textActive, fontSize: 14 },
   clearBtn: { color: Colors.textMuted, fontSize: 14, paddingLeft: 8 },
   rightSection: { flexDirection: 'row', alignItems: 'center', gap: 12 },
@@ -638,7 +654,6 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border,
     justifyContent: 'center', alignItems: 'center',
   },
-  iconEmoji: { fontSize: 16 },
   avatar: {
     width: 36, height: 36, borderRadius: 18,
     backgroundColor: Colors.primaryDim, borderWidth: 1, borderColor: Colors.primaryBorder,
@@ -703,7 +718,9 @@ const styles = StyleSheet.create({
   // ── Category View ──
   categoryHeader: { marginBottom: 16 },
   backBtn: { marginBottom: 8 },
+  backTextWrap: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   backText: { color: Colors.primary, fontSize: 13, fontWeight: '600' },
+  categoryTitleWrap: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   categoryTitle: { color: Colors.textActive, fontSize: 24, fontWeight: '800' },
   categoryCount: { color: Colors.textMuted, fontSize: 12, marginTop: 4 },
 
@@ -745,6 +762,7 @@ const styles = StyleSheet.create({
     ...Shadows.card,
   },
   glHeader: { marginBottom: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: Colors.border },
+  glTitleWrap: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   glTitle: { fontSize: 16, fontWeight: '700' },
   glRow: {
     flexDirection: 'row', alignItems: 'center',

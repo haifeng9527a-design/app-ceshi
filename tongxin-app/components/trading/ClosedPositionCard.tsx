@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import type { PositionResponse } from '../../services/api/tradingApi';
 
@@ -18,7 +19,7 @@ function formatTime(iso?: string) {
   return `${mm}-${dd} ${hh}:${mi}`;
 }
 
-export default function ClosedPositionCard({ position }: Props) {
+function ClosedPositionCard({ position }: Props) {
   const isLong = position.side === 'long';
   const grossPnl = position.realized_pnl ?? 0;
   const openFee = position.open_fee ?? 0;
@@ -204,3 +205,5 @@ const st = StyleSheet.create({
     fontFamily: 'monospace',
   },
 });
+
+export default memo(ClosedPositionCard);

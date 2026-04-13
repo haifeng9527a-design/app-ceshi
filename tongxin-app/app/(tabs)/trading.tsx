@@ -18,6 +18,7 @@ import { useTradingStore } from '../../services/store/tradingStore';
 import { marketWs } from '../../services/websocket/marketWs';
 import PositionCard from '../../components/trading/PositionCard';
 import ClosedPositionCard from '../../components/trading/ClosedPositionCard';
+import AppIcon from '../../components/ui/AppIcon';
 import OrderCard from '../../components/trading/OrderCard';
 import { usePriceFlash } from '../../hooks/usePriceFlash';
 import { fetchFundingRate, fetchVipInfo, type VipInfo } from '../../services/api/client';
@@ -523,7 +524,7 @@ function SymbolDropdown({
       <View style={dd.panel}>
         {/* Search */}
         <View style={dd.searchRow}>
-          <Text style={dd.searchIcon}>🔍</Text>
+          <AppIcon name="search" size={15} color={Colors.textMuted} />
           <TextInput
             style={dd.searchInput}
             placeholder="搜索交易对..."
@@ -720,24 +721,23 @@ export default function TradingScreen() {
   const isDesktop = width >= 900;
   const { user } = useAuthStore();
 
-  const {
-    positions,
-    positionHistory,
-    pendingOrders,
-    orderHistory,
-    account,
-    fetchPositions,
-    fetchPositionHistory,
-    fetchPendingOrders,
-    fetchOrderHistory,
-    fetchAccount,
-    placeOrder,
-    cancelOrder: cancelTradingOrder,
-    closePosition,
-    deposit: doDeposit,
-    connectWs: connectTradingWs,
-    disconnectWs: disconnectTradingWs,
-  } = useTradingStore();
+  // Fine-grained selectors — re-render only when the specific field changes
+  const positions = useTradingStore((s) => s.positions);
+  const positionHistory = useTradingStore((s) => s.positionHistory);
+  const pendingOrders = useTradingStore((s) => s.pendingOrders);
+  const orderHistory = useTradingStore((s) => s.orderHistory);
+  const account = useTradingStore((s) => s.account);
+  const fetchPositions = useTradingStore((s) => s.fetchPositions);
+  const fetchPositionHistory = useTradingStore((s) => s.fetchPositionHistory);
+  const fetchPendingOrders = useTradingStore((s) => s.fetchPendingOrders);
+  const fetchOrderHistory = useTradingStore((s) => s.fetchOrderHistory);
+  const fetchAccount = useTradingStore((s) => s.fetchAccount);
+  const placeOrder = useTradingStore((s) => s.placeOrder);
+  const cancelTradingOrder = useTradingStore((s) => s.cancelOrder);
+  const closePosition = useTradingStore((s) => s.closePosition);
+  const doDeposit = useTradingStore((s) => s.deposit);
+  const connectTradingWs = useTradingStore((s) => s.connectWs);
+  const disconnectTradingWs = useTradingStore((s) => s.disconnectWs);
 
   const [showDepositModal, setShowDepositModal] = useState(false);
   const [depositAmount, setDepositAmount] = useState('');
@@ -745,17 +745,15 @@ export default function TradingScreen() {
   const [closeAllLoading, setCloseAllLoading] = useState(false);
   const [panelMode, setPanelMode] = useState<'open' | 'close'>('open');
 
-  const {
-    quotes,
-    klines,
-    klinesLoading,
-    loadCryptoQuotes,
-    loadQuotes,
-    loadForexQuotes,
-    loadFuturesQuotes,
-    loadKlines,
-    updateQuote,
-  } = useMarketStore();
+  const quotes = useMarketStore((s) => s.quotes);
+  const klines = useMarketStore((s) => s.klines);
+  const klinesLoading = useMarketStore((s) => s.klinesLoading);
+  const loadCryptoQuotes = useMarketStore((s) => s.loadCryptoQuotes);
+  const loadQuotes = useMarketStore((s) => s.loadQuotes);
+  const loadForexQuotes = useMarketStore((s) => s.loadForexQuotes);
+  const loadFuturesQuotes = useMarketStore((s) => s.loadFuturesQuotes);
+  const loadKlines = useMarketStore((s) => s.loadKlines);
+  const updateQuote = useMarketStore((s) => s.updateQuote);
 
   // Local state
   const [selectedSymbol, setSelectedSymbol] = useState('BTC/USD');

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, StyleSheet, Alert, Platform, Modal, ScrollView } from 'react-native';
 import type { PositionResponse } from '../../services/api/tradingApi';
 import { updateTPSL, partialClosePosition } from '../../services/api/tradingApi';
@@ -12,7 +12,7 @@ interface Props {
 const fmt = (v: number | undefined | null, d = 2) =>
   v != null && isFinite(v) ? v.toFixed(d) : '--';
 
-export default function PositionCard({ position, onClose, onUpdated }: Props) {
+function PositionCard({ position, onClose, onUpdated }: Props) {
   const baseAsset = position.symbol.includes('/') ? position.symbol.split('/')[0] : position.symbol;
   const isLong = position.side === 'long';
   const pnl = position.unrealized_pnl ?? 0;
@@ -720,3 +720,5 @@ const st = StyleSheet.create({
   },
   confirmBtnText: { color: '#111', fontSize: 14, fontWeight: '700' },
 });
+
+export default memo(PositionCard);

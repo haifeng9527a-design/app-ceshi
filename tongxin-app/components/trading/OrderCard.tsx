@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import type { OrderResponse } from '../../services/api/tradingApi';
 
@@ -9,7 +10,7 @@ interface Props {
 const fmt = (v: number | undefined | null, d = 2) =>
   v != null && isFinite(v) ? v.toFixed(d) : '--';
 
-export default function OrderCard({ order, onCancel }: Props) {
+function OrderCard({ order, onCancel }: Props) {
   const isLong = order.side === 'long';
   const sideColor = isLong ? '#0ECB81' : '#F6465D';
   const sideLabel = isLong ? '多' : '空';
@@ -177,3 +178,5 @@ const st = StyleSheet.create({
     fontFamily: 'monospace',
   },
 });
+
+export default memo(OrderCard);
