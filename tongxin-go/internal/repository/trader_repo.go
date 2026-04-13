@@ -204,17 +204,39 @@ func (r *TraderRepo) RefreshTraderStats(ctx context.Context, uid string) error {
 				THEN ROUND(COALESCE(SUM(realized_pnl), 0) / COUNT(*)::NUMERIC, 2)
 				ELSE 0
 			END,
-			0,
+			COALESCE((
+				SELECT ROUND(MAX(drawdown_pct), 2) FROM (
+					SELECT
+						CASE WHEN peak > 0
+							THEN (peak - running_pnl) / peak * 100
+							ELSE 0
+						END AS drawdown_pct
+					FROM (
+						SELECT
+							running_pnl,
+							MAX(running_pnl) OVER (ORDER BY closed_at ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS peak
+						FROM (
+							SELECT
+								closed_at,
+								SUM(realized_pnl) OVER (ORDER BY closed_at) AS running_pnl
+							FROM positions
+							WHERE user_id = $1 AND status IN ('closed', 'liquidated')
+						) cumulative
+					) with_peak
+					WHERE running_pnl < peak
+				) dd
+			), 0),
 			(SELECT COUNT(*) FROM copy_trading WHERE trader_id = $1 AND status = 'active'),
 			NOW()
 		FROM positions
-		WHERE user_id = $1 AND status = 'closed'
+		WHERE user_id = $1 AND status IN ('closed', 'liquidated')
 		ON CONFLICT (user_id) DO UPDATE SET
 			total_trades = EXCLUDED.total_trades,
 			win_trades = EXCLUDED.win_trades,
 			total_pnl = EXCLUDED.total_pnl,
 			win_rate = EXCLUDED.win_rate,
 			avg_pnl = EXCLUDED.avg_pnl,
+			max_drawdown = EXCLUDED.max_drawdown,
 			followers_count = EXCLUDED.followers_count,
 			updated_at = NOW()
 	`, uid)
@@ -658,4 +680,49 @@ func (r *TraderRepo) CountFollowers(ctx context.Context, traderID string) (int, 
 		SELECT COUNT(*) FROM user_follows WHERE trader_id = $1
 	`, traderID).Scan(&count)
 	return count, err
+}
+
+// GetEquityHistory returns daily cumulative PNL points for a trader's equity curve.
+// period: "7d", "30d", or "all"
+func (r *TraderRepo) GetEquityHistory(ctx context.Context, uid string, period string) ([]model.EquityPoint, error) {
+	dateFilter := ""
+	switch period {
+	case "7d":
+		dateFilter = " AND closed_at >= NOW() - INTERVAL '7 days'"
+	case "30d":
+		dateFilter = " AND closed_at >= NOW() - INTERVAL '30 days'"
+	}
+
+	query := `
+		SELECT
+			dt::TEXT AS date,
+			COALESCE(daily_pnl, 0) AS daily_pnl,
+			COALESCE(SUM(daily_pnl) OVER (ORDER BY dt), 0) AS cumulative_pnl
+		FROM (
+			SELECT
+				DATE(closed_at) AS dt,
+				SUM(realized_pnl) AS daily_pnl
+			FROM positions
+			WHERE user_id = $1 AND status IN ('closed', 'liquidated')` + dateFilter + `
+			GROUP BY DATE(closed_at)
+			ORDER BY dt
+		) daily
+		ORDER BY dt
+	`
+
+	rows, err := r.pool.Query(ctx, query, uid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var points []model.EquityPoint
+	for rows.Next() {
+		var p model.EquityPoint
+		if err := rows.Scan(&p.Date, &p.DailyPnl, &p.CumulativePnl); err != nil {
+			return nil, err
+		}
+		points = append(points, p)
+	}
+	return points, nil
 }

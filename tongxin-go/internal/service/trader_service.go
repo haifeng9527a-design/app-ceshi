@@ -185,3 +185,7 @@ func (s *TraderService) GetFollowedTraders(ctx context.Context, userID string) (
 func (s *TraderService) SetTraderStatus(ctx context.Context, uid string, isTrader bool) error {
 	return s.repo.SetUserTrader(ctx, uid, isTrader)
 }
+
+func (s *TraderService) GetEquityHistory(ctx context.Context, uid string, period string) ([]model.EquityPoint, error) {
+	return s.repo.GetEquityHistory(ctx, uid, period)
+}

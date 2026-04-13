@@ -454,6 +454,7 @@ func main() {
 		mux.Handle("GET /api/trader/{uid}/profile", authMw.OptionalAuth(http.HandlerFunc(traderH.TraderProfile)))
 		mux.HandleFunc("GET /api/trader/{uid}/positions", traderH.TraderPositions)
 		mux.HandleFunc("GET /api/trader/{uid}/trades", traderH.TraderTrades)
+		mux.HandleFunc("GET /api/trader/{uid}/equity", traderH.TraderEquity)
 
 		// Authenticated trader routes
 		mux.Handle("POST /api/trader/apply", authMw.Authenticate(http.HandlerFunc(traderH.Apply)))

@@ -286,6 +286,30 @@ func (h *TraderHandler) TraderTrades(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, trades)
 }
 
+// GET /api/trader/{uid}/equity — public: equity curve data
+func (h *TraderHandler) TraderEquity(w http.ResponseWriter, r *http.Request) {
+	traderUID := r.PathValue("uid")
+	if traderUID == "" {
+		writeError(w, http.StatusBadRequest, "missing trader uid")
+		return
+	}
+
+	period := r.URL.Query().Get("period")
+	if period == "" {
+		period = "30d"
+	}
+
+	points, err := h.svc.GetEquityHistory(r.Context(), traderUID, period)
+	if err != nil {
+		writeJSON(w, http.StatusOK, []model.EquityPoint{})
+		return
+	}
+	if points == nil {
+		points = []model.EquityPoint{}
+	}
+	writeJSON(w, http.StatusOK, points)
+}
+
 // ── Admin Handlers ──
 
 // GET /api/admin/trader-applications

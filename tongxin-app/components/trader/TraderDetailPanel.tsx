@@ -345,7 +345,7 @@ export default function TraderDetailPanel({ uid, onClose, embedded }: Props) {
         <View style={[styles.rowGrid, isDesktop && styles.rowGridDesktop, isDesktop && { alignItems: 'stretch' }]}>
           {/* Equity Curve */}
           <View style={[isDesktop ? { flex: 1, minWidth: 0 } : {}]}>
-            <EquityCurve totalPnl={pnl} totalTrades={totalTrades} />
+            <EquityCurve traderUid={uid} />
           </View>
 
           {/* Risk Matrix + Sentiment */}

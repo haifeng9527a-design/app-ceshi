@@ -299,3 +299,16 @@ export async function adminApproveApplication(id: string): Promise<void> {
 export async function adminRejectApplication(id: string, reason?: string): Promise<void> {
   await apiClient.post(`/api/admin/trader-applications/${id}/reject`, { reason });
 }
+
+// ── Equity Curve ──
+
+export interface EquityPoint {
+  date: string;
+  daily_pnl: number;
+  cumulative_pnl: number;
+}
+
+export async function getTraderEquity(uid: string, period: '7d' | '30d' | 'all' = '30d'): Promise<EquityPoint[]> {
+  const { data } = await apiClient.get(`/api/trader/${uid}/equity`, { params: { period } });
+  return data || [];
+}

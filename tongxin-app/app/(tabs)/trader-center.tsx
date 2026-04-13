@@ -323,7 +323,7 @@ export default function TraderCenterScreen() {
       {/* Equity Curve + Risk Matrix */}
       <View style={[styles.rowGrid, isDesktop && styles.rowGridDesktop, isDesktop && { alignItems: 'stretch' }]}>
         <View style={[isDesktop ? { flex: 1, minWidth: 0 } : {}]}>
-          <EquityCurve totalPnl={pnl} totalTrades={totalTrades} />
+          <EquityCurve traderUid={user!.uid} />
         </View>
 
         <View style={[{ gap: 12 }, isDesktop && { width: 340, flexShrink: 0 }]}>

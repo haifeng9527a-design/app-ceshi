@@ -49,7 +49,7 @@ class ChatWebSocket {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 10;
+  private connectPromise: Promise<boolean> | null = null;
 
   private pendingSubscriptions: string[] = [];
   private newMessageListeners = new Set<NewMessageCallback>();
@@ -72,6 +72,24 @@ class ChatWebSocket {
     this.connectionStateHandler = handler;
   }
 
+  constructor() {
+    if (typeof window !== 'undefined') {
+      const revive = () => {
+        if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) {
+          return;
+        }
+        void this.connect();
+      };
+      window.addEventListener('online', revive);
+      window.addEventListener('focus', revive);
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+          revive();
+        }
+      });
+    }
+  }
+
   private emitConnectionState(status: ChatConnectionStatus) {
     try {
       this.connectionStateHandler?.(status);
@@ -87,6 +105,9 @@ class ChatWebSocket {
   async connect(): Promise<boolean> {
     if (this.ws?.readyState === WebSocket.OPEN) {
       return true;
+    }
+    if (this.ws?.readyState === WebSocket.CONNECTING && this.connectPromise) {
+      return this.connectPromise;
     }
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
@@ -109,7 +130,7 @@ class ChatWebSocket {
     const url = `${Config.WS_CHAT_URL}?token=${encodeURIComponent(token)}`;
     console.log('[ChatWS] Connecting to', wsChatOrigin(), '(token hidden)');
 
-    return new Promise((resolve) => {
+    this.connectPromise = new Promise((resolve) => {
       const ws = new WebSocket(url);
       this.ws = ws;
       let settled = false;
@@ -118,6 +139,7 @@ class ChatWebSocket {
         if (settled) return;
         settled = true;
         clearTimeout(timeoutId);
+        this.connectPromise = null;
         resolve(success);
       };
 
@@ -183,6 +205,7 @@ class ChatWebSocket {
         }
       };
     });
+    return this.connectPromise;
   }
 
   /** Disconnect and clean up */
@@ -194,6 +217,7 @@ class ChatWebSocket {
     this.stopHeartbeat();
     this.ws?.close();
     this.ws = null;
+    this.connectPromise = null;
     this._connected = false;
     this.reconnectAttempts = 0;
     this.emitConnectionState('disconnected');
@@ -364,13 +388,10 @@ class ChatWebSocket {
     if (this.reconnectTimer) {
       return;
     }
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.warn('[ChatWS] Max reconnect attempts reached');
-      return;
-    }
-    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
+    const delay = Math.min(1000 * Math.pow(2, Math.min(this.reconnectAttempts, 5)), 30000);
     console.log(`[ChatWS] Reconnecting in ${delay}ms...`);
     this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
       this.reconnectAttempts++;
       void this.connect();
     }, delay);

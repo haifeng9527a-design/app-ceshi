@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import apiClient, { getStoredToken, saveToken, clearToken } from '../api/client';
+import { Config } from '../config';
 
 export interface UserProfile {
   uid: string;
@@ -140,11 +141,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
 /** Convert backend user object to UserProfile */
 function backendUserToProfile(user: any): UserProfile {
+  const rawAvatar = user.avatar_url || user.photoURL || null;
+  const photoURL =
+    typeof rawAvatar === 'string' && rawAvatar
+      ? rawAvatar.startsWith('http')
+        ? rawAvatar
+        : `${Config.API_BASE_URL}${rawAvatar}`
+      : null;
   return {
     uid: user.uid || user.id,
     email: user.email || null,
     displayName: user.display_name || user.displayName || null,
-    photoURL: user.avatar_url || user.photoURL || null,
+    photoURL,
     emailVerified: true,
     shortId: user.short_id,
     role: user.role,

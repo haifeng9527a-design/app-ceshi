@@ -16,7 +16,7 @@ import {
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import * as ImagePicker from 'expo-image-picker';
-import apiClient from '../../services/api/client';
+import apiClient, { getStoredToken } from '../../services/api/client';
 import { useAuthStore } from '../../services/store/authStore';
 import { Colors, Sizes, Shadows } from '../../theme/colors';
 
@@ -53,10 +53,21 @@ type QuickAction = {
   onPress: () => void;
 };
 
+const MAX_AVATAR_UPLOAD_BYTES = 10 * 1024 * 1024;
+const ALLOWED_AVATAR_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+
+function formatFileSize(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${bytes} B`;
+}
+
 export default function ProfileScreen() {
   const { t } = useTranslation();
   const router = useRouter();
   const { width } = useWindowDimensions();
+  const isWeb = typeof document !== 'undefined';
   const { user, signOut, syncProfile } = useAuthStore();
   const isDesktop = width >= 768;
   const [showEditProfile, setShowEditProfile] = useState(false);
@@ -64,6 +75,10 @@ export default function ProfileScreen() {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [displayName, setDisplayName] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState('');
+  const [avatarUploadProgress, setAvatarUploadProgress] = useState(0);
+  const [avatarUploadMessage, setAvatarUploadMessage] = useState('支持 JPG、PNG、GIF、WEBP，文件大小不超过 10MB。');
+  const [avatarUploadMeta, setAvatarUploadMeta] = useState<{ name: string; size: number } | null>(null);
   const [phone, setPhone] = useState('');
   const [bio, setBio] = useState('');
 
@@ -71,6 +86,10 @@ export default function ProfileScreen() {
     if (!user) return;
     setDisplayName(user.displayName || '');
     setAvatarUrl(user.photoURL || '');
+    setAvatarPreviewUrl(user.photoURL || '');
+    setAvatarUploadProgress(0);
+    setAvatarUploadMeta(null);
+    setAvatarUploadMessage('支持 JPG、PNG、GIF、WEBP，文件大小不超过 10MB。');
     setPhone(user.phone || '');
     setBio(user.signature || '');
   }, [user?.uid, user?.displayName, user?.photoURL, user?.phone, user?.signature]);
@@ -103,6 +122,8 @@ export default function ProfileScreen() {
         bio: bio.trim(),
       });
       await syncProfile();
+      setAvatarPreviewUrl(avatarUrl.trim());
+      setAvatarUploadMessage('头像与资料已保存。');
       setShowEditProfile(false);
       Alert.alert('已更新', '个人资料已保存。');
     } catch (e: any) {
@@ -112,31 +133,72 @@ export default function ProfileScreen() {
     }
   };
 
-  const uploadAvatar = async (uri: string, fileName?: string | null, mimeType?: string | null) => {
-    const formData = new FormData();
-    const fallbackName = fileName || uri.split('/').pop() || 'avatar.jpg';
+  const uploadAvatar = async (
+    uri: string,
+    fileName?: string | null,
+    mimeType?: string | null,
+    webFile?: File | null,
+    onProgress?: (percent: number) => void,
+  ) => {
+    const fallbackName = fileName || webFile?.name || uri.split('/').pop() || 'avatar.jpg';
     const ext = fallbackName.split('.').pop()?.toLowerCase() || 'jpg';
     const resolvedMimeType =
-      mimeType || (ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : 'image/jpeg');
+      mimeType || webFile?.type || (ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : 'image/jpeg');
 
-    formData.append('file', {
-      uri,
-      name: fallbackName,
-      type: resolvedMimeType,
-    } as any);
+    if (Platform.OS === 'web' && webFile) {
+      const formData = new window.FormData();
+      formData.append('file', webFile, fallbackName);
+      const token = await getStoredToken();
+      const response = await fetch(`${apiClient.defaults.baseURL}/api/upload`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        body: formData,
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data?.error || '头像上传失败');
+      }
+      const rawUrl = data?.url || '';
+      if (!rawUrl) {
+        throw new Error('上传成功但未返回图片地址');
+      }
+      onProgress?.(100);
+      return rawUrl.startsWith('http') ? rawUrl : `${apiClient.defaults.baseURL}${rawUrl}`;
+    } else {
+      const formData = new FormData();
+      formData.append('file', {
+        uri,
+        name: fallbackName,
+        type: resolvedMimeType,
+      } as any);
+      const { data } = await apiClient.post('/api/upload', formData, {
+        onUploadProgress: (event) => {
+          const total = event.total || 0;
+          if (!total) return;
+          onProgress?.(Math.min(100, Math.round((event.loaded / total) * 100)));
+        },
+      });
 
-    const { data } = await apiClient.post('/api/upload', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
-
-    const rawUrl = data?.url || '';
-    if (!rawUrl) {
-      throw new Error('上传成功但未返回图片地址');
+      const rawUrl = data?.url || '';
+      if (!rawUrl) {
+        throw new Error('上传成功但未返回图片地址');
+      }
+      return rawUrl.startsWith('http') ? rawUrl : `${apiClient.defaults.baseURL}${rawUrl}`;
     }
-    return rawUrl.startsWith('http') ? rawUrl : `${apiClient.defaults.baseURL}${rawUrl}`;
   };
 
   const handlePickAvatar = async () => {
+    if (isWeb) {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/jpeg,image/png,image/gif,image/webp';
+      input.onchange = (event) => {
+        void handleWebAvatarSelected(event);
+      };
+      input.click();
+      return;
+    }
+
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
@@ -148,14 +210,82 @@ export default function ProfileScreen() {
       if (result.canceled || !result.assets?.[0]) return;
 
       const asset = result.assets[0];
+      const size = asset.fileSize ?? 0;
+      const mimeType = asset.mimeType || 'image/jpeg';
+      if (size > MAX_AVATAR_UPLOAD_BYTES) {
+        setAvatarUploadMessage(`图片过大，当前 ${formatFileSize(size)}，请控制在 10MB 以内。`);
+        return;
+      }
+      if (mimeType && !ALLOWED_AVATAR_TYPES.includes(mimeType)) {
+        setAvatarUploadMessage('当前图片格式不支持，请使用 JPG、PNG、GIF 或 WEBP。');
+        return;
+      }
+
+      setAvatarUploadMeta({
+        name: asset.fileName || 'avatar.jpg',
+        size,
+      });
+      setAvatarPreviewUrl(asset.uri);
       setUploadingAvatar(true);
-      const uploadedUrl = await uploadAvatar(asset.uri, asset.fileName, asset.mimeType);
+      setAvatarUploadProgress(0);
+      setAvatarUploadMessage('正在上传头像…');
+      const uploadedUrl = await uploadAvatar(
+        asset.uri,
+        asset.fileName,
+        mimeType,
+        isWeb ? ((asset as any).file ?? null) : null,
+        (percent) => setAvatarUploadProgress(percent),
+      );
       setAvatarUrl(uploadedUrl);
+      setAvatarPreviewUrl(uploadedUrl);
+      setAvatarUploadProgress(100);
+      setAvatarUploadMessage('上传完成，点“保存资料”后才会正式更新账号头像。');
       Alert.alert('上传成功', '头像已上传，保存资料后会同步到账号。');
     } catch (e: any) {
+      setAvatarPreviewUrl(avatarUrl || user?.photoURL || '');
+      setAvatarUploadProgress(0);
+      setAvatarUploadMessage(e?.response?.data?.error || e?.message || '头像上传失败，请检查网络后重试。');
       Alert.alert('头像上传失败', e?.message || '请检查网络后重试。');
     } finally {
       setUploadingAvatar(false);
+    }
+  };
+
+  const handleWebAvatarSelected = async (event: any) => {
+    const file = event?.target?.files?.[0] as File | undefined;
+    if (!file) return;
+    if (file.size > MAX_AVATAR_UPLOAD_BYTES) {
+      setAvatarUploadMessage(`图片过大，当前 ${formatFileSize(file.size)}，请控制在 10MB 以内。`);
+      return;
+    }
+    if (file.type && !ALLOWED_AVATAR_TYPES.includes(file.type)) {
+      setAvatarUploadMessage('当前图片格式不支持，请使用 JPG、PNG、GIF 或 WEBP。');
+      return;
+    }
+
+    const localPreview = URL.createObjectURL(file);
+    setAvatarUploadMeta({ name: file.name, size: file.size });
+    setAvatarPreviewUrl(localPreview);
+    setUploadingAvatar(true);
+    setAvatarUploadProgress(0);
+    setAvatarUploadMessage('正在上传头像…');
+    try {
+      const uploadedUrl = await uploadAvatar(localPreview, file.name, file.type, file, (percent) =>
+        setAvatarUploadProgress(percent),
+      );
+      setAvatarUrl(uploadedUrl);
+      setAvatarPreviewUrl(uploadedUrl);
+      setAvatarUploadProgress(100);
+      setAvatarUploadMessage('上传完成，点“保存资料”后才会正式更新账号头像。');
+      Alert.alert('上传成功', '头像已上传，保存资料后会同步到账号。');
+    } catch (e: any) {
+      setAvatarPreviewUrl(avatarUrl || user?.photoURL || '');
+      setAvatarUploadProgress(0);
+      setAvatarUploadMessage(e?.response?.data?.error || e?.message || '头像上传失败，请检查网络后重试。');
+      Alert.alert('头像上传失败', e?.response?.data?.error || e?.message || '请检查网络后重试。');
+    } finally {
+      setUploadingAvatar(false);
+      URL.revokeObjectURL(localPreview);
     }
   };
 
@@ -233,7 +363,7 @@ export default function ProfileScreen() {
         <View style={styles.headerCard}>
           <View style={styles.headerRow}>
             <View style={styles.avatarWrap}>
-              <AvatarCircle name={user.displayName || user.email || 'U'} imageUrl={user.photoURL} />
+              <AvatarCircle name={user.displayName || user.email || 'U'} imageUrl={avatarPreviewUrl || user.photoURL} />
               <View style={styles.levelBadge}>
                 <Text style={styles.levelText}>VIP{user.vipLevel ?? 0}</Text>
               </View>
@@ -280,7 +410,7 @@ export default function ProfileScreen() {
           <MenuItem icon="❓" label="帮助中心" description="查看常见问题和使用说明" onPress={() => router.push('/help' as any)} />
           <MenuItem icon="🔒" label="隐私政策" description="查看平台数据与隐私说明" onPress={() => router.push('/privacy' as any)} />
           <MenuItem icon="🏪" label="交易员市场" description="查看排行榜和活跃交易员" onPress={() => router.push('/(tabs)/rankings' as any)} />
-          <MenuItem icon="🤖" label="投诉建议" description="这一项交给 Claude 继续实现" disabled />
+          <MenuItem icon="🤖" label="投诉建议" description="提交投诉或建议反馈" onPress={() => router.push('/settings/feedback' as any)} />
           <MenuItem
             icon="🌐"
             label="语言设置"
@@ -339,12 +469,26 @@ export default function ProfileScreen() {
                 <AvatarCircle
                   name={displayName || user.email || 'U'}
                   size={68}
-                  imageUrl={avatarUrl || user.photoURL}
+                  imageUrl={avatarPreviewUrl || avatarUrl || user.photoURL}
                 />
                 <View style={styles.avatarUploaderMeta}>
                   <Text style={styles.avatarUploaderHint}>
-                    直接从本地相册选择图片，系统会先上传头像文件，再在保存资料时更新到账号。
+                    直接从本地相册选择图片。选图时会先进入裁切流程，随后立即本地预览，再上传到服务器。
                   </Text>
+                  {avatarUploadMeta ? (
+                    <Text style={styles.avatarUploadMetaText}>
+                      已选文件: {avatarUploadMeta.name} · {formatFileSize(avatarUploadMeta.size)}
+                    </Text>
+                  ) : null}
+                  <View style={styles.avatarProgressTrack}>
+                    <View
+                      style={[
+                        styles.avatarProgressFill,
+                        { width: `${Math.max(0, Math.min(100, avatarUploadProgress))}%` },
+                      ]}
+                    />
+                  </View>
+                  <Text style={styles.avatarUploadStatusText}>{avatarUploadMessage}</Text>
                   <TouchableOpacity
                     style={[styles.avatarUploadBtn, uploadingAvatar && styles.saveBtnDisabled]}
                     activeOpacity={0.85}
@@ -807,6 +951,28 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     fontSize: 12,
     lineHeight: 18,
+  },
+  avatarUploadMetaText: {
+    color: Colors.textSecondary,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  avatarProgressTrack: {
+    width: '100%',
+    height: 7,
+    borderRadius: 999,
+    backgroundColor: Colors.border,
+    overflow: 'hidden',
+  },
+  avatarProgressFill: {
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: Colors.primary,
+  },
+  avatarUploadStatusText: {
+    color: Colors.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
   },
   avatarUploadBtn: {
     alignSelf: 'flex-start',

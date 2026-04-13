@@ -2,6 +2,14 @@ package model
 
 import "time"
 
+// ── Equity Curve ──
+
+type EquityPoint struct {
+	Date          string  `json:"date"`
+	DailyPnl      float64 `json:"daily_pnl"`
+	CumulativePnl float64 `json:"cumulative_pnl"`
+}
+
 // ── Trader Application ──
 
 type TraderApplication struct {
