@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -8,12 +8,16 @@ import {
   ActivityIndicator,
   Alert,
   useWindowDimensions,
+  Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { Colors, Shadows } from '../../theme/colors';
+import { Config } from '../../services/config';
 import EquityCurve from '../chart/EquityCurve';
 import { useAuthStore } from '../../services/store/authStore';
+import { useMarketStore } from '../../services/store/marketStore';
+import { marketWs } from '../../services/websocket/marketWs';
 import {
   getTraderProfile,
   getTraderPositions,
@@ -92,6 +96,37 @@ export default function TraderDetailPanel({ uid, onClose, embedded }: Props) {
       }
     })();
   }, [uid, user]);
+
+  // Real-time price updates for positions
+  const quotes = useMarketStore((s) => s.quotes);
+  const updateQuote = useMarketStore((s) => s.updateQuote);
+
+  useEffect(() => {
+    if (positions.length === 0) return;
+    const symbols = [...new Set(positions.map((p) => p.symbol))];
+    marketWs.connect();
+    const handler = (msg: any) => {
+      if (msg.symbol && msg.price != null) {
+        updateQuote(msg.symbol, msg);
+      }
+    };
+    marketWs.subscribeMany(symbols, handler);
+    return () => {
+      symbols.forEach((sym) => marketWs.unsubscribe(sym, handler));
+    };
+  }, [positions]);
+
+  const livePositions = useMemo(() => {
+    return positions.map((pos) => {
+      const q = quotes[pos.symbol];
+      if (!q?.price) return pos;
+      const livePrice = q.price;
+      const pnl = pos.side === 'long'
+        ? (livePrice - pos.entry_price) * pos.qty
+        : (pos.entry_price - livePrice) * pos.qty;
+      return { ...pos, current_price: livePrice, unrealized_pnl: pnl };
+    });
+  }, [positions, quotes]);
 
   const handleCopySubmit = async (settings: FollowTraderRequest) => {
     if (!user) { Alert.alert('', t('auth.notLoggedIn')); return; }
@@ -200,6 +235,25 @@ export default function TraderDetailPanel({ uid, onClose, embedded }: Props) {
   const volLevel = maxDD <= 5 ? 'Low' : maxDD <= 15 ? 'Medium' : maxDD <= 30 ? 'High' : 'Extreme';
   const volPct = Math.min(100, maxDD * 3);
 
+  // Market Sentiment — composite score
+  const sentimentScore = (() => {
+    let score = 0;
+    if (pnl > 0) score += Math.min(30, (pnl / 1000) * 5);
+    else score -= Math.min(30, (Math.abs(pnl) / 1000) * 5);
+    score += (winRate - 50) * 0.5;
+    score += parseFloat(sharpeRatio) * 7;
+    if (avgPnl > 0) score += Math.min(15, avgPnl / 100);
+    else score -= Math.min(15, Math.abs(avgPnl) / 100);
+    score += Math.max(-10, (20 - maxDD) * 0.5);
+    return Math.max(-100, Math.min(100, Math.round(score)));
+  })();
+  const sentimentText = sentimentScore >= 60 ? '强力看涨 Strong Bullish'
+    : sentimentScore >= 25 ? '偏多看涨 Bullish'
+    : sentimentScore >= -25 ? '谨慎观望 Neutral'
+    : sentimentScore >= -60 ? '偏空看跌 Bearish'
+    : '强力看跌 Strong Bearish';
+  const sentimentIcon = sentimentScore >= 25 ? '📈' : sentimentScore >= -25 ? '📊' : '📉';
+
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={[styles.scrollContent, isDesktop && { maxWidth: 960, alignSelf: 'center', width: '100%' }]}>
@@ -216,9 +270,16 @@ export default function TraderDetailPanel({ uid, onClose, embedded }: Props) {
             <View style={[styles.headerLeft, isDesktop && styles.headerLeftDesktop]}>
               <View style={styles.avatarContainer}>
                 <View style={styles.avatar}>
-                  <Text style={styles.avatarText}>
-                    {(profile.display_name || '?')[0].toUpperCase()}
-                  </Text>
+                  {profile.avatar_url ? (
+                    <Image
+                      source={{ uri: profile.avatar_url.startsWith('/') ? `${Config.API_BASE_URL}${profile.avatar_url}` : profile.avatar_url }}
+                      style={{ width: 68, height: 68, borderRadius: 12 }}
+                    />
+                  ) : (
+                    <Text style={styles.avatarText}>
+                      {(profile.display_name || '?')[0].toUpperCase()}
+                    </Text>
+                  )}
                 </View>
                 {profile.is_trader && (
                   <View style={styles.eliteBadge}>
@@ -382,12 +443,12 @@ export default function TraderDetailPanel({ uid, onClose, embedded }: Props) {
             <View style={[styles.glassCard, styles.sentimentCardWrapper, { marginBottom: 0 }]}>
               <View style={styles.sentimentRow}>
                 <View style={styles.sentimentIcon}>
-                  <Text style={{ fontSize: 22 }}>📈</Text>
+                  <Text style={{ fontSize: 22 }}>{sentimentIcon}</Text>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.sentimentLabel}>当前情绪 Market Sentiment</Text>
+                  <Text style={styles.sentimentLabel}>当前情绪 MARKET SENTIMENT ({sentimentScore > 0 ? '+' : ''}{sentimentScore})</Text>
                   <Text style={styles.sentimentValue}>
-                    {pnl > 0 ? '强力看涨 Strong Bullish' : '谨慎观望 Neutral'}
+                    {sentimentText}
                   </Text>
                 </View>
               </View>
@@ -453,14 +514,14 @@ export default function TraderDetailPanel({ uid, onClose, embedded }: Props) {
                 <Text style={styles.sectionTitleIcon}>📊</Text>
                 <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>当前持仓 Open Positions</Text>
               </View>
-              {positions.length > 0 && (
+              {livePositions.length > 0 && (
                 <View style={styles.activeBadge}>
-                  <Text style={styles.activeBadgeText}>{positions.length} ACTIVE</Text>
+                  <Text style={styles.activeBadgeText}>{livePositions.length} ACTIVE</Text>
                 </View>
               )}
             </View>
 
-            {positions.length === 0 ? (
+            {livePositions.length === 0 ? (
               <Text style={styles.emptyText}>暂无持仓</Text>
             ) : (
               <>
@@ -470,7 +531,7 @@ export default function TraderDetailPanel({ uid, onClose, embedded }: Props) {
                   <Text style={[styles.tableHeaderText, { flex: 1.5 }]}>当前 CURRENT</Text>
                   <Text style={[styles.tableHeaderText, { flex: 1, textAlign: 'right' }]}>盈亏 PNL</Text>
                 </View>
-                {positions.map((pos) => {
+                {livePositions.map((pos) => {
                   const upnl = pos.unrealized_pnl || 0;
                   return (
                     <View key={pos.id} style={styles.tableRow}>
@@ -533,7 +594,7 @@ export default function TraderDetailPanel({ uid, onClose, embedded }: Props) {
                       </View>
                       <Text style={[styles.tableCell, { flex: 2 }]}>{closedTime}</Text>
                       <Text style={[styles.tableCell, { flex: 1, textAlign: 'right', color: rpnl >= 0 ? Colors.up : Colors.down, fontWeight: '700' }]}>
-                        {rpnl >= 0 ? '+' : ''}${formatMoney(Math.abs(rpnl))}
+                        {rpnl >= 0 ? '+' : '-'}${formatMoney(Math.abs(rpnl))}
                       </Text>
                     </View>
                   );
@@ -559,10 +620,18 @@ export default function TraderDetailPanel({ uid, onClose, embedded }: Props) {
 /* ── Sub Components ── */
 
 function MetricCard({ label, value, color, glow }: { label: string; value: string; color?: string; glow?: boolean }) {
+  const fontSize = value.length > 10 ? 16 : value.length > 7 ? 18 : 22;
   return (
     <View style={[styles.metricCard, glow && styles.metricCardGlow]}>
-      <Text style={styles.metricLabel}>{label}</Text>
-      <Text style={[styles.metricValue, color ? { color } : undefined]}>{value}</Text>
+      <Text style={styles.metricLabel} numberOfLines={1}>{label}</Text>
+      <Text
+        style={[styles.metricValue, { fontSize }, color ? { color } : undefined]}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.6}
+      >
+        {value}
+      </Text>
     </View>
   );
 }
@@ -588,6 +657,9 @@ function formatNumber(n: number): string {
 }
 
 function formatMoney(n: number): string {
+  const abs = Math.abs(n);
+  if (abs >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+  if (abs >= 10_000) return `${(n / 1_000).toFixed(1)}K`;
   return n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
@@ -732,11 +804,15 @@ const styles = StyleSheet.create({
   metricCard: {
     backgroundColor: Colors.surface,
     borderRadius: 14,
-    padding: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
     borderWidth: 1,
     borderColor: Colors.glassBorder,
-    flex: 1,
-    minWidth: 140,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: '30%',
+    minWidth: 120,
+    overflow: 'hidden',
   },
   metricCardGlow: {
     ...Shadows.glow,

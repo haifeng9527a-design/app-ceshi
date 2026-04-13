@@ -6,6 +6,7 @@ import {
   searchSymbols,
   fetchCryptoQuotes,
   fetchForexQuotes,
+  fetchFuturesQuotes,
   fetchTickersPage,
   fetchCryptoPairs,
   fetchForexPairs,
@@ -59,6 +60,7 @@ interface MarketState {
   loadQuotes: (symbols: string[]) => Promise<void>;
   loadCryptoQuotes: (symbols: string[]) => Promise<void>;
   loadForexQuotes: (symbols: string[]) => Promise<void>;
+  loadFuturesQuotes: (symbols: string[]) => Promise<void>;
   loadKlines: (symbol: string, interval?: string) => Promise<void>;
   search: (query: string) => Promise<void>;
   clearSearch: () => void;
@@ -139,6 +141,19 @@ export const useMarketStore = create<MarketState>((set, get) => ({
     }
   },
 
+  loadFuturesQuotes: async (symbols) => {
+    try {
+      const data = await fetchFuturesQuotes(symbols);
+      const quotes = { ...get().quotes };
+      for (const [sym, q] of Object.entries(data)) {
+        quotes[sym] = q;
+      }
+      set({ quotes });
+    } catch (e) {
+      console.error('[Store] loadFuturesQuotes error:', e);
+    }
+  },
+
   loadIndices: async () => {
     // Don't show loading if we already have indices (SWR: stale-while-revalidate)
     if (get().indices.length === 0) set({ indicesLoading: true });
@@ -167,7 +182,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
     if (cached) {
       set({ klines: cached.data, klinesLoading: true });
     } else {
-      set({ klinesLoading: true });
+      set({ klines: [], klinesLoading: true });
     }
 
     try {

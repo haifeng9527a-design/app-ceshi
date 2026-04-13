@@ -35,6 +35,9 @@ type cachedPosition struct {
 	TpPrice      *float64
 	SlPrice      *float64
 	IsCopyTrade  bool
+	OpenFee      float64
+	CloseFee     float64
+	RealizedPnl  float64
 }
 
 type TradingService struct {
@@ -59,6 +62,10 @@ type TradingService struct {
 	// In-memory fee schedule cache (loaded from DB)
 	feeMu    sync.RWMutex
 	feeCache []model.VipFeeRate
+
+	// In-memory latest price cache (updated by market WS pushQuote → OnPriceUpdate)
+	priceMu    sync.RWMutex
+	priceCache map[string]float64
 }
 
 // Default VIP fee schedule (fallback when DB is unavailable)
@@ -168,6 +175,7 @@ func NewTradingService(
 		pendingBySymbol: make(map[string][]model.Order),
 		openBySymbol:    make(map[string][]cachedPosition),
 		feeCache:        defaultFeeSchedule,
+		priceCache:      make(map[string]float64),
 	}
 }
 
@@ -239,6 +247,9 @@ func (s *TradingService) addPositionToCache(p *model.Position) {
 		TpPrice:      p.TpPrice,
 		SlPrice:      p.SlPrice,
 		IsCopyTrade:  p.IsCopyTrade,
+		OpenFee:      p.OpenFee,
+		CloseFee:     p.CloseFee,
+		RealizedPnl:  p.RealizedPnl,
 	}
 	s.posMu.Lock()
 	defer s.posMu.Unlock()
@@ -270,6 +281,11 @@ func (s *TradingService) removePositionFromCache(symbol, positionID string) {
 // It checks if any pending limit orders for this symbol should be filled,
 // then pushes real-time PnL updates for all open positions of this symbol.
 func (s *TradingService) OnPriceUpdate(symbol string, price float64) {
+	// Update in-memory price cache
+	s.priceMu.Lock()
+	s.priceCache[symbol] = price
+	s.priceMu.Unlock()
+
 	// Check and fill pending limit orders
 	s.pendingMu.RLock()
 	pending, ok := s.pendingBySymbol[symbol]
@@ -443,6 +459,9 @@ func (s *TradingService) OnPriceUpdate(symbol string, price float64) {
 			UnrealizedPnl: pnl,
 			ROE:           roe,
 			IsCopyTrade:   cp.IsCopyTrade,
+			OpenFee:       cp.OpenFee,
+			CloseFee:      cp.CloseFee,
+			RealizedPnl:   cp.RealizedPnl,
 		}
 		s.pushPositionUpdate(cp.UserID, pos)
 	}
@@ -601,6 +620,8 @@ func (s *TradingService) placeMarketOrder(ctx context.Context, userID string, re
 	}
 	pos, err = s.positionRepo.UpsertPosition(ctx, pos)
 	if err != nil {
+		s.walletRepo.UnfreezeMargin(ctx, userID, margin)
+		log.Printf("[trading] upsert position failed, unfroze margin=%.4f for user=%s: %v", margin, userID, err)
 		return nil, fmt.Errorf("upsert position: %w", err)
 	}
 
@@ -730,6 +751,8 @@ func (s *TradingService) fillLimitOrder(ctx context.Context, o *model.Order, fil
 	}
 	pos, err := s.positionRepo.UpsertPosition(ctx, pos)
 	if err != nil {
+		s.walletRepo.UnfreezeMargin(ctx, o.UserID, o.MarginAmount)
+		log.Printf("[trading] limit fill upsert failed, unfroze margin=%.4f for user=%s: %v", o.MarginAmount, o.UserID, err)
 		return fmt.Errorf("upsert position for limit fill: %w", err)
 	}
 
@@ -884,7 +907,7 @@ func (s *TradingService) PartialClosePosition(ctx context.Context, userID, posit
 	remainingMargin := pos.MarginAmount - releasedMargin
 
 	// Reduce position FIRST (atomic status check prevents race condition)
-	if err := s.positionRepo.ReducePosition(ctx, positionID, remainingQty, remainingMargin, closeFee); err != nil {
+	if err := s.positionRepo.ReducePosition(ctx, positionID, remainingQty, remainingMargin, closeFee, pnl); err != nil {
 		return nil, fmt.Errorf("reduce position: %w", err)
 	}
 
@@ -901,6 +924,8 @@ func (s *TradingService) PartialClosePosition(ctx context.Context, userID, posit
 			if cp.PositionID == positionID {
 				positions[i].Qty = remainingQty
 				positions[i].MarginAmount = remainingMargin
+				positions[i].CloseFee += closeFee
+				positions[i].RealizedPnl += pnl
 				break
 			}
 		}
@@ -1288,31 +1313,44 @@ func (s *TradingService) pushAccountUpdate(userID string) {
 // getPrice returns the latest price for any symbol (crypto, forex, or stock).
 // Crypto symbols (e.g. BTC/USD) use Binance; forex/stocks use Polygon.
 func (s *TradingService) getPrice(symbol string) (float64, error) {
-	// Try Binance first for crypto symbols
+	// 1. Try in-memory price cache first (fastest — updated by WS pushQuote)
+	s.priceMu.RLock()
+	if price, ok := s.priceCache[symbol]; ok && price > 0 {
+		s.priceMu.RUnlock()
+		return price, nil
+	}
+	s.priceMu.RUnlock()
+
+	// 2. Try Binance in-memory prices for crypto
 	if price, err := s.binance.GetPrice(symbol); err == nil {
 		return price, nil
 	}
 
-	// Fallback to Polygon for forex/stocks
+	// 3. Fallback to Polygon REST (slow, only if cache misses)
 	if s.polygon != nil {
 		if strings.Contains(symbol, "/") {
-			// Forex symbol like EUR/USD
 			snap, err := s.polygon.GetForexSnapshot(symbol)
 			if err != nil {
 				return 0, fmt.Errorf("price not available for %s: %w", symbol, err)
 			}
 			if price, ok := snap["price"].(float64); ok && price > 0 {
+				// Warm the cache
+				s.priceMu.Lock()
+				s.priceCache[symbol] = price
+				s.priceMu.Unlock()
 				return price, nil
 			}
 			return 0, fmt.Errorf("price not available for %s (zero from Polygon)", symbol)
 		}
-		// Stock symbol like AAPL
 		snaps, err := s.polygon.GetSnapshotParsed([]string{symbol})
 		if err != nil {
 			return 0, fmt.Errorf("price not available for %s: %w", symbol, err)
 		}
 		if snap, ok := snaps[symbol]; ok {
 			if price, ok := snap["price"].(float64); ok && price > 0 {
+				s.priceMu.Lock()
+				s.priceCache[symbol] = price
+				s.priceMu.Unlock()
 				return price, nil
 			}
 		}
@@ -1709,6 +1747,8 @@ func (s *TradingService) placeCopyOrder(
 
 	pos, err := s.positionRepo.CreateCopyPosition(ctx, pos)
 	if err != nil {
+		s.walletRepo.UnfreezeMargin(ctx, followerID, margin)
+		log.Printf("[copy-trade] position creation failed, unfroze margin=%.4f for follower=%s: %v", margin, followerID, err)
 		return nil, nil, fmt.Errorf("create position: %w", err)
 	}
 

@@ -65,6 +65,7 @@ export default function MarketScreen() {
     loadQuotes,
     loadCryptoQuotes,
     loadForexQuotes,
+    loadFuturesQuotes,
     loadNews,
     loadIndices,
     wsConnected,
@@ -99,7 +100,7 @@ export default function MarketScreen() {
         loadCryptoQuotes(DEFAULT_CRYPTO),
         loadForexQuotes(DEFAULT_FOREX),
         loadQuotes(DEFAULT_STOCKS),
-        loadQuotes(DEFAULT_FUTURES),
+        loadFuturesQuotes(DEFAULT_FUTURES),
         loadNews(),
       ]);
     } catch (e) {

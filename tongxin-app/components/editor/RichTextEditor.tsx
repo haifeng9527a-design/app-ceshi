@@ -52,6 +52,8 @@ export default function RichTextEditor({
   const [isFocused, setIsFocused] = useState(false);
   const [isEmpty, setIsEmpty] = useState(!initialContent);
   const [uploading, setUploading] = useState(false);
+  const composingRef = useRef(false);
+  const mountedRef = useRef(false);
 
   const handleImageUpload = async () => {
     if (Platform.OS === 'web' && fileInputRef.current) {
@@ -137,10 +139,27 @@ export default function RichTextEditor({
             <Text style={styles.placeholder}>{placeholder}</Text>
           )}
           <div
-            ref={editorRef}
+            ref={(node) => {
+              editorRef.current = node;
+              if (node && !mountedRef.current) {
+                mountedRef.current = true;
+                node.innerHTML = initialContent;
+
+                // IME composition handlers
+                node.addEventListener('compositionstart', () => {
+                  composingRef.current = true;
+                });
+                node.addEventListener('compositionend', () => {
+                  composingRef.current = false;
+                  const html = node.innerHTML || '';
+                  setIsEmpty(!html || html === '<br>');
+                  onContentChange?.(html);
+                });
+              }
+            }}
             contentEditable={editable}
             suppressContentEditableWarning
-            dangerouslySetInnerHTML={{ __html: initialContent }}
+            dir="ltr"
             onFocus={() => setIsFocused(true)}
             onBlur={() => {
               setIsFocused(false);
@@ -148,6 +167,7 @@ export default function RichTextEditor({
               setIsEmpty(!html || html === '<br>');
             }}
             onInput={() => {
+              if (composingRef.current) return; // Don't update during IME composition
               const html = editorRef.current?.innerHTML || '';
               setIsEmpty(!html || html === '<br>');
               onContentChange?.(html);
@@ -160,6 +180,8 @@ export default function RichTextEditor({
               lineHeight: 1.8,
               padding: 16,
               fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+              direction: 'ltr' as any,
+              textAlign: 'left' as any,
             }}
             className="rich-editor"
           />

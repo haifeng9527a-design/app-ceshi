@@ -310,6 +310,32 @@ export async function fetchForexQuotes(symbols: string[]): Promise<Record<string
 }
 
 /**
+ * Fetch futures quotes
+ * GET /api/futures/quotes?symbols=ES,NQ,GC,CL
+ */
+export async function fetchFuturesQuotes(symbols: string[]): Promise<Record<string, MarketQuote>> {
+  const { data } = await apiClient.get('/api/futures/quotes', {
+    params: { symbols: symbols.join(',') },
+  });
+  const normalized: Record<string, MarketQuote> = {};
+  for (const [sym, raw] of Object.entries(data as Record<string, any>)) {
+    normalized[sym] = {
+      symbol: raw.symbol ?? sym,
+      price: raw.price ?? raw.close,
+      change: raw.change,
+      percent_change: raw.percent_change,
+      prev_close: raw.prev_close,
+      open: raw.open,
+      high: raw.high,
+      low: raw.low,
+      volume: raw.volume,
+      market: 'futures',
+    };
+  }
+  return normalized;
+}
+
+/**
  * Top gainers
  * GET /api/gainers
  */

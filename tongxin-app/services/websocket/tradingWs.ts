@@ -2,6 +2,7 @@ import { Config } from '../config';
 import { getStoredToken } from '../api/client';
 
 type TradingEventCallback = (data: any) => void;
+type ReconnectCallback = () => void;
 
 type EventType =
   | 'order_created'
@@ -11,7 +12,9 @@ type EventType =
   | 'position_closed'
   | 'position_liquidated'
   | 'balance_update'
-  | 'account_update';
+  | 'account_update'
+  | 'copy_trade_opened'
+  | 'copy_trade_closed';
 
 /**
  * Trading WebSocket Service
@@ -29,6 +32,7 @@ class TradingWebSocket {
   private _connected = false;
   private _intentionalClose = false;
   private lastPongTime = 0;
+  private onReconnectCallbacks: Set<ReconnectCallback> = new Set();
 
   private listeners: Record<EventType, Set<TradingEventCallback>> = {
     order_created: new Set(),
@@ -39,6 +43,8 @@ class TradingWebSocket {
     position_liquidated: new Set(),
     balance_update: new Set(),
     account_update: new Set(),
+    copy_trade_opened: new Set(),
+    copy_trade_closed: new Set(),
   };
 
   get connected() {
@@ -75,11 +81,16 @@ class TradingWebSocket {
     }
 
     this.ws.onopen = () => {
-      console.log('[TradingWS] Connected');
+      const isReconnect = this.reconnectAttempts > 0;
+      console.log(`[TradingWS] Connected${isReconnect ? ' (reconnected)' : ''}`);
       this._connected = true;
       this.reconnectAttempts = 0;
       this.lastPongTime = Date.now();
       this.startHeartbeat();
+      // On reconnect, refresh data to catch any missed WS messages
+      if (isReconnect) {
+        this.onReconnectCallbacks.forEach((cb) => cb());
+      }
     };
 
     this.ws.onmessage = (event) => {
@@ -127,6 +138,14 @@ class TradingWebSocket {
 
   off(event: EventType, cb: TradingEventCallback) {
     this.listeners[event]?.delete(cb);
+  }
+
+  onReconnect(cb: ReconnectCallback) {
+    this.onReconnectCallbacks.add(cb);
+  }
+
+  offReconnect(cb: ReconnectCallback) {
+    this.onReconnectCallbacks.delete(cb);
   }
 
   private handleMessage(data: any) {

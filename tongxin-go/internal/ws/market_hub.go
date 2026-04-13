@@ -18,17 +18,19 @@ type MarketHub struct {
 	clients       map[*Client]bool
 	mu            sync.RWMutex
 	polygon       *market.PolygonClient
-	polygonWS     *market.PolygonWS
+	polygonWS     *market.PolygonWS // stocks WebSocket
+	forexWS       *market.PolygonWS // forex WebSocket
 	binance       *market.BinanceIngestor
 	done          chan struct{}
 	onPriceUpdate PriceCallback
 }
 
-func NewMarketHub(polygon *market.PolygonClient, polygonWS *market.PolygonWS, binance *market.BinanceIngestor) *MarketHub {
+func NewMarketHub(polygon *market.PolygonClient, polygonWS *market.PolygonWS, forexWS *market.PolygonWS, binance *market.BinanceIngestor) *MarketHub {
 	return &MarketHub{
 		clients:   make(map[*Client]bool),
 		polygon:   polygon,
 		polygonWS: polygonWS,
+		forexWS:   forexWS,
 		binance:   binance,
 		done:      make(chan struct{}),
 	}
@@ -83,17 +85,23 @@ func (h *MarketHub) onMessage(client *Client, raw []byte) {
 			"symbols": msg.Symbols,
 		})
 
-		// Forward non-crypto symbols to Polygon WebSocket for real-time streaming
-		if h.polygonWS != nil {
-			var polygonSyms []string
-			for _, s := range msg.Symbols {
-				if !isCryptoSymbol(s) {
-					polygonSyms = append(polygonSyms, s)
-				}
+		// Forward symbols to appropriate Polygon WebSocket
+		var stockSyms, forexSyms []string
+		for _, s := range msg.Symbols {
+			if isCryptoSymbol(s) {
+				continue
 			}
-			if len(polygonSyms) > 0 {
-				h.polygonWS.Subscribe(polygonSyms)
+			if strings.Contains(s, "/") {
+				forexSyms = append(forexSyms, s)
+			} else {
+				stockSyms = append(stockSyms, s)
 			}
+		}
+		if h.polygonWS != nil && len(stockSyms) > 0 {
+			h.polygonWS.Subscribe(stockSyms)
+		}
+		if h.forexWS != nil && len(forexSyms) > 0 {
+			h.forexWS.Subscribe(forexSyms)
 		}
 
 	case "unsubscribe":
@@ -106,12 +114,14 @@ func (h *MarketHub) onMessage(client *Client, raw []byte) {
 }
 
 // StartRealtime listens on Binance and Polygon update channels and pushes immediately
-// Also runs REST fallback loops for stocks/forex/indices
+// Also runs REST fallback loops for stocks/forex/indices/futures
 func (h *MarketHub) StartRealtime() {
 	go h.safeGo("listenBinance", h.listenBinance)
 	go h.safeGo("listenPolygon", h.listenPolygon)
+	go h.safeGo("listenForexWS", h.listenForexWS)
 	go h.safeGo("restFallbackLoop", h.restFallbackLoop)
-	go h.safeGo("forexFastLoop", h.forexFastLoop)
+	go h.safeGo("forexFallbackLoop", h.forexFallbackLoop)
+	go h.safeGo("futuresFallbackLoop", h.futuresFallbackLoop)
 }
 
 // safeGo wraps a function with panic recovery to prevent crashing the process.
@@ -173,7 +183,7 @@ func (h *MarketHub) listenBinance() {
 	}
 }
 
-// listenPolygon reads stock/forex updates and pushes to clients instantly
+// listenPolygon reads stock updates and pushes to clients instantly
 func (h *MarketHub) listenPolygon() {
 	if h.polygonWS == nil {
 		return
@@ -183,6 +193,32 @@ func (h *MarketHub) listenPolygon() {
 		case <-h.done:
 			return
 		case pq := <-h.polygonWS.Updates:
+			h.pushQuote(pq.Symbol, map[string]any{
+				"symbol":         pq.Symbol,
+				"price":          pq.Price,
+				"close":          pq.Price,
+				"open":           pq.Open,
+				"high":           pq.High,
+				"low":            pq.Low,
+				"volume":         pq.Volume,
+				"change":         pq.Change,
+				"percent_change": pq.ChangePct,
+				"prev_close":     pq.PrevClose,
+			})
+		}
+	}
+}
+
+// listenForexWS reads forex updates from the dedicated forex WebSocket
+func (h *MarketHub) listenForexWS() {
+	if h.forexWS == nil {
+		return
+	}
+	for {
+		select {
+		case <-h.done:
+			return
+		case pq := <-h.forexWS.Updates:
 			h.pushQuote(pq.Symbol, map[string]any{
 				"symbol":         pq.Symbol,
 				"price":          pq.Price,
@@ -256,12 +292,62 @@ func (h *MarketHub) restFallbackLoop() {
 	}
 }
 
-// forexFastLoop polls forex every 3s for near real-time updates (forex is 24/5)
-func (h *MarketHub) forexFastLoop() {
+// futuresFallbackLoop polls Polygon futures REST every 1s for real-time futures quotes.
+// Futures use REST only (no WS) to avoid conflicts with the stocks WebSocket.
+func (h *MarketHub) futuresFallbackLoop() {
 	if h.polygon == nil {
 		return
 	}
-	ticker := time.NewTicker(3 * time.Second)
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-h.done:
+			return
+		case <-ticker.C:
+			h.broadcastFutures()
+		}
+	}
+}
+
+// broadcastFutures fetches and pushes futures quotes for all subscribed futures symbols.
+func (h *MarketHub) broadcastFutures() {
+	futuresSyms := make(map[string]bool)
+
+	h.mu.RLock()
+	for client := range h.clients {
+		client.subsMu.RLock()
+		for sym := range client.subs {
+			if !strings.Contains(sym, "/") && market.IsFuturesSymbol(sym) {
+				futuresSyms[sym] = true
+			}
+		}
+		client.subsMu.RUnlock()
+	}
+	h.mu.RUnlock()
+
+	if len(futuresSyms) == 0 {
+		return
+	}
+
+	syms := mapKeys(futuresSyms)
+	snaps, err := h.polygon.GetFuturesQuotes(syms)
+	if err != nil {
+		return
+	}
+	for sym, snap := range snaps {
+		h.pushQuote(sym, snap)
+	}
+}
+
+// forexFallbackLoop polls forex REST for real-time updates.
+// Polygon forex WS may not push data on all plans, so REST is the primary source.
+func (h *MarketHub) forexFallbackLoop() {
+	if h.polygon == nil {
+		return
+	}
+	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -290,6 +376,8 @@ func (h *MarketHub) broadcastStocksAndIndices() {
 				continue // forex/crypto handled separately
 			} else if _, isIdx := indexTickers[sym]; isIdx {
 				indexSyms[sym] = true
+			} else if market.IsFuturesSymbol(sym) {
+				continue // futures handled by futuresFallbackLoop
 			} else if len(sym) > 0 && sym[0] >= 'A' && sym[0] <= 'Z' {
 				stockSyms[sym] = true
 			}
@@ -343,9 +431,14 @@ func (h *MarketHub) broadcastForex() {
 		return
 	}
 
+	// Fetch all forex tickers in one API call instead of one-by-one
+	allSnaps, err := h.polygon.GetForexSnapshotAll()
+	if err != nil {
+		return
+	}
+
 	for sym := range forexSyms {
-		snap, err := h.polygon.GetForexSnapshot(sym)
-		if err == nil && snap != nil {
+		if snap, ok := allSnaps[sym]; ok {
 			h.pushQuote(sym, snap)
 		}
 	}
@@ -370,37 +463,8 @@ func binanceToCryptoDisplay(sym string) string {
 	return sym
 }
 
-var cryptoBases = map[string]bool{
-	"BTC": true, "ETH": true, "BNB": true, "SOL": true, "XRP": true,
-	"DOGE": true, "ADA": true, "AVAX": true, "DOT": true, "MATIC": true,
-	"LINK": true, "UNI": true, "SHIB": true, "LTC": true, "TRX": true,
-	"ATOM": true, "NEAR": true, "APT": true, "ARB": true, "OP": true,
-	"FIL": true, "ICP": true, "AAVE": true, "GRT": true, "MKR": true,
-	"IMX": true, "INJ": true, "RUNE": true, "FTM": true, "ALGO": true,
-	"XLM": true, "VET": true, "SAND": true, "MANA": true, "AXS": true,
-	"THETA": true, "EOS": true, "IOTA": true, "XTZ": true, "FLOW": true,
-	"CHZ": true, "CRV": true, "LDO": true, "SNX": true, "COMP": true,
-	"ZEC": true, "DASH": true, "ENJ": true, "BAT": true, "1INCH": true,
-	"SUSHI": true, "YFI": true, "ZRX": true, "KSM": true, "CELO": true,
-	"QTUM": true, "ICX": true, "ONT": true, "ZIL": true, "WAVES": true,
-	"ANKR": true, "SKL": true, "REN": true, "SRM": true, "DYDX": true,
-	"MASK": true, "API3": true, "BAND": true, "OCEAN": true, "STORJ": true,
-	"NKN": true, "SUI": true, "SEI": true, "TIA": true, "JUP": true,
-	"WIF": true, "BONK": true, "PEPE": true, "FLOKI": true, "ORDI": true,
-	"STX": true, "PYTH": true, "JTO": true, "BLUR": true, "STRK": true,
-	"MEME": true, "WLD": true, "CYBER": true, "ARKM": true, "PENDLE": true,
-	"GMX": true, "SSV": true, "RPL": true, "FXS": true, "OSMO": true,
-	"KAVA": true, "CFX": true, "AGIX": true, "FET": true, "RNDR": true,
-	"AR": true, "HNT": true, "ROSE": true, "USDT": true, "USDC": true,
-	"DAI": true, "BCH": true, "ETC": true,
-}
-
 func isCryptoSymbol(sym string) bool {
-	parts := strings.SplitN(sym, "/", 2)
-	if len(parts) != 2 {
-		return false
-	}
-	return cryptoBases[parts[0]]
+	return market.IsCryptoSymbol(sym)
 }
 
 func mapKeys(m map[string]bool) []string {

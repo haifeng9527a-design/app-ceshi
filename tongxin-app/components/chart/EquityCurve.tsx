@@ -24,11 +24,11 @@ function formatDate(dateStr: string): string {
 export default function EquityCurve({ traderUid }: EquityCurveProps) {
   const [period, setPeriod] = useState<Period>('30D');
   const [chartWidth, setChartWidth] = useState(600);
+  const [chartHeight, setChartHeight] = useState(220);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const [data, setData] = useState<EquityPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const chartRef = useRef<View>(null);
-  const chartHeight = 220;
   const paddingTop = 20;
   const paddingBottom = 30;
   const paddingLeft = 10;
@@ -87,8 +87,9 @@ export default function EquityCurve({ traderUid }: EquityCurveProps) {
   const lineColor = isPositive ? '#d4af37' : Colors.down;
 
   const onLayout = (e: LayoutChangeEvent) => {
-    const w = e.nativeEvent.layout.width;
+    const { width: w, height: h } = e.nativeEvent.layout;
     if (w > 0) setChartWidth(w);
+    if (h > 50) setChartHeight(h);
   };
 
   // Active point
@@ -134,18 +135,22 @@ export default function EquityCurve({ traderUid }: EquityCurveProps) {
     (domEl as any).__equityHandlers = { move: onMove, leave: onLeave };
   }, [values.length, paddingLeft, paddingRight]);
 
-  // Tooltip position
+  // Tooltip position — keep within chart bounds
+  const tooltipW = 140;
+  const tooltipH = 70;
   const tooltipX = toX(activeIndex);
   const tooltipY = toY(activeValue);
-  const tooltipLeft = Math.max(10, Math.min(tooltipX - 50, chartWidth - 130));
-  const tooltipTop = Math.max(0, tooltipY - 65);
+  const tooltipLeft = Math.max(4, Math.min(tooltipX - tooltipW / 2, chartWidth - tooltipW - 4));
+  const tooltipTop = tooltipY > chartHeight - tooltipH - paddingBottom
+    ? tooltipY - tooltipH - 10
+    : Math.max(0, tooltipY - tooltipH + 5);
 
   return (
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
         <View>
-          <Text style={styles.title}>净值增长 Equity Curve</Text>
+          <Text style={styles.title}>净值增长</Text>
           <Text style={styles.subtitle}>
             {period === '7D' ? '近 7 天' : period === '30D' ? '近 30 天' : '全部'} 累计盈亏
           </Text>
@@ -178,86 +183,88 @@ export default function EquityCurve({ traderUid }: EquityCurveProps) {
           style={styles.chartArea}
           onLayout={onLayout}
         >
-          <Svg width={chartWidth} height={chartHeight}>
-            <Defs>
-              <LinearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
-                <Stop offset="0" stopColor={lineColor} stopOpacity={0.3} />
-                <Stop offset="1" stopColor={lineColor} stopOpacity={0} />
-              </LinearGradient>
-            </Defs>
-            <Path d={areaPath} fill="url(#areaGrad)" />
-            <Path d={linePath} fill="none" stroke={lineColor} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+          <View style={styles.svgWrap}>
+            <Svg width={chartWidth} height={chartHeight}>
+              <Defs>
+                <LinearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+                  <Stop offset="0" stopColor={lineColor} stopOpacity={0.3} />
+                  <Stop offset="1" stopColor={lineColor} stopOpacity={0} />
+                </LinearGradient>
+              </Defs>
+              <Path d={areaPath} fill="url(#areaGrad)" />
+              <Path d={linePath} fill="none" stroke={lineColor} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
 
-            {/* Zero line */}
-            {minVal < 0 && maxVal > 0 && (
-              <Line
-                x1={paddingLeft}
-                y1={toY(0)}
-                x2={paddingLeft + drawWidth}
-                y2={toY(0)}
-                stroke={Colors.textMuted}
-                strokeWidth={0.5}
-                strokeDasharray="4,4"
-                opacity={0.4}
-              />
-            )}
-
-            {/* Hover vertical line */}
-            {hoverIndex !== null && (
-              <Line
-                x1={toX(hoverIndex)}
-                y1={paddingTop}
-                x2={toX(hoverIndex)}
-                y2={chartHeight - paddingBottom}
-                stroke={Colors.textMuted}
-                strokeWidth={1}
-                strokeDasharray="4,3"
-                opacity={0.6}
-              />
-            )}
-
-            {/* Active dot */}
-            <Circle
-              cx={toX(activeIndex)}
-              cy={toY(activeValue)}
-              r={5}
-              fill={lineColor}
-              stroke={Colors.surface}
-              strokeWidth={2}
-            />
-
-            {/* X-axis labels */}
-            {xLabels.map(({ idx, label }) => (
-              <SvgText
-                key={idx}
-                x={toX(idx)}
-                y={chartHeight - 6}
-                fill={Colors.textMuted}
-                fontSize={10}
-                fontWeight="600"
-                textAnchor="middle"
-              >
-                {label}
-              </SvgText>
-            ))}
-
-            {/* Grid lines */}
-            {[0.25, 0.5, 0.75].map((pct) => {
-              const y = paddingTop + drawHeight * (1 - pct);
-              return (
+              {/* Zero line */}
+              {minVal < 0 && maxVal > 0 && (
                 <Line
-                  key={pct}
                   x1={paddingLeft}
-                  y1={y}
+                  y1={toY(0)}
                   x2={paddingLeft + drawWidth}
-                  y2={y}
-                  stroke={Colors.border}
+                  y2={toY(0)}
+                  stroke={Colors.textMuted}
                   strokeWidth={0.5}
                   strokeDasharray="4,4"
+                  opacity={0.4}
                 />
-              );
-            })}
-          </Svg>
+              )}
+
+              {/* Hover vertical line */}
+              {hoverIndex !== null && (
+                <Line
+                  x1={toX(hoverIndex)}
+                  y1={paddingTop}
+                  x2={toX(hoverIndex)}
+                  y2={chartHeight - paddingBottom}
+                  stroke={Colors.textMuted}
+                  strokeWidth={1}
+                  strokeDasharray="4,3"
+                  opacity={0.6}
+                />
+              )}
+
+              {/* Active dot */}
+              <Circle
+                cx={toX(activeIndex)}
+                cy={toY(activeValue)}
+                r={5}
+                fill={lineColor}
+                stroke={Colors.surface}
+                strokeWidth={2}
+              />
+
+              {/* X-axis labels */}
+              {xLabels.map(({ idx, label }) => (
+                <SvgText
+                  key={idx}
+                  x={toX(idx)}
+                  y={chartHeight - 6}
+                  fill={Colors.textMuted}
+                  fontSize={10}
+                  fontWeight="600"
+                  textAnchor="middle"
+                >
+                  {label}
+                </SvgText>
+              ))}
+
+              {/* Grid lines */}
+              {[0.25, 0.5, 0.75].map((pct) => {
+                const y = paddingTop + drawHeight * (1 - pct);
+                return (
+                  <Line
+                    key={pct}
+                    x1={paddingLeft}
+                    y1={y}
+                    x2={paddingLeft + drawWidth}
+                    y2={y}
+                    stroke={Colors.border}
+                    strokeWidth={0.5}
+                    strokeDasharray="4,4"
+                  />
+                );
+              })}
+            </Svg>
+          </View>
 
           {/* Tooltip */}
           <View
@@ -283,17 +290,19 @@ export default function EquityCurve({ traderUid }: EquityCurveProps) {
 const styles = StyleSheet.create({
   container: {
     backgroundColor: Colors.surface,
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: Colors.glassBorder,
-    padding: 20,
-    marginBottom: 16,
+    borderColor: Colors.border,
+    padding: 18,
+    marginBottom: 0,
+    flex: 1,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 20,
+    marginBottom: 18,
+    gap: 12,
   },
   title: {
     color: Colors.textActive,
@@ -310,6 +319,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
     borderRadius: 8,
     padding: 2,
+    flexShrink: 0,
   },
   periodTab: {
     paddingHorizontal: 14,
@@ -329,11 +339,18 @@ const styles = StyleSheet.create({
   },
   chartArea: {
     position: 'relative',
+    flex: 1,
+    minHeight: 180,
     // @ts-ignore web cursor
     cursor: 'crosshair',
   },
+  svgWrap: {
+    overflow: 'hidden',
+    borderRadius: 12,
+  },
   loadingBox: {
-    height: 220,
+    flex: 1,
+    minHeight: 180,
     justifyContent: 'center',
     alignItems: 'center',
   },

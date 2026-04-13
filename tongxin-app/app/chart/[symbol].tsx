@@ -40,11 +40,17 @@ export default function ChartDetailScreen() {
     }
   }, [symbol, selectedTf]);
 
+  // Price display precision based on symbol type
+  const priceDecimals = useMemo(() => {
+    if (!symbol) return 2;
+    if (symbol.includes('/') && symbol.includes('JPY')) return 3;
+    if (symbol.includes('/') && !['BTC','ETH','BNB','SOL','XRP','DOGE','ADA','LTC'].some(c => symbol.startsWith(c))) return 5;
+    return 2;
+  }, [symbol]);
+
   const ohlc = useMemo(() => {
     if (klines.length === 0) return null;
     const last = klines[klines.length - 1];
-    // 24h 涨跌：用 quote 的 percent_change（后端基于 prev_close 计算）
-    // 回退：用前一根K线的 close 作为基准
     const prevClose =
       quote?.prev_close ??
       (klines.length >= 2 ? klines[klines.length - 2].close : last.open);
@@ -118,10 +124,10 @@ export default function ChartDetailScreen() {
               {symbol} · {t(TF_KEYS[selectedTf].key)}
             </Text>
             <View style={styles.ohlcRow}>
-              <OhlcItem label={t('market.open')} value={ohlc.open} change={ohlc.change} />
-              <OhlcItem label={t('market.high')} value={ohlc.high} change={ohlc.change} />
-              <OhlcItem label={t('market.low')} value={ohlc.low} change={ohlc.change} />
-              <OhlcItem label={t('market.close')} value={ohlc.close} change={ohlc.change} />
+              <OhlcItem label={t('market.open')} value={ohlc.open} change={ohlc.change} decimals={priceDecimals} />
+              <OhlcItem label={t('market.high')} value={ohlc.high} change={ohlc.change} decimals={priceDecimals} />
+              <OhlcItem label={t('market.low')} value={ohlc.low} change={ohlc.change} decimals={priceDecimals} />
+              <OhlcItem label={t('market.close')} value={ohlc.close} change={ohlc.change} decimals={priceDecimals} />
               <Text
                 style={[
                   styles.ohlcChange,
@@ -129,7 +135,7 @@ export default function ChartDetailScreen() {
                 ]}
               >
                 {ohlc.change >= 0 ? '+' : ''}
-                {ohlc.change.toFixed(2)} ({ohlc.changePercent >= 0 ? '+' : ''}
+                {ohlc.change.toFixed(priceDecimals)} ({ohlc.changePercent >= 0 ? '+' : ''}
                 {ohlc.changePercent.toFixed(2)}%)
               </Text>
             </View>
@@ -155,16 +161,18 @@ function OhlcItem({
   label,
   value,
   change,
+  decimals = 2,
 }: {
   label: string;
   value: number;
   change: number;
+  decimals?: number;
 }) {
   const color = change >= 0 ? Colors.up : Colors.down;
   return (
     <View style={styles.ohlcItem}>
       <Text style={styles.ohlcLabel}>{label}=</Text>
-      <Text style={[styles.ohlcValue, { color }]}>{value.toFixed(2)}</Text>
+      <Text style={[styles.ohlcValue, { color }]}>{value.toFixed(decimals)}</Text>
     </View>
   );
 }

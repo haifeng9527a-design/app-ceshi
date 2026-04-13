@@ -236,6 +236,37 @@ const DARK_THEME: Record<string, any> = {
 };
 
 /* ═══════════════════════════════════════════
+   Price precision per symbol type
+   ═══════════════════════════════════════════ */
+
+function getSymbolPricePrecision(symbol: string): number {
+  // JPY forex pairs: 3 decimals
+  if (symbol.includes('/') && symbol.includes('JPY')) return 3;
+  // Other forex pairs (EUR/USD, GBP/USD, etc.): 5 decimals
+  if (symbol.includes('/') && !isCryptoSymbol(symbol)) return 5;
+  // Crypto: BTC 2, others 4
+  if (isCryptoSymbol(symbol)) {
+    const base = symbol.split('/')[0];
+    if (base === 'BTC' || base === 'ETH') return 2;
+    return 4;
+  }
+  // Stocks/indices: 2 decimals
+  return 2;
+}
+
+const CRYPTO_BASES = new Set([
+  'BTC','ETH','BNB','SOL','XRP','DOGE','ADA','AVAX','DOT','MATIC',
+  'LINK','UNI','SHIB','LTC','TRX','ATOM','NEAR','APT','ARB','OP',
+  'SUI','SEI','INJ','TIA','JUP','WIF','PEPE','FLOKI','BONK','RENDER',
+  'FET','TAO','AR','FIL','AAVE','MKR','CRV','RUNE','IMX','STX',
+]);
+
+function isCryptoSymbol(sym: string): boolean {
+  const parts = sym.split('/');
+  return parts.length === 2 && CRYPTO_BASES.has(parts[0].toUpperCase());
+}
+
+/* ═══════════════════════════════════════════
    Component
    ═══════════════════════════════════════════ */
 
@@ -298,6 +329,14 @@ export default function TradingViewChart({
       volume: k.volume || 0,
     }));
   }, [klines]);
+
+  /* ─── Set price precision based on symbol type ─── */
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || !symbol) return;
+    const precision = getSymbolPricePrecision(symbol);
+    chart.setPriceVolumePrecision(precision, 0);
+  }, [symbol]);
 
   /* ─── Apply kline data ─── */
   useEffect(() => {

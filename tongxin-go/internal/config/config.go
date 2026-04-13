@@ -20,7 +20,8 @@ type Config struct {
 	JWTSecret string
 
 	// Polygon
-	PolygonAPIKey string
+	PolygonAPIKey      string
+	PolygonForexAPIKey string // optional second key for forex WS (separate connection quota)
 
 	// Alpaca
 	AlpacaAPIKey    string
@@ -46,6 +47,7 @@ func Load() *Config {
 		RedisURL:         getEnv("REDIS_URL", ""),
 		JWTSecret:        getEnv("JWT_SECRET", ""),
 		PolygonAPIKey:    getEnv("POLYGON_API_KEY", ""),
+		PolygonForexAPIKey: getEnv("POLYGON_FOREX_API_KEY", ""),
 		AlpacaAPIKey:     getEnv("ALPACA_API_KEY", ""),
 		AlpacaAPISecret:  getEnv("ALPACA_API_SECRET", ""),
 		AlpacaBaseURL:    getEnv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets"),

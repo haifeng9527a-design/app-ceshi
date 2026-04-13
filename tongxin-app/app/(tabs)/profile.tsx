@@ -377,7 +377,7 @@ export default function ProfileScreen() {
                   </View>
                 ) : null}
               </View>
-              <Text style={styles.metaLine}>Account ID: {user.shortId || '--'}</Text>
+              <Text style={styles.metaLine}>UID: {user.uid || '--'}</Text>
               <Text style={styles.metaLine}>Email: {user.email || '--'}</Text>
               {user.phone ? <Text style={styles.metaLine}>Phone: {user.phone}</Text> : null}
               {user.signature ? <Text style={styles.bioText}>{user.signature}</Text> : null}

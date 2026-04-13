@@ -144,12 +144,29 @@ func (h *MarketHandler) Candles(w http.ResponseWriter, r *http.Request) {
 		// Fall through to Polygon
 	}
 
-	// Use Polygon for all symbols (stocks, forex, crypto fallback)
-	if from == "" {
-		from = time.Now().AddDate(-1, 0, 0).Format("2006-01-02")
+	// Route futures symbols to Polygon futures API
+	if market.IsFuturesSymbol(symbol) {
+		if to == "" {
+			to = time.Now().Format("2006-01-02")
+		}
+		if from == "" {
+			from = defaultFrom(timeframe)
+		}
+		data, err := h.polygon.GetFuturesCandlesParsed(symbol, timeframe, from, to)
+		if err != nil {
+			writeError(w, http.StatusBadGateway, "futures data request failed")
+			return
+		}
+		writeJSON(w, http.StatusOK, data)
+		return
 	}
+
+	// Use Polygon for all symbols (stocks, forex, crypto fallback)
 	if to == "" {
 		to = time.Now().Format("2006-01-02")
+	}
+	if from == "" {
+		from = defaultFrom(timeframe)
 	}
 
 	data, err := h.polygon.GetCandlesParsed(symbol, timeframe, from, to)
@@ -418,33 +435,43 @@ func (h *MarketHandler) ForexQuotes(w http.ResponseWriter, r *http.Request) {
 	}
 	symbols := strings.Split(symbolsStr, ",")
 
-	// Fetch all forex snapshots concurrently to avoid serial timeout
-	type snapResult struct {
-		sym  string
-		snap map[string]any
-	}
-	ch := make(chan snapResult, len(symbols))
-	for _, sym := range symbols {
-		sym = strings.TrimSpace(sym)
-		go func(s string) {
-			snap, err := h.polygon.GetForexSnapshot(s)
-			if err == nil && snap != nil {
-				ch <- snapResult{s, snap}
-			} else {
-				ch <- snapResult{s, nil}
-			}
-		}(sym)
+	// Use bulk API — one request for all forex tickers
+	allSnaps, err := h.polygon.GetForexSnapshotAll()
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "forex data unavailable")
+		return
 	}
 
 	result := make(map[string]any)
-	for range symbols {
-		sr := <-ch
-		if sr.snap != nil {
-			result[sr.sym] = sr.snap
+	for _, sym := range symbols {
+		sym = strings.TrimSpace(sym)
+		if snap, ok := allSnaps[sym]; ok {
+			result[sym] = snap
 		}
 	}
 
 	writeJSON(w, http.StatusOK, result)
+}
+
+// GET /api/futures/quotes?symbols=ES,NQ,GC,CL
+func (h *MarketHandler) FuturesQuotes(w http.ResponseWriter, r *http.Request) {
+	symbolsStr := r.URL.Query().Get("symbols")
+	if symbolsStr == "" {
+		writeJSON(w, http.StatusOK, map[string]any{})
+		return
+	}
+	symbols := strings.Split(symbolsStr, ",")
+	for i := range symbols {
+		symbols[i] = strings.TrimSpace(symbols[i])
+	}
+
+	data, err := h.polygon.GetFuturesQuotes(symbols)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "futures data unavailable")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, data)
 }
 
 // GET /api/news?ticker=AAPL&limit=20
@@ -560,4 +587,29 @@ func msToDate(ms string) string {
 		return time.UnixMilli(msInt).Format("2006-01-02")
 	}
 	return ""
+}
+
+// defaultFrom returns a sensible start date based on the candle timeframe.
+// Polygon limit=5000 with sort=asc means we must keep the range small enough
+// that 5000 candles cover up to the current time.
+func defaultFrom(timeframe string) string {
+	now := time.Now()
+	switch timeframe {
+	case "1", "1m", "1min":
+		return now.AddDate(0, 0, -2).Format("2006-01-02")
+	case "3", "3m", "3min":
+		return now.AddDate(0, 0, -5).Format("2006-01-02")
+	case "5", "5m", "5min":
+		return now.AddDate(0, 0, -7).Format("2006-01-02")
+	case "15", "15m", "15min":
+		return now.AddDate(0, 0, -14).Format("2006-01-02")
+	case "30", "30m", "30min":
+		return now.AddDate(0, -1, 0).Format("2006-01-02")
+	case "60", "1h", "1H", "60min":
+		return now.AddDate(0, -2, 0).Format("2006-01-02")
+	case "4h", "4H", "240":
+		return now.AddDate(0, -6, 0).Format("2006-01-02")
+	default: // 1D, 1W, 1M
+		return now.AddDate(-1, 0, 0).Format("2006-01-02")
+	}
 }

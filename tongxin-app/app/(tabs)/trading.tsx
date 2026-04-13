@@ -316,7 +316,13 @@ function generateOrderBook(price: number, symbol?: string, tick = 0) {
   for (const a of asks) a.pct = a.qty / maxQty;
   for (const b of bids) b.pct = b.qty / maxQty;
 
-  return { asks, bids };
+  // Long/short ratio from total bid/ask volume
+  const totalBidQty = bids.reduce((sum, b) => sum + b.qty, 0);
+  const totalAskQty = asks.reduce((sum, a) => sum + a.qty, 0);
+  const total = totalBidQty + totalAskQty || 1;
+  const buyPct = Math.round((totalBidQty / total) * 100);
+
+  return { asks, bids, buyPct };
 }
 
 /* ════════════════════════════════════════
@@ -736,6 +742,7 @@ export default function TradingScreen() {
   const [showDepositModal, setShowDepositModal] = useState(false);
   const [depositAmount, setDepositAmount] = useState('');
   const [orderLoading, setOrderLoading] = useState(false);
+  const [closeAllLoading, setCloseAllLoading] = useState(false);
   const [panelMode, setPanelMode] = useState<'open' | 'close'>('open');
 
   const {
@@ -745,6 +752,7 @@ export default function TradingScreen() {
     loadCryptoQuotes,
     loadQuotes,
     loadForexQuotes,
+    loadFuturesQuotes,
     loadKlines,
     updateQuote,
   } = useMarketStore();
@@ -921,6 +929,26 @@ export default function TradingScreen() {
     }
   }, [user, getActualQty, selectedSymbol, orderType, leverage, marginMode, placeOrder, showTPSL, tpInput, slInput, priceInput]);
 
+  const handleCloseAll = useCallback(async () => {
+    const openPositions = positions.filter(p => !p.is_copy_trade);
+    if (openPositions.length === 0) return;
+    const msg = `确定平掉全部 ${openPositions.length} 个持仓？`;
+    if (Platform.OS === 'web') {
+      if (!window.confirm(msg)) return;
+    }
+    setCloseAllLoading(true);
+    try {
+      await Promise.allSettled(openPositions.map(p => closePosition(p.id)));
+      fetchPositions();
+      fetchPositionHistory();
+      fetchAccount();
+    } catch (e) {
+      console.error('[closeAll] error:', e);
+    } finally {
+      setCloseAllLoading(false);
+    }
+  }, [positions, closePosition, fetchPositions, fetchPositionHistory, fetchAccount]);
+
   const handleDeposit = useCallback(async (amount: number) => {
     if (!user) {
       if (Platform.OS === 'web') window.alert('请先登录');
@@ -1008,11 +1036,12 @@ export default function TradingScreen() {
     for (let i = 0; i < CRYPTO_SYMBOLS.length; i += 50) {
       loadCryptoQuotes(CRYPTO_SYMBOLS.slice(i, i + 50));
     }
-    // Stocks + Futures: batch of 50
-    const stocksAll = [...STOCK_SYMBOLS, ...FUTURES_SYMBOLS];
-    for (let i = 0; i < stocksAll.length; i += 50) {
-      loadQuotes(stocksAll.slice(i, i + 50));
+    // Stocks: batch of 50
+    for (let i = 0; i < STOCK_SYMBOLS.length; i += 50) {
+      loadQuotes(STOCK_SYMBOLS.slice(i, i + 50));
     }
+    // Futures: dedicated API
+    loadFuturesQuotes(FUTURES_SYMBOLS);
     // Forex: batch of 15
     for (let i = 0; i < FOREX_SYMBOLS.length; i += 15) {
       loadForexQuotes(FOREX_SYMBOLS.slice(i, i + 15));
@@ -1379,6 +1408,20 @@ export default function TradingScreen() {
                     );
                   });
                 })()}
+                {/* Spacer to push close-all button to the right */}
+                <View style={{ flex: 1 }} />
+                {positions.filter(p => !p.is_copy_trade).length > 0 && (
+                  <TouchableOpacity
+                    style={{ paddingVertical: 8, paddingHorizontal: 12, backgroundColor: 'rgba(220,53,69,0.15)', borderRadius: 4, alignSelf: 'center' }}
+                    onPress={handleCloseAll}
+                    disabled={closeAllLoading}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={{ color: '#DC3545', fontSize: 11, fontWeight: '600' }}>
+                      {closeAllLoading ? '平仓中...' : '一键平仓'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
               </View>
               <View>
                 {bottomTab === 'positions' && (() => {
@@ -1448,6 +1491,16 @@ export default function TradingScreen() {
                   <Text style={s.obQty}>{b.qty.toFixed(4)}</Text>
                 </View>
               ))}
+            </View>
+
+            {/* Long/Short Ratio Bar */}
+            <View style={s.lsRatioRow}>
+              <Text style={[s.lsLabel, { color: Colors.up }]}>B {orderBook.buyPct}%</Text>
+              <View style={s.lsBarTrack}>
+                <View style={[s.lsBarBuy, { flex: orderBook.buyPct }]} />
+                <View style={[s.lsBarSell, { flex: 100 - orderBook.buyPct }]} />
+              </View>
+              <Text style={[s.lsLabel, { color: Colors.down }]}>{100 - orderBook.buyPct}% S</Text>
             </View>
 
             {/* Execution Panel */}
@@ -1978,6 +2031,16 @@ export default function TradingScreen() {
               ))}
             </View>
           </View>
+
+          {/* Long/Short Ratio Bar */}
+          <View style={s.lsRatioRow}>
+            <Text style={[s.lsLabel, { color: Colors.up }]}>B {orderBook.buyPct}%</Text>
+            <View style={s.lsBarTrack}>
+              <View style={[s.lsBarBuy, { flex: orderBook.buyPct }]} />
+              <View style={[s.lsBarSell, { flex: 100 - orderBook.buyPct }]} />
+            </View>
+            <Text style={[s.lsLabel, { color: Colors.down }]}>{100 - orderBook.buyPct}% S</Text>
+          </View>
         </View>
 
         {/* Execution — Binance-style (mobile) */}
@@ -2475,6 +2538,7 @@ const s = StyleSheet.create({
   },
   bottomTabRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(77,70,53,0.1)',
     paddingHorizontal: 20,
@@ -2580,6 +2644,33 @@ const s = StyleSheet.create({
   obQty: {
     fontSize: 11,
     color: Colors.textActive,
+  },
+  lsRatioRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+  },
+  lsLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    minWidth: 38,
+  },
+  lsBarTrack: {
+    flex: 1,
+    flexDirection: 'row',
+    height: 6,
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  lsBarBuy: {
+    backgroundColor: Colors.up,
+    borderRadius: 3,
+  },
+  lsBarSell: {
+    backgroundColor: Colors.down,
+    borderRadius: 3,
   },
   obCurrentRow: {
     flexDirection: 'row',

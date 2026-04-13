@@ -129,12 +129,21 @@ func main() {
 	binance.Start(cryptoSymbols)
 	log.Println("[OK] Binance crypto ingestor started")
 
-	// ── Polygon WebSocket (real-time stock/forex) ──
-	var polygonWS *market.PolygonWS
+	// ── Polygon WebSocket (stocks + forex on separate endpoints / keys) ──
+	var polygonWS, forexWS *market.PolygonWS
 	if cfg.PolygonAPIKey != "" {
-		polygonWS = market.NewPolygonWS(cfg.PolygonAPIKey)
+		polygonWS = market.NewPolygonWS(cfg.PolygonAPIKey, "stocks")
 		polygonWS.Start()
-		log.Println("[OK] Polygon WebSocket started (stocks + forex)")
+		log.Println("[OK] Polygon WebSocket started (stocks)")
+	}
+	forexKey := cfg.PolygonForexAPIKey
+	if forexKey == "" {
+		forexKey = cfg.PolygonAPIKey
+	}
+	if forexKey != "" {
+		forexWS = market.NewPolygonWS(forexKey, "forex")
+		forexWS.Start()
+		log.Println("[OK] Polygon WebSocket started (forex)")
 	}
 
 	// ── Redis (optional: chat WS fan-out across instances; Postgres remains source of truth) ──
@@ -169,7 +178,7 @@ func main() {
 		}
 	}
 
-	marketHub := ws.NewMarketHub(polygonClient, polygonWS, binance)
+	marketHub := ws.NewMarketHub(polygonClient, polygonWS, forexWS, binance)
 	marketHub.StartRealtime()
 	log.Println("[OK] Market WebSocket hub initialized (real-time)")
 
@@ -215,6 +224,9 @@ func main() {
 		// Forex routes
 		mux.HandleFunc("GET /api/forex/pairs", marketH.ForexPairs)
 		mux.HandleFunc("GET /api/forex/quotes", marketH.ForexQuotes)
+
+		// Futures routes
+		mux.HandleFunc("GET /api/futures/quotes", marketH.FuturesQuotes)
 
 		// News
 		mux.HandleFunc("GET /api/news", marketH.News)
@@ -629,6 +641,9 @@ func main() {
 		binance.Stop()
 		if polygonWS != nil {
 			polygonWS.Stop()
+		}
+		if forexWS != nil {
+			forexWS.Stop()
 		}
 		marketHub.Stop()
 	}()

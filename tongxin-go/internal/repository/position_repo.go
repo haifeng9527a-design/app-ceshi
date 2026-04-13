@@ -178,11 +178,13 @@ func (r *PositionRepo) LiquidatePosition(ctx context.Context, id string, realize
 }
 
 // ReducePosition decreases the qty and margin of an open position (partial close).
-func (r *PositionRepo) ReducePosition(ctx context.Context, id string, newQty, newMargin, closeFee float64) error {
+// pnl is the realized PnL for the closed portion, accumulated onto the position.
+func (r *PositionRepo) ReducePosition(ctx context.Context, id string, newQty, newMargin, closeFee, pnl float64) error {
 	tag, err := r.pool.Exec(ctx,
-		`UPDATE positions SET qty = $2, margin_amount = $3, close_fee = close_fee + $4, updated_at = NOW()
+		`UPDATE positions SET qty = $2, margin_amount = $3, close_fee = close_fee + $4,
+		 realized_pnl = realized_pnl + $5, updated_at = NOW()
 		 WHERE id = $1 AND status = 'open'`,
-		id, newQty, newMargin, closeFee)
+		id, newQty, newMargin, closeFee, pnl)
 	if err != nil {
 		return fmt.Errorf("reduce position: %w", err)
 	}

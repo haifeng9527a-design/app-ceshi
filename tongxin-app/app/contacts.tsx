@@ -8,10 +8,12 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
+  Image,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { Colors, Sizes } from '../theme/colors';
+import { Config } from '../services/config';
 import { useAuthStore } from '../services/store/authStore';
 import { useMessagesStore } from '../services/store/messagesStore';
 import {
@@ -22,11 +24,21 @@ import {
   type PeerProfile,
 } from '../services/api/messagesApi';
 
-function AvatarCircle({ name, size = 48 }: { name: string; size?: number }) {
+function AvatarCircle({ name, size = 48, imageUrl }: { name: string; size?: number; imageUrl?: string | null }) {
   const letter = (name || '?').charAt(0).toUpperCase();
   const hue = name.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % 360;
   const bg = `hsl(${hue}, 40%, 25%)`;
   const fg = `hsl(${hue}, 60%, 75%)`;
+  const resolvedUrl = imageUrl && imageUrl.startsWith('/') ? `${Config.API_BASE_URL}${imageUrl}` : imageUrl;
+
+  if (resolvedUrl) {
+    return (
+      <Image
+        source={{ uri: resolvedUrl }}
+        style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: bg }}
+      />
+    );
+  }
 
   return (
     <View
@@ -284,13 +296,13 @@ export default function ContactsScreen() {
                 activeOpacity={0.75}
                 disabled={openingChat === f.user_id}
               >
-                <AvatarCircle name={f.display_name} size={44} />
+                <AvatarCircle name={f.display_name} size={44} imageUrl={f.avatar_url} />
                 <View style={styles.cardBody}>
                   <Text style={styles.cardName} numberOfLines={1}>
                     {f.display_name}
                   </Text>
                   <Text style={styles.cardSub} numberOfLines={1}>
-                    {f.short_id ? `ID: ${f.short_id}` : f.email || ''}
+                    {`UID: ${f.user_id}`}
                   </Text>
                 </View>
                 {openingChat === f.user_id ? (

@@ -22,7 +22,9 @@ func NewConversationRepo(pool *pgxpool.Pool) *ConversationRepo {
 
 func (r *ConversationRepo) ListByUser(ctx context.Context, uid string) ([]model.Conversation, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT c.id, c.type, COALESCE(c.title,''), COALESCE(c.avatar_url,''),
+		SELECT c.id, c.type, COALESCE(c.title,''),
+		       CASE WHEN c.type = 'direct' THEN COALESCE(NULLIF(u_peer.avatar_url,''), c.avatar_url, '')
+		            ELSE COALESCE(c.avatar_url,'') END,
 		       COALESCE(c.created_by,''), c.created_at,
 		       COALESCE(m.content,'') AS last_message,
 		       COALESCE(u2.display_name,'') AS last_sender_name,

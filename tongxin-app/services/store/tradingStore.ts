@@ -108,10 +108,12 @@ export const useTradingStore = create<TradingState>((set, get) => ({
 
   placeOrder: async (req: PlaceOrderRequest) => {
     const order = await apiPlaceOrder(req);
-    // Refresh data after placing order
-    get().fetchPositions();
-    get().fetchPendingOrders();
-    get().fetchAccount();
+    // Refresh data in parallel — don't block UI
+    Promise.allSettled([
+      get().fetchPositions(),
+      get().fetchPendingOrders(),
+      get().fetchAccount(),
+    ]);
     return order;
   },
 
@@ -122,15 +124,25 @@ export const useTradingStore = create<TradingState>((set, get) => ({
   },
 
   closePosition: async (id: string) => {
+    // Optimistic: remove position from UI immediately
+    const removedPos = get().positions.find((p) => p.id === id);
+    if (removedPos) {
+      set((state) => ({
+        positions: state.positions.filter((p) => p.id !== id),
+      }));
+    }
     try {
       await apiClosePosition(id);
     } catch (e: any) {
       // Position may already be closed (e.g. by copy-trade auto-close or TP/SL)
       console.warn('[closePosition] error:', e?.response?.data || e.message);
     }
-    get().fetchPositions();
-    get().fetchPositionHistory();
-    get().fetchAccount();
+    // Refresh in background — don't block UI
+    Promise.allSettled([
+      get().fetchPositions(),
+      get().fetchPositionHistory(),
+      get().fetchAccount(),
+    ]);
   },
 
   deposit: async (amount: number) => {
@@ -174,6 +186,10 @@ export const useTradingStore = create<TradingState>((set, get) => ({
             source_position_id: existing.source_position_id,
             source_trader_id: existing.source_trader_id,
             copy_trading_id: existing.copy_trading_id,
+            // Preserve fee/pnl fields — WS push doesn't include them
+            open_fee: data.open_fee || existing.open_fee,
+            close_fee: data.close_fee || existing.close_fee,
+            realized_pnl: data.realized_pnl || existing.realized_pnl,
           };
         } else {
           positions = [data, ...state.positions];
@@ -207,6 +223,18 @@ export const useTradingStore = create<TradingState>((set, get) => ({
       }));
     });
 
+    // Copy trade events — refresh full position list + balance
+    tradingWs.on('copy_trade_opened', () => {
+      get().fetchPositions();
+      get().fetchAccount();
+    });
+
+    tradingWs.on('copy_trade_closed', () => {
+      get().fetchPositions();
+      get().fetchPositionHistory();
+      get().fetchAccount();
+    });
+
     tradingWs.on('balance_update', (data: { balance: number; frozen: number }) => {
       set((state) => ({
         account: state.account
@@ -220,6 +248,14 @@ export const useTradingStore = create<TradingState>((set, get) => ({
 
     tradingWs.on('account_update', (data: AccountInfoResponse) => {
       set({ account: data });
+    });
+
+    // On reconnect, refresh all data to catch any missed WS messages
+    tradingWs.onReconnect(() => {
+      console.log('[TradingStore] WS reconnected, refreshing data...');
+      get().fetchPositions();
+      get().fetchPendingOrders();
+      get().fetchAccount();
     });
 
     tradingWs.connect();

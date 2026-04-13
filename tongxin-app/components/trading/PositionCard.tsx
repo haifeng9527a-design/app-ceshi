@@ -23,6 +23,13 @@ export default function PositionCard({ position, onClose, onUpdated }: Props) {
   const roeStr = roe >= 0 ? `+${fmt(roe)}%` : `${fmt(roe)}%`;
   const pnlStr = pnl >= 0 ? `+${fmt(pnl)}` : fmt(pnl);
 
+  // 已实现盈亏 breakdown
+  const closingPnl = position.realized_pnl ?? 0;       // 平仓盈亏
+  const fundingFee = 0;                                  // 资金费用 (not tracked yet)
+  const tradingFee = -((position.open_fee ?? 0) + (position.close_fee ?? 0)); // 交易费用 (negative = cost)
+  const totalRealizedPnl = closingPnl + fundingFee + tradingFee;
+  const [showRealizedDetail, setShowRealizedDetail] = useState(false);
+
   // TP/SL modal
   const [showTPSL, setShowTPSL] = useState(false);
   const [tpInput, setTpInput] = useState(position.tp_price != null ? String(position.tp_price) : '');
@@ -247,6 +254,45 @@ export default function PositionCard({ position, onClose, onUpdated }: Props) {
             {position.tp_price != null ? fmt(position.tp_price) : '--'} / {position.sl_price != null ? fmt(position.sl_price) : '--'}
           </Text>
         </TouchableOpacity>
+        {/* 已实现盈亏 */}
+        <View
+          style={[st.detailCell, { position: 'relative', zIndex: showRealizedDetail ? 50 : 0 }]}
+          // @ts-ignore web hover events
+          onMouseEnter={() => setShowRealizedDetail(true)}
+          onMouseLeave={() => setShowRealizedDetail(false)}
+        >
+          <Text style={[st.detailLabel, { textDecorationLine: 'underline', textDecorationStyle: 'dashed' }]}>已实现盈亏</Text>
+          <Text style={[st.detailValue, { color: totalRealizedPnl >= 0 ? '#0ECB81' : '#F6465D', fontWeight: '600' }]}>
+            {totalRealizedPnl >= 0 ? '+' : ''}{fmt(totalRealizedPnl, 8)}
+          </Text>
+          {showRealizedDetail && (
+            <View style={st.realizedTooltip}>
+              <View style={st.realizedPopoverRow}>
+                <Text style={st.realizedPopoverTitle}>已实现盈亏</Text>
+                <Text style={[st.realizedPopoverTitleVal, { color: totalRealizedPnl >= 0 ? '#0ECB81' : '#F6465D' }]}>
+                  {fmt(totalRealizedPnl, 8)} USDT
+                </Text>
+              </View>
+              <View style={st.realizedPopoverDivider} />
+              <View style={st.realizedPopoverRow}>
+                <Text style={st.realizedPopoverLabel}>平仓盈亏</Text>
+                <Text style={st.realizedPopoverVal}>{fmt(closingPnl, 8)} USDT</Text>
+              </View>
+              <View style={st.realizedPopoverRow}>
+                <Text style={st.realizedPopoverLabel}>资金费用</Text>
+                <Text style={st.realizedPopoverVal}>{fmt(fundingFee, 8)} USDT</Text>
+              </View>
+              <View style={st.realizedPopoverRow}>
+                <Text style={st.realizedPopoverLabel}>交易费用</Text>
+                <Text style={[st.realizedPopoverVal, { color: tradingFee < 0 ? '#F6465D' : '#bbb' }]}>
+                  {fmt(tradingFee, 8)} USDT
+                </Text>
+              </View>
+              <View style={st.realizedPopoverDivider} />
+              <Text style={st.realizedPopoverFormula}>已实现盈亏 = 平仓盈亏 + 资金费用 + 交易费用</Text>
+            </View>
+          )}
+        </View>
       </View>
 
       {/* Action row */}
@@ -440,6 +486,7 @@ export default function PositionCard({ position, onClose, onUpdated }: Props) {
           </View>
         </View>
       )}
+
     </View>
   );
 }
@@ -462,6 +509,7 @@ const st = StyleSheet.create({
     marginHorizontal: 4,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.04)',
+    overflow: 'visible',
   },
   header: {
     flexDirection: 'row',
@@ -492,7 +540,7 @@ const st = StyleSheet.create({
   marginModeText: { color: '#666', fontSize: 11 },
   headerPnl: { fontSize: 14, fontWeight: '700', fontFamily: 'monospace' },
   headerRoe: { fontSize: 12, fontWeight: '600', fontFamily: 'monospace', marginTop: 2 },
-  detailGrid: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 12 },
+  detailGrid: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 12, overflow: 'visible' },
   detailCell: { width: '33.33%', marginBottom: 8, position: 'relative' },
   detailLabel: { color: '#555', fontSize: 11, marginBottom: 3 },
   toggleArrow: { color: '#888', fontSize: 10, marginBottom: 3 },
@@ -532,6 +580,59 @@ const st = StyleSheet.create({
     borderRadius: 4, alignItems: 'center', justifyContent: 'center',
   },
   closeExecBtnText: { color: '#fff', fontSize: 11, fontWeight: '700' },
+
+  // ── Realized PNL Tooltip ──
+  realizedTooltip: {
+    position: 'absolute',
+    bottom: '100%',
+    left: 0,
+    marginBottom: 6,
+    backgroundColor: '#2A2A2A',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+    padding: 14,
+    minWidth: 280,
+    // @ts-ignore web shadow
+    boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
+    zIndex: 100,
+    elevation: 20,
+  },
+  realizedPopoverRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  realizedPopoverTitle: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  realizedPopoverTitleVal: {
+    fontSize: 13,
+    fontWeight: '700',
+    fontFamily: 'monospace',
+  },
+  realizedPopoverDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    marginVertical: 6,
+  },
+  realizedPopoverLabel: {
+    color: '#888',
+    fontSize: 11,
+  },
+  realizedPopoverVal: {
+    color: '#bbb',
+    fontSize: 11,
+    fontFamily: 'monospace',
+  },
+  realizedPopoverFormula: {
+    color: '#666',
+    fontSize: 10,
+    marginTop: 2,
+  },
 
   // ── TP/SL Modal ──
   modalOverlay: {

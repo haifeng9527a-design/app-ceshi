@@ -11,12 +11,14 @@ import {
   ActivityIndicator,
   Platform,
   Alert,
+  Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import QRCode from 'react-native-qrcode-svg';
 import { Colors, Sizes } from '../theme/colors';
+import { Config } from '../services/config';
 import { useAuthStore } from '../services/store/authStore';
 import { useMessagesStore } from '../services/store/messagesStore';
 import apiClient from '../services/api/client';
@@ -71,11 +73,21 @@ function normId(s: string | undefined | null): string {
    Avatar Helper
    ════════════════════════════════════════ */
 
-function AvatarCircle({ name, size = 48 }: { name: string; size?: number }) {
+function AvatarCircle({ name, size = 48, imageUrl }: { name: string; size?: number; imageUrl?: string | null }) {
   const letter = (name || '?').charAt(0).toUpperCase();
   const hue = name.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % 360;
   const bg = `hsl(${hue}, 40%, 25%)`;
   const fg = `hsl(${hue}, 60%, 75%)`;
+  const resolvedUrl = imageUrl && imageUrl.startsWith('/') ? `${Config.API_BASE_URL}${imageUrl}` : imageUrl;
+
+  if (resolvedUrl) {
+    return (
+      <Image
+        source={{ uri: resolvedUrl }}
+        style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: bg }}
+      />
+    );
+  }
 
   return (
     <View
@@ -161,9 +173,9 @@ function QRCodeTab({
       {qrMode === 'my' ? (
         /* ── My QR Code ── */
         <View style={s.qrMyWrap}>
-          <AvatarCircle name={user.displayName || 'U'} size={64} />
+          <AvatarCircle name={user.displayName || 'U'} size={64} imageUrl={user.photoURL} />
           <Text style={s.qrMyName}>{user.displayName || 'User'}</Text>
-          {user.shortId && <Text style={s.qrMyId}>ID: {user.shortId}</Text>}
+          <Text style={s.qrMyId}>UID: {user.uid}</Text>
           <View style={s.qrCodeContainer}>
             <QRCode value={qrValue} size={180} backgroundColor="white" color="#1a1a1a" />
           </View>
@@ -344,7 +356,7 @@ export default function AddFriendPage() {
     return (
       f.display_name.toLowerCase().includes(q) ||
       f.email?.toLowerCase().includes(q) ||
-      f.short_id?.toLowerCase().includes(q)
+      f.user_id?.toLowerCase().includes(q)
     );
   });
 
@@ -458,10 +470,10 @@ export default function AddFriendPage() {
               const isFriend = friends.some((f) => normId(f.user_id) === rowUid);
               return (
               <View key={rowUid || u.email || u.short_id} style={s.userCard}>
-                <AvatarCircle name={u.display_name} size={48} />
+                <AvatarCircle name={u.display_name} size={48} imageUrl={u.avatar_url} />
                 <View style={s.userCardBody} pointerEvents="box-none">
                   <Text style={s.userName} numberOfLines={1}>{u.display_name}</Text>
-                  <Text style={s.userSub} numberOfLines={1}>{u.email || u.short_id || ''}</Text>
+                  <Text style={s.userSub} numberOfLines={1}>{`UID: ${rowUid}`}</Text>
                 </View>
                 {sendingId === rowUid ? (
                   <ActivityIndicator size="small" color={Colors.primary} style={{ flexShrink: 0 }} />
@@ -509,11 +521,11 @@ export default function AddFriendPage() {
                 activeOpacity={0.7}
                 disabled={creating === f.user_id}
               >
-                <AvatarCircle name={f.display_name} size={48} />
+                <AvatarCircle name={f.display_name} size={48} imageUrl={f.avatar_url} />
                 <View style={s.userCardBody}>
                   <Text style={s.userName} numberOfLines={1}>{f.display_name}</Text>
                   <Text style={s.userSub} numberOfLines={1}>
-                    {f.short_id ? `ID: ${f.short_id}` : f.email || ''}
+                    {`UID: ${f.user_id}`}
                   </Text>
                 </View>
                 {creating === f.user_id ? (
@@ -548,7 +560,7 @@ export default function AddFriendPage() {
                   onPress={() => handleSendRequest(tid)}
                   disabled={!tid || !!requestSentMap[tid] || sendingId !== null}
                 >
-                  <AvatarCircle name={trader.display_name} size={44} />
+                  <AvatarCircle name={trader.display_name} size={44} imageUrl={trader.avatar_url} />
                   <View style={{ flex: 1, gap: 2 }}>
                     <Text style={s.recName} numberOfLines={1}>{trader.display_name}</Text>
                     <Text style={s.recRole} numberOfLines={1}>

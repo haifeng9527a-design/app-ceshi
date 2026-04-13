@@ -78,6 +78,7 @@ interface Conversation {
   isSupport?: boolean;
   peerUserId?: string;
   isTraderPeer?: boolean;
+  avatarUrl?: string;
 }
 
 /** Rich message: strategy / share card (JSON in content or message_type teacher_share). */
@@ -444,6 +445,7 @@ function mapConversation(
     badge: isTraderPeer ? 'trader' : undefined,
     online,
     peerLastOnlineAt: peerLo || undefined,
+    avatarUrl: isGroup ? undefined : (c.avatar_url || peer?.avatar_url || friend?.avatar_url || undefined),
   };
 }
 
@@ -517,19 +519,34 @@ function AvatarCircle({
   size = 40,
   online,
   badge,
+  imageUrl,
 }: {
   name: string;
   size?: number;
   online?: boolean;
   badge?: string;
+  imageUrl?: string | null;
 }) {
   const letter = (name || '?').charAt(0).toUpperCase();
   const hue = name.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % 360;
   const bg = `hsl(${hue}, 40%, 25%)`;
   const fg = `hsl(${hue}, 60%, 75%)`;
 
+  const resolvedUrl = imageUrl && imageUrl.startsWith('/') ? `${Config.API_BASE_URL}${imageUrl}` : imageUrl;
+
   return (
     <View style={{ position: 'relative' }}>
+      {resolvedUrl ? (
+        <Image
+          source={{ uri: resolvedUrl }}
+          style={{
+            width: size,
+            height: size,
+            borderRadius: size / 2,
+            backgroundColor: bg,
+          }}
+        />
+      ) : (
       <View
         style={[
           styles.avatar,
@@ -545,6 +562,7 @@ function AvatarCircle({
           {letter}
         </Text>
       </View>
+      )}
       {online && (
         <View
           style={[
@@ -717,7 +735,7 @@ function CreateGroupModal({
       (f) =>
         f.display_name.toLowerCase().includes(q) ||
         f.email?.toLowerCase().includes(q) ||
-        f.short_id?.toLowerCase().includes(q),
+        f.user_id?.toLowerCase().includes(q),
     );
   }, [friends, searchQuery]);
 
@@ -874,11 +892,11 @@ function CreateGroupModal({
                   >
                     {selected && <AppIcon name="check" size={14} color={Colors.background} strokeWidth={2.2} />}
                   </View>
-                  <AvatarCircle name={f.display_name} size={40} />
+                  <AvatarCircle name={f.display_name} size={40} imageUrl={f.avatar_url} />
                   <View style={{ flex: 1, gap: 2 }}>
                     <Text style={modalStyles.userName}>{f.display_name}</Text>
                     <Text style={modalStyles.userSub}>
-                      {f.short_id ? `ID: ${f.short_id}` : f.email || ''}
+                      {`UID: ${f.user_id}`}
                     </Text>
                   </View>
                 </TouchableOpacity>
@@ -1110,7 +1128,7 @@ function ConvoRow({
       onPress={onPress}
     >
       {convo.pinned && <View style={styles.pinnedBorder} />}
-      <AvatarCircle name={convo.name} size={44} online={convo.online} />
+      <AvatarCircle name={convo.name} size={44} online={convo.online} imageUrl={convo.avatarUrl} />
       <View style={styles.convoInfo}>
         <View style={styles.convoNameRow}>
           <Text style={styles.convoName} numberOfLines={1}>
@@ -1478,7 +1496,7 @@ function ChatPanel({
             <AppIcon name="back" size={20} color={Colors.textActive} />
           </TouchableOpacity>
         )}
-        <AvatarCircle name={conversation.name} size={36} online={conversation.online} />
+        <AvatarCircle name={conversation.name} size={36} online={conversation.online} imageUrl={conversation.avatarUrl} />
         <View style={styles.chatHeaderInfo}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <Text style={styles.chatHeaderName}>{conversation.name}</Text>
@@ -1854,15 +1872,16 @@ function PeerSidebar({
 
   return (
     <View style={[styles.traderPanel, embedded && styles.traderPanelEmbedded]}>
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.traderScrollContent}
+      >
         <View style={styles.traderHeader}>
-          <AvatarCircle name={profile.display_name} size={72} />
+          <AvatarCircle name={profile.display_name} size={72} imageUrl={profile.avatar_url} />
           <Text style={styles.traderName}>{profile.display_name}</Text>
-          {profile.short_id && (
-            <Text style={styles.traderHandle}>ID: {profile.short_id}</Text>
-          )}
+          <Text style={styles.traderHandle} numberOfLines={1}>UID: {peerUserId}</Text>
           {profile.email && (
-            <Text style={styles.traderHandle}>{profile.email}</Text>
+            <Text style={styles.traderHandle} numberOfLines={1}>{profile.email}</Text>
           )}
           {loading ? (
             <ActivityIndicator size="small" color={Colors.primary} style={{ marginTop: 12 }} />
@@ -1921,7 +1940,7 @@ function PeerSidebar({
               </View>
             </View>
 
-            <View style={styles.traderSection}>
+            <View style={[styles.traderSection, styles.traderSectionCard]}>
               <Text style={styles.traderSectionTitle}>交易员概览</Text>
               <View style={styles.traderDetailRow}>
                 <Text style={styles.traderDetailLabel}>开放跟单</Text>
@@ -1945,10 +1964,10 @@ function PeerSidebar({
             </View>
 
             <View style={styles.traderCurveWrap}>
-              <EquityCurve totalPnl={Number(totalPnl ?? 0)} totalTrades={Number(totalTrades ?? 0)} />
+              <EquityCurve traderUid={peerUserId} />
             </View>
 
-            <View style={styles.traderSection}>
+            <View style={[styles.traderSection, styles.traderSectionCard]}>
               <Text style={styles.traderSectionTitle}>当前持仓</Text>
               {visiblePositions.length === 0 ? (
                 <Text style={styles.traderAbout}>暂无公开持仓摘要</Text>
@@ -1978,13 +1997,15 @@ function PeerSidebar({
             </View>
           </>
         )}
+      </ScrollView>
 
+      <View style={styles.traderFooter}>
         {trader?.is_trader && !isSelf && (
           <>
             {copyEnabled ? (
               following ? (
                 <TouchableOpacity
-                  style={[styles.viewProfileBtn, styles.followSidebarBtn]}
+                  style={[styles.viewProfileBtn, styles.followSidebarBtn, styles.traderFooterBtn]}
                   activeOpacity={0.8}
                   onPress={openFollowModal}
                   disabled={actionLoading}
@@ -1997,7 +2018,7 @@ function PeerSidebar({
                 </TouchableOpacity>
               ) : (
                 <TouchableOpacity
-                  style={[styles.viewProfileBtn, styles.followSidebarBtn]}
+                  style={[styles.viewProfileBtn, styles.followSidebarBtn, styles.traderFooterBtn]}
                   activeOpacity={0.8}
                   onPress={openFollowModal}
                   disabled={actionLoading}
@@ -2006,13 +2027,13 @@ function PeerSidebar({
                 </TouchableOpacity>
               )
             ) : (
-              <View style={[styles.viewProfileBtn, styles.disabledSidebarBtn]}>
+              <View style={[styles.viewProfileBtn, styles.disabledSidebarBtn, styles.traderFooterBtn]}>
                 <Text style={[styles.viewProfileText, styles.disabledSidebarBtnText]}>暂未开放跟单</Text>
               </View>
             )}
             {following && (
               <TouchableOpacity
-                style={[styles.viewProfileBtn, styles.unfollowSidebarBtn]}
+                style={[styles.viewProfileBtn, styles.unfollowSidebarBtn, styles.traderFooterBtn]}
                 activeOpacity={0.8}
                 onPress={handleUnfollow}
                 disabled={actionLoading}
@@ -2028,13 +2049,13 @@ function PeerSidebar({
         )}
 
         <TouchableOpacity
-          style={[styles.viewProfileBtn, styles.secondarySidebarBtn]}
+          style={[styles.viewProfileBtn, styles.secondarySidebarBtn, styles.traderFooterBtn]}
           activeOpacity={0.8}
           onPress={() => onViewPublicProfile(peerUserId)}
         >
           <Text style={[styles.viewProfileText, styles.secondarySidebarBtnText]}>{t('messages.viewPublicProfile')}</Text>
         </TouchableOpacity>
-      </ScrollView>
+      </View>
 
       <Modal visible={showFollowModal} transparent animationType="fade" onRequestClose={() => setShowFollowModal(false)}>
         <View style={modalStyles.overlay}>
@@ -2233,7 +2254,7 @@ function GroupSidebar({
     return (
       f.display_name.toLowerCase().includes(q) ||
       f.email?.toLowerCase().includes(q) ||
-      f.short_id?.toLowerCase().includes(q)
+      f.user_id?.toLowerCase().includes(q)
     );
   });
 
@@ -2384,7 +2405,7 @@ function GroupSidebar({
               const name = member.display_name || profile?.display_name || member.user_id;
               const isMemberOwner = normId(member.user_id) === normId(groupInfo?.created_by);
               const roleLabel = isMemberOwner ? '群主' : member.role === 'admin' ? '管理员' : '成员';
-              const sub = member.short_id || profile?.short_id || '';
+              const sub = `UID: ${member.user_id}`;
               const canOpenActions = canManage && member.user_id !== user?.uid;
               return (
                 <View
@@ -2399,7 +2420,7 @@ function GroupSidebar({
                       }
                     : {})}
                 >
-                  <AvatarCircle name={name} size={36} />
+                  <AvatarCircle name={name} size={36} imageUrl={member.avatar_url || profile?.avatar_url} />
                   <View style={styles.groupMemberBody}>
                     <Text style={styles.groupMemberName} numberOfLines={1}>{name}</Text>
                     <Text style={styles.groupMemberSub} numberOfLines={1}>
@@ -2511,10 +2532,10 @@ function GroupSidebar({
                     <View style={[modalStyles.checkbox, selected && modalStyles.checkboxSelected]}>
                       {selected && <AppIcon name="check" size={14} color={Colors.background} strokeWidth={2.2} />}
                     </View>
-                    <AvatarCircle name={f.display_name} size={36} />
+                    <AvatarCircle name={f.display_name} size={36} imageUrl={f.avatar_url} />
                     <View style={{ flex: 1 }}>
                       <Text style={modalStyles.userName}>{f.display_name}</Text>
-                      <Text style={modalStyles.userSub}>{f.short_id ? `ID: ${f.short_id}` : f.email || ''}</Text>
+                      <Text style={modalStyles.userSub}>{`UID: ${f.user_id}`}</Text>
                     </View>
                   </TouchableOpacity>
                 );
@@ -2557,7 +2578,7 @@ function GroupSidebar({
               </Text>
               <Text style={styles.memberManageSub}>
                 {memberActionTarget
-                  ? ((memberActionTarget.short_id || memberProfiles[memberActionTarget.user_id]?.short_id || '') +
+                  ? ((`UID: ${memberActionTarget.user_id}`) +
                     `${memberActionTarget.role ? ` · ${memberActionTarget.role === 'admin' ? '管理员' : '成员'}` : ''}`)
                   : ''}
               </Text>
@@ -4121,7 +4142,7 @@ const styles = StyleSheet.create({
 
   /* ── Peer Sidebar ── */
   traderPanel: {
-    width: 288,
+    width: 348,
     borderLeftWidth: 1,
     borderLeftColor: Colors.border,
     backgroundColor: Colors.surface,
@@ -4130,6 +4151,9 @@ const styles = StyleSheet.create({
     width: '100%',
     flex: 1,
     borderLeftWidth: 0,
+  },
+  traderScrollContent: {
+    paddingBottom: 20,
   },
   detailsDrawerOverlay: {
     flex: 1,
@@ -4194,8 +4218,9 @@ const styles = StyleSheet.create({
   },
   traderHeader: {
     alignItems: 'center',
-    paddingTop: 28,
-    paddingBottom: 20,
+    paddingTop: 24,
+    paddingBottom: 18,
+    paddingHorizontal: 18,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
   },
@@ -4214,14 +4239,15 @@ const styles = StyleSheet.create({
   },
   traderName: {
     color: Colors.textActive,
-    fontSize: 17,
-    fontWeight: '700',
-    marginTop: 10,
+    fontSize: 22,
+    fontWeight: '800',
+    marginTop: 12,
   },
   traderHandle: {
     color: Colors.textMuted,
     fontSize: 13,
-    marginTop: 2,
+    marginTop: 4,
+    maxWidth: '100%',
   },
   traderStatLine: {
     color: Colors.textSecondary,
@@ -4258,39 +4284,45 @@ const styles = StyleSheet.create({
   },
   traderStatsGrid: {
     flexDirection: 'row',
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 4,
     gap: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
   },
   traderStatCell: {
     flex: 1,
-    alignItems: 'center',
+    alignItems: 'flex-start',
     backgroundColor: Colors.surfaceAlt,
-    borderRadius: Sizes.borderRadiusSm,
-    paddingVertical: 12,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
   traderStatValue: {
     color: Colors.up,
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 26,
+    fontWeight: '800',
   },
   traderStatLabel: {
     color: Colors.textMuted,
-    fontSize: 11,
-    marginTop: 4,
+    fontSize: 12,
+    marginTop: 6,
   },
   traderSection: {
     padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+  },
+  traderSectionCard: {
+    marginHorizontal: 16,
+    marginTop: 12,
+    borderRadius: 16,
+    backgroundColor: Colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
   traderCurveWrap: {
-    paddingHorizontal: 12,
-    paddingTop: 12,
-    paddingBottom: 4,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    marginHorizontal: 16,
+    marginTop: 12,
   },
   traderSectionTitle: {
     color: Colors.textMuted,
@@ -4455,7 +4487,9 @@ const styles = StyleSheet.create({
   traderDetailRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 8,
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
   },
@@ -4469,12 +4503,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   viewProfileBtn: {
-    margin: 16,
     backgroundColor: Colors.primaryDim,
     borderWidth: 1,
     borderColor: Colors.primaryBorder,
-    borderRadius: Sizes.borderRadiusSm,
-    paddingVertical: 12,
+    borderRadius: 12,
+    paddingVertical: 13,
     alignItems: 'center',
   },
   viewProfileText: {
@@ -4509,6 +4542,18 @@ const styles = StyleSheet.create({
   },
   secondarySidebarBtnText: {
     color: Colors.textSecondary,
+  },
+  traderFooter: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 16,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+    backgroundColor: Colors.surface,
+    gap: 10,
+  },
+  traderFooterBtn: {
+    margin: 0,
   },
 });
 

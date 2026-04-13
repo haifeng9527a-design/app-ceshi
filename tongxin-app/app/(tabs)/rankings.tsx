@@ -8,24 +8,40 @@ import {
   useWindowDimensions,
   RefreshControl,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { Colors, Shadows } from '../../theme/colors';
+import { Config } from '../../services/config';
 import { getTraderRankings, TraderRankingItem } from '../../services/api/traderApi';
 import TraderDetailPanel from '../../components/trader/TraderDetailPanel';
 
 type SortBy = 'pnl' | 'win_rate' | 'followers' | 'trades';
 
 // ─── Avatar Component ────────────────────────────────
-function AvatarCircle({ name, size = 40, borderColor, certified }: { name: string; size?: number; borderColor?: string; certified?: boolean }) {
+function AvatarCircle({ name, size = 40, borderColor, certified, imageUrl }: { name: string; size?: number; borderColor?: string; certified?: boolean; imageUrl?: string | null }) {
   const letter = (name || '?').charAt(0).toUpperCase();
   const colors = ['#D4AF37', '#66e4b9', '#f2ca50', '#ffb4ab', '#627EEA', '#9945FF'];
   const idx = (name || '').charCodeAt(0) % colors.length;
   const bg = colors[idx];
+  const resolvedUrl = imageUrl && imageUrl.startsWith('/') ? `${Config.API_BASE_URL}${imageUrl}` : imageUrl;
 
   return (
     <View style={{ position: 'relative' }}>
+      {resolvedUrl ? (
+        <Image
+          source={{ uri: resolvedUrl }}
+          style={{
+            width: size,
+            height: size,
+            borderRadius: size / 2,
+            borderWidth: 2,
+            borderColor: borderColor || bg + '40',
+            backgroundColor: bg + '20',
+          }}
+        />
+      ) : (
       <View
         style={[
           avatarStyles.circle,
@@ -40,6 +56,7 @@ function AvatarCircle({ name, size = 40, borderColor, certified }: { name: strin
       >
         <Text style={[avatarStyles.letter, { fontSize: size * 0.4, color: bg }]}>{letter}</Text>
       </View>
+      )}
       {certified && (
         <View style={[avatarStyles.badge, { right: -2, bottom: -2 }]}>
           <Text style={avatarStyles.badgeText}>✓</Text>
@@ -98,6 +115,7 @@ function SpotlightCard({ trader, rank, isChampion, onPress }: { trader: TraderRa
           size={avatarSize}
           borderColor={isChampion ? Colors.primary : undefined}
           certified
+          imageUrl={trader.avatar_url}
         />
       </View>
 
@@ -230,7 +248,7 @@ function RankingRow({ trader, rank, onPress }: { trader: TraderRankingItem; rank
     <TouchableOpacity style={rowStyles.container} onPress={onPress} activeOpacity={0.7}>
       <Text style={rowStyles.rank}>{String(rank).padStart(2, '0')}</Text>
       <View style={rowStyles.traderInfo}>
-        <AvatarCircle name={trader.display_name} size={36} certified />
+        <AvatarCircle name={trader.display_name} size={36} certified imageUrl={trader.avatar_url} />
         <View>
           <Text style={rowStyles.traderName}>{trader.display_name}</Text>
           <Text style={rowStyles.traderSub}>{trader.followers_count} followers</Text>
@@ -284,7 +302,7 @@ function MobileRankingRow({ trader, rank, onPress }: { trader: TraderRankingItem
   return (
     <TouchableOpacity style={mobileRowStyles.container} onPress={onPress} activeOpacity={0.7}>
       <Text style={mobileRowStyles.rank}>#{rank}</Text>
-      <AvatarCircle name={trader.display_name} size={36} certified />
+      <AvatarCircle name={trader.display_name} size={36} certified imageUrl={trader.avatar_url} />
       <View style={mobileRowStyles.info}>
         <Text style={mobileRowStyles.name}>{trader.display_name}</Text>
         <Text style={mobileRowStyles.sub}>{trader.followers_count} followers</Text>
