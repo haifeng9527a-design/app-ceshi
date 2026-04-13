@@ -34,6 +34,7 @@ type cachedPosition struct {
 	LiqPrice     *float64
 	TpPrice      *float64
 	SlPrice      *float64
+	IsCopyTrade  bool
 }
 
 type TradingService struct {
@@ -41,6 +42,8 @@ type TradingService struct {
 	orderRepo    *repository.OrderRepo
 	positionRepo *repository.PositionRepo
 	userRepo     *repository.UserRepo
+	traderRepo   *repository.TraderRepo
+	feeRepo      *repository.FeeRepo
 	binance      *market.BinanceIngestor
 	polygon      *market.PolygonClient
 	pusher       TradingPusher
@@ -52,11 +55,14 @@ type TradingService struct {
 	// In-memory open positions cache for real-time PnL push
 	posMu        sync.RWMutex
 	openBySymbol map[string][]cachedPosition
+
+	// In-memory fee schedule cache (loaded from DB)
+	feeMu    sync.RWMutex
+	feeCache []model.VipFeeRate
 }
 
-// VIP fee schedule: level → (makerFee, takerFee)
-// Market orders = taker, Limit orders = maker
-var vipFeeSchedule = []model.VipFeeRate{
+// Default VIP fee schedule (fallback when DB is unavailable)
+var defaultFeeSchedule = []model.VipFeeRate{
 	{Level: 0, MakerFee: 0.00020, TakerFee: 0.00050},
 	{Level: 1, MakerFee: 0.00016, TakerFee: 0.00040},
 	{Level: 2, MakerFee: 0.00014, TakerFee: 0.00035},
@@ -65,17 +71,67 @@ var vipFeeSchedule = []model.VipFeeRate{
 	{Level: 5, MakerFee: 0.00008, TakerFee: 0.00020},
 }
 
-func getVipFeeRates(vipLevel int) (makerFee, takerFee float64) {
-	if vipLevel < 0 || vipLevel >= len(vipFeeSchedule) {
-		vipLevel = 0
+// LoadFeeSchedule loads fee schedule from DB into memory. Falls back to defaults.
+func (s *TradingService) LoadFeeSchedule(ctx context.Context) {
+	if s.feeRepo == nil {
+		s.feeMu.Lock()
+		s.feeCache = defaultFeeSchedule
+		s.feeMu.Unlock()
+		return
 	}
-	r := vipFeeSchedule[vipLevel]
-	return r.MakerFee, r.TakerFee
+	tiers, err := s.feeRepo.ListAll(ctx)
+	if err != nil || len(tiers) == 0 {
+		log.Printf("[trading] fee schedule from DB unavailable, using defaults: %v", err)
+		s.feeMu.Lock()
+		s.feeCache = defaultFeeSchedule
+		s.feeMu.Unlock()
+		return
+	}
+	schedule := make([]model.VipFeeRate, len(tiers))
+	for i, t := range tiers {
+		schedule[i] = model.VipFeeRate{Level: t.VipLevel, MakerFee: t.MakerFee, TakerFee: t.TakerFee}
+	}
+	s.feeMu.Lock()
+	s.feeCache = schedule
+	s.feeMu.Unlock()
+	log.Printf("[trading] fee schedule loaded from DB (%d tiers)", len(schedule))
+}
+
+// ReloadFeeSchedule reloads fees from DB (called after admin modifies tiers).
+func (s *TradingService) ReloadFeeSchedule(ctx context.Context) {
+	s.LoadFeeSchedule(ctx)
+}
+
+func (s *TradingService) getVipFeeRates(vipLevel int) (makerFee, takerFee float64) {
+	s.feeMu.RLock()
+	schedule := s.feeCache
+	s.feeMu.RUnlock()
+
+	if len(schedule) == 0 {
+		schedule = defaultFeeSchedule
+	}
+	for _, r := range schedule {
+		if r.Level == vipLevel {
+			return r.MakerFee, r.TakerFee
+		}
+	}
+	// fallback to level 0
+	if len(schedule) > 0 {
+		return schedule[0].MakerFee, schedule[0].TakerFee
+	}
+	return 0.00020, 0.00050
 }
 
 // GetFeeSchedule returns the full VIP fee schedule.
-func GetFeeSchedule() []model.VipFeeRate {
-	return vipFeeSchedule
+func (s *TradingService) GetFeeSchedule() []model.VipFeeRate {
+	s.feeMu.RLock()
+	defer s.feeMu.RUnlock()
+	if len(s.feeCache) == 0 {
+		return defaultFeeSchedule
+	}
+	out := make([]model.VipFeeRate, len(s.feeCache))
+	copy(out, s.feeCache)
+	return out
 }
 
 // GetVipInfo returns the user's VIP level and fee rates.
@@ -84,7 +140,7 @@ func (s *TradingService) GetVipInfo(ctx context.Context, userID string) (*model.
 	if err != nil {
 		level = 0
 	}
-	maker, taker := getVipFeeRates(level)
+	maker, taker := s.getVipFeeRates(level)
 	return &model.VipInfo{VipLevel: level, MakerFee: maker, TakerFee: taker}, nil
 }
 
@@ -93,6 +149,8 @@ func NewTradingService(
 	or *repository.OrderRepo,
 	pr *repository.PositionRepo,
 	ur *repository.UserRepo,
+	tr *repository.TraderRepo,
+	fr *repository.FeeRepo,
 	bi *market.BinanceIngestor,
 	pg *market.PolygonClient,
 	pusher TradingPusher,
@@ -102,11 +160,14 @@ func NewTradingService(
 		orderRepo:       or,
 		positionRepo:    pr,
 		userRepo:        ur,
+		traderRepo:      tr,
+		feeRepo:         fr,
 		binance:         bi,
 		polygon:         pg,
 		pusher:          pusher,
 		pendingBySymbol: make(map[string][]model.Order),
 		openBySymbol:    make(map[string][]cachedPosition),
+		feeCache:        defaultFeeSchedule,
 	}
 }
 
@@ -177,6 +238,7 @@ func (s *TradingService) addPositionToCache(p *model.Position) {
 		LiqPrice:     p.LiqPrice,
 		TpPrice:      p.TpPrice,
 		SlPrice:      p.SlPrice,
+		IsCopyTrade:  p.IsCopyTrade,
 	}
 	s.posMu.Lock()
 	defer s.posMu.Unlock()
@@ -380,6 +442,7 @@ func (s *TradingService) OnPriceUpdate(symbol string, price float64) {
 			CurrentPrice:  price,
 			UnrealizedPnl: pnl,
 			ROE:           roe,
+			IsCopyTrade:   cp.IsCopyTrade,
 		}
 		s.pushPositionUpdate(cp.UserID, pos)
 	}
@@ -450,12 +513,33 @@ func (s *TradingService) placeMarketOrder(ctx context.Context, userID string, re
 		return nil, fmt.Errorf("price unavailable for %s: %w", req.Symbol, err)
 	}
 
-	margin := (req.Qty * currentPrice) / float64(req.Leverage)
-
-	// Calculate taker fee (market order = taker)
+	// Calculate taker fee rate
 	vipLevel, _ := s.userRepo.GetVipLevel(ctx, userID)
-	_, takerRate := getVipFeeRates(vipLevel)
-	openFee := math.Round(currentPrice*req.Qty*takerRate*1e8) / 1e8
+	_, takerRate := s.getVipFeeRates(vipLevel)
+
+	// Pre-check: if balance can't cover margin + fee, auto-shrink qty to fit
+	wallet, err := s.walletRepo.GetWallet(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get wallet: %w", err)
+	}
+	qty := req.Qty
+	margin := (qty * currentPrice) / float64(req.Leverage)
+	openFee := math.Round(currentPrice*qty*takerRate*1e8) / 1e8
+
+	if wallet.Balance < margin+openFee {
+		// Shrink qty to fit available balance: balance = margin + fee = qty*price/lev + qty*price*feeRate
+		// qty = balance / (price/lev + price*feeRate) = balance / (price * (1/lev + feeRate))
+		maxQty := wallet.Balance / (currentPrice * (1.0/float64(req.Leverage) + takerRate))
+		if maxQty <= 0 {
+			return nil, fmt.Errorf("insufficient balance")
+		}
+		// Truncate to 8 decimals to avoid precision issues
+		qty = math.Floor(maxQty*1e8) / 1e8
+		margin = (qty * currentPrice) / float64(req.Leverage)
+		openFee = math.Round(currentPrice*qty*takerRate*1e8) / 1e8
+		req.Qty = qty
+		log.Printf("[trading] auto-shrunk qty to %.8f (margin=%.2f fee=%.2f balance=%.2f)", qty, margin, openFee, wallet.Balance)
+	}
 
 	// Freeze margin
 	if err := s.walletRepo.FreezeMargin(ctx, userID, margin); err != nil {
@@ -547,11 +631,19 @@ func (s *TradingService) placeMarketOrder(ctx context.Context, userID string, re
 	s.addPositionToCache(pos)
 
 	// Push WebSocket events
-	wallet, _ := s.walletRepo.GetWallet(ctx, userID)
+	wallet, _ = s.walletRepo.GetWallet(ctx, userID)
 	s.pushOrderFilled(userID, order)
 	s.pushPositionUpdate(userID, pos)
 	if wallet != nil {
 		s.pushBalanceUpdate(userID, wallet)
+	}
+
+	// Trigger copy trading for followers (async, non-blocking)
+	if !order.IsCopyTrade {
+		log.Printf("[copy-trading] market order filled, triggering copy open: user=%s isCopyTrade=%v", userID, order.IsCopyTrade)
+		go s.triggerCopyOpen(context.Background(), userID, order, pos)
+	} else {
+		log.Printf("[copy-trading] skipping trigger: order is already a copy trade")
 	}
 
 	return order, nil
@@ -601,12 +693,15 @@ func (s *TradingService) placeLimitOrder(ctx context.Context, userID string, req
 func (s *TradingService) fillLimitOrder(ctx context.Context, o *model.Order, fillPrice float64) error {
 	// Calculate maker fee (limit order = maker)
 	vipLevel, _ := s.userRepo.GetVipLevel(ctx, o.UserID)
-	makerRate, _ := getVipFeeRates(vipLevel)
+	makerRate, _ := s.getVipFeeRates(vipLevel)
 	openFee := math.Round(fillPrice*o.Qty*makerRate*1e8) / 1e8
 
-	// Charge fee
+	// Charge fee (if balance insufficient, set fee to 0 — margin already frozen)
 	if openFee > 0 {
-		_ = s.walletRepo.ChargeFee(ctx, o.UserID, openFee, o.ID, "Open position fee (maker)")
+		if err := s.walletRepo.ChargeFee(ctx, o.UserID, openFee, o.ID, "Open position fee (maker)"); err != nil {
+			log.Printf("[trading] limit fill: insufficient balance for fee, user=%s fee=%.4f, skipping fee", o.UserID, openFee)
+			openFee = 0
+		}
 	}
 
 	if err := s.orderRepo.FillOrder(ctx, o.ID, fillPrice, openFee); err != nil {
@@ -669,6 +764,12 @@ func (s *TradingService) fillLimitOrder(ctx context.Context, o *model.Order, fil
 	}
 
 	log.Printf("[trading] limit order filled: %s %s %s @ %.2f", o.ID, o.Side, o.Symbol, fillPrice)
+
+	// Trigger copy trading for followers (async, non-blocking)
+	if !o.IsCopyTrade {
+		go s.triggerCopyOpen(context.Background(), o.UserID, o, pos)
+	}
+
 	return nil
 }
 
@@ -700,16 +801,18 @@ func (s *TradingService) ClosePosition(ctx context.Context, userID, positionID s
 
 	// Calculate close fee (taker)
 	vipLevel, _ := s.userRepo.GetVipLevel(ctx, userID)
-	_, takerRate := getVipFeeRates(vipLevel)
+	_, takerRate := s.getVipFeeRates(vipLevel)
 	closeFee := math.Round(currentPrice*pos.Qty*takerRate*1e8) / 1e8
 
-	// Settle: unfreeze margin + apply PnL - close fee
-	if err := s.walletRepo.SettleTrade(ctx, userID, pos.MarginAmount, pnl, closeFee); err != nil {
-		return nil, fmt.Errorf("settle trade: %w", err)
-	}
-
+	// Close position FIRST (atomic status check prevents double-close race)
 	if err := s.positionRepo.ClosePosition(ctx, positionID, pnl, currentPrice, closeFee); err != nil {
 		return nil, fmt.Errorf("close position: %w", err)
+	}
+
+	// Settle: unfreeze margin + apply PnL - close fee (safe: position already marked closed)
+	if err := s.walletRepo.SettleTrade(ctx, userID, pos.MarginAmount, pnl, closeFee); err != nil {
+		log.Printf("[trading] CRITICAL: position %s closed but settle failed: %v", positionID, err)
+		return nil, fmt.Errorf("settle trade: %w", err)
 	}
 
 	pos.Status = "closed"
@@ -726,6 +829,11 @@ func (s *TradingService) ClosePosition(ctx context.Context, userID, positionID s
 	s.pushPositionClosed(userID, pos)
 	if wallet != nil {
 		s.pushBalanceUpdate(userID, wallet)
+	}
+
+	// Trigger copy close for followers
+	if !pos.IsCopyTrade {
+		go s.triggerCopyClose(context.Background(), userID, positionID)
 	}
 
 	return pos, nil
@@ -766,7 +874,7 @@ func (s *TradingService) PartialClosePosition(ctx context.Context, userID, posit
 
 	// Calculate close fee on partial qty (taker)
 	vipLevel, _ := s.userRepo.GetVipLevel(ctx, userID)
-	_, takerRate := getVipFeeRates(vipLevel)
+	_, takerRate := s.getVipFeeRates(vipLevel)
 	closeFee := math.Round(currentPrice*closeQty*takerRate*1e8) / 1e8
 
 	// Proportional margin release
@@ -775,14 +883,15 @@ func (s *TradingService) PartialClosePosition(ctx context.Context, userID, posit
 	remainingQty := pos.Qty - closeQty
 	remainingMargin := pos.MarginAmount - releasedMargin
 
-	// Settle the closed portion: release proportional margin + PnL - fee
-	if err := s.walletRepo.SettleTrade(ctx, userID, releasedMargin, pnl, closeFee); err != nil {
-		return nil, fmt.Errorf("settle partial close: %w", err)
-	}
-
-	// Update position with reduced qty and margin, accumulate close_fee
+	// Reduce position FIRST (atomic status check prevents race condition)
 	if err := s.positionRepo.ReducePosition(ctx, positionID, remainingQty, remainingMargin, closeFee); err != nil {
 		return nil, fmt.Errorf("reduce position: %w", err)
+	}
+
+	// Settle the closed portion: release proportional margin + PnL - fee (safe: position already updated)
+	if err := s.walletRepo.SettleTrade(ctx, userID, releasedMargin, pnl, closeFee); err != nil {
+		log.Printf("[trading] CRITICAL: position %s reduced but settle failed: %v", positionID, err)
+		return nil, fmt.Errorf("settle partial close: %w", err)
 	}
 
 	// Update cache
@@ -817,6 +926,11 @@ func (s *TradingService) PartialClosePosition(ctx context.Context, userID, posit
 		s.pushBalanceUpdate(userID, wallet)
 	}
 
+	// Trigger copy partial close for followers
+	if !pos.IsCopyTrade {
+		go s.triggerCopyPartialClose(context.Background(), userID, positionID, closeFraction)
+	}
+
 	return pos, nil
 }
 
@@ -826,14 +940,15 @@ func (s *TradingService) liquidatePosition(ctx context.Context, cp cachedPositio
 	// PnL = loss of entire margin
 	pnl := -cp.MarginAmount
 
-	// Settle: unfreeze margin, apply PnL (margin is fully lost)
-	if err := s.walletRepo.SettleTrade(ctx, cp.UserID, cp.MarginAmount, pnl, 0); err != nil {
-		log.Printf("[trading] liquidation settle error for %s: %v", cp.PositionID, err)
+	// Liquidate position FIRST (atomic status check prevents double-liquidation race)
+	if err := s.positionRepo.LiquidatePosition(ctx, cp.PositionID, pnl, currentPrice); err != nil {
+		log.Printf("[trading] liquidation close error for %s: %v (likely already closed)", cp.PositionID, err)
 		return
 	}
 
-	if err := s.positionRepo.LiquidatePosition(ctx, cp.PositionID, pnl, currentPrice); err != nil {
-		log.Printf("[trading] liquidation close error for %s: %v", cp.PositionID, err)
+	// Settle: unfreeze margin, apply PnL (safe: position already marked liquidated)
+	if err := s.walletRepo.SettleTrade(ctx, cp.UserID, cp.MarginAmount, pnl, 0); err != nil {
+		log.Printf("[trading] CRITICAL: position %s liquidated but settle failed: %v", cp.PositionID, err)
 		return
 	}
 
@@ -870,6 +985,11 @@ func (s *TradingService) liquidatePosition(ctx context.Context, cp cachedPositio
 
 	log.Printf("[trading] LIQUIDATED: user=%s pos=%s %s %s, margin=%.2f lost",
 		cp.UserID, cp.PositionID, cp.Side, cp.Symbol, cp.MarginAmount)
+
+	// Trigger copy close for followers
+	if !cp.IsCopyTrade {
+		go s.triggerCopyClose(context.Background(), cp.UserID, cp.PositionID)
+	}
 }
 
 // closePositionByTPSL auto-closes a position when TP or SL price is hit.
@@ -883,16 +1003,18 @@ func (s *TradingService) closePositionByTPSL(ctx context.Context, cp cachedPosit
 
 	// Calculate close fee (taker)
 	vipLevel, _ := s.userRepo.GetVipLevel(ctx, cp.UserID)
-	_, takerRate := getVipFeeRates(vipLevel)
+	_, takerRate := s.getVipFeeRates(vipLevel)
 	closeFee := math.Round(currentPrice*cp.Qty*takerRate*1e8) / 1e8
 
-	if err := s.walletRepo.SettleTrade(ctx, cp.UserID, cp.MarginAmount, pnl, closeFee); err != nil {
-		log.Printf("[trading] TP/SL settle error for %s: %v", cp.PositionID, err)
+	// Close position FIRST (atomic status check prevents double-close race)
+	if err := s.positionRepo.ClosePosition(ctx, cp.PositionID, pnl, currentPrice, closeFee); err != nil {
+		log.Printf("[trading] TP/SL close error for %s: %v (likely already closed)", cp.PositionID, err)
 		return
 	}
 
-	if err := s.positionRepo.ClosePosition(ctx, cp.PositionID, pnl, currentPrice, closeFee); err != nil {
-		log.Printf("[trading] TP/SL close error for %s: %v", cp.PositionID, err)
+	// Settle: unfreeze margin + apply PnL - fee (safe: position already marked closed)
+	if err := s.walletRepo.SettleTrade(ctx, cp.UserID, cp.MarginAmount, pnl, closeFee); err != nil {
+		log.Printf("[trading] CRITICAL: position %s TP/SL closed but settle failed: %v", cp.PositionID, err)
 		return
 	}
 
@@ -925,6 +1047,11 @@ func (s *TradingService) closePositionByTPSL(ctx context.Context, cp cachedPosit
 
 	log.Printf("[trading] TP/SL CLOSED: user=%s pos=%s %s %s @ %.4f, pnl=%.2f",
 		cp.UserID, cp.PositionID, cp.Side, cp.Symbol, currentPrice, pnl)
+
+	// Trigger copy close for followers
+	if !cp.IsCopyTrade {
+		go s.triggerCopyClose(context.Background(), cp.UserID, cp.PositionID)
+	}
 }
 
 // CancelOrder cancels a pending limit order.
@@ -1281,4 +1408,421 @@ func (s *TradingService) calcCrossEquityForPosition(ctx context.Context, userID 
 	}
 
 	return totalEquity - otherMM
+}
+
+// ═══════════════════════════════════════════════════════════
+// Copy Trading Engine
+// ═══════════════════════════════════════════════════════════
+
+// triggerCopyOpen mirrors a trader's new position to all active followers.
+// Runs in a goroutine — errors are logged, never propagated to the trader.
+func (s *TradingService) triggerCopyOpen(ctx context.Context, traderID string, order *model.Order, pos *model.Position) {
+	log.Printf("[copy-trading] triggerCopyOpen called: trader=%s order=%s symbol=%s side=%s", traderID, order.ID, order.Symbol, order.Side)
+	if s.traderRepo == nil {
+		log.Printf("[copy-trading] traderRepo is nil, skipping")
+		return
+	}
+	followers, err := s.traderRepo.ListActiveFollowersByTraderID(ctx, traderID)
+	if err != nil {
+		log.Printf("[copy-trading] ListActiveFollowers error: %v", err)
+		return
+	}
+	if len(followers) == 0 {
+		log.Printf("[copy-trading] no active followers for trader=%s", traderID)
+		return
+	}
+	log.Printf("[copy-trading] found %d active follower(s) for trader=%s", len(followers), traderID)
+
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[copy-trading] PANIC in triggerCopyOpen: %v", r)
+		}
+	}()
+
+	currentPrice := pos.EntryPrice // use the fill price
+
+	for _, ct := range followers {
+		log.Printf("[copy-trading] processing follower=%s mode=%s ratio=%.2f direction=%s symbols=%v",
+			ct.FollowerID, ct.CopyMode, ct.CopyRatio, ct.FollowDirection, ct.FollowSymbols)
+		// Direction filter
+		if ct.FollowDirection == "long" && order.Side != "long" {
+			s.logCopySkip(ctx, &ct, order, pos, "direction_mismatch")
+			continue
+		}
+		if ct.FollowDirection == "short" && order.Side != "short" {
+			s.logCopySkip(ctx, &ct, order, pos, "direction_mismatch")
+			continue
+		}
+
+		// Symbol filter
+		if len(ct.FollowSymbols) > 0 {
+			found := false
+			for _, sym := range ct.FollowSymbols {
+				if sym == order.Symbol {
+					found = true
+					break
+				}
+			}
+			if !found {
+				s.logCopySkip(ctx, &ct, order, pos, "symbol_not_followed")
+				continue
+			}
+		}
+
+		// Get follower wallet early (needed for both ratio calc and balance check)
+		log.Printf("[copy-trading] passed direction/symbol filters for follower=%s", ct.FollowerID)
+		wallet, err := s.walletRepo.GetWallet(ctx, ct.FollowerID)
+		if err != nil {
+			log.Printf("[copy-trading] get wallet error for follower=%s: %v", ct.FollowerID, err)
+			s.logCopySkip(ctx, &ct, order, pos, "wallet_error")
+			continue
+		}
+
+		// Calculate follower margin
+		var followerMargin float64
+		if ct.CopyMode == "ratio" {
+			// Ratio mode: proportional to trader's equity usage
+			// traderRatio = traderMargin / traderEquity (how much % of equity the trader used)
+			// followerMargin = followerEquity × traderRatio × copy_ratio
+			traderWallet, err := s.walletRepo.GetWallet(ctx, traderID)
+			if err != nil || traderWallet == nil {
+				log.Printf("[copy-trading] cannot get trader wallet for ratio calc, trader=%s: %v", traderID, err)
+				s.logCopySkip(ctx, &ct, order, pos, "trader_wallet_error")
+				continue
+			}
+			traderEquity := traderWallet.Balance + traderWallet.Frozen
+			if traderEquity <= 0 {
+				s.logCopySkip(ctx, &ct, order, pos, "trader_equity_zero")
+				continue
+			}
+			traderRatio := order.MarginAmount / traderEquity // e.g. 10%
+			followerEquity := wallet.Balance + wallet.Frozen
+			followerMargin = followerEquity * traderRatio * ct.CopyRatio
+			log.Printf("[copy-trading] ratio calc: traderEquity=%.2f traderMargin=%.2f traderRatio=%.4f followerEquity=%.2f copyRatio=%.2f → followerMargin=%.2f",
+				traderEquity, order.MarginAmount, traderRatio, followerEquity, ct.CopyRatio, followerMargin)
+		} else {
+			// fixed amount
+			if ct.FixedAmount != nil {
+				followerMargin = *ct.FixedAmount
+			} else {
+				followerMargin = 100 // default
+			}
+		}
+
+		// Apply max_single_margin cap
+		if ct.MaxSingleMargin != nil && followerMargin > *ct.MaxSingleMargin {
+			followerMargin = *ct.MaxSingleMargin
+		}
+
+		// Check max_position total limit
+		if ct.MaxPosition != nil {
+			usedMargin, _ := s.traderRepo.GetTotalCopyMarginByTrader(ctx, ct.FollowerID, traderID)
+			remaining := *ct.MaxPosition - usedMargin
+			if remaining <= 0 {
+				s.logCopySkip(ctx, &ct, order, pos, "max_position_exceeded")
+				continue
+			}
+			if followerMargin > remaining {
+				followerMargin = remaining
+			}
+		}
+
+		// Check follower balance, shrink margin if needed (wallet already fetched above)
+		available := wallet.Balance - wallet.Frozen
+		// Reserve 1% for open fee
+		maxAffordable := available / 1.01
+		log.Printf("[copy-trading] follower=%s balance=%.2f frozen=%.2f available=%.2f needed_margin=%.2f",
+			ct.FollowerID, wallet.Balance, wallet.Frozen, available, followerMargin)
+		if followerMargin > maxAffordable {
+			if maxAffordable < 1 {
+				log.Printf("[copy-trading] follower=%s insufficient balance (available=%.2f)", ct.FollowerID, available)
+				s.logCopySkip(ctx, &ct, order, pos, "insufficient_balance")
+				continue
+			}
+			log.Printf("[copy-trading] follower=%s shrinking margin from %.2f to %.2f (available limit)",
+				ct.FollowerID, followerMargin, maxAffordable)
+			followerMargin = maxAffordable
+		}
+
+		// Determine leverage
+		leverage := order.Leverage
+		if ct.LeverageMode == "custom" && ct.CustomLeverage != nil {
+			leverage = *ct.CustomLeverage
+		}
+
+		// Calculate qty (after margin may have been shrunk)
+		if currentPrice <= 0 || leverage <= 0 {
+			s.logCopySkip(ctx, &ct, order, pos, "invalid_price_or_leverage")
+			continue
+		}
+		followerQty := (followerMargin * float64(leverage)) / currentPrice
+		if followerQty <= 0 {
+			s.logCopySkip(ctx, &ct, order, pos, "zero_qty")
+			continue
+		}
+
+		// Determine TP/SL
+		var tpPrice, slPrice *float64
+		if ct.TpSlMode == "trader" {
+			tpPrice = pos.TpPrice
+			slPrice = pos.SlPrice
+		} else if ct.TpSlMode == "custom" {
+			if ct.CustomTpRatio != nil && *ct.CustomTpRatio > 0 {
+				tp := currentPrice * (1 + *ct.CustomTpRatio)
+				if order.Side == "short" {
+					tp = currentPrice * (1 - *ct.CustomTpRatio)
+				}
+				tpPrice = &tp
+			}
+			if ct.CustomSlRatio != nil && *ct.CustomSlRatio > 0 {
+				sl := currentPrice * (1 - *ct.CustomSlRatio)
+				if order.Side == "short" {
+					sl = currentPrice * (1 + *ct.CustomSlRatio)
+				}
+				slPrice = &sl
+			}
+		}
+
+		// Place the copy order
+		copyOrder, copyPos, err := s.placeCopyOrder(ctx, ct.FollowerID, &ct, order, pos,
+			followerMargin, followerQty, leverage, tpPrice, slPrice)
+		if err != nil {
+			log.Printf("[copy-trading] failed to place copy order for follower=%s trader=%s: %v",
+				ct.FollowerID, traderID, err)
+			s.logCopySkip(ctx, &ct, order, pos, "place_order_error: "+err.Error())
+			continue
+		}
+
+		// Log success
+		logEntry := &model.CopyTradeLog{
+			CopyTradingID:    ct.ID,
+			FollowerID:       ct.FollowerID,
+			TraderID:         traderID,
+			Action:           "open",
+			SourceOrderID:    &order.ID,
+			SourcePositionID: &pos.ID,
+			FollowerOrderID:  &copyOrder.ID,
+			FollowerPositionID: &copyPos.ID,
+			Symbol:           order.Symbol,
+			Side:             order.Side,
+			TraderQty:        order.Qty,
+			FollowerQty:      followerQty,
+			TraderMargin:     order.MarginAmount,
+			FollowerMargin:   followerMargin,
+			FollowerLeverage: leverage,
+		}
+		_ = s.traderRepo.CreateCopyTradeLog(ctx, logEntry)
+
+		// Push notification to follower
+		s.pusher.PushToUser(ct.FollowerID, map[string]any{
+			"type": "copy_trade_opened",
+			"data": map[string]any{
+				"order":       copyOrder,
+				"position":    copyPos,
+				"trader_name": ct.TraderName,
+			},
+		})
+
+		log.Printf("[copy-trading] opened: follower=%s trader=%s symbol=%s side=%s qty=%.4f margin=%.2f",
+			ct.FollowerID, traderID, order.Symbol, order.Side, followerQty, followerMargin)
+	}
+}
+
+// placeCopyOrder creates a market order for a follower mirroring a trader's trade.
+func (s *TradingService) placeCopyOrder(
+	ctx context.Context,
+	followerID string,
+	ct *model.CopyTrading,
+	sourceOrder *model.Order,
+	sourcePos *model.Position,
+	margin, qty float64,
+	leverage int,
+	tpPrice, slPrice *float64,
+) (*model.Order, *model.Position, error) {
+	// Freeze margin
+	if err := s.walletRepo.FreezeMargin(ctx, followerID, margin); err != nil {
+		return nil, nil, fmt.Errorf("freeze margin: %w", err)
+	}
+
+	// Calculate fee
+	vipLevel, _ := s.userRepo.GetVipLevel(ctx, followerID)
+	_, takerRate := s.getVipFeeRates(vipLevel)
+	openFee := math.Round(sourcePos.EntryPrice*qty*takerRate*1e8) / 1e8
+	if openFee > 0 {
+		if err := s.walletRepo.ChargeFee(ctx, followerID, openFee, "", "Copy trade open fee"); err != nil {
+			log.Printf("[copy-trade] insufficient balance for fee, follower=%s fee=%.4f, skipping fee", followerID, openFee)
+			openFee = 0
+		}
+	}
+
+	// Calculate liq price
+	liqPrice := calcLiqPrice(sourcePos.EntryPrice, sourceOrder.Side, qty, margin, sourceOrder.MarginMode, 0)
+
+	// Create order
+	copyOrderID := sourceOrder.ID
+	copyTradingID := ct.ID
+	order := &model.Order{
+		UserID:         followerID,
+		Symbol:         sourceOrder.Symbol,
+		Side:           sourceOrder.Side,
+		OrderType:      "market",
+		Qty:            qty,
+		FilledPrice:    &sourcePos.EntryPrice,
+		Leverage:       leverage,
+		MarginMode:     sourceOrder.MarginMode,
+		MarginAmount:   margin,
+		Status:         "filled",
+		Fee:            openFee,
+		IsCopyTrade:    true,
+		SourceOrderID:  &copyOrderID,
+		SourceTraderID: &sourceOrder.UserID,
+		CopyTradingID:  &copyTradingID,
+	}
+	now := time.Now()
+	order.FilledAt = &now
+
+	if err := s.orderRepo.Create(ctx, order); err != nil {
+		s.walletRepo.UnfreezeMargin(ctx, followerID, margin)
+		return nil, nil, fmt.Errorf("create order: %w", err)
+	}
+
+	// Create position (always separate, never upsert)
+	sourcePosID := sourcePos.ID
+	pos := &model.Position{
+		UserID:           followerID,
+		Symbol:           sourceOrder.Symbol,
+		Side:             sourceOrder.Side,
+		Qty:              qty,
+		EntryPrice:       sourcePos.EntryPrice,
+		Leverage:         leverage,
+		MarginMode:       sourceOrder.MarginMode,
+		MarginAmount:     margin,
+		LiqPrice:         &liqPrice,
+		TpPrice:          tpPrice,
+		SlPrice:          slPrice,
+		OpenFee:          openFee,
+		IsCopyTrade:      true,
+		SourcePositionID: &sourcePosID,
+		SourceTraderID:   &sourceOrder.UserID,
+		CopyTradingID:    &copyTradingID,
+	}
+
+	pos, err := s.positionRepo.CreateCopyPosition(ctx, pos)
+	if err != nil {
+		return nil, nil, fmt.Errorf("create position: %w", err)
+	}
+
+	// Add to cache
+	s.addPositionToCache(pos)
+
+	// Push events to follower
+	wallet, _ := s.walletRepo.GetWallet(ctx, followerID)
+	s.pushOrderFilled(followerID, order)
+	s.pushPositionUpdate(followerID, pos)
+	if wallet != nil {
+		s.pushBalanceUpdate(followerID, wallet)
+	}
+
+	return order, pos, nil
+}
+
+// triggerCopyClose closes all follower positions linked to a trader's position.
+func (s *TradingService) triggerCopyClose(ctx context.Context, traderID, positionID string) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[copy-trading] PANIC in triggerCopyClose: %v", r)
+		}
+	}()
+	if s.traderRepo == nil {
+		return
+	}
+	followerPositions, err := s.positionRepo.ListBySourcePosition(ctx, positionID)
+	if err != nil || len(followerPositions) == 0 {
+		return
+	}
+
+	for _, fp := range followerPositions {
+		closedPos, err := s.ClosePosition(ctx, fp.UserID, fp.ID)
+		if err != nil {
+			log.Printf("[copy-trading] failed to close follower pos=%s user=%s: %v", fp.ID, fp.UserID, err)
+			continue
+		}
+
+		// Log
+		logEntry := &model.CopyTradeLog{
+			CopyTradingID:      strings.TrimSpace(func() string { if fp.CopyTradingID != nil { return *fp.CopyTradingID }; return "" }()),
+			FollowerID:         fp.UserID,
+			TraderID:           traderID,
+			Action:             "close",
+			SourcePositionID:   &positionID,
+			FollowerPositionID: &fp.ID,
+			Symbol:             fp.Symbol,
+			Side:               fp.Side,
+			TraderQty:          0,
+			FollowerQty:        fp.Qty,
+			TraderMargin:       0,
+			FollowerMargin:     fp.MarginAmount,
+			FollowerLeverage:   fp.Leverage,
+			RealizedPnl:        closedPos.RealizedPnl,
+		}
+		_ = s.traderRepo.CreateCopyTradeLog(ctx, logEntry)
+
+		// Push copy trade closed notification
+		s.pusher.PushToUser(fp.UserID, map[string]any{
+			"type": "copy_trade_closed",
+			"data": map[string]any{
+				"position": closedPos,
+			},
+		})
+
+		log.Printf("[copy-trading] closed: follower=%s pos=%s pnl=%.2f", fp.UserID, fp.ID, closedPos.RealizedPnl)
+	}
+}
+
+// triggerCopyPartialClose partial-closes follower positions proportionally.
+func (s *TradingService) triggerCopyPartialClose(ctx context.Context, traderID, positionID string, fraction float64) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[copy-trading] PANIC in triggerCopyPartialClose: %v", r)
+		}
+	}()
+	if s.traderRepo == nil {
+		return
+	}
+	followerPositions, err := s.positionRepo.ListBySourcePosition(ctx, positionID)
+	if err != nil || len(followerPositions) == 0 {
+		return
+	}
+
+	for _, fp := range followerPositions {
+		closeQty := fp.Qty * fraction
+		if closeQty <= 0 {
+			continue
+		}
+		_, err := s.PartialClosePosition(ctx, fp.UserID, fp.ID, closeQty)
+		if err != nil {
+			log.Printf("[copy-trading] failed to partial-close follower pos=%s: %v", fp.ID, err)
+			continue
+		}
+		log.Printf("[copy-trading] partial-closed: follower=%s pos=%s qty=%.4f (%.0f%%)",
+			fp.UserID, fp.ID, closeQty, fraction*100)
+	}
+}
+
+// logCopySkip logs a skipped copy trade.
+func (s *TradingService) logCopySkip(ctx context.Context, ct *model.CopyTrading, order *model.Order, pos *model.Position, reason string) {
+	logEntry := &model.CopyTradeLog{
+		CopyTradingID:    ct.ID,
+		FollowerID:       ct.FollowerID,
+		TraderID:         ct.TraderID,
+		Action:           "skip",
+		SourceOrderID:    &order.ID,
+		SourcePositionID: &pos.ID,
+		Symbol:           order.Symbol,
+		Side:             order.Side,
+		TraderQty:        order.Qty,
+		TraderMargin:     order.MarginAmount,
+		SkipReason:       reason,
+	}
+	_ = s.traderRepo.CreateCopyTradeLog(ctx, logEntry)
 }

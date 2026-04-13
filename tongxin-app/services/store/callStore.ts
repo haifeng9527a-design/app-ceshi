@@ -27,6 +27,7 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
   startVoiceCall: async (conversationId, conversationName) => {
     set({ pending: true });
     try {
+      console.log('[CallStore] startVoiceCall', { conversationId, conversationName });
       const call = await startCall(conversationId, 'voice');
       set({
         currentCall: call,
@@ -36,6 +37,7 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
         pending: false,
       });
     } catch (e) {
+      console.error('[CallStore] startVoiceCall failed', e);
       set({ pending: false });
       throw e;
     }
@@ -46,6 +48,7 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
     if (!incoming) return;
     set({ pending: true });
     try {
+      console.log('[CallStore] acceptIncomingCall', { callId: incoming.id });
       const call = await acceptCall(incoming.id);
       set({
         currentCall: call,
@@ -54,6 +57,7 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
         pending: false,
       });
     } catch (e) {
+      console.error('[CallStore] acceptIncomingCall failed', e);
       set({ pending: false });
       throw e;
     }
@@ -84,7 +88,20 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
         currentConversationName: null,
         pending: false,
       });
-    } catch (e) {
+    } catch (e: any) {
+      const errorMessage = e?.response?.data?.error || e?.message || '';
+      if (
+        e?.response?.status === 400 &&
+        (errorMessage.includes('call already finished') || errorMessage.includes('call not found'))
+      ) {
+        set({
+          currentCall: null,
+          currentConversationId: null,
+          currentConversationName: null,
+          pending: false,
+        });
+        return;
+      }
       set({ pending: false });
       throw e;
     }

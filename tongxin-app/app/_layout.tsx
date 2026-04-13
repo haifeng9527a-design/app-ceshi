@@ -6,6 +6,8 @@ import { Colors } from '../theme/colors';
 import { marketWs } from '../services/websocket/marketWs';
 import { useMarketStore } from '../services/store/marketStore';
 import { useAuthStore } from '../services/store/authStore';
+import { loadLanguagePreference } from '../services/storage/preferences';
+import i18n from '../i18n';
 import '../i18n';
 
 let livekitGlobalsReady = false;
@@ -23,6 +25,20 @@ export default function RootLayout() {
     } catch (e) {
       console.warn('[LiveKit] registerGlobals failed:', e);
     }
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const savedLanguage = await loadLanguagePreference();
+      if (!mounted || !savedLanguage) return;
+      if (i18n.language !== savedLanguage) {
+        await i18n.changeLanguage(savedLanguage);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   // Initialize Firebase auth listener

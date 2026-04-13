@@ -108,7 +108,7 @@ func (s *TraderService) FollowTrader(ctx context.Context, followerID, traderID s
 		return nil, errors.New("cannot follow yourself")
 	}
 	// Check trader allows copy trading
-	profile, err := s.repo.GetTraderProfile(ctx, traderID)
+	profile, err := s.repo.GetTraderProfile(ctx, traderID, "")
 	if err != nil {
 		return nil, errors.New("trader not found")
 	}
@@ -119,11 +119,12 @@ func (s *TraderService) FollowTrader(ctx context.Context, followerID, traderID s
 		return nil, errors.New("trader has disabled copy trading")
 	}
 
-	ratio := req.CopyRatio
-	if ratio <= 0 {
-		ratio = 1.0
+	if req.CopyRatio <= 0 {
+		req.CopyRatio = 1.0
 	}
-	return s.repo.CreateCopyTrading(ctx, followerID, traderID, ratio, req.MaxPosition)
+	// Auto-follow when starting copy trading
+	_ = s.repo.FollowUser(ctx, followerID, traderID)
+	return s.repo.CreateCopyTrading(ctx, followerID, traderID, req)
 }
 
 func (s *TraderService) UnfollowTrader(ctx context.Context, followerID, traderID string) error {
@@ -138,10 +139,46 @@ func (s *TraderService) GetMyFollowing(ctx context.Context, uid string) ([]model
 	return s.repo.ListFollowing(ctx, uid)
 }
 
+func (s *TraderService) UpdateCopySettings(ctx context.Context, followerID, traderID string, req *model.FollowTraderRequest) (*model.CopyTrading, error) {
+	return s.repo.UpdateCopyTradingSettings(ctx, followerID, traderID, req)
+}
+
+func (s *TraderService) PauseCopyTrading(ctx context.Context, followerID, traderID string) error {
+	return s.repo.PauseCopyTrading(ctx, followerID, traderID)
+}
+
+func (s *TraderService) ResumeCopyTrading(ctx context.Context, followerID, traderID string) error {
+	return s.repo.ResumeCopyTrading(ctx, followerID, traderID)
+}
+
+func (s *TraderService) GetCopyTradeLogs(ctx context.Context, followerID string, limit, offset int) ([]model.CopyTradeLog, int, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	return s.repo.ListCopyTradeLogsByFollower(ctx, followerID, limit, offset)
+}
+
 // ── Profile ──
 
-func (s *TraderService) GetTraderProfile(ctx context.Context, uid string) (*model.TraderProfile, error) {
-	return s.repo.GetTraderProfile(ctx, uid)
+func (s *TraderService) GetTraderProfile(ctx context.Context, uid string, viewerID string) (*model.TraderProfile, error) {
+	return s.repo.GetTraderProfile(ctx, uid, viewerID)
+}
+
+// ── User Follow (lightweight, independent of copy trading) ──
+
+func (s *TraderService) WatchTrader(ctx context.Context, userID, traderID string) error {
+	if userID == traderID {
+		return errors.New("cannot follow yourself")
+	}
+	return s.repo.FollowUser(ctx, userID, traderID)
+}
+
+func (s *TraderService) UnwatchTrader(ctx context.Context, userID, traderID string) error {
+	return s.repo.UnfollowUser(ctx, userID, traderID)
+}
+
+func (s *TraderService) GetFollowedTraders(ctx context.Context, userID string) ([]model.FollowedTrader, error) {
+	return s.repo.ListFollowedTraders(ctx, userID)
 }
 
 // SetTraderStatus directly promotes/demotes a user as trader (admin action)

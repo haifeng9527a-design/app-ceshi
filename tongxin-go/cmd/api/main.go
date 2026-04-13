@@ -348,14 +348,23 @@ func main() {
 	// Native Trading + Wallet
 	var tradingHub *ws.TradingHub
 	var tradingSvc *service.TradingService
+	var walletRepo *repository.WalletRepo
+	var orderRepo *repository.OrderRepo
+	var positionRepo *repository.PositionRepo
+	var feeRepo *repository.FeeRepo
 	if pool != nil {
-		walletRepo := repository.NewWalletRepo(pool)
-		orderRepo := repository.NewOrderRepo(pool)
-		positionRepo := repository.NewPositionRepo(pool)
+		walletRepo = repository.NewWalletRepo(pool)
+		orderRepo = repository.NewOrderRepo(pool)
+		positionRepo = repository.NewPositionRepo(pool)
+		feeRepo = repository.NewFeeRepo(pool)
+		traderRepoEarly := repository.NewTraderRepo(pool)
 
 		tradingHub = ws.NewTradingHub()
 
-		tradingSvc = service.NewTradingService(walletRepo, orderRepo, positionRepo, userRepo, binance, polygonClient, tradingHub)
+		tradingSvc = service.NewTradingService(walletRepo, orderRepo, positionRepo, userRepo, traderRepoEarly, feeRepo, binance, polygonClient, tradingHub)
+
+		// Load fee schedule from DB
+		tradingSvc.LoadFeeSchedule(context.Background())
 
 		// Load pending limit orders into memory and hook price updates
 		tradingSvc.LoadPendingOrders(context.Background())
@@ -423,6 +432,16 @@ func main() {
 	// Upload
 	mux.Handle("POST /api/upload", authMw.Authenticate(http.HandlerFunc(uploadH.Upload)))
 
+	// Feedback
+	var feedbackH *handler.FeedbackHandler
+	if pool != nil {
+		feedbackRepo := repository.NewFeedbackRepo(pool)
+		feedbackH = handler.NewFeedbackHandler(feedbackRepo)
+		mux.Handle("POST /api/feedbacks", authMw.Authenticate(http.HandlerFunc(feedbackH.Create)))
+		mux.Handle("GET /api/feedbacks", authMw.Authenticate(http.HandlerFunc(feedbackH.ListMy)))
+		log.Println("[OK] Feedback routes registered")
+	}
+
 	// Trader system
 	var traderSvc *service.TraderService
 	if pool != nil {
@@ -430,9 +449,9 @@ func main() {
 		traderSvc = service.NewTraderService(traderRepo)
 		traderH := handler.NewTraderHandler(traderSvc, tradingSvc)
 
-		// Public trader routes
+		// Public trader routes (profile uses optional auth for is_followed)
 		mux.HandleFunc("GET /api/trader/rankings", traderH.Rankings)
-		mux.HandleFunc("GET /api/trader/{uid}/profile", traderH.TraderProfile)
+		mux.Handle("GET /api/trader/{uid}/profile", authMw.OptionalAuth(http.HandlerFunc(traderH.TraderProfile)))
 		mux.HandleFunc("GET /api/trader/{uid}/positions", traderH.TraderPositions)
 		mux.HandleFunc("GET /api/trader/{uid}/trades", traderH.TraderTrades)
 
@@ -443,8 +462,15 @@ func main() {
 		mux.Handle("PUT /api/trader/copy-trading-toggle", authMw.Authenticate(http.HandlerFunc(traderH.ToggleCopyTrading)))
 		mux.Handle("GET /api/trader/my-followers", authMw.Authenticate(http.HandlerFunc(traderH.MyFollowers)))
 		mux.Handle("GET /api/trader/my-following", authMw.Authenticate(http.HandlerFunc(traderH.MyFollowing)))
+		mux.Handle("GET /api/trader/my-watched", authMw.Authenticate(http.HandlerFunc(traderH.MyWatchedTraders)))
+		mux.Handle("POST /api/trader/{uid}/watch", authMw.Authenticate(http.HandlerFunc(traderH.WatchTrader)))
+		mux.Handle("DELETE /api/trader/{uid}/watch", authMw.Authenticate(http.HandlerFunc(traderH.UnwatchTrader)))
 		mux.Handle("POST /api/trader/{uid}/follow", authMw.Authenticate(http.HandlerFunc(traderH.FollowTrader)))
 		mux.Handle("DELETE /api/trader/{uid}/follow", authMw.Authenticate(http.HandlerFunc(traderH.UnfollowTrader)))
+		mux.Handle("PUT /api/trader/{uid}/follow/settings", authMw.Authenticate(http.HandlerFunc(traderH.UpdateCopySettings)))
+		mux.Handle("POST /api/trader/{uid}/follow/pause", authMw.Authenticate(http.HandlerFunc(traderH.PauseCopyTrading)))
+		mux.Handle("POST /api/trader/{uid}/follow/resume", authMw.Authenticate(http.HandlerFunc(traderH.ResumeCopyTrading)))
+		mux.Handle("GET /api/trader/copy-trade-logs", authMw.Authenticate(http.HandlerFunc(traderH.CopyTradeLogs)))
 
 		// Admin trader routes (require auth + admin role)
 		adminTraderAuth := func(h http.HandlerFunc) http.Handler {
@@ -495,8 +521,60 @@ func main() {
 		mux.Handle("DELETE /api/admin/admins/{uid}", adminAuth(adminH.RemoveAdmin))
 		mux.Handle("POST /api/admin/announcements", adminAuth(adminH.CreateAnnouncement))
 		mux.Handle("GET /api/admin/reports", adminAuth(adminH.ListReports))
+
+		// Admin feedback routes
+		if feedbackH != nil {
+			mux.Handle("GET /api/admin/feedbacks", adminAuth(feedbackH.AdminList))
+			mux.Handle("PUT /api/admin/feedbacks/{id}", adminAuth(feedbackH.AdminReply))
+		}
 		mux.HandleFunc("GET /api/announcements", adminH.ListAnnouncements)
 		log.Println("[OK] Admin routes registered")
+
+		// Admin Trading & Financial routes
+		if tradingSvc != nil && feeRepo != nil {
+			revenueRepo := repository.NewRevenueRepo(pool)
+			tpaRepo := repository.NewThirdPartyApiRepo(pool)
+			adminTradingH := handler.NewAdminTradingHandler(
+				tradingSvc, feeRepo, walletRepo, positionRepo, orderRepo, userRepo, revenueRepo, tpaRepo,
+			)
+
+			// Fee management
+			mux.Handle("GET /api/admin/fee-tiers", adminAuth(adminTradingH.ListFeeTiers))
+			mux.Handle("POST /api/admin/fee-tiers", adminAuth(adminTradingH.CreateFeeTier))
+			mux.Handle("PUT /api/admin/fee-tiers/{level}", adminAuth(adminTradingH.UpdateFeeTier))
+			mux.Handle("DELETE /api/admin/fee-tiers/{level}", adminAuth(adminTradingH.DeleteFeeTier))
+			mux.Handle("POST /api/admin/users/{uid}/vip-level", adminAuth(adminTradingH.SetUserVipLevel))
+			mux.Handle("GET /api/admin/fee-stats", adminAuth(adminTradingH.GetFeeStats))
+
+			// Position monitoring
+			mux.Handle("GET /api/admin/positions", adminAuth(adminTradingH.ListAllPositions))
+			mux.Handle("GET /api/admin/positions/summary", adminAuth(adminTradingH.PositionsSummary))
+
+			// Liquidation data
+			mux.Handle("GET /api/admin/liquidations", adminAuth(adminTradingH.ListLiquidations))
+			mux.Handle("GET /api/admin/liquidations/stats", adminAuth(adminTradingH.LiquidationStats))
+
+			// Financial management
+			mux.Handle("GET /api/admin/revenue/daily", adminAuth(adminTradingH.DailyRevenue))
+			mux.Handle("GET /api/admin/revenue/summary", adminAuth(adminTradingH.RevenueSummary))
+			mux.Handle("POST /api/admin/revenue/snapshot", adminAuth(adminTradingH.TriggerSnapshot))
+
+			// Third-party API management
+			mux.Handle("GET /api/admin/third-party-apis", adminAuth(adminTradingH.ListThirdPartyApis))
+			mux.Handle("GET /api/admin/third-party-apis/{name}", adminAuth(adminTradingH.GetThirdPartyApi))
+			mux.Handle("PUT /api/admin/third-party-apis/{name}", adminAuth(adminTradingH.UpdateThirdPartyApi))
+			mux.Handle("POST /api/admin/third-party-apis/{name}/toggle", adminAuth(adminTradingH.ToggleThirdPartyApi))
+			mux.Handle("POST /api/admin/third-party-apis/{name}/verify", adminAuth(adminTradingH.VerifyThirdPartyApi))
+			mux.Handle("GET /api/admin/third-party-apis/{name}/history", adminAuth(adminTradingH.ApiKeyHistory))
+
+			// Trading & wallet overview
+			mux.Handle("GET /api/admin/trading-stats", adminAuth(adminTradingH.TradingStats))
+			mux.Handle("GET /api/admin/orders", adminAuth(adminTradingH.ListAllOrders))
+			mux.Handle("GET /api/admin/wallets", adminAuth(adminTradingH.ListWallets))
+			mux.Handle("GET /api/admin/wallet-transactions", adminAuth(adminTradingH.ListAllTransactions))
+
+			log.Println("[OK] Admin trading & financial routes registered")
+		}
 	}
 
 	// ── Middleware stack ──

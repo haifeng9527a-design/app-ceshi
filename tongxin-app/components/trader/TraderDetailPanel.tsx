@@ -7,7 +7,6 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
-  TextInput,
   useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -22,10 +21,17 @@ import {
   followTrader,
   unfollowTrader,
   getMyFollowing,
+  pauseCopyTrading,
+  resumeCopyTrading,
+  updateCopySettings,
+  watchTrader,
+  unwatchTrader,
   TraderProfile,
   TraderPosition,
   CopyTrading,
+  FollowTraderRequest,
 } from '../../services/api/traderApi';
+import CopySettingsModal from './CopySettingsModal';
 import {
   getTraderStrategies,
   TraderStrategy,
@@ -47,12 +53,15 @@ export default function TraderDetailPanel({ uid, onClose, embedded }: Props) {
   const [profile, setProfile] = useState<TraderProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [following, setFollowing] = useState(false);
-  const [showFollowModal, setShowFollowModal] = useState(false);
-  const [copyRatio, setCopyRatio] = useState('1.0');
+  const [copySettings, setCopySettings] = useState<CopyTrading | undefined>(undefined);
+  const [showCopySettings, setShowCopySettings] = useState(false);
+  const [editMode, setEditMode] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [positions, setPositions] = useState<TraderPosition[]>([]);
   const [trades, setTrades] = useState<TraderPosition[]>([]);
   const [strategies, setStrategies] = useState<TraderStrategy[]>([]);
+  const [isWatched, setIsWatched] = useState(false);
+  const [watchLoading, setWatchLoading] = useState(false);
   const isSelf = user?.uid === uid;
 
   useEffect(() => {
@@ -71,8 +80,11 @@ export default function TraderDetailPanel({ uid, onClose, embedded }: Props) {
         setPositions(pos);
         setTrades(trd);
         setStrategies(strats.strategies || []);
+        setIsWatched(!!p.is_followed);
         if (!isSelf) {
-          setFollowing(myFollowing.some((f: CopyTrading) => f.trader_id === uid && f.status === 'active'));
+          const myCopy = myFollowing.find((f: CopyTrading) => f.trader_id === uid && (f.status === 'active' || f.status === 'paused'));
+          setFollowing(!!myCopy);
+          setCopySettings(myCopy || undefined);
         }
       } catch {
       } finally {
@@ -81,13 +93,20 @@ export default function TraderDetailPanel({ uid, onClose, embedded }: Props) {
     })();
   }, [uid, user]);
 
-  const handleFollow = async () => {
+  const handleCopySubmit = async (settings: FollowTraderRequest) => {
     if (!user) { Alert.alert('', t('auth.notLoggedIn')); return; }
     setActionLoading(true);
     try {
-      await followTrader(uid, { copy_ratio: parseFloat(copyRatio) || 1.0 });
-      setFollowing(true);
-      setShowFollowModal(false);
+      if (editMode && copySettings) {
+        const updated = await updateCopySettings(uid, settings);
+        setCopySettings(updated);
+      } else {
+        const created = await followTrader(uid, settings);
+        setCopySettings(created);
+        setFollowing(true);
+      }
+      setShowCopySettings(false);
+      setEditMode(false);
     } catch (e: any) {
       Alert.alert('Error', e.response?.data?.error || e.message);
     } finally { setActionLoading(false); }
@@ -98,9 +117,42 @@ export default function TraderDetailPanel({ uid, onClose, embedded }: Props) {
     try {
       await unfollowTrader(uid);
       setFollowing(false);
+      setCopySettings(undefined);
     } catch (e: any) {
       Alert.alert('Error', e.response?.data?.error || e.message);
     } finally { setActionLoading(false); }
+  };
+
+  const handlePauseResume = async () => {
+    if (!copySettings) return;
+    setActionLoading(true);
+    try {
+      if (copySettings.status === 'active') {
+        await pauseCopyTrading(uid);
+        setCopySettings({ ...copySettings, status: 'paused' });
+      } else {
+        await resumeCopyTrading(uid);
+        setCopySettings({ ...copySettings, status: 'active' });
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e.response?.data?.error || e.message);
+    } finally { setActionLoading(false); }
+  };
+
+  const handleToggleWatch = async () => {
+    if (!user) { Alert.alert('', t('auth.notLoggedIn')); return; }
+    setWatchLoading(true);
+    try {
+      if (isWatched) {
+        await unwatchTrader(uid);
+        setIsWatched(false);
+      } else {
+        await watchTrader(uid);
+        setIsWatched(true);
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e.response?.data?.error || e.message);
+    } finally { setWatchLoading(false); }
   };
 
   if (loading) {
@@ -203,26 +255,53 @@ export default function TraderDetailPanel({ uid, onClose, embedded }: Props) {
             {/* Action Buttons (not self) */}
             {!isSelf && (
               <View style={[styles.headerActions, isDesktop && styles.headerActionsDesktop]}>
-                <TouchableOpacity style={styles.followBtnOutline}>
-                  <Text style={styles.followBtnOutlineText}>关注 Follow</Text>
+                <TouchableOpacity
+                  style={[styles.followBtnOutline, isWatched && styles.followBtnOutlineActive]}
+                  onPress={handleToggleWatch}
+                  disabled={watchLoading}
+                >
+                  {watchLoading ? (
+                    <ActivityIndicator color={Colors.primary} size="small" />
+                  ) : (
+                    <Text style={[styles.followBtnOutlineText, isWatched && styles.followBtnOutlineTextActive]}>
+                      {isWatched ? '已关注 Following' : '关注 Follow'}
+                    </Text>
+                  )}
                 </TouchableOpacity>
                 {profile.allow_copy_trading && user && (
                   following ? (
-                    <TouchableOpacity
-                      style={styles.unfollowBtn}
-                      onPress={handleUnfollow}
-                      disabled={actionLoading}
-                    >
-                      {actionLoading ? (
-                        <ActivityIndicator color={Colors.down} size="small" />
-                      ) : (
+                    <View style={styles.copyActionGroup}>
+                      <TouchableOpacity
+                        style={styles.copyActionBtn}
+                        onPress={() => { setEditMode(true); setShowCopySettings(true); }}
+                      >
+                        <Text style={styles.copyActionBtnText}>修改设置</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.copyActionBtn, copySettings?.status === 'paused' && styles.copyActionBtnActive]}
+                        onPress={handlePauseResume}
+                        disabled={actionLoading}
+                      >
+                        {actionLoading ? (
+                          <ActivityIndicator color={Colors.textSecondary} size="small" />
+                        ) : (
+                          <Text style={[styles.copyActionBtnText, copySettings?.status === 'paused' && styles.copyActionBtnTextActive]}>
+                            {copySettings?.status === 'paused' ? '恢复跟单' : '暂停跟单'}
+                          </Text>
+                        )}
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.unfollowBtn}
+                        onPress={handleUnfollow}
+                        disabled={actionLoading}
+                      >
                         <Text style={styles.unfollowBtnText}>取消跟单</Text>
-                      )}
-                    </TouchableOpacity>
+                      </TouchableOpacity>
+                    </View>
                   ) : (
                     <TouchableOpacity
                       style={styles.followBtn}
-                      onPress={() => setShowFollowModal(true)}
+                      onPress={() => { setEditMode(false); setShowCopySettings(true); }}
                     >
                       <Text style={styles.followBtnText}>一键跟单 Copy Trading</Text>
                     </TouchableOpacity>
@@ -464,42 +543,14 @@ export default function TraderDetailPanel({ uid, onClose, embedded }: Props) {
           </View>
         </View>
 
-        {/* Follow Modal */}
-        {showFollowModal && (
-          <View style={styles.followModalOverlay}>
-            <View style={styles.followModal}>
-              <Text style={styles.followModalTitle}>跟单设置 Copy Trading</Text>
-              <Text style={styles.followModalSubtitle}>设定跟单比例</Text>
-              <TextInput
-                style={styles.ratioInput}
-                value={copyRatio}
-                onChangeText={setCopyRatio}
-                keyboardType="numeric"
-                placeholder="1.0"
-                placeholderTextColor={Colors.textMuted}
-              />
-              <View style={styles.followModalBtns}>
-                <TouchableOpacity
-                  style={styles.cancelBtn}
-                  onPress={() => setShowFollowModal(false)}
-                >
-                  <Text style={styles.cancelBtnText}>取消</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.confirmBtn}
-                  onPress={handleFollow}
-                  disabled={actionLoading}
-                >
-                  {actionLoading ? (
-                    <ActivityIndicator color={Colors.textOnPrimary} size="small" />
-                  ) : (
-                    <Text style={styles.confirmBtnText}>确认跟单</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        )}
+        {/* Copy Settings Modal */}
+        <CopySettingsModal
+          visible={showCopySettings}
+          onClose={() => { setShowCopySettings(false); setEditMode(false); }}
+          onSubmit={handleCopySubmit}
+          initialSettings={editMode ? copySettings : undefined}
+          traderName={profile.display_name}
+        />
       </ScrollView>
     </View>
   );
@@ -647,7 +698,12 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 10,
   },
+  followBtnOutlineActive: {
+    borderColor: Colors.primaryBorder,
+    backgroundColor: Colors.primaryDim,
+  },
   followBtnOutlineText: { color: Colors.textSecondary, fontSize: 14, fontWeight: '600' },
+  followBtnOutlineTextActive: { color: Colors.primary },
   followBtn: {
     backgroundColor: Colors.primary,
     paddingHorizontal: 24,
@@ -937,45 +993,29 @@ const styles = StyleSheet.create({
     borderColor: Colors.border,
   },
 
-  // ── Follow Modal ──
-  followModalOverlay: {
-    backgroundColor: Colors.surface,
-    borderRadius: 14,
+  // ── Copy Action Buttons ──
+  copyActionGroup: {
+    flexDirection: 'row',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  copyActionBtn: {
     borderWidth: 1,
+    borderColor: Colors.border,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  copyActionBtnActive: {
     borderColor: Colors.primaryBorder,
-    padding: 24,
-    marginBottom: 16,
+    backgroundColor: Colors.primaryDim,
   },
-  followModal: {},
-  followModalTitle: { color: Colors.textActive, fontSize: 18, fontWeight: '700', marginBottom: 4 },
-  followModalSubtitle: { color: Colors.textMuted, fontSize: 13, marginBottom: 16 },
-  ratioInput: {
-    backgroundColor: Colors.background,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: 10,
-    padding: 14,
-    color: Colors.textActive,
-    fontSize: 16,
-    marginBottom: 16,
+  copyActionBtnText: {
+    color: Colors.textSecondary,
+    fontSize: 13,
+    fontWeight: '600',
   },
-  followModalBtns: { flexDirection: 'row', gap: 12 },
-  cancelBtn: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    paddingVertical: 14,
-    borderRadius: 10,
-    alignItems: 'center',
+  copyActionBtnTextActive: {
+    color: Colors.primary,
   },
-  cancelBtnText: { color: Colors.textSecondary, fontSize: 15, fontWeight: '600' },
-  confirmBtn: {
-    flex: 1,
-    backgroundColor: Colors.primary,
-    paddingVertical: 14,
-    borderRadius: 10,
-    alignItems: 'center',
-    ...Shadows.glow,
-  },
-  confirmBtnText: { color: Colors.textOnPrimary, fontSize: 15, fontWeight: '700' },
 });

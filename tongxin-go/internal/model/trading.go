@@ -26,6 +26,11 @@ type Order struct {
 	Status       string     `json:"status"`
 	RejectReason string     `json:"reject_reason,omitempty"`
 	Fee          float64    `json:"fee"`
+	// Copy trade lineage
+	IsCopyTrade    bool    `json:"is_copy_trade"`
+	SourceOrderID  *string `json:"source_order_id,omitempty"`
+	SourceTraderID *string `json:"source_trader_id,omitempty"`
+	CopyTradingID  *string `json:"copy_trading_id,omitempty"`
 	CreatedAt    time.Time  `json:"created_at"`
 	FilledAt     *time.Time `json:"filled_at,omitempty"`
 	CancelledAt  *time.Time `json:"cancelled_at,omitempty"`
@@ -49,6 +54,11 @@ type Position struct {
 	ClosePrice   float64    `json:"close_price,omitempty"`
 	OpenFee      float64    `json:"open_fee"`
 	CloseFee     float64    `json:"close_fee"`
+	// Copy trade lineage
+	IsCopyTrade      bool    `json:"is_copy_trade"`
+	SourcePositionID *string `json:"source_position_id,omitempty"`
+	SourceTraderID   *string `json:"source_trader_id,omitempty"`
+	CopyTradingID    *string `json:"copy_trading_id,omitempty"`
 	CreatedAt    time.Time  `json:"created_at"`
 	UpdatedAt    time.Time  `json:"updated_at"`
 	ClosedAt     *time.Time `json:"closed_at,omitempty"`
@@ -104,4 +114,116 @@ type VipInfo struct {
 	VipLevel int     `json:"vip_level"`
 	MakerFee float64 `json:"maker_fee"`
 	TakerFee float64 `json:"taker_fee"`
+}
+
+type FeeTier struct {
+	ID        int       `json:"id"`
+	VipLevel  int       `json:"vip_level"`
+	MakerFee  float64   `json:"maker_fee"`
+	TakerFee  float64   `json:"taker_fee"`
+	MinVolume float64   `json:"min_volume"`
+	UpdatedAt time.Time `json:"updated_at"`
+	UpdatedBy string    `json:"updated_by,omitempty"`
+}
+
+type FeeStats struct {
+	TodayFees float64 `json:"today_fees"`
+	WeekFees  float64 `json:"week_fees"`
+	MonthFees float64 `json:"month_fees"`
+	TotalFees float64 `json:"total_fees"`
+}
+
+type PositionSummary struct {
+	TotalOpen      int              `json:"total_open"`
+	TotalMargin    float64          `json:"total_margin"`
+	TotalUnrealPnl float64          `json:"total_unrealized_pnl"`
+	BySymbol       []SymbolSummary  `json:"by_symbol"`
+}
+
+type SymbolSummary struct {
+	Symbol      string  `json:"symbol"`
+	Count       int     `json:"count"`
+	TotalMargin float64 `json:"total_margin"`
+}
+
+type LiquidationStats struct {
+	TotalCount int     `json:"total_count"`
+	TotalLoss  float64 `json:"total_loss"`
+	TodayCount int     `json:"today_count"`
+	TodayLoss  float64 `json:"today_loss"`
+}
+
+type DailyRevenue struct {
+	Date              string  `json:"date"`
+	FeeIncome         float64 `json:"fee_income"`
+	LiquidationIncome float64 `json:"liquidation_income"`
+	TotalIncome       float64 `json:"total_income"`
+	TradeCount        int     `json:"trade_count"`
+	LiquidationCount  int     `json:"liquidation_count"`
+	ActiveUsers       int     `json:"active_users"`
+}
+
+type RevenueSummary struct {
+	Today   RevenueItem `json:"today"`
+	Week    RevenueItem `json:"week"`
+	Month   RevenueItem `json:"month"`
+	AllTime RevenueItem `json:"all_time"`
+}
+
+type RevenueItem struct {
+	FeeIncome         float64 `json:"fee_income"`
+	LiquidationIncome float64 `json:"liquidation_income"`
+	TotalIncome       float64 `json:"total_income"`
+}
+
+type ThirdPartyApi struct {
+	ID             int        `json:"id"`
+	ServiceName    string     `json:"service_name"`
+	DisplayName    string     `json:"display_name"`
+	Category       string     `json:"category"`
+	BaseURL        string     `json:"base_url"`
+	WsURL          string     `json:"ws_url"`
+	ApiKey         string     `json:"api_key"`
+	ApiSecret      string     `json:"api_secret"`
+	ExtraConfig    any        `json:"extra_config"`
+	IsActive       bool       `json:"is_active"`
+	Description    string     `json:"description"`
+	LastVerifiedAt *time.Time `json:"last_verified_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+	UpdatedBy      string     `json:"updated_by,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+}
+
+type ApiKeyHistoryEntry struct {
+	ID           int       `json:"id"`
+	ServiceName  string    `json:"service_name"`
+	OldKeyMasked string    `json:"old_key_masked"`
+	NewKeyMasked string    `json:"new_key_masked"`
+	ChangedBy    string    `json:"changed_by"`
+	ChangedAt    time.Time `json:"changed_at"`
+	Reason       string    `json:"reason"`
+}
+
+type TradingOverview struct {
+	OpenPositions     int     `json:"open_positions"`
+	TodayVolume       float64 `json:"today_volume"`
+	TodayFees         float64 `json:"today_fees"`
+	TodayLiquidations int     `json:"today_liquidations"`
+	ActiveTraders     int     `json:"active_traders"`
+}
+
+type AdminPosition struct {
+	Position
+	DisplayName string `json:"display_name"`
+}
+
+type AdminOrder struct {
+	Order
+	DisplayName string `json:"display_name"`
+}
+
+type AdminWallet struct {
+	Wallet
+	DisplayName string `json:"display_name"`
+	Email       string `json:"email"`
 }

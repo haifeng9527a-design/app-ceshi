@@ -122,7 +122,12 @@ export const useTradingStore = create<TradingState>((set, get) => ({
   },
 
   closePosition: async (id: string) => {
-    await apiClosePosition(id);
+    try {
+      await apiClosePosition(id);
+    } catch (e: any) {
+      // Position may already be closed (e.g. by copy-trade auto-close or TP/SL)
+      console.warn('[closePosition] error:', e?.response?.data || e.message);
+    }
     get().fetchPositions();
     get().fetchPositionHistory();
     get().fetchAccount();
@@ -159,7 +164,17 @@ export const useTradingStore = create<TradingState>((set, get) => ({
         let positions: PositionResponse[];
         if (idx >= 0) {
           positions = [...state.positions];
-          positions[idx] = data;
+          const existing = state.positions[idx];
+          // Merge: update dynamic fields from push, preserve immutable fields from API
+          positions[idx] = {
+            ...existing,
+            ...data,
+            // Always preserve copy-trade lineage (these never change after creation)
+            is_copy_trade: existing.is_copy_trade,
+            source_position_id: existing.source_position_id,
+            source_trader_id: existing.source_trader_id,
+            copy_trading_id: existing.copy_trading_id,
+          };
         } else {
           positions = [data, ...state.positions];
         }

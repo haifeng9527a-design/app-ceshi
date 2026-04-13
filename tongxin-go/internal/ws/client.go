@@ -62,9 +62,17 @@ func (c *Client) ResetReadDeadline() {
 
 func (c *Client) Send(data []byte) {
 	select {
-	case c.send <- data:
+	case <-c.closeCh:
+		return
 	default:
-		log.Printf("[ws] client %s send buffer full, dropping message", c.userID)
+	}
+
+	select {
+	case c.send <- data:
+	case <-c.closeCh:
+	default:
+		log.Printf("[ws] client %s send buffer full, closing socket for clean reconnect", c.userID)
+		c.Close()
 	}
 }
 
@@ -79,7 +87,6 @@ func (c *Client) SendJSON(v any) {
 func (c *Client) Close() {
 	c.once.Do(func() {
 		close(c.closeCh)
-		close(c.send)
 		c.conn.Close()
 	})
 }
@@ -87,18 +94,17 @@ func (c *Client) Close() {
 func (c *Client) WritePump() {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[ws] WritePump panic recovered for %s: %v", c.userID, r)
+		}
 		ticker.Stop()
 		c.Close()
 	}()
 
 	for {
 		select {
-		case msg, ok := <-c.send:
+		case msg := <-c.send:
 			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
-			if !ok {
-				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
-				return
-			}
 			if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
 				return
 			}

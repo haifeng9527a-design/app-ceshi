@@ -11,6 +11,7 @@ export interface UserProfile {
   shortId?: string;
   role?: string;
   signature?: string;
+  phone?: string;
   isTrader?: boolean;
   allowCopyTrading?: boolean;
   vipLevel?: number;
@@ -148,6 +149,7 @@ function backendUserToProfile(user: any): UserProfile {
     shortId: user.short_id,
     role: user.role,
     signature: user.bio || user.signature,
+    phone: user.phone || null,
     isTrader: user.is_trader || false,
     allowCopyTrading: user.allow_copy_trading || false,
     vipLevel: user.vip_level || 0,

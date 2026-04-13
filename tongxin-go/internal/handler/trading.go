@@ -261,7 +261,7 @@ func (h *TradingHandler) GetHistory(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/trading/fee-schedule — public, returns VIP fee tiers
 func (h *TradingHandler) GetFeeSchedule(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, service.GetFeeSchedule())
+	writeJSON(w, http.StatusOK, h.tradingSvc.GetFeeSchedule())
 }
 
 // GET /api/trading/vip-info — authenticated, returns user's VIP level and fee rates

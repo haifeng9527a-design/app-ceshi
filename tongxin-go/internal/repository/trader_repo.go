@@ -274,17 +274,49 @@ func (r *TraderRepo) ListTraderRankings(ctx context.Context, sortBy string, limi
 
 // ── Copy Trading ──
 
-func (r *TraderRepo) CreateCopyTrading(ctx context.Context, followerID, traderID string, ratio float64, maxPos *float64) (*model.CopyTrading, error) {
+func (r *TraderRepo) CreateCopyTrading(ctx context.Context, followerID, traderID string, req *model.FollowTraderRequest) (*model.CopyTrading, error) {
 	ct := &model.CopyTrading{}
+	copyMode := req.CopyMode
+	if copyMode == "" {
+		copyMode = "fixed"
+	}
+	leverageMode := req.LeverageMode
+	if leverageMode == "" {
+		leverageMode = "trader"
+	}
+	tpSlMode := req.TpSlMode
+	if tpSlMode == "" {
+		tpSlMode = "trader"
+	}
+	followDir := req.FollowDirection
+	if followDir == "" {
+		followDir = "both"
+	}
 	err := r.pool.QueryRow(ctx, `
-		INSERT INTO copy_trading (follower_id, trader_id, copy_ratio, max_position)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO copy_trading (follower_id, trader_id, copy_mode, copy_ratio, fixed_amount,
+			max_position, max_single_margin, follow_symbols, leverage_mode, custom_leverage,
+			tp_sl_mode, custom_tp_ratio, custom_sl_ratio, follow_direction)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		ON CONFLICT (follower_id, trader_id) DO UPDATE SET
-			status = 'active', copy_ratio = $3, max_position = $4, updated_at = NOW()
-		RETURNING id, follower_id, trader_id, status, copy_ratio, max_position, created_at, updated_at
-	`, followerID, traderID, ratio, maxPos).Scan(
-		&ct.ID, &ct.FollowerID, &ct.TraderID, &ct.Status, &ct.CopyRatio,
-		&ct.MaxPosition, &ct.CreatedAt, &ct.UpdatedAt,
+			status = 'active', copy_mode = $3, copy_ratio = $4, fixed_amount = $5,
+			max_position = $6, max_single_margin = $7, follow_symbols = $8,
+			leverage_mode = $9, custom_leverage = $10, tp_sl_mode = $11,
+			custom_tp_ratio = $12, custom_sl_ratio = $13, follow_direction = $14,
+			updated_at = NOW()
+		RETURNING id, follower_id, trader_id, status, copy_mode, copy_ratio, fixed_amount,
+			max_position, max_single_margin, follow_symbols, leverage_mode, custom_leverage,
+			tp_sl_mode, custom_tp_ratio, custom_sl_ratio, follow_direction,
+			created_at, updated_at
+	`, followerID, traderID, copyMode, req.CopyRatio, req.FixedAmount,
+		req.MaxPosition, req.MaxSingleMargin, req.FollowSymbols,
+		leverageMode, req.CustomLeverage, tpSlMode,
+		req.CustomTpRatio, req.CustomSlRatio, followDir).Scan(
+		&ct.ID, &ct.FollowerID, &ct.TraderID, &ct.Status,
+		&ct.CopyMode, &ct.CopyRatio, &ct.FixedAmount,
+		&ct.MaxPosition, &ct.MaxSingleMargin, &ct.FollowSymbols,
+		&ct.LeverageMode, &ct.CustomLeverage, &ct.TpSlMode,
+		&ct.CustomTpRatio, &ct.CustomSlRatio, &ct.FollowDirection,
+		&ct.CreatedAt, &ct.UpdatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create copy trading: %w", err)
@@ -303,12 +335,19 @@ func (r *TraderRepo) StopCopyTrading(ctx context.Context, followerID, traderID s
 func (r *TraderRepo) GetCopyRelation(ctx context.Context, followerID, traderID string) (*model.CopyTrading, error) {
 	ct := &model.CopyTrading{}
 	err := r.pool.QueryRow(ctx, `
-		SELECT id, follower_id, trader_id, status, copy_ratio, max_position, created_at, updated_at
+		SELECT id, follower_id, trader_id, status, copy_mode, copy_ratio, fixed_amount,
+			max_position, max_single_margin, follow_symbols, leverage_mode, custom_leverage,
+			tp_sl_mode, custom_tp_ratio, custom_sl_ratio, follow_direction,
+			created_at, updated_at
 		FROM copy_trading
 		WHERE follower_id = $1 AND trader_id = $2
 	`, followerID, traderID).Scan(
-		&ct.ID, &ct.FollowerID, &ct.TraderID, &ct.Status, &ct.CopyRatio,
-		&ct.MaxPosition, &ct.CreatedAt, &ct.UpdatedAt,
+		&ct.ID, &ct.FollowerID, &ct.TraderID, &ct.Status,
+		&ct.CopyMode, &ct.CopyRatio, &ct.FixedAmount,
+		&ct.MaxPosition, &ct.MaxSingleMargin, &ct.FollowSymbols,
+		&ct.LeverageMode, &ct.CustomLeverage, &ct.TpSlMode,
+		&ct.CustomTpRatio, &ct.CustomSlRatio, &ct.FollowDirection,
+		&ct.CreatedAt, &ct.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -318,35 +357,29 @@ func (r *TraderRepo) GetCopyRelation(ctx context.Context, followerID, traderID s
 
 func (r *TraderRepo) ListFollowers(ctx context.Context, traderID string) ([]model.CopyTrading, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT ct.id, ct.follower_id, ct.trader_id, ct.status, ct.copy_ratio, ct.max_position,
+		SELECT ct.id, ct.follower_id, ct.trader_id, ct.status,
+			ct.copy_mode, ct.copy_ratio, ct.fixed_amount, ct.max_position, ct.max_single_margin,
+			ct.follow_symbols, ct.leverage_mode, ct.custom_leverage,
+			ct.tp_sl_mode, ct.custom_tp_ratio, ct.custom_sl_ratio, ct.follow_direction,
 			ct.created_at, ct.updated_at, COALESCE(u.display_name,''), COALESCE(u.avatar_url,'')
 		FROM copy_trading ct
 		JOIN users u ON u.uid = ct.follower_id
-		WHERE ct.trader_id = $1 AND ct.status = 'active'
+		WHERE ct.trader_id = $1 AND ct.status IN ('active','paused')
 		ORDER BY ct.created_at DESC
 	`, traderID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-
-	var list []model.CopyTrading
-	for rows.Next() {
-		var ct model.CopyTrading
-		if err := rows.Scan(
-			&ct.ID, &ct.FollowerID, &ct.TraderID, &ct.Status, &ct.CopyRatio,
-			&ct.MaxPosition, &ct.CreatedAt, &ct.UpdatedAt, &ct.TraderName, &ct.TraderAvatar,
-		); err != nil {
-			return nil, err
-		}
-		list = append(list, ct)
-	}
-	return list, nil
+	return scanCopyTradingRows(rows)
 }
 
 func (r *TraderRepo) ListFollowing(ctx context.Context, followerID string) ([]model.CopyTrading, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT ct.id, ct.follower_id, ct.trader_id, ct.status, ct.copy_ratio, ct.max_position,
+		SELECT ct.id, ct.follower_id, ct.trader_id, ct.status,
+			ct.copy_mode, ct.copy_ratio, ct.fixed_amount, ct.max_position, ct.max_single_margin,
+			ct.follow_symbols, ct.leverage_mode, ct.custom_leverage,
+			ct.tp_sl_mode, ct.custom_tp_ratio, ct.custom_sl_ratio, ct.follow_direction,
 			ct.created_at, ct.updated_at, COALESCE(u.display_name,''), COALESCE(u.avatar_url,'')
 		FROM copy_trading ct
 		JOIN users u ON u.uid = ct.trader_id
@@ -357,13 +390,25 @@ func (r *TraderRepo) ListFollowing(ctx context.Context, followerID string) ([]mo
 		return nil, err
 	}
 	defer rows.Close()
+	return scanCopyTradingRows(rows)
+}
 
+// ── Copy Trading: New Methods ──
+
+func scanCopyTradingRows(rows interface {
+	Next() bool
+	Scan(dest ...any) error
+}) ([]model.CopyTrading, error) {
 	var list []model.CopyTrading
 	for rows.Next() {
 		var ct model.CopyTrading
 		if err := rows.Scan(
-			&ct.ID, &ct.FollowerID, &ct.TraderID, &ct.Status, &ct.CopyRatio,
-			&ct.MaxPosition, &ct.CreatedAt, &ct.UpdatedAt, &ct.TraderName, &ct.TraderAvatar,
+			&ct.ID, &ct.FollowerID, &ct.TraderID, &ct.Status,
+			&ct.CopyMode, &ct.CopyRatio, &ct.FixedAmount,
+			&ct.MaxPosition, &ct.MaxSingleMargin, &ct.FollowSymbols,
+			&ct.LeverageMode, &ct.CustomLeverage, &ct.TpSlMode,
+			&ct.CustomTpRatio, &ct.CustomSlRatio, &ct.FollowDirection,
+			&ct.CreatedAt, &ct.UpdatedAt, &ct.TraderName, &ct.TraderAvatar,
 		); err != nil {
 			return nil, err
 		}
@@ -372,9 +417,152 @@ func (r *TraderRepo) ListFollowing(ctx context.Context, followerID string) ([]mo
 	return list, nil
 }
 
+func (r *TraderRepo) ListActiveFollowersByTraderID(ctx context.Context, traderID string) ([]model.CopyTrading, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT ct.id, ct.follower_id, ct.trader_id, ct.status,
+			ct.copy_mode, ct.copy_ratio, ct.fixed_amount, ct.max_position, ct.max_single_margin,
+			ct.follow_symbols, ct.leverage_mode, ct.custom_leverage,
+			ct.tp_sl_mode, ct.custom_tp_ratio, ct.custom_sl_ratio, ct.follow_direction,
+			ct.created_at, ct.updated_at, COALESCE(u.display_name,''), COALESCE(u.avatar_url,'')
+		FROM copy_trading ct
+		JOIN users u ON u.uid = ct.follower_id
+		WHERE ct.trader_id = $1 AND ct.status = 'active'
+	`, traderID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanCopyTradingRows(rows)
+}
+
+func (r *TraderRepo) UpdateCopyTradingSettings(ctx context.Context, followerID, traderID string, req *model.FollowTraderRequest) (*model.CopyTrading, error) {
+	ct := &model.CopyTrading{}
+	copyMode := req.CopyMode
+	if copyMode == "" {
+		copyMode = "fixed"
+	}
+	leverageMode := req.LeverageMode
+	if leverageMode == "" {
+		leverageMode = "trader"
+	}
+	tpSlMode := req.TpSlMode
+	if tpSlMode == "" {
+		tpSlMode = "trader"
+	}
+	followDir := req.FollowDirection
+	if followDir == "" {
+		followDir = "both"
+	}
+	err := r.pool.QueryRow(ctx, `
+		UPDATE copy_trading SET
+			copy_mode = $3, copy_ratio = $4, fixed_amount = $5,
+			max_position = $6, max_single_margin = $7, follow_symbols = $8,
+			leverage_mode = $9, custom_leverage = $10, tp_sl_mode = $11,
+			custom_tp_ratio = $12, custom_sl_ratio = $13, follow_direction = $14,
+			updated_at = NOW()
+		WHERE follower_id = $1 AND trader_id = $2 AND status != 'stopped'
+		RETURNING id, follower_id, trader_id, status, copy_mode, copy_ratio, fixed_amount,
+			max_position, max_single_margin, follow_symbols, leverage_mode, custom_leverage,
+			tp_sl_mode, custom_tp_ratio, custom_sl_ratio, follow_direction,
+			created_at, updated_at
+	`, followerID, traderID, copyMode, req.CopyRatio, req.FixedAmount,
+		req.MaxPosition, req.MaxSingleMargin, req.FollowSymbols,
+		leverageMode, req.CustomLeverage, tpSlMode,
+		req.CustomTpRatio, req.CustomSlRatio, followDir).Scan(
+		&ct.ID, &ct.FollowerID, &ct.TraderID, &ct.Status,
+		&ct.CopyMode, &ct.CopyRatio, &ct.FixedAmount,
+		&ct.MaxPosition, &ct.MaxSingleMargin, &ct.FollowSymbols,
+		&ct.LeverageMode, &ct.CustomLeverage, &ct.TpSlMode,
+		&ct.CustomTpRatio, &ct.CustomSlRatio, &ct.FollowDirection,
+		&ct.CreatedAt, &ct.UpdatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("update copy trading settings: %w", err)
+	}
+	return ct, nil
+}
+
+func (r *TraderRepo) PauseCopyTrading(ctx context.Context, followerID, traderID string) error {
+	_, err := r.pool.Exec(ctx, `
+		UPDATE copy_trading SET status = 'paused', updated_at = NOW()
+		WHERE follower_id = $1 AND trader_id = $2 AND status = 'active'
+	`, followerID, traderID)
+	return err
+}
+
+func (r *TraderRepo) ResumeCopyTrading(ctx context.Context, followerID, traderID string) error {
+	_, err := r.pool.Exec(ctx, `
+		UPDATE copy_trading SET status = 'active', updated_at = NOW()
+		WHERE follower_id = $1 AND trader_id = $2 AND status = 'paused'
+	`, followerID, traderID)
+	return err
+}
+
+func (r *TraderRepo) GetTotalCopyMarginByTrader(ctx context.Context, followerID, traderID string) (float64, error) {
+	var total float64
+	err := r.pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM(margin_amount), 0) FROM positions
+		WHERE user_id = $1 AND source_trader_id = $2 AND is_copy_trade = true AND status = 'open'
+	`, followerID, traderID).Scan(&total)
+	return total, err
+}
+
+// ── Copy Trade Logs ──
+
+func (r *TraderRepo) CreateCopyTradeLog(ctx context.Context, log *model.CopyTradeLog) error {
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO copy_trade_logs (copy_trading_id, follower_id, trader_id, action,
+			source_order_id, source_position_id, follower_order_id, follower_position_id,
+			symbol, side, trader_qty, follower_qty, trader_margin, follower_margin,
+			follower_leverage, realized_pnl, skip_reason)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+	`, log.CopyTradingID, log.FollowerID, log.TraderID, log.Action,
+		log.SourceOrderID, log.SourcePositionID, log.FollowerOrderID, log.FollowerPositionID,
+		log.Symbol, log.Side, log.TraderQty, log.FollowerQty, log.TraderMargin, log.FollowerMargin,
+		log.FollowerLeverage, log.RealizedPnl, log.SkipReason)
+	return err
+}
+
+func (r *TraderRepo) ListCopyTradeLogsByFollower(ctx context.Context, followerID string, limit, offset int) ([]model.CopyTradeLog, int, error) {
+	var total int
+	_ = r.pool.QueryRow(ctx, `SELECT COUNT(*) FROM copy_trade_logs WHERE follower_id = $1`, followerID).Scan(&total)
+
+	rows, err := r.pool.Query(ctx, `
+		SELECT l.id, l.copy_trading_id, l.follower_id, l.trader_id, l.action,
+			l.source_order_id, l.source_position_id, l.follower_order_id, l.follower_position_id,
+			l.symbol, l.side, l.trader_qty, l.follower_qty, l.trader_margin, l.follower_margin,
+			l.follower_leverage, COALESCE(l.realized_pnl, 0), COALESCE(l.skip_reason, ''),
+			l.created_at, COALESCE(u.display_name,''), COALESCE(u.avatar_url,'')
+		FROM copy_trade_logs l
+		JOIN users u ON u.uid = l.trader_id
+		WHERE l.follower_id = $1
+		ORDER BY l.created_at DESC LIMIT $2 OFFSET $3
+	`, followerID, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var logs []model.CopyTradeLog
+	for rows.Next() {
+		var l model.CopyTradeLog
+		if err := rows.Scan(
+			&l.ID, &l.CopyTradingID, &l.FollowerID, &l.TraderID, &l.Action,
+			&l.SourceOrderID, &l.SourcePositionID, &l.FollowerOrderID, &l.FollowerPositionID,
+			&l.Symbol, &l.Side, &l.TraderQty, &l.FollowerQty, &l.TraderMargin, &l.FollowerMargin,
+			&l.FollowerLeverage, &l.RealizedPnl, &l.SkipReason,
+			&l.CreatedAt, &l.TraderName, &l.TraderAvatar,
+		); err != nil {
+			return nil, 0, err
+		}
+		logs = append(logs, l)
+	}
+	return logs, total, nil
+}
+
 // ── Trader Profile ──
 
-func (r *TraderRepo) GetTraderProfile(ctx context.Context, uid string) (*model.TraderProfile, error) {
+func (r *TraderRepo) GetTraderProfile(ctx context.Context, uid string, viewerID string) (*model.TraderProfile, error) {
 	p := &model.TraderProfile{}
 	err := r.pool.QueryRow(ctx, `
 		SELECT uid, display_name, COALESCE(avatar_url,''), COALESCE(is_trader, false), COALESCE(allow_copy_trading, false)
@@ -385,5 +573,89 @@ func (r *TraderRepo) GetTraderProfile(ctx context.Context, uid string) (*model.T
 	}
 	stats, _ := r.GetTraderStats(ctx, uid)
 	p.Stats = stats
+	if viewerID != "" {
+		p.IsFollowed, _ = r.IsFollowing(ctx, viewerID, uid)
+	}
 	return p, nil
+}
+
+// ── User Follows ──
+
+func (r *TraderRepo) FollowUser(ctx context.Context, userID, traderID string) error {
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO user_follows (user_id, trader_id) VALUES ($1, $2)
+		ON CONFLICT (user_id, trader_id) DO NOTHING
+	`, userID, traderID)
+	return err
+}
+
+func (r *TraderRepo) UnfollowUser(ctx context.Context, userID, traderID string) error {
+	_, err := r.pool.Exec(ctx, `
+		DELETE FROM user_follows WHERE user_id = $1 AND trader_id = $2
+	`, userID, traderID)
+	return err
+}
+
+func (r *TraderRepo) IsFollowing(ctx context.Context, userID, traderID string) (bool, error) {
+	var exists bool
+	err := r.pool.QueryRow(ctx, `
+		SELECT EXISTS(SELECT 1 FROM user_follows WHERE user_id = $1 AND trader_id = $2)
+	`, userID, traderID).Scan(&exists)
+	return exists, err
+}
+
+func (r *TraderRepo) ListFollowedTraders(ctx context.Context, userID string) ([]model.FollowedTrader, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT u.uid, u.display_name, COALESCE(u.avatar_url,''),
+			COALESCE(u.is_trader, false), COALESCE(u.allow_copy_trading, false),
+			uf.created_at,
+			COALESCE(ts.total_trades, 0), COALESCE(ts.win_trades, 0),
+			COALESCE(ts.total_pnl, 0), COALESCE(ts.win_rate, 0),
+			COALESCE(ts.avg_pnl, 0), COALESCE(ts.max_drawdown, 0),
+			COALESCE(ts.followers_count, 0),
+			COALESCE(ct.status, ''),
+			CASE WHEN ct.id IS NOT NULL AND ct.status IN ('active','paused') THEN true ELSE false END
+		FROM user_follows uf
+		JOIN users u ON u.uid = uf.trader_id
+		LEFT JOIN trader_stats ts ON ts.user_id = uf.trader_id
+		LEFT JOIN copy_trading ct ON ct.follower_id = uf.user_id AND ct.trader_id = uf.trader_id AND ct.status IN ('active','paused')
+		WHERE uf.user_id = $1
+		ORDER BY uf.created_at DESC
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []model.FollowedTrader
+	for rows.Next() {
+		var ft model.FollowedTrader
+		var stats model.TraderStats
+		err := rows.Scan(
+			&ft.UID, &ft.DisplayName, &ft.AvatarURL,
+			&ft.IsTrader, &ft.AllowCopyTrading,
+			&ft.FollowedAt,
+			&stats.TotalTrades, &stats.WinTrades,
+			&stats.TotalPnl, &stats.WinRate,
+			&stats.AvgPnl, &stats.MaxDrawdown,
+			&stats.FollowersCount,
+			&ft.CopyStatus,
+			&ft.IsCopying,
+		)
+		if err != nil {
+			return nil, err
+		}
+		stats.UserID = ft.UID
+		ft.Stats = &stats
+		list = append(list, ft)
+	}
+	return list, nil
+}
+
+func (r *TraderRepo) CountFollowers(ctx context.Context, traderID string) (int, error) {
+	var count int
+	err := r.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM user_follows WHERE trader_id = $1
+	`, traderID).Scan(&count)
+	return count, err
 }

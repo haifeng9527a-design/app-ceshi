@@ -35,13 +35,18 @@ func (h *CallsHandler) Start(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	call, members, err := h.callSvc.Start(r.Context(), uid, &body)
+	call, members, existing, err := h.callSvc.Start(r.Context(), uid, &body)
 	if err != nil {
 		if errors.Is(err, service.ErrNotConversationMember) {
 			writeError(w, http.StatusForbidden, "forbidden")
 			return
 		}
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if existing {
+		writeJSON(w, http.StatusOK, call)
 		return
 	}
 

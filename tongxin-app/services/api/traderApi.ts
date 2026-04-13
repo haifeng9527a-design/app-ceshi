@@ -61,6 +61,19 @@ export interface TraderProfile {
   is_trader: boolean;
   allow_copy_trading: boolean;
   stats: TraderStats | null;
+  is_followed: boolean;
+}
+
+export interface FollowedTrader {
+  uid: string;
+  display_name: string;
+  avatar_url: string;
+  is_trader: boolean;
+  allow_copy_trading: boolean;
+  stats: TraderStats | null;
+  followed_at: string;
+  is_copying: boolean;
+  copy_status: string; // "" | "active" | "paused"
 }
 
 export interface TraderRankingItem {
@@ -81,8 +94,18 @@ export interface CopyTrading {
   follower_id: string;
   trader_id: string;
   status: 'active' | 'paused' | 'stopped';
+  copy_mode: 'fixed' | 'ratio';
   copy_ratio: number;
-  max_position: number | null;
+  fixed_amount?: number;
+  max_position?: number;
+  max_single_margin?: number;
+  follow_symbols: string[];
+  leverage_mode: 'trader' | 'custom';
+  custom_leverage?: number;
+  tp_sl_mode: 'trader' | 'custom';
+  custom_tp_ratio?: number;
+  custom_sl_ratio?: number;
+  follow_direction: 'both' | 'long' | 'short';
   created_at: string;
   updated_at: string;
   trader_name?: string;
@@ -90,8 +113,42 @@ export interface CopyTrading {
 }
 
 export interface FollowTraderRequest {
+  copy_mode?: 'fixed' | 'ratio';
   copy_ratio?: number;
+  fixed_amount?: number;
   max_position?: number;
+  max_single_margin?: number;
+  follow_symbols?: string[];
+  leverage_mode?: 'trader' | 'custom';
+  custom_leverage?: number;
+  tp_sl_mode?: 'trader' | 'custom';
+  custom_tp_ratio?: number;
+  custom_sl_ratio?: number;
+  follow_direction?: 'both' | 'long' | 'short';
+}
+
+export interface CopyTradeLog {
+  id: string;
+  copy_trading_id: string;
+  follower_id: string;
+  trader_id: string;
+  action: 'open' | 'close' | 'partial_close' | 'skip';
+  source_order_id?: string;
+  source_position_id?: string;
+  follower_order_id?: string;
+  follower_position_id?: string;
+  symbol: string;
+  side: string;
+  trader_qty: number;
+  follower_qty: number;
+  trader_margin: number;
+  follower_margin: number;
+  follower_leverage: number;
+  realized_pnl: number;
+  skip_reason?: string;
+  created_at: string;
+  trader_name?: string;
+  trader_avatar?: string;
 }
 
 // ── API Functions ──
@@ -152,6 +209,32 @@ export async function unfollowTrader(uid: string): Promise<void> {
   await apiClient.delete(`/api/trader/${uid}/follow`);
 }
 
+export async function updateCopySettings(uid: string, req: FollowTraderRequest): Promise<CopyTrading> {
+  const { data } = await apiClient.put(`/api/trader/${uid}/follow/settings`, req);
+  return data;
+}
+
+export async function pauseCopyTrading(uid: string): Promise<void> {
+  await apiClient.post(`/api/trader/${uid}/follow/pause`);
+}
+
+export async function resumeCopyTrading(uid: string): Promise<void> {
+  await apiClient.post(`/api/trader/${uid}/follow/resume`);
+}
+
+export async function getCopyTradeLogs(
+  traderUid?: string,
+  limit?: number,
+  offset?: number
+): Promise<{ logs: CopyTradeLog[]; total: number }> {
+  const params: Record<string, string> = {};
+  if (traderUid) params.trader_id = traderUid;
+  if (limit) params.limit = String(limit);
+  if (offset) params.offset = String(offset);
+  const { data } = await apiClient.get('/api/trader/copy-trade-logs', { params });
+  return data;
+}
+
 export interface TraderPosition {
   id: string;
   symbol: string;
@@ -177,6 +260,21 @@ export async function getTraderPositions(uid: string): Promise<TraderPosition[]>
 export async function getTraderTrades(uid: string, limit = 10): Promise<TraderPosition[]> {
   const { data } = await apiClient.get(`/api/trader/${uid}/trades?limit=${limit}`);
   return data || [];
+}
+
+// ── Watch (Follow) API ──
+
+export async function watchTrader(uid: string): Promise<void> {
+  await apiClient.post(`/api/trader/${uid}/watch`);
+}
+
+export async function unwatchTrader(uid: string): Promise<void> {
+  await apiClient.delete(`/api/trader/${uid}/watch`);
+}
+
+export async function getMyWatchedTraders(): Promise<FollowedTrader[]> {
+  const { data } = await apiClient.get('/api/trader/my-watched');
+  return data;
 }
 
 // ── Admin API ──

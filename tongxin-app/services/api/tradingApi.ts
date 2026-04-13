@@ -25,6 +25,10 @@ export interface OrderResponse {
   margin_mode: string;
   margin_amount: number;
   status: string;
+  is_copy_trade?: boolean;
+  source_order_id?: string;
+  source_trader_id?: string;
+  copy_trading_id?: string;
   created_at: string;
   filled_at?: string;
   cancelled_at?: string;
@@ -51,6 +55,10 @@ export interface PositionResponse {
   close_price?: number;
   open_fee?: number;
   close_fee?: number;
+  is_copy_trade?: boolean;
+  source_position_id?: string;
+  source_trader_id?: string;
+  copy_trading_id?: string;
   created_at: string;
   closed_at?: string;
 }

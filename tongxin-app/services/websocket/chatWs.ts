@@ -11,6 +11,7 @@ function wsChatOrigin(): string {
 import { getStoredToken } from '../api/client';
 import type { ApiMessage } from '../api/messagesApi';
 import type { CallRecord } from '../api/callsApi';
+export type ChatConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
 
 type NewMessageCallback = (message: ApiMessage) => void;
 type ErrorCallback = (error: string) => void;
@@ -60,20 +61,20 @@ class ChatWebSocket {
 
   private _connected = false;
   /** 供 zustand 同步 wsConnected（含断线重连成功） */
-  private connectionStateHandler: ((open: boolean) => void) | null = null;
+  private connectionStateHandler: ((status: ChatConnectionStatus) => void) | null = null;
 
   get connected() {
     return this._connected;
   }
 
   /** 连接/断开时回调（open=true 含首次连接与重连成功） */
-  setConnectionStateHandler(handler: ((open: boolean) => void) | null) {
+  setConnectionStateHandler(handler: ((status: ChatConnectionStatus) => void) | null) {
     this.connectionStateHandler = handler;
   }
 
-  private emitConnectionState(open: boolean) {
+  private emitConnectionState(status: ChatConnectionStatus) {
     try {
-      this.connectionStateHandler?.(open);
+      this.connectionStateHandler?.(status);
     } catch (_) {
       /* ignore */
     }
@@ -87,6 +88,11 @@ class ChatWebSocket {
     if (this.ws?.readyState === WebSocket.OPEN) {
       return true;
     }
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.emitConnectionState(this.reconnectAttempts > 0 ? 'reconnecting' : 'connecting');
 
     let token: string | null;
     try {
@@ -132,11 +138,12 @@ class ChatWebSocket {
         console.log('[ChatWS] Connected');
         this._connected = true;
         this.reconnectAttempts = 0;
+        this.reconnectTimer = null;
         this.startHeartbeat();
         if (this.pendingSubscriptions.length > 0) {
           this.subscribe(this.pendingSubscriptions);
         }
-        this.emitConnectionState(true);
+        this.emitConnectionState('connected');
         finish(true);
       };
 
@@ -168,7 +175,7 @@ class ChatWebSocket {
         });
         this._connected = false;
         this.stopHeartbeat();
-        this.emitConnectionState(false);
+        this.emitConnectionState('disconnected');
         if (!settled) {
           finish(false);
         } else {
@@ -189,7 +196,7 @@ class ChatWebSocket {
     this.ws = null;
     this._connected = false;
     this.reconnectAttempts = 0;
-    this.emitConnectionState(false);
+    this.emitConnectionState('disconnected');
   }
 
   /** Subscribe to conversation updates */
@@ -354,6 +361,9 @@ class ChatWebSocket {
   }
 
   private scheduleReconnect() {
+    if (this.reconnectTimer) {
+      return;
+    }
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       console.warn('[ChatWS] Max reconnect attempts reached');
       return;

@@ -2,8 +2,10 @@ package repository
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
-	"math/rand"
+	"math/big"
+	mathRand "math/rand"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -274,16 +276,16 @@ func generateShortID() string {
 	const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 	b := make([]byte, 8)
 	for i := range b {
-		b[i] = chars[rand.Intn(len(chars))]
+		b[i] = chars[mathRand.Intn(len(chars))]
 	}
 	return fmt.Sprintf("TXN-%s", string(b))
 }
 
 func GenerateUID() string {
-	const chars = "abcdefghijklmnopqrstuvwxyz0123456789"
-	b := make([]byte, 24)
-	for i := range b {
-		b[i] = chars[rand.Intn(len(chars))]
+	// 10位纯数字随机 UID（1000000000-9999999999）
+	n, err := rand.Int(rand.Reader, big.NewInt(9000000000))
+	if err != nil {
+		return fmt.Sprintf("%d", mathRand.Int63n(9000000000)+1000000000)
 	}
-	return fmt.Sprintf("u_%s", string(b))
+	return fmt.Sprintf("%d", n.Int64()+1000000000)
 }

@@ -192,6 +192,11 @@ export default function PositionCard({ position, onClose, onUpdated }: Props) {
             <Text style={st.sideBadgeText}>{sideLabel}</Text>
           </View>
           <Text style={st.symbol}>{position.symbol}</Text>
+          {position.is_copy_trade && (
+            <View style={st.copyBadge}>
+              <Text style={st.copyBadgeText}>跟单</Text>
+            </View>
+          )}
           <View style={st.leverageBadge}>
             <Text style={st.leverageText}>{position.leverage ?? '--'}x</Text>
           </View>
@@ -475,6 +480,15 @@ const st = StyleSheet.create({
   symbol: { color: '#fff', fontSize: 14, fontWeight: '700' },
   leverageBadge: { backgroundColor: 'rgba(201,168,76,0.18)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
   leverageText: { color: '#C9A84C', fontSize: 11, fontWeight: '600' },
+  copyBadge: {
+    backgroundColor: 'rgba(201, 168, 76, 0.18)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(201, 168, 76, 0.3)',
+  },
+  copyBadgeText: { color: '#C9A84C', fontSize: 10, fontWeight: '700' },
   marginModeText: { color: '#666', fontSize: 11 },
   headerPnl: { fontSize: 14, fontWeight: '700', fontFamily: 'monospace' },
   headerRoe: { fontSize: 12, fontWeight: '600', fontFamily: 'monospace', marginTop: 2 },

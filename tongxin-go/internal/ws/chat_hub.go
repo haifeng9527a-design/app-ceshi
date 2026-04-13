@@ -33,7 +33,7 @@ var upgrader = websocket.Upgrader{
 }
 
 type ChatHub struct {
-	clients map[string]*Client // userID -> client
+	clients map[string]map[*Client]struct{} // userID -> clients
 	mu      sync.RWMutex
 	msgSvc  *service.MessageService
 	userSvc *service.UserService
@@ -43,7 +43,7 @@ type ChatHub struct {
 // NewChatHub creates a chat hub. rdb may be nil (single-process: broadcast stays in-memory only).
 func NewChatHub(msgSvc *service.MessageService, userSvc *service.UserService, rdb *redis.Client) *ChatHub {
 	return &ChatHub{
-		clients: make(map[string]*Client),
+		clients: make(map[string]map[*Client]struct{}),
 		msgSvc:  msgSvc,
 		userSvc: userSvc,
 		rdb:     rdb,
@@ -97,8 +97,10 @@ func (h *ChatHub) broadcastToLocalMembers(memberIDs []string, frame map[string]a
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for _, memberID := range memberIDs {
-		if c, ok := h.clients[memberID]; ok {
-			c.SendJSON(frame)
+		if userClients, ok := h.clients[memberID]; ok {
+			for c := range userClients {
+				c.SendJSON(frame)
+			}
 		}
 	}
 }
@@ -134,25 +136,29 @@ func (h *ChatHub) HandleWS(w http.ResponseWriter, r *http.Request, userID string
 	client := NewClient(conn, userID)
 
 	h.mu.Lock()
-	// Close existing connection for same user
-	if old, ok := h.clients[userID]; ok {
-		old.Close()
+	if _, ok := h.clients[userID]; !ok {
+		h.clients[userID] = make(map[*Client]struct{})
 	}
-	h.clients[userID] = client
+	h.clients[userID][client] = struct{}{}
+	connectionCount := len(h.clients[userID])
 	h.mu.Unlock()
 
-	log.Printf("[chat-ws] client connected: %s", userID)
+	log.Printf("[chat-ws] client connected: %s (connections: %d)", userID, connectionCount)
 
 	go client.WritePump()
 	client.ReadPump(h.onMessage)
 
 	h.mu.Lock()
-	if h.clients[userID] == client {
-		delete(h.clients, userID)
+	if userClients, ok := h.clients[userID]; ok {
+		delete(userClients, client)
+		if len(userClients) == 0 {
+			delete(h.clients, userID)
+		}
 	}
+	remainingConnections := len(h.clients[userID])
 	h.mu.Unlock()
 
-	log.Printf("[chat-ws] client disconnected: %s", userID)
+	log.Printf("[chat-ws] client disconnected: %s (connections: %d)", userID, remainingConnections)
 }
 
 type wsMessage struct {

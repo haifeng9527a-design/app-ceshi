@@ -33,8 +33,17 @@ func (s *UserService) Register(ctx context.Context, req *model.RegisterRequest) 
 		return nil, err
 	}
 
-	// Generate UID
-	uid := generateUID()
+	// Generate unique numeric UID with collision check
+	var uid string
+	for i := 0; i < 5; i++ {
+		uid = generateUID()
+		if _, err := s.repo.GetByUID(ctx, uid); err != nil {
+			break // not found = available
+		}
+		if i == 4 {
+			return nil, errors.New("failed to generate unique UID")
+		}
+	}
 
 	u := &model.User{
 		UID:         uid,

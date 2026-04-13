@@ -19,21 +19,25 @@ func NewCallService(callRepo *repository.CallRepo, convRepo *repository.Conversa
 	return &CallService{callRepo: callRepo, convRepo: convRepo}
 }
 
-func (s *CallService) Start(ctx context.Context, uid string, req *model.StartCallRequest) (*model.Call, []string, error) {
+func (s *CallService) Start(ctx context.Context, uid string, req *model.StartCallRequest) (*model.Call, []string, bool, error) {
 	if strings.TrimSpace(req.ConversationID) == "" {
-		return nil, nil, fmt.Errorf("conversation_id is required")
+		return nil, nil, false, fmt.Errorf("conversation_id is required")
 	}
 
 	ok, err := s.convRepo.IsUserInConversation(ctx, uid, req.ConversationID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
 	}
 	if !ok {
-		return nil, nil, ErrNotConversationMember
+		return nil, nil, false, ErrNotConversationMember
 	}
 
 	if active, err := s.callRepo.FindActiveByConversation(ctx, req.ConversationID); err == nil && active != nil {
-		return nil, nil, fmt.Errorf("call already in progress")
+		memberIDs, memberErr := s.convRepo.GetMemberIDs(ctx, req.ConversationID)
+		if memberErr != nil {
+			return nil, nil, false, memberErr
+		}
+		return active, memberIDs, true, nil
 	}
 
 	callType := strings.TrimSpace(req.CallType)
@@ -43,13 +47,13 @@ func (s *CallService) Start(ctx context.Context, uid string, req *model.StartCal
 	roomName := fmt.Sprintf("call:%s:%d", req.ConversationID, time.Now().Unix())
 	call, err := s.callRepo.Create(ctx, req.ConversationID, uid, roomName, callType)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
 	}
 	memberIDs, err := s.convRepo.GetMemberIDs(ctx, req.ConversationID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
 	}
-	return call, memberIDs, nil
+	return call, memberIDs, false, nil
 }
 
 func (s *CallService) Get(ctx context.Context, uid, callID string) (*model.Call, []string, error) {
@@ -107,7 +111,7 @@ func (s *CallService) End(ctx context.Context, uid, callID, reason string) (*mod
 		return nil, nil, err
 	}
 	if call.Status != "ringing" && call.Status != "active" {
-		return nil, nil, fmt.Errorf("call already finished")
+		return call, members, nil
 	}
 	updated, err := s.callRepo.End(ctx, callID, uid, strings.TrimSpace(reason))
 	if err != nil {

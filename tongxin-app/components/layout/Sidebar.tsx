@@ -46,6 +46,7 @@ export default function Sidebar() {
   const navItems: NavItem[] = [
     { key: 'market', label: t('nav.market'), icon: '📊', route: '/(tabs)/market' },
     { key: 'watchlist', label: t('nav.watchlist'), icon: '⭐', route: '/(tabs)/watchlist' },
+    { key: 'following', label: '关注', icon: '👁', route: '/(tabs)/following' },
     { key: 'trading', label: t('nav.trading'), icon: '📈', route: '/(tabs)/trading' },
     { key: 'trader-center', label: t('nav.traderCenter'), icon: '🏅', route: '/(tabs)/trader-center' },
     { key: 'rankings', label: t('nav.rankings'), icon: '🏆', route: '/(tabs)/rankings' },

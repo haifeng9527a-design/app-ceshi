@@ -14,6 +14,7 @@ import {
   Alert,
   Image,
 } from 'react-native';
+import Svg, { Circle, Line, Path, Polyline, Rect } from 'react-native-svg';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { SkeletonConversation } from '../../components/Skeleton';
 import EquityCurve from '../../components/chart/EquityCurve';
@@ -88,9 +89,175 @@ interface StrategyCardPayload {
   cover_image?: string;
   category?: string;
   author_id?: string;
+  author_name?: string;
+  tags?: string[];
+  views?: number;
+  likes?: number;
+  status?: string;
+  created_at?: string;
   pnl_pct?: number;
   side?: string;
   leverage?: number;
+}
+
+const STRATEGY_CATEGORY_LABELS: Record<string, string> = {
+  technical: '技术分析',
+  fundamental: '基本面',
+  macro: '宏观',
+  news: '资讯',
+  education: '教学',
+  other: '其他',
+};
+
+type AppIconName =
+  | 'close'
+  | 'search'
+  | 'user-plus'
+  | 'users-plus'
+  | 'contacts'
+  | 'verified'
+  | 'back'
+  | 'phone'
+  | 'image'
+  | 'chart'
+  | 'send'
+  | 'more'
+  | 'settings'
+  | 'lock'
+  | 'message'
+  | 'check';
+
+function AppIcon({
+  name,
+  size = 18,
+  color = Colors.textSecondary,
+  strokeWidth = 1.8,
+}: {
+  name: AppIconName;
+  size?: number;
+  color?: string;
+  strokeWidth?: number;
+}) {
+  const common = {
+    stroke: color,
+    strokeWidth,
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+    fill: 'none' as const,
+  };
+
+  const renderPath = () => {
+    switch (name) {
+      case 'close':
+        return (
+          <>
+            <Line x1="6" y1="6" x2="18" y2="18" {...common} />
+            <Line x1="18" y1="6" x2="6" y2="18" {...common} />
+          </>
+        );
+      case 'search':
+        return (
+          <>
+            <Circle cx="11" cy="11" r="5.5" {...common} />
+            <Line x1="15.5" y1="15.5" x2="20" y2="20" {...common} />
+          </>
+        );
+      case 'user-plus':
+        return (
+          <>
+            <Circle cx="9" cy="8" r="3.5" {...common} />
+            <Path d="M3.8 18c.9-2.6 3-4 5.2-4s4.3 1.4 5.2 4" {...common} />
+            <Line x1="17" y1="8.5" x2="21" y2="8.5" {...common} />
+            <Line x1="19" y1="6.5" x2="19" y2="10.5" {...common} />
+          </>
+        );
+      case 'users-plus':
+        return (
+          <>
+            <Circle cx="8" cy="8.5" r="3" {...common} />
+            <Circle cx="14.5" cy="7.5" r="2.5" {...common} />
+            <Path d="M3.8 18c.7-2.3 2.6-3.7 4.8-3.7 1 0 1.9.3 2.7.8" {...common} />
+            <Path d="M11.9 18c.5-1.8 1.9-3 3.7-3 1.8 0 3.2 1.1 3.8 3" {...common} />
+            <Line x1="18.5" y1="10.5" x2="22" y2="10.5" {...common} />
+            <Line x1="20.25" y1="8.75" x2="20.25" y2="12.25" {...common} />
+          </>
+        );
+      case 'contacts':
+        return (
+          <>
+            <Rect x="5" y="4" width="14" height="16" rx="3" {...common} />
+            <Circle cx="12" cy="9" r="2.2" {...common} />
+            <Path d="M8.5 16c.7-1.6 1.9-2.4 3.5-2.4s2.8.8 3.5 2.4" {...common} />
+          </>
+        );
+      case 'verified':
+        return (
+          <>
+            <Circle cx="12" cy="12" r="7" {...common} />
+            <Polyline points="8.8,12.2 10.9,14.3 15.4,9.7" {...common} />
+          </>
+        );
+      case 'back':
+        return <Polyline points="15,6 9,12 15,18" {...common} />;
+      case 'phone':
+        return <Path d="M8.2 5.5c.6-.6 1.6-.6 2.2 0l1.6 1.6c.5.5.6 1.2.2 1.8l-.9 1.3a14.7 14.7 0 0 0 2.5 2.5l1.3-.9c.6-.4 1.4-.3 1.8.2l1.6 1.6c.6.6.6 1.6 0 2.2l-1 1c-.8.8-2 .9-3 .4-2.7-1.3-5.6-4.2-6.9-6.9-.5-1-.4-2.2.4-3l1-1Z" {...common} />;
+      case 'image':
+        return (
+          <>
+            <Rect x="4" y="5" width="16" height="14" rx="3" {...common} />
+            <Circle cx="9" cy="10" r="1.6" {...common} />
+            <Path d="M7 17l4.2-4.1c.4-.4 1-.4 1.4 0l1.6 1.6c.4.4 1 .4 1.4 0L18 12" {...common} />
+          </>
+        );
+      case 'chart':
+        return (
+          <>
+            <Polyline points="5,15 9,11 12,13 18,7 20,9" {...common} />
+            <Path d="M5 19h14" {...common} />
+          </>
+        );
+      case 'send':
+        return <Path d="M4 12 20 5l-3 14-4.5-4L8 16l1-4-5-0Z" {...common} />;
+      case 'more':
+        return (
+          <>
+            <Circle cx="7" cy="12" r="1.2" fill={color} />
+            <Circle cx="12" cy="12" r="1.2" fill={color} />
+            <Circle cx="17" cy="12" r="1.2" fill={color} />
+          </>
+        );
+      case 'settings':
+        return (
+          <>
+            <Circle cx="12" cy="12" r="2.4" {...common} />
+            <Path d="M12 4.8v2.1M12 17.1v2.1M19.2 12h-2.1M6.9 12H4.8M17.1 6.9l-1.5 1.5M8.4 15.6l-1.5 1.5M17.1 17.1l-1.5-1.5M8.4 8.4 6.9 6.9" {...common} />
+          </>
+        );
+      case 'lock':
+        return (
+          <>
+            <Rect x="6" y="11" width="12" height="9" rx="2.5" {...common} />
+            <Path d="M8.5 11V8.8a3.5 3.5 0 0 1 7 0V11" {...common} />
+          </>
+        );
+      case 'message':
+        return (
+          <>
+            <Path d="M5.5 6.5h13a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H10l-4.5 3v-3H5.5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2Z" {...common} />
+          </>
+        );
+      case 'check':
+        return <Polyline points="6.8,12.4 10.1,15.4 17.2,8.6" {...common} />;
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      {renderPath()}
+    </Svg>
+  );
 }
 
 interface ChatMessage {
@@ -103,6 +270,8 @@ interface ChatMessage {
   messageType?: string;
   card?: StrategyCardPayload;
   mediaUrl?: string;
+  localStatus?: 'sending' | 'queued' | 'failed';
+  localError?: string;
 }
 
 /* ════════════════════════════════════════
@@ -175,6 +344,12 @@ function strategyFieldsFromObject(o: Record<string, unknown>): StrategyCardPaylo
   const coverImage = typeof o.cover_image === 'string' ? o.cover_image : undefined;
   const category = typeof o.category === 'string' ? o.category : undefined;
   const authorId = typeof o.author_id === 'string' ? o.author_id : undefined;
+  const authorName = typeof o.author_name === 'string' ? o.author_name : undefined;
+  const tags = Array.isArray(o.tags) ? o.tags.filter((tag): tag is string => typeof tag === 'string') : undefined;
+  const views = typeof o.views === 'number' ? o.views : undefined;
+  const likes = typeof o.likes === 'number' ? o.likes : undefined;
+  const status = typeof o.status === 'string' ? o.status : undefined;
+  const createdAt = typeof o.created_at === 'string' ? o.created_at : undefined;
   const pnl = typeof o.pnl_pct === 'number' ? o.pnl_pct : undefined;
   const lev = typeof o.leverage === 'number' ? o.leverage : undefined;
   if (!strategyId && !title && !symbol && pnl == null && lev == null) return undefined;
@@ -187,6 +362,12 @@ function strategyFieldsFromObject(o: Record<string, unknown>): StrategyCardPaylo
     cover_image: coverImage,
     category,
     author_id: authorId,
+    author_name: authorName,
+    tags,
+    views,
+    likes,
+    status,
+    created_at: createdAt,
     pnl_pct: pnl,
     leverage: lev,
   };
@@ -313,6 +494,8 @@ function mapMessages(
       messageType: msg.message_type,
       card,
       mediaUrl: msg.media_url,
+      localStatus: msg.local_status,
+      localError: msg.local_error,
     });
   }
 
@@ -387,17 +570,19 @@ function AvatarCircle({
 
 function StrategyCardBubble({
   card,
-  isMe,
   onPress,
 }: {
   card: StrategyCardPayload;
-  isMe: boolean;
   onPress?: () => void;
 }) {
   const { t } = useTranslation();
   const pct = card.pnl_pct;
   const pctColor =
     pct == null ? Colors.textSecondary : pct >= 0 ? Colors.up : Colors.down;
+  const categoryLabel = card.category ? (STRATEGY_CATEGORY_LABELS[card.category] || card.category) : null;
+  const footerMeta = [card.author_name, typeof card.views === 'number' ? `${compactNumber(card.views)} 浏览` : null]
+    .filter(Boolean)
+    .join(' · ');
   const title =
     card.title ||
     (card.symbol
@@ -407,50 +592,94 @@ function StrategyCardBubble({
 
   return (
     <TouchableOpacity
-      style={[
-        styles.strategyCard,
-        isMe ? styles.strategyCardMe : styles.strategyCardOther,
-      ]}
+      style={styles.strategyCard}
       activeOpacity={onPress ? 0.85 : 1}
       disabled={!onPress}
       onPress={onPress}
     >
       {!!card.cover_image && (
-        <Image source={{ uri: card.cover_image }} style={styles.strategyCardCover} />
+        <View style={styles.strategyCardCoverWrap}>
+          <Image source={{ uri: card.cover_image }} style={styles.strategyCardCover} />
+          <View style={styles.strategyCardCoverOverlay}>
+            {categoryLabel ? (
+              <View style={styles.strategyHeroBadge}>
+                <Text style={styles.strategyHeroBadgeText}>{categoryLabel}</Text>
+              </View>
+            ) : <View />}
+            {pct != null && (
+              <View style={[styles.strategyHeroPill, { borderColor: pctColor }]}>
+                <Text style={[styles.strategyHeroPillText, { color: pctColor }]}>
+                  {pct >= 0 ? '+' : ''}
+                  {pct.toFixed(1)}%
+                </Text>
+              </View>
+            )}
+          </View>
+        </View>
       )}
       <View style={styles.strategyCardHeader}>
         <Text style={styles.strategyCardTitle} numberOfLines={2}>
           {title}
         </Text>
-        {pct != null && (
+        {!card.cover_image && pct != null && (
           <Text style={[styles.strategyCardPct, { color: pctColor }]}>
             {pct >= 0 ? '+' : ''}
             {pct.toFixed(1)}%
           </Text>
         )}
       </View>
-      {(card.symbol || card.side) && (
-        <Text style={styles.strategyCardMeta}>
-          {[card.symbol, card.side?.toUpperCase()]
-            .filter(Boolean)
-            .join(' · ')}
-        </Text>
-      )}
+      <View style={styles.strategyChipRow}>
+        {(card.symbol || card.side) ? (
+          <Text style={styles.strategyCardMeta}>
+            {[card.symbol, card.side?.toUpperCase()]
+              .filter(Boolean)
+              .join(' · ')}
+          </Text>
+        ) : null}
+        {categoryLabel && !card.cover_image ? (
+          <View style={styles.strategyInlineBadge}>
+            <Text style={styles.strategyInlineBadgeText}>{categoryLabel}</Text>
+          </View>
+        ) : null}
+        {!!card.tags?.length && (
+          <View style={styles.strategyInlineBadgeMuted}>
+            <Text style={styles.strategyInlineBadgeMutedText}>#{card.tags[0]}</Text>
+          </View>
+        )}
+      </View>
       {!!card.summary && (
-        <Text style={styles.strategyCardSummary} numberOfLines={2}>
+        <Text style={styles.strategyCardSummary} numberOfLines={3}>
           {card.summary}
         </Text>
       )}
-      <View style={styles.strategyCardBar}>
-        <View
-          style={[
-            styles.strategyCardBarFill,
-            {
-              width: `${barPct}%`,
-              backgroundColor: pctColor,
-            },
-          ]}
-        />
+      <View style={styles.strategyCardFooter}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          {!!footerMeta && (
+            <Text style={styles.strategyFooterMeta} numberOfLines={1}>
+              {footerMeta}
+            </Text>
+          )}
+          {typeof card.likes === 'number' ? (
+            <Text style={styles.strategyFooterSub}>
+              {compactNumber(card.likes)} 喜欢
+            </Text>
+          ) : (
+            <View style={styles.strategyCardBar}>
+              <View
+                style={[
+                  styles.strategyCardBarFill,
+                  {
+                    width: `${barPct}%`,
+                    backgroundColor: pctColor,
+                  },
+                ]}
+              />
+            </View>
+          )}
+        </View>
+        <View style={styles.strategyCardCta}>
+          <Text style={styles.strategyCardCtaText}>查看策略</Text>
+        </View>
       </View>
     </TouchableOpacity>
   );
@@ -545,7 +774,7 @@ function CreateGroupModal({
           <View style={modalStyles.header}>
             <Text style={modalStyles.title}>创建群聊</Text>
             <TouchableOpacity onPress={resetAndClose} activeOpacity={0.7}>
-              <Text style={modalStyles.closeBtn}>✕</Text>
+              <AppIcon name="close" size={18} color={Colors.textMuted} />
             </TouchableOpacity>
           </View>
 
@@ -581,7 +810,9 @@ function CreateGroupModal({
 
           {/* Search friends */}
           <View style={[modalStyles.searchBox, { marginHorizontal: 20, marginBottom: 8 }]}>
-            <Text style={{ fontSize: 14, marginRight: 8 }}>🔍</Text>
+            <View style={styles.inlineIconWrap}>
+              <AppIcon name="search" size={15} color={Colors.textMuted} />
+            </View>
             <TextInput
               style={modalStyles.searchInput}
               placeholder="搜索好友..."
@@ -610,7 +841,9 @@ function CreateGroupModal({
                     <Text style={modalStyles.selectedChipText} numberOfLines={1}>
                       {f.display_name}
                     </Text>
-                    <Text style={modalStyles.selectedChipRemove}>✕</Text>
+                    <View style={modalStyles.selectedChipRemove}>
+                      <AppIcon name="close" size={12} color={Colors.textMuted} />
+                    </View>
                   </TouchableOpacity>
                 ))}
               </ScrollView>
@@ -639,7 +872,7 @@ function CreateGroupModal({
                       selected && modalStyles.checkboxSelected,
                     ]}
                   >
-                    {selected && <Text style={modalStyles.checkmark}>✓</Text>}
+                    {selected && <AppIcon name="check" size={14} color={Colors.background} strokeWidth={2.2} />}
                   </View>
                   <AvatarCircle name={f.display_name} size={40} />
                   <View style={{ flex: 1, gap: 2 }}>
@@ -701,6 +934,9 @@ function ConversationList({
   onOpenContacts,
   friendRequestBadgeCount = 0,
   chatWsConnected,
+  panelWidth,
+  fullWidth,
+  compact,
 }: {
   conversations: Conversation[];
   activeId: string;
@@ -713,6 +949,9 @@ function ConversationList({
   onOpenContacts: () => void;
   friendRequestBadgeCount?: number;
   chatWsConnected: boolean;
+  panelWidth?: number;
+  fullWidth?: boolean;
+  compact: boolean;
 }) {
   const { t } = useTranslation();
   const [listQuery, setListQuery] = useState('');
@@ -738,7 +977,7 @@ function ConversationList({
   });
 
   return (
-    <View style={styles.listPanel}>
+    <View style={[styles.listPanel, panelWidth != null ? { width: panelWidth } : null, fullWidth && styles.listPanelFull]}>
       {/* Header */}
       <View style={styles.listHeader}>
         <View style={styles.listHeaderLeft}>
@@ -757,16 +996,16 @@ function ConversationList({
             </Text>
           </View>
         </View>
-        <View style={styles.headerActions}>
+        <View style={[styles.headerActions, compact && styles.headerActionsCompact]}>
           <TouchableOpacity style={styles.headerActionBtn} activeOpacity={0.7} onPress={onAddFriend}>
-            <Text style={styles.headerActionIcon}>👤+</Text>
+            <AppIcon name="user-plus" size={18} color={Colors.textSecondary} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.headerActionBtn} activeOpacity={0.7} onPress={onCreateGroup}>
-            <Text style={styles.headerActionIcon}>👥+</Text>
+            <AppIcon name="users-plus" size={18} color={Colors.textSecondary} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.headerActionBtn} activeOpacity={0.7} onPress={onOpenContacts}>
             <View style={styles.headerIconWrap}>
-              <Text style={styles.headerActionIcon}>📇</Text>
+              <AppIcon name="contacts" size={18} color={Colors.textSecondary} />
               {friendRequestBadgeCount > 0 ? (
                 <View style={styles.headerBadge}>
                   <Text style={styles.headerBadgeText}>
@@ -781,7 +1020,9 @@ function ConversationList({
 
       {/* Search */}
       <View style={styles.searchBox}>
-        <Text style={styles.searchIcon}>🔍</Text>
+        <View style={styles.inlineIconWrap}>
+          <AppIcon name="search" size={15} color={Colors.textMuted} />
+        </View>
         <TextInput
           style={styles.searchInput}
           placeholder={t('common.search')}
@@ -793,11 +1034,11 @@ function ConversationList({
       </View>
 
       {/* Filter Tabs */}
-      <View style={styles.filterRow}>
+      <View style={[styles.filterRow, compact && styles.filterRowCompact]}>
         {filterTabs.map((f) => (
           <TouchableOpacity
             key={f.key}
-            style={[styles.filterTab, filter === f.key && styles.filterTabActive]}
+            style={[styles.filterTab, compact && styles.filterTabCompact, filter === f.key && styles.filterTabActive]}
             activeOpacity={0.7}
             onPress={() => onFilterChange(f.key)}
           >
@@ -875,7 +1116,7 @@ function ConvoRow({
           <Text style={styles.convoName} numberOfLines={1}>
             {convo.isGroup ? '👥 ' : ''}{convo.name}
           </Text>
-          {convo.verified && <Text style={styles.verifiedIcon}>✓</Text>}
+          {convo.verified && <AppIcon name="verified" size={14} color={Colors.primary} strokeWidth={2.1} />}
           {!!badgeLabel && (
             <View style={styles.convoTagBadge}>
               <Text style={styles.convoTagBadgeText}>{badgeLabel}</Text>
@@ -924,6 +1165,12 @@ function ChatPanel({
   onStartVoiceCall,
   callPending,
   activeCallStatus,
+  onRetryMessage,
+  wsStatus,
+  compactHeader,
+  compactComposer,
+  showDetailsButton,
+  onOpenDetails,
 }: {
   conversation: Conversation;
   conversationId: string;
@@ -943,6 +1190,12 @@ function ChatPanel({
   onStartVoiceCall?: () => Promise<void>;
   callPending?: boolean;
   activeCallStatus?: string | null;
+  onRetryMessage: (messageId: string) => Promise<void>;
+  wsStatus: 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
+  compactHeader: boolean;
+  compactComposer: boolean;
+  showDetailsButton?: boolean;
+  onOpenDetails?: () => void;
 }) {
   const { t } = useTranslation();
   const router = useRouter();
@@ -1078,6 +1331,14 @@ function ChatPanel({
 
   const showCopyStrategy =
     !!peerUserId && !!conversation.isTraderPeer && !conversation.isGroup;
+  const connectionBanner =
+    wsStatus === 'reconnecting'
+      ? '聊天连接恢复中，排队消息会在恢复后自动补发。'
+      : wsStatus === 'connecting'
+        ? '正在建立聊天连接…'
+        : wsStatus === 'disconnected'
+          ? '聊天连接已断开，发送失败的消息会先排队，恢复后自动重试。'
+          : null;
 
   return (
     <KeyboardAvoidingView
@@ -1091,7 +1352,7 @@ function ChatPanel({
             <View style={modalStyles.header}>
               <Text style={modalStyles.title}>{t('messages.searchInConversation')}</Text>
               <TouchableOpacity onPress={() => setSearchOpen(false)} activeOpacity={0.7}>
-                <Text style={modalStyles.closeBtn}>✕</Text>
+                <AppIcon name="close" size={18} color={Colors.textMuted} />
               </TouchableOpacity>
             </View>
             <View style={[modalStyles.fieldGroup, { marginBottom: 8 }]}>
@@ -1130,12 +1391,18 @@ function ChatPanel({
 
       <Modal visible={showStrategyPicker} transparent animationType="fade" onRequestClose={() => setShowStrategyPicker(false)}>
         <View style={modalStyles.overlay}>
-          <View style={[modalStyles.container, { maxHeight: '72%' }]}>
+          <View style={[modalStyles.container, { maxHeight: '76%', maxWidth: 640 }]}>
             <View style={modalStyles.header}>
               <Text style={modalStyles.title}>发送交易策略</Text>
               <TouchableOpacity onPress={() => setShowStrategyPicker(false)} activeOpacity={0.7}>
-                <Text style={modalStyles.closeBtn}>✕</Text>
+                <AppIcon name="close" size={18} color={Colors.textMuted} />
               </TouchableOpacity>
+            </View>
+            <View style={styles.strategyPickerHero}>
+              <Text style={styles.strategyPickerHeroTitle}>把一条值得看的策略分享进聊天</Text>
+              <Text style={styles.strategyPickerHeroSub}>
+                对方会看到策略封面、分类、摘要和基础热度，不用点开也能先判断这条内容值不值得看。
+              </Text>
             </View>
             <ScrollView style={{ flexGrow: 0 }} showsVerticalScrollIndicator={false}>
               {strategyLoading ? (
@@ -1151,14 +1418,42 @@ function ChatPanel({
                     onPress={() => handleSendStrategy(strategy)}
                     disabled={composerBusy}
                   >
-                    {!!strategy.cover_image && (
-                      <Image source={{ uri: strategy.cover_image }} style={styles.strategyPickerThumb} />
-                    )}
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <Text style={styles.strategyPickerTitle} numberOfLines={1}>{strategy.title}</Text>
-                      <Text style={styles.strategyPickerSummary} numberOfLines={2}>{strategy.summary}</Text>
+                    <View style={styles.strategyPickerVisual}>
+                      {strategy.cover_image ? (
+                        <Image source={{ uri: strategy.cover_image }} style={styles.strategyPickerThumb} />
+                      ) : (
+                        <View style={styles.strategyPickerThumbFallback}>
+                          <Text style={styles.strategyPickerThumbFallbackText}>
+                            {(strategy.title || 'S').slice(0, 1).toUpperCase()}
+                          </Text>
+                        </View>
+                      )}
+                      {strategy.category ? (
+                        <View style={styles.strategyPickerCategory}>
+                          <Text style={styles.strategyPickerCategoryText}>
+                            {STRATEGY_CATEGORY_LABELS[strategy.category] || strategy.category}
+                          </Text>
+                        </View>
+                      ) : null}
                     </View>
-                    <Text style={styles.strategyPickerAction}>发送</Text>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={styles.strategyPickerTitle} numberOfLines={2}>{strategy.title}</Text>
+                      <Text style={styles.strategyPickerSummary} numberOfLines={2}>{strategy.summary}</Text>
+                      <View style={styles.strategyPickerMetaRow}>
+                        <Text style={styles.strategyPickerMetaText}>{compactNumber(strategy.views || 0)} 浏览</Text>
+                        <Text style={styles.strategyPickerMetaDot}>·</Text>
+                        <Text style={styles.strategyPickerMetaText}>{compactNumber(strategy.likes || 0)} 喜欢</Text>
+                        {strategy.tags?.[0] ? (
+                          <>
+                            <Text style={styles.strategyPickerMetaDot}>·</Text>
+                            <Text style={styles.strategyPickerMetaText}>#{strategy.tags[0]}</Text>
+                          </>
+                        ) : null}
+                      </View>
+                    </View>
+                    <View style={styles.strategyPickerSendBtn}>
+                      <Text style={styles.strategyPickerAction}>发送</Text>
+                    </View>
                   </TouchableOpacity>
                 ))
               )}
@@ -1170,24 +1465,24 @@ function ChatPanel({
       <Modal visible={!!imagePreviewUrl} transparent animationType="fade" onRequestClose={() => setImagePreviewUrl(null)}>
         <View style={styles.imagePreviewOverlay}>
           <TouchableOpacity style={styles.imagePreviewClose} activeOpacity={0.8} onPress={() => setImagePreviewUrl(null)}>
-            <Text style={styles.imagePreviewCloseText}>✕</Text>
+            <AppIcon name="close" size={18} color={Colors.textActive} />
           </TouchableOpacity>
           {imagePreviewUrl ? <Image source={{ uri: imagePreviewUrl }} style={styles.imagePreviewImage} resizeMode="contain" /> : null}
         </View>
       </Modal>
 
       {/* Chat Header */}
-      <View style={styles.chatHeader}>
+      <View style={[styles.chatHeader, compactHeader && styles.chatHeaderCompact]}>
         {showBack && (
           <TouchableOpacity onPress={onBack} style={styles.backBtn} activeOpacity={0.7}>
-            <Text style={styles.backArrow}>←</Text>
+            <AppIcon name="back" size={20} color={Colors.textActive} />
           </TouchableOpacity>
         )}
         <AvatarCircle name={conversation.name} size={36} online={conversation.online} />
         <View style={styles.chatHeaderInfo}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <Text style={styles.chatHeaderName}>{conversation.name}</Text>
-            {conversation.verified && <Text style={styles.verifiedIcon}>✓</Text>}
+            {conversation.verified && <AppIcon name="verified" size={14} color={Colors.primary} strokeWidth={2.1} />}
           </View>
           {statusLabel ? (
             <Text style={[styles.chatHeaderStatus, conversation.online && { color: Colors.up }]}>
@@ -1195,45 +1490,109 @@ function ChatPanel({
             </Text>
           ) : null}
         </View>
-        <View style={{ flex: 1 }} />
-        <View style={styles.chatSocketBadge}>
-          <View
-            style={[
-              styles.socketDotSm,
-              { backgroundColor: chatWsConnected ? Colors.online : Colors.offline },
-            ]}
-          />
-          <Text style={styles.chatSocketBadgeText} numberOfLines={1}>
-            {chatWsConnected
-              ? t('messages.chatSocketConnected')
-              : t('messages.chatSocketDisconnected')}
-          </Text>
-        </View>
+        <View style={styles.chatHeaderSpacer} />
+        <View style={[styles.chatHeaderActions, compactHeader && styles.chatHeaderActionsCompact]}>
+          {!compactHeader && (
+            <View style={styles.chatSocketBadge}>
+              <View
+                style={[
+                  styles.socketDotSm,
+                  { backgroundColor: chatWsConnected ? Colors.online : Colors.offline },
+                ]}
+              />
+              <Text style={styles.chatSocketBadgeText} numberOfLines={1}>
+                {chatWsConnected
+                  ? t('messages.chatSocketConnected')
+                  : t('messages.chatSocketDisconnected')}
+              </Text>
+            </View>
+          )}
         {showCopyStrategy && (
           <TouchableOpacity
-            style={styles.chatActionBtnGold}
+            style={[
+              styles.chatActionBtnGold,
+              compactHeader && styles.chatActionBtnCompact,
+              compactHeader && styles.chatActionBtnIconOnly,
+            ]}
             activeOpacity={0.7}
             onPress={() => peerUserId && onOpenTrader?.(peerUserId)}
           >
-            <Text style={styles.chatActionBtnGoldText}>{t('messages.copyStrategy')}</Text>
+            <View style={styles.actionBtnContent}>
+              <AppIcon name="chart" size={14} color={Colors.primary} />
+              {!compactHeader && (
+                <Text style={styles.chatActionBtnGoldText}>{t('messages.copyStrategy')}</Text>
+              )}
+            </View>
           </TouchableOpacity>
         )}
         {!conversation.isGroup && (
           <TouchableOpacity
-            style={[styles.chatActionBtn, callPending && styles.groupActionBtnDisabled]}
+            style={[
+              styles.chatActionBtn,
+              compactHeader && styles.chatActionBtnCompact,
+              compactHeader && styles.chatActionBtnIconOnly,
+              callPending && styles.groupActionBtnDisabled,
+            ]}
             activeOpacity={0.7}
             disabled={callPending}
             onPress={() => void onStartVoiceCall?.()}
           >
-            <Text style={styles.chatActionBtnText}>
-              {activeCallStatus === 'active' ? '通话中' : activeCallStatus === 'ringing' ? '响铃中' : '📞 语音电话'}
-            </Text>
+            <View style={styles.actionBtnContent}>
+              <AppIcon name="phone" size={14} color={Colors.textSecondary} />
+              {!compactHeader && (
+                <Text style={styles.chatActionBtnText}>
+                  {activeCallStatus === 'active'
+                    ? '进入通话'
+                    : activeCallStatus === 'ringing'
+                      ? '查看呼叫'
+                      : '语音电话'}
+                </Text>
+              )}
+            </View>
           </TouchableOpacity>
         )}
-        <TouchableOpacity style={styles.chatActionBtn} activeOpacity={0.7} onPress={() => setSearchOpen(true)}>
-          <Text style={styles.chatActionBtnText}>🔍 {t('messages.searchMessages')}</Text>
+        <TouchableOpacity
+          style={[
+            styles.chatActionBtn,
+            compactHeader && styles.chatActionBtnCompact,
+            compactHeader && styles.chatActionBtnIconOnly,
+          ]}
+          activeOpacity={0.7}
+          onPress={() => setSearchOpen(true)}
+        >
+          <View style={styles.actionBtnContent}>
+            <AppIcon name="search" size={14} color={Colors.textSecondary} />
+            {!compactHeader && <Text style={styles.chatActionBtnText}>{t('messages.searchMessages')}</Text>}
+          </View>
         </TouchableOpacity>
+        {showDetailsButton && (
+          <TouchableOpacity
+            style={[
+              styles.chatActionBtn,
+              compactHeader && styles.chatActionBtnCompact,
+              compactHeader && styles.chatActionBtnIconOnly,
+            ]}
+            activeOpacity={0.7}
+            onPress={onOpenDetails}
+          >
+            <View style={styles.actionBtnContent}>
+              <AppIcon name="settings" size={14} color={Colors.textSecondary} />
+              {!compactHeader && (
+                <Text style={styles.chatActionBtnText}>
+                  {conversation.isGroup ? '群设置' : '设置'}
+                </Text>
+              )}
+            </View>
+          </TouchableOpacity>
+        )}
+        </View>
       </View>
+
+      {connectionBanner ? (
+        <View style={styles.connectionBanner}>
+          <Text style={styles.connectionBannerText}>{connectionBanner}</Text>
+        </View>
+      ) : null}
 
       {/* Messages */}
       <ScrollView
@@ -1267,6 +1626,7 @@ function ChatPanel({
               key={msg.id}
               style={[
                 styles.messageBubbleWrap,
+                compactComposer && styles.messageBubbleWrapCompact,
                 isMe ? styles.bubbleRight : styles.bubbleLeft,
               ]}
             >
@@ -1286,12 +1646,11 @@ function ChatPanel({
                 {msg.card ? (
                   <StrategyCardBubble
                     card={msg.card}
-                    isMe={isMe}
                     onPress={msg.card.strategy_id ? () => router.push(`/strategy/${msg.card?.strategy_id}` as any) : undefined}
                   />
                 ) : msg.messageType === 'image' && msg.mediaUrl ? (
                   <TouchableOpacity activeOpacity={0.85} onPress={() => setImagePreviewUrl(msg.mediaUrl || null)}>
-                    <Image source={{ uri: msg.mediaUrl }} style={styles.chatImageBubble} />
+                    <Image source={{ uri: msg.mediaUrl }} style={[styles.chatImageBubble, compactComposer && styles.chatImageBubbleCompact]} />
                   </TouchableOpacity>
                 ) : (
                   <Text
@@ -1304,6 +1663,20 @@ function ChatPanel({
                   </Text>
                 )}
                 <Text style={styles.messageTime}>{msg.time}</Text>
+                {isMe && msg.localStatus === 'sending' && (
+                  <Text style={styles.messageStatusText}>发送中…</Text>
+                )}
+                {isMe && msg.localStatus === 'queued' && (
+                  <Text style={styles.messageStatusText}>已排队，连接恢复后自动重发</Text>
+                )}
+                {isMe && msg.localStatus === 'failed' && (
+                  <View style={styles.messageRetryRow}>
+                    <Text style={styles.messageFailedText}>发送失败</Text>
+                    <TouchableOpacity activeOpacity={0.8} onPress={() => void onRetryMessage(msg.id)}>
+                      <Text style={styles.messageRetryText}>重试</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
               </View>
             </View>
           );
@@ -1311,17 +1684,17 @@ function ChatPanel({
       </ScrollView>
 
       {/* Input Bar */}
-      <View style={styles.inputBar}>
-        <TouchableOpacity style={styles.inputIconBtn} activeOpacity={0.7} onPress={handlePickImage} disabled={composerBusy}>
-          <Text style={styles.inputIconText}>🖼</Text>
+      <View style={[styles.inputBar, compactComposer && styles.inputBarCompact]}>
+        <TouchableOpacity style={[styles.inputIconBtn, compactComposer && styles.inputIconBtnCompact]} activeOpacity={0.7} onPress={handlePickImage} disabled={composerBusy}>
+          <AppIcon name="image" size={18} color={Colors.textSecondary} />
         </TouchableOpacity>
         {canSendStrategy ? (
-          <TouchableOpacity style={styles.inputIconBtn} activeOpacity={0.7} onPress={openStrategyPicker} disabled={composerBusy}>
-            <Text style={styles.inputIconText}>📈</Text>
+          <TouchableOpacity style={[styles.inputIconBtn, compactComposer && styles.inputIconBtnCompact]} activeOpacity={0.7} onPress={openStrategyPicker} disabled={composerBusy}>
+            <AppIcon name="chart" size={18} color={Colors.textSecondary} />
           </TouchableOpacity>
         ) : null}
         <TextInput
-          style={styles.chatInput}
+          style={[styles.chatInput, compactComposer && styles.chatInputCompact]}
           placeholder={t('messages.encryptPlaceholder', { name: conversation.name })}
           placeholderTextColor={Colors.textMuted}
           value={inputText}
@@ -1335,7 +1708,7 @@ function ChatPanel({
           onPress={handleSend}
           disabled={!inputText.trim() || composerBusy}
         >
-          {composerBusy ? <ActivityIndicator size="small" color={Colors.background} /> : <Text style={styles.sendBtnText}>➤</Text>}
+          {composerBusy ? <ActivityIndicator size="small" color={Colors.background} /> : <AppIcon name="send" size={16} color={Colors.background} strokeWidth={2.1} />}
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
@@ -1350,10 +1723,12 @@ function PeerSidebar({
   profile,
   peerUserId,
   onViewPublicProfile,
+  embedded,
 }: {
   profile: PeerProfile;
   peerUserId: string;
   onViewPublicProfile: (uid: string) => void;
+  embedded?: boolean;
 }) {
   const { t } = useTranslation();
   const { user } = useAuthStore();
@@ -1478,7 +1853,7 @@ function PeerSidebar({
   }, []);
 
   return (
-    <View style={styles.traderPanel}>
+    <View style={[styles.traderPanel, embedded && styles.traderPanelEmbedded]}>
       <ScrollView showsVerticalScrollIndicator={false}>
         <View style={styles.traderHeader}>
           <AvatarCircle name={profile.display_name} size={72} />
@@ -1667,7 +2042,7 @@ function PeerSidebar({
             <View style={modalStyles.header}>
               <Text style={modalStyles.title}>跟单设置</Text>
               <TouchableOpacity onPress={() => setShowFollowModal(false)}>
-                <Text style={modalStyles.closeBtn}>✕</Text>
+                <AppIcon name="close" size={18} color={Colors.textMuted} />
               </TouchableOpacity>
             </View>
             <View style={modalStyles.fieldGroup}>
@@ -1791,9 +2166,11 @@ function PeerSidebar({
 function GroupSidebar({
   conversationId,
   fallbackTitle,
+  embedded,
 }: {
   conversationId: string;
   fallbackTitle: string;
+  embedded?: boolean;
 }) {
   const router = useRouter();
   const { user } = useAuthStore();
@@ -1942,7 +2319,7 @@ function GroupSidebar({
   }, [conversationId, loadConversations, setActiveConversation, router]);
 
   return (
-    <View style={styles.traderPanel}>
+    <View style={[styles.traderPanel, embedded && styles.traderPanelEmbedded]}>
       <ScrollView showsVerticalScrollIndicator={false}>
         <View style={styles.traderHeader}>
           <AvatarCircle name={title} size={72} badge="GROUP" />
@@ -2038,7 +2415,7 @@ function GroupSidebar({
                         onLongPress={() => openMemberActions(member)}
                         onPress={() => openMemberActions(member)}
                       >
-                        <Text style={styles.groupMenuBtnText}>⋯</Text>
+                        <AppIcon name="more" size={18} color={Colors.textSecondary} strokeWidth={2} />
                       </TouchableOpacity>
                     )}
                   </View>
@@ -2066,7 +2443,7 @@ function GroupSidebar({
             <View style={modalStyles.header}>
               <Text style={modalStyles.title}>编辑群信息</Text>
               <TouchableOpacity onPress={() => setShowEditModal(false)}>
-                <Text style={modalStyles.closeBtn}>✕</Text>
+                <AppIcon name="close" size={18} color={Colors.textMuted} />
               </TouchableOpacity>
             </View>
             <View style={modalStyles.fieldGroup}>
@@ -2099,11 +2476,13 @@ function GroupSidebar({
             <View style={modalStyles.header}>
               <Text style={modalStyles.title}>添加群成员</Text>
               <TouchableOpacity onPress={() => setShowAddModal(false)}>
-                <Text style={modalStyles.closeBtn}>✕</Text>
+                <AppIcon name="close" size={18} color={Colors.textMuted} />
               </TouchableOpacity>
             </View>
             <View style={[modalStyles.searchBox, { marginHorizontal: 20, marginTop: 12, marginBottom: 8 }]}>
-              <Text style={{ fontSize: 14, marginRight: 8 }}>🔍</Text>
+              <View style={styles.inlineIconWrap}>
+                <AppIcon name="search" size={15} color={Colors.textMuted} />
+              </View>
               <TextInput
                 style={modalStyles.searchInput}
                 placeholder="搜索好友..."
@@ -2130,7 +2509,7 @@ function GroupSidebar({
                     }
                   >
                     <View style={[modalStyles.checkbox, selected && modalStyles.checkboxSelected]}>
-                      {selected && <Text style={modalStyles.checkmark}>✓</Text>}
+                      {selected && <AppIcon name="check" size={14} color={Colors.background} strokeWidth={2.2} />}
                     </View>
                     <AvatarCircle name={f.display_name} size={36} />
                     <View style={{ flex: 1 }}>
@@ -2166,7 +2545,7 @@ function GroupSidebar({
             <View style={modalStyles.header}>
               <Text style={modalStyles.title}>成员管理</Text>
               <TouchableOpacity onPress={() => setMemberActionTarget(null)}>
-                <Text style={modalStyles.closeBtn}>✕</Text>
+                <AppIcon name="close" size={18} color={Colors.textMuted} />
               </TouchableOpacity>
             </View>
             <View style={modalStyles.fieldGroup}>
@@ -2229,8 +2608,14 @@ function GroupSidebar({
 
 export default function MessagesScreen() {
   const { width } = useWindowDimensions();
-  const isDesktop = width >= 1024;
-  const isXL = width >= 1280;
+  const isPhone = width < 768;
+  const isTablet = width >= 768 && width < 1180;
+  const isDesktop = width >= 1180;
+  const isXL = width >= 1480;
+  const compactList = width < 920;
+  const compactChatHeader = width < 1180;
+  const compactComposer = width < 640;
+  const listPanelWidth = isPhone ? undefined : isTablet ? 320 : 360;
   const { t } = useTranslation();
   const router = useRouter();
   const params = useLocalSearchParams<{ conversationId?: string | string[] }>();
@@ -2244,7 +2629,6 @@ export default function MessagesScreen() {
     acceptIncomingCall,
     rejectIncomingCall,
     endCurrentCall,
-    handleCallEvent,
   } = useCallStore();
 
   const {
@@ -2264,12 +2648,23 @@ export default function MessagesScreen() {
     loadFriendRequests,
     incomingFriendRequests,
     refreshActiveMessages,
+    retryMessage,
     wsConnected: chatWsConnected,
+    wsStatus,
   } = useMessagesStore();
 
   const [filter, setFilter] = useState<ConvoFilter>('all');
   const [mobileShowChat, setMobileShowChat] = useState(false);
   const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const [showDetailsPanel, setShowDetailsPanel] = useState(false);
+
+  const showCallFeedback = useCallback((title: string, message: string) => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      window.alert(`${title}\n\n${message}`);
+      return;
+    }
+    Alert.alert(title, message);
+  }, []);
 
   // Initialize on mount
   useEffect(() => {
@@ -2278,16 +2673,6 @@ export default function MessagesScreen() {
     loadFriends();
     loadFriendRequests();
   }, [user?.uid]);
-
-  useEffect(() => {
-    const onCall = (payload: any) => {
-      handleCallEvent(payload);
-    };
-    chatWs.onCallEvent(onCall);
-    return () => {
-      chatWs.offCallEvent(onCall);
-    };
-  }, [handleCallEvent]);
 
   // 当前会话定时拉取：接收方在 WS 未连上或未推送时仍能看见新消息
   useEffect(() => {
@@ -2337,8 +2722,12 @@ export default function MessagesScreen() {
     if (openedFromRouteRef.current === cid) return;
     openedFromRouteRef.current = cid;
     setActiveConversation(cid);
-    if (!isDesktop) setMobileShowChat(true);
-  }, [params.conversationId, user?.uid, isDesktop, setActiveConversation]);
+    if (isPhone) setMobileShowChat(true);
+  }, [params.conversationId, user?.uid, isPhone, setActiveConversation]);
+
+  useEffect(() => {
+    setShowDetailsPanel(false);
+  }, [activeConversationId]);
 
   // Map API messages to UI messages
   const uiMessages = useMemo(
@@ -2371,7 +2760,7 @@ export default function MessagesScreen() {
 
   const handleSelectConversation = (c: Conversation) => {
     setActiveConversation(c.id);
-    if (!isDesktop) setMobileShowChat(true);
+    if (isPhone) setMobileShowChat(true);
   };
 
   const handleBack = () => {
@@ -2411,34 +2800,63 @@ export default function MessagesScreen() {
         cover_image: strategy.cover_image,
         category: strategy.category,
         author_id: strategy.author_id,
+        author_name: strategy.author_name,
+        tags: strategy.tags,
+        views: strategy.views,
+        likes: strategy.likes,
+        status: strategy.status,
+        created_at: strategy.created_at,
       },
     });
   }, [sendMessage]);
 
   const handleStartVoiceCall = useCallback(async () => {
-    if (!activeConversationId || !activeConvo) return;
+    if (!activeConversationId || !activeConvo) {
+      showCallFeedback('无法发起语音', '请先打开一个私聊会话。');
+      return;
+    }
+
+    const existingCall = useCallStore.getState().currentCall;
+    if (
+      existingCall &&
+      existingCall.conversation_id === activeConversationId &&
+      (existingCall.status === 'ringing' || existingCall.status === 'active')
+    ) {
+      console.log('[Call] reopen existing call', { callId: existingCall.id, status: existingCall.status });
+      router.push(`/call/${existingCall.id}` as any);
+      return;
+    }
+
     try {
+      console.log('[Call] start button clicked', {
+        activeConversationId,
+        conversationName: activeConvo.name,
+      });
       await startVoiceCall(activeConversationId, activeConvo.name);
       const latestCallId = useCallStore.getState().currentCall?.id;
       if (latestCallId) {
         router.push(`/call/${latestCallId}` as any);
+        return;
       }
+      showCallFeedback('语音未打开', '请求已发起，但本地没有拿到通话状态，请再点一次试试。');
     } catch (e: any) {
-      Alert.alert('发起失败', e?.response?.data?.error || e?.message || '语音呼叫发起失败');
+      showCallFeedback('发起失败', e?.response?.data?.error || e?.message || '语音呼叫发起失败');
     }
-  }, [activeConversationId, activeConvo, startVoiceCall, router]);
+  }, [activeConversationId, activeConvo, startVoiceCall, router, showCallFeedback]);
 
   const handleNewConversation = (conversationId: string) => {
     loadConversations();
     setActiveConversation(conversationId);
-    if (!isDesktop) setMobileShowChat(true);
+    if (isPhone) setMobileShowChat(true);
   };
 
   // Not logged in
   if (!user) {
     return (
       <View style={styles.emptyChat}>
-        <Text style={styles.emptyChatIcon}>🔐</Text>
+        <View style={styles.emptyChatIconWrap}>
+          <AppIcon name="lock" size={34} color={Colors.textMuted} strokeWidth={1.7} />
+        </View>
         <Text style={styles.emptyChatTitle}>{t('messages.loginRequired')}</Text>
         <TouchableOpacity
           style={styles.loginBtn}
@@ -2451,8 +2869,8 @@ export default function MessagesScreen() {
     );
   }
 
-  const showList = isDesktop || !mobileShowChat;
-  const showChat = isDesktop || mobileShowChat;
+  const showList = !isPhone || !mobileShowChat;
+  const showChat = !isPhone || mobileShowChat;
 
   return (
     <View style={styles.container}>
@@ -2476,10 +2894,16 @@ export default function MessagesScreen() {
                 activeOpacity={0.85}
                 disabled={callPending}
                 onPress={async () => {
-                  await acceptIncomingCall();
-                  const latestCallId = useCallStore.getState().currentCall?.id;
-                  if (latestCallId) {
-                    router.push(`/call/${latestCallId}` as any);
+                  try {
+                    await acceptIncomingCall();
+                    const latestCallId = useCallStore.getState().currentCall?.id;
+                    if (latestCallId) {
+                      router.push(`/call/${latestCallId}` as any);
+                    } else {
+                      showCallFeedback('接听失败', '本地没有拿到通话状态，请稍后重试。');
+                    }
+                  } catch (e: any) {
+                    showCallFeedback('接听失败', e?.response?.data?.error || e?.message || '接听语音失败');
                   }
                 }}
               >
@@ -2504,7 +2928,17 @@ export default function MessagesScreen() {
             <TouchableOpacity style={styles.callBannerOpenBtn} activeOpacity={0.85} onPress={() => router.push(`/call/${currentCall.id}` as any)}>
               <Text style={styles.callBannerOpenText}>进入通话</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.callBannerEndBtn} activeOpacity={0.85} onPress={() => void endCurrentCall()}>
+            <TouchableOpacity
+              style={styles.callBannerEndBtn}
+              activeOpacity={0.85}
+              onPress={async () => {
+                try {
+                  await endCurrentCall();
+                } catch (e: any) {
+                  showCallFeedback('挂断失败', e?.response?.data?.error || e?.message || '挂断失败');
+                }
+              }}
+            >
               <Text style={styles.callBannerEndText}>挂断</Text>
             </TouchableOpacity>
           </View>
@@ -2525,6 +2959,9 @@ export default function MessagesScreen() {
           onOpenContacts={() => router.push('/contacts' as any)}
           friendRequestBadgeCount={incomingFriendRequests.length}
           chatWsConnected={chatWsConnected}
+          panelWidth={listPanelWidth}
+          fullWidth={isPhone}
+          compact={compactList}
         />
       )}
 
@@ -2536,9 +2973,53 @@ export default function MessagesScreen() {
         friends={friends}
       />
 
+      <Modal visible={showDetailsPanel} transparent animationType="fade" onRequestClose={() => setShowDetailsPanel(false)}>
+        <View style={styles.detailsDrawerOverlay}>
+          <TouchableOpacity style={styles.detailsDrawerBackdrop} activeOpacity={1} onPress={() => setShowDetailsPanel(false)} />
+          <View style={[styles.detailsDrawer, isPhone && styles.detailsDrawerMobile]}>
+            <View style={styles.detailsDrawerHeader}>
+              <View>
+                <Text style={styles.detailsDrawerTitle}>
+                  {activeConvo?.isGroup ? '群设置' : '资料与设置'}
+                </Text>
+                <Text style={styles.detailsDrawerSub} numberOfLines={1}>
+                  {activeConvo?.name || '当前会话'}
+                </Text>
+              </View>
+              <TouchableOpacity style={styles.detailsDrawerClose} activeOpacity={0.8} onPress={() => setShowDetailsPanel(false)}>
+                <AppIcon name="close" size={18} color={Colors.textMuted} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.detailsDrawerBody}>
+              {activeConvo?.isGroup && activeConversationId ? (
+                <GroupSidebar
+                  conversationId={activeConversationId}
+                  fallbackTitle={activeConvo.name}
+                  embedded
+                />
+              ) : activePeerProfile && activePeerId ? (
+                <PeerSidebar
+                  profile={activePeerProfile}
+                  peerUserId={activePeerId}
+                  onViewPublicProfile={(uid) => {
+                    setShowDetailsPanel(false);
+                    router.push(`/trader/${uid}` as any);
+                  }}
+                  embedded
+                />
+              ) : (
+                <View style={styles.detailsDrawerEmpty}>
+                  <Text style={styles.traderAbout}>当前会话没有更多可配置项。</Text>
+                </View>
+              )}
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* 手机端：已选会话但列表映射尚未就绪时避免白屏 */}
       {showChat &&
-        !isDesktop &&
+        isPhone &&
         mobileShowChat &&
         activeConversationId &&
         !activeConvo && (
@@ -2555,7 +3036,7 @@ export default function MessagesScreen() {
           conversationId={activeConversationId}
           messages={uiMessages}
           onBack={handleBack}
-          showBack={!isDesktop}
+          showBack={isPhone}
           onSend={handleSend}
           onSendImage={handleSendImage}
           onSendStrategy={handleSendStrategy}
@@ -2571,20 +3052,28 @@ export default function MessagesScreen() {
           activeCallStatus={
             currentCall && currentCall.conversation_id === activeConversationId ? currentCall.status : null
           }
+          onRetryMessage={retryMessage}
+          wsStatus={wsStatus}
+          compactHeader={compactChatHeader}
+          compactComposer={compactComposer}
+          showDetailsButton={!isXL && !!activeConvo}
+          onOpenDetails={() => setShowDetailsPanel(true)}
         />
       )}
 
       {/* Empty state (desktop, no selection) */}
-      {showChat && !activeConvo && isDesktop && (
+      {showChat && !activeConvo && !isPhone && (
         <View style={styles.emptyChat}>
-          <Text style={styles.emptyChatIcon}>💬</Text>
+          <View style={styles.emptyChatIconWrap}>
+            <AppIcon name="message" size={34} color={Colors.textMuted} strokeWidth={1.7} />
+          </View>
           <Text style={styles.emptyChatTitle}>{t('messages.selectConversation')}</Text>
           <Text style={styles.emptyChatSub}>{t('messages.selectConversationHint')}</Text>
         </View>
       )}
 
       {/* Group Sidebar (desktop, group conversations) */}
-      {isDesktop && activeConvo?.isGroup && activeConversationId && (
+      {isXL && activeConvo?.isGroup && activeConversationId && (
         <GroupSidebar
           conversationId={activeConversationId}
           fallbackTitle={activeConvo.name}
@@ -2634,6 +3123,9 @@ const styles = StyleSheet.create({
     borderRightColor: Colors.border,
     backgroundColor: Colors.surface,
   },
+  listPanelFull: {
+    width: '100%',
+  },
   listHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -2678,16 +3170,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 4,
   },
+  headerActionsCompact: {
+    gap: 2,
+  },
   headerActionBtn: {
     width: 36,
     height: 36,
     borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  headerActionIcon: {
-    fontSize: 18,
-    color: Colors.textSecondary,
   },
   headerIconWrap: {
     position: 'relative',
@@ -2721,9 +3212,12 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     marginBottom: 12,
   },
-  searchIcon: {
-    fontSize: 14,
+  inlineIconWrap: {
+    width: 18,
+    height: 18,
     marginRight: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   searchInput: {
     flex: 1,
@@ -2736,6 +3230,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     gap: 8,
     marginBottom: 12,
+    flexWrap: 'wrap',
+  },
+  filterRowCompact: {
+    gap: 6,
   },
   filterTab: {
     paddingVertical: 6,
@@ -2745,6 +3243,9 @@ const styles = StyleSheet.create({
   },
   filterTabActive: {
     backgroundColor: Colors.primaryDim,
+  },
+  filterTabCompact: {
+    paddingHorizontal: 12,
   },
   filterTabText: {
     color: Colors.textMuted,
@@ -2897,20 +3398,38 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surface,
     gap: 12,
   },
+  chatHeaderCompact: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 8,
+  },
   backBtn: {
     marginRight: 4,
   },
-  backArrow: {
-    color: Colors.textActive,
-    fontSize: 22,
-  },
   chatHeaderInfo: {
     gap: 2,
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  chatHeaderSpacer: {
+    flex: 1,
+    minWidth: 0,
+  },
+  chatHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 8,
+  },
+  chatHeaderActionsCompact: {
+    gap: 6,
+    flexShrink: 0,
   },
   chatHeaderName: {
     color: Colors.textActive,
     fontSize: 15,
     fontWeight: '600',
+    flexShrink: 1,
   },
   chatHeaderStatus: {
     color: Colors.textMuted,
@@ -2941,10 +3460,26 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.border,
   },
+  chatActionBtnCompact: {
+    width: 34,
+    height: 34,
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chatActionBtnIconOnly: {
+    borderRadius: 17,
+  },
   chatActionBtnText: {
     color: Colors.textSecondary,
     fontSize: 12,
     fontWeight: '500',
+  },
+  actionBtnContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   chatActionBtnGold: {
     backgroundColor: Colors.primaryDim,
@@ -2984,10 +3519,25 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
   },
+  connectionBanner: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(212, 178, 75, 0.12)',
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.primaryBorder,
+  },
+  connectionBannerText: {
+    color: Colors.primary,
+    fontSize: 12,
+    fontWeight: '600',
+  },
   messageBubbleWrap: {
     flexDirection: 'row',
     gap: 8,
     maxWidth: '80%',
+  },
+  messageBubbleWrapCompact: {
+    maxWidth: '92%',
   },
   bubbleLeft: {
     alignSelf: 'flex-start',
@@ -3033,27 +3583,50 @@ const styles = StyleSheet.create({
     marginTop: 6,
     alignSelf: 'flex-end',
   },
+  messageStatusText: {
+    color: Colors.textMuted,
+    fontSize: 10,
+    marginTop: 4,
+    alignSelf: 'flex-end',
+  },
+  messageRetryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 4,
+    alignSelf: 'flex-end',
+  },
+  messageFailedText: {
+    color: Colors.down,
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  messageRetryText: {
+    color: Colors.primary,
+    fontSize: 10,
+    fontWeight: '700',
+  },
 
   strategyCard: {
     borderRadius: 12,
     padding: 12,
     minWidth: 220,
     borderWidth: 1,
-    borderColor: Colors.primaryBorder,
-    backgroundColor: Colors.surfaceAlt,
-  },
-  strategyCardMe: {
-    borderColor: Colors.primary,
-    backgroundColor: Colors.primaryDim,
-  },
-  strategyCardOther: {
     borderColor: Colors.glassBorder,
+    backgroundColor: Colors.surfaceAlt,
   },
   strategyCardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     gap: 8,
+  },
+  strategyCardCoverWrap: {
+    position: 'relative',
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
+    overflow: 'hidden',
+    marginBottom: 10,
   },
   strategyCardTitle: {
     flex: 1,
@@ -3064,18 +3637,81 @@ const styles = StyleSheet.create({
   strategyCardCover: {
     width: '100%',
     height: 132,
-    borderTopLeftRadius: 12,
-    borderTopRightRadius: 12,
-    marginBottom: 10,
+  },
+  strategyCardCoverOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    padding: 10,
+  },
+  strategyHeroBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: 'rgba(8,8,14,0.72)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  strategyHeroBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  strategyHeroPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: 'rgba(8,8,14,0.72)',
+    borderWidth: 1,
+  },
+  strategyHeroPillText: {
+    fontSize: 11,
+    fontWeight: '800',
   },
   strategyCardPct: {
     fontSize: 14,
     fontWeight: '700',
   },
-  strategyCardMeta: {
+  strategyChipRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
     marginTop: 6,
+  },
+  strategyCardMeta: {
     color: Colors.textMuted,
     fontSize: 11,
+  },
+  strategyInlineBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: Colors.primaryDim,
+    borderWidth: 1,
+    borderColor: Colors.primaryBorder,
+  },
+  strategyInlineBadgeText: {
+    color: Colors.primary,
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  strategyInlineBadgeMuted: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  strategyInlineBadgeMutedText: {
+    color: Colors.textMuted,
+    fontSize: 10,
+    fontWeight: '600',
   },
   strategyCardSummary: {
     marginTop: 8,
@@ -3083,8 +3719,24 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
   },
+  strategyCardFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 12,
+  },
+  strategyFooterMeta: {
+    color: Colors.textSecondary,
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  strategyFooterSub: {
+    color: Colors.textMuted,
+    fontSize: 11,
+    marginTop: 4,
+  },
   strategyCardBar: {
-    marginTop: 10,
+    marginTop: 6,
     height: 4,
     borderRadius: 2,
     backgroundColor: Colors.border,
@@ -3094,26 +3746,94 @@ const styles = StyleSheet.create({
     height: '100%',
     borderRadius: 2,
   },
+  strategyCardCta: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: Colors.primaryDim,
+    borderWidth: 1,
+    borderColor: Colors.primaryBorder,
+  },
+  strategyCardCtaText: {
+    color: Colors.primary,
+    fontSize: 11,
+    fontWeight: '700',
+  },
   chatImageBubble: {
     width: 220,
     height: 220,
     borderRadius: 18,
     backgroundColor: Colors.surfaceAlt,
   },
+  chatImageBubbleCompact: {
+    width: 180,
+    height: 180,
+  },
+  strategyPickerHero: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  strategyPickerHeroTitle: {
+    color: Colors.textActive,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  strategyPickerHeroSub: {
+    color: Colors.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 6,
+  },
   strategyPickerItem: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'stretch',
     gap: 12,
-    paddingHorizontal: 20,
+    paddingHorizontal: 18,
     paddingVertical: 14,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
   },
+  strategyPickerVisual: {
+    width: 88,
+    gap: 8,
+  },
   strategyPickerThumb: {
-    width: 64,
-    height: 64,
+    width: 88,
+    height: 88,
     borderRadius: 12,
     backgroundColor: Colors.surfaceAlt,
+  },
+  strategyPickerThumbFallback: {
+    width: 88,
+    height: 88,
+    borderRadius: 12,
+    backgroundColor: Colors.surfaceAlt,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  strategyPickerThumbFallbackText: {
+    color: Colors.primary,
+    fontSize: 28,
+    fontWeight: '800',
+  },
+  strategyPickerCategory: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: Colors.primaryDim,
+    borderWidth: 1,
+    borderColor: Colors.primaryBorder,
+  },
+  strategyPickerCategoryText: {
+    color: Colors.primary,
+    fontSize: 10,
+    fontWeight: '700',
   },
   strategyPickerTitle: {
     color: Colors.textActive,
@@ -3125,6 +3845,31 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
     marginTop: 4,
+  },
+  strategyPickerMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 8,
+  },
+  strategyPickerMetaText: {
+    color: Colors.textMuted,
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  strategyPickerMetaDot: {
+    color: Colors.textMuted,
+    fontSize: 11,
+  },
+  strategyPickerSendBtn: {
+    alignSelf: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: Colors.primaryDim,
+    borderWidth: 1,
+    borderColor: Colors.primaryBorder,
   },
   strategyPickerAction: {
     color: Colors.primary,
@@ -3156,11 +3901,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'rgba(255,255,255,0.12)',
   },
-  imagePreviewCloseText: {
-    color: Colors.textActive,
-    fontSize: 18,
-    fontWeight: '700',
-  },
 
   /* ── Input Bar ── */
   inputBar: {
@@ -3173,15 +3913,21 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surface,
     gap: 8,
   },
+  inputBarCompact: {
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 6,
+  },
   inputIconBtn: {
     width: 36,
     height: 36,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  inputIconText: {
-    fontSize: 20,
-    color: Colors.textSecondary,
+  inputIconBtnCompact: {
+    width: 34,
+    height: 34,
   },
   chatInput: {
     flex: 1,
@@ -3192,6 +3938,13 @@ const styles = StyleSheet.create({
     color: Colors.textActive,
     fontSize: 14,
     maxHeight: 100,
+  },
+  chatInputCompact: {
+    minWidth: 0,
+    flex: 1,
+    fontSize: 13,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
   },
   sendBtn: {
     width: 36,
@@ -3204,11 +3957,6 @@ const styles = StyleSheet.create({
   sendBtnDisabled: {
     opacity: 0.4,
   },
-  sendBtnText: {
-    color: Colors.textOnPrimary,
-    fontSize: 16,
-    fontWeight: '700',
-  },
 
   /* ── Empty Chat State ── */
   emptyChat: {
@@ -3217,9 +3965,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
   },
-  emptyChatIcon: {
-    fontSize: 48,
-    opacity: 0.5,
+  emptyChatIconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
   emptyChatTitle: {
     color: Colors.textSecondary,
@@ -3371,6 +4125,72 @@ const styles = StyleSheet.create({
     borderLeftWidth: 1,
     borderLeftColor: Colors.border,
     backgroundColor: Colors.surface,
+  },
+  traderPanelEmbedded: {
+    width: '100%',
+    flex: 1,
+    borderLeftWidth: 0,
+  },
+  detailsDrawerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+  },
+  detailsDrawerBackdrop: {
+    flex: 1,
+  },
+  detailsDrawer: {
+    width: 360,
+    maxWidth: '92%',
+    backgroundColor: Colors.surface,
+    borderLeftWidth: 1,
+    borderLeftColor: Colors.border,
+    height: '100%',
+  },
+  detailsDrawerMobile: {
+    width: '100%',
+    maxWidth: '100%',
+  },
+  detailsDrawerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+    backgroundColor: Colors.surface,
+  },
+  detailsDrawerTitle: {
+    color: Colors.textActive,
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  detailsDrawerSub: {
+    color: Colors.textMuted,
+    fontSize: 12,
+    marginTop: 4,
+  },
+  detailsDrawerClose: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  detailsDrawerBody: {
+    flex: 1,
+    minHeight: 0,
+  },
+  detailsDrawerEmpty: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
   },
   traderHeader: {
     alignItems: 'center',
@@ -3875,9 +4695,10 @@ const modalStyles = StyleSheet.create({
     fontWeight: '700',
   },
   selectedChipRemove: {
-    color: Colors.primary,
-    fontSize: 11,
-    fontWeight: '700',
+    width: 14,
+    height: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   presetGrid: {
     gap: 10,

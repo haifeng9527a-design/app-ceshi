@@ -20,11 +20,13 @@ func NewOrderRepo(pool *pgxpool.Pool) *OrderRepo {
 func (r *OrderRepo) Create(ctx context.Context, o *model.Order) error {
 	err := r.pool.QueryRow(ctx,
 		`INSERT INTO orders (user_id, symbol, side, order_type, qty, price, filled_price,
-		 leverage, margin_mode, margin_amount, status, fee, filled_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+		 leverage, margin_mode, margin_amount, status, fee, filled_at,
+		 is_copy_trade, source_order_id, source_trader_id, copy_trading_id)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
 		 RETURNING id, created_at`,
 		o.UserID, o.Symbol, o.Side, o.OrderType, o.Qty, o.Price, o.FilledPrice,
-		o.Leverage, o.MarginMode, o.MarginAmount, o.Status, o.Fee, o.FilledAt).
+		o.Leverage, o.MarginMode, o.MarginAmount, o.Status, o.Fee, o.FilledAt,
+		o.IsCopyTrade, o.SourceOrderID, o.SourceTraderID, o.CopyTradingID).
 		Scan(&o.ID, &o.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("create order: %w", err)
@@ -37,11 +39,14 @@ func (r *OrderRepo) GetByID(ctx context.Context, id string) (*model.Order, error
 	err := r.pool.QueryRow(ctx,
 		`SELECT id, user_id, symbol, side, order_type, qty, price, filled_price,
 		 leverage, margin_mode, margin_amount, status, COALESCE(reject_reason,''), fee,
+		 is_copy_trade, source_order_id, source_trader_id, copy_trading_id,
 		 created_at, filled_at, cancelled_at
 		 FROM orders WHERE id = $1`, id).
 		Scan(&o.ID, &o.UserID, &o.Symbol, &o.Side, &o.OrderType, &o.Qty, &o.Price,
 			&o.FilledPrice, &o.Leverage, &o.MarginMode, &o.MarginAmount, &o.Status,
-			&o.RejectReason, &o.Fee, &o.CreatedAt, &o.FilledAt, &o.CancelledAt)
+			&o.RejectReason, &o.Fee,
+			&o.IsCopyTrade, &o.SourceOrderID, &o.SourceTraderID, &o.CopyTradingID,
+			&o.CreatedAt, &o.FilledAt, &o.CancelledAt)
 	if err != nil {
 		return nil, fmt.Errorf("get order: %w", err)
 	}
@@ -56,13 +61,15 @@ func (r *OrderRepo) ListByUser(ctx context.Context, userID, status string, limit
 	var args []any
 	if status == "" || status == "all" {
 		query = `SELECT id, user_id, symbol, side, order_type, qty, price, filled_price,
-		         leverage, margin_mode, margin_amount, status, COALESCE(reject_reason,''),
+		         leverage, margin_mode, margin_amount, status, COALESCE(reject_reason,''), fee,
+		         is_copy_trade, source_order_id, source_trader_id, copy_trading_id,
 		         created_at, filled_at, cancelled_at
 		         FROM orders WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2`
 		args = []any{userID, limit}
 	} else {
 		query = `SELECT id, user_id, symbol, side, order_type, qty, price, filled_price,
-		         leverage, margin_mode, margin_amount, status, COALESCE(reject_reason,''),
+		         leverage, margin_mode, margin_amount, status, COALESCE(reject_reason,''), fee,
+		         is_copy_trade, source_order_id, source_trader_id, copy_trading_id,
 		         created_at, filled_at, cancelled_at
 		         FROM orders WHERE user_id = $1 AND status = $2 ORDER BY created_at DESC LIMIT $3`
 		args = []any{userID, status, limit}
@@ -81,6 +88,7 @@ func (r *OrderRepo) ListPending(ctx context.Context) ([]model.Order, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT id, user_id, symbol, side, order_type, qty, price, filled_price,
 		 leverage, margin_mode, margin_amount, status, COALESCE(reject_reason,''), fee,
+		 is_copy_trade, source_order_id, source_trader_id, copy_trading_id,
 		 created_at, filled_at, cancelled_at
 		 FROM orders WHERE status = 'pending'`)
 	if err != nil {
@@ -94,6 +102,7 @@ func (r *OrderRepo) ListPendingBySymbol(ctx context.Context, symbol string) ([]m
 	rows, err := r.pool.Query(ctx,
 		`SELECT id, user_id, symbol, side, order_type, qty, price, filled_price,
 		 leverage, margin_mode, margin_amount, status, COALESCE(reject_reason,''), fee,
+		 is_copy_trade, source_order_id, source_trader_id, copy_trading_id,
 		 created_at, filled_at, cancelled_at
 		 FROM orders WHERE status = 'pending' AND symbol = $1`, symbol)
 	if err != nil {
@@ -123,11 +132,14 @@ func (r *OrderRepo) Cancel(ctx context.Context, id, userID string) (*model.Order
 		 WHERE id = $1 AND user_id = $2 AND status = 'pending'
 		 RETURNING id, user_id, symbol, side, order_type, qty, price, filled_price,
 		 leverage, margin_mode, margin_amount, status, COALESCE(reject_reason,''), fee,
+		 is_copy_trade, source_order_id, source_trader_id, copy_trading_id,
 		 created_at, filled_at, cancelled_at`,
 		id, userID, now).
 		Scan(&o.ID, &o.UserID, &o.Symbol, &o.Side, &o.OrderType, &o.Qty, &o.Price,
 			&o.FilledPrice, &o.Leverage, &o.MarginMode, &o.MarginAmount, &o.Status,
-			&o.RejectReason, &o.Fee, &o.CreatedAt, &o.FilledAt, &o.CancelledAt)
+			&o.RejectReason, &o.Fee,
+			&o.IsCopyTrade, &o.SourceOrderID, &o.SourceTraderID, &o.CopyTradingID,
+			&o.CreatedAt, &o.FilledAt, &o.CancelledAt)
 	if err != nil {
 		return nil, fmt.Errorf("cancel order: %w", err)
 	}
@@ -143,7 +155,9 @@ func scanOrders(rows interface {
 		var o model.Order
 		if err := rows.Scan(&o.ID, &o.UserID, &o.Symbol, &o.Side, &o.OrderType, &o.Qty,
 			&o.Price, &o.FilledPrice, &o.Leverage, &o.MarginMode, &o.MarginAmount,
-			&o.Status, &o.RejectReason, &o.Fee, &o.CreatedAt, &o.FilledAt, &o.CancelledAt); err != nil {
+			&o.Status, &o.RejectReason, &o.Fee,
+			&o.IsCopyTrade, &o.SourceOrderID, &o.SourceTraderID, &o.CopyTradingID,
+			&o.CreatedAt, &o.FilledAt, &o.CancelledAt); err != nil {
 			return nil, err
 		}
 		orders = append(orders, o)

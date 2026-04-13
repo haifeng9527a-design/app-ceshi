@@ -97,7 +97,7 @@ func (r *WalletRepo) FreezeMargin(ctx context.Context, userID string, amount flo
 // UnfreezeMargin moves amount from frozen back to balance (cancelled order).
 func (r *WalletRepo) UnfreezeMargin(ctx context.Context, userID string, amount float64) error {
 	_, err := r.pool.Exec(ctx,
-		`UPDATE wallets SET balance = balance + $2, frozen = frozen - $2, updated_at = NOW()
+		`UPDATE wallets SET balance = balance + $2, frozen = GREATEST(frozen - $2, 0), updated_at = NOW()
 		 WHERE user_id = $1`,
 		userID, amount)
 	if err != nil {
@@ -117,11 +117,11 @@ func (r *WalletRepo) ChargeFee(ctx context.Context, userID string, amount float6
 	var balanceAfter float64
 	err = tx.QueryRow(ctx,
 		`UPDATE wallets SET balance = balance - $2, updated_at = NOW()
-		 WHERE user_id = $1
+		 WHERE user_id = $1 AND balance >= $2
 		 RETURNING balance`,
 		userID, amount).Scan(&balanceAfter)
 	if err != nil {
-		return fmt.Errorf("charge fee update: %w", err)
+		return fmt.Errorf("insufficient balance for fee")
 	}
 
 	_, err = tx.Exec(ctx,
@@ -144,10 +144,13 @@ func (r *WalletRepo) SettleTrade(ctx context.Context, userID string, unfreezeAmo
 	}
 	defer tx.Rollback(ctx)
 
-	// balance += margin + pnl - closeFee
+	// balance += margin + pnl - closeFee; protect frozen from going negative
 	var balanceAfter float64
 	err = tx.QueryRow(ctx,
-		`UPDATE wallets SET balance = balance + $2 + $3 - $4, frozen = frozen - $2, updated_at = NOW()
+		`UPDATE wallets SET
+		 balance = balance + $2 + $3 - $4,
+		 frozen = GREATEST(frozen - $2, 0),
+		 updated_at = NOW()
 		 WHERE user_id = $1
 		 RETURNING balance`,
 		userID, unfreezeAmount, pnl, closeFee).Scan(&balanceAfter)

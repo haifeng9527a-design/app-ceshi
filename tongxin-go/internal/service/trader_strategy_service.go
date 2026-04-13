@@ -19,7 +19,7 @@ func NewTraderStrategyService(repo *repository.TraderStrategyRepo, traderRepo *r
 
 // Create — only certified traders can create strategies
 func (s *TraderStrategyService) Create(ctx context.Context, uid string, req *model.CreateTraderStrategyRequest) (*model.TraderStrategy, error) {
-	profile, err := s.traderRepo.GetTraderProfile(ctx, uid)
+	profile, err := s.traderRepo.GetTraderProfile(ctx, uid, "")
 	if err != nil || !profile.IsTrader {
 		return nil, errors.New("only certified traders can publish strategies")
 	}

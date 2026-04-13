@@ -166,7 +166,10 @@ func (h *TraderHandler) TraderProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	profile, err := h.svc.GetTraderProfile(r.Context(), traderUID)
+	// Optional: extract viewer UID from auth token (may be empty for unauthenticated)
+	viewerUID := middleware.GetUserUID(r.Context())
+
+	profile, err := h.svc.GetTraderProfile(r.Context(), traderUID, viewerUID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "trader not found")
 		return
@@ -335,4 +338,139 @@ func (h *TraderHandler) AdminReject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "rejected"})
+}
+
+// ── Copy Trading Settings ──
+
+// PUT /api/trader/{uid}/follow/settings
+func (h *TraderHandler) UpdateCopySettings(w http.ResponseWriter, r *http.Request) {
+	uid := middleware.GetUserUID(r.Context())
+	if uid == "" {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	traderUID := r.PathValue("uid")
+	if traderUID == "" {
+		writeError(w, http.StatusBadRequest, "missing trader uid")
+		return
+	}
+	var req model.FollowTraderRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	ct, err := h.svc.UpdateCopySettings(r.Context(), uid, traderUID, &req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, ct)
+}
+
+// POST /api/trader/{uid}/follow/pause
+func (h *TraderHandler) PauseCopyTrading(w http.ResponseWriter, r *http.Request) {
+	uid := middleware.GetUserUID(r.Context())
+	if uid == "" {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	traderUID := r.PathValue("uid")
+	if err := h.svc.PauseCopyTrading(r.Context(), uid, traderUID); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "paused"})
+}
+
+// POST /api/trader/{uid}/follow/resume
+func (h *TraderHandler) ResumeCopyTrading(w http.ResponseWriter, r *http.Request) {
+	uid := middleware.GetUserUID(r.Context())
+	if uid == "" {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	traderUID := r.PathValue("uid")
+	if err := h.svc.ResumeCopyTrading(r.Context(), uid, traderUID); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "resumed"})
+}
+
+// ── User Follow (Watch) ──
+
+// POST /api/trader/{uid}/watch
+func (h *TraderHandler) WatchTrader(w http.ResponseWriter, r *http.Request) {
+	uid := middleware.GetUserUID(r.Context())
+	if uid == "" {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	traderUID := r.PathValue("uid")
+	if traderUID == "" {
+		writeError(w, http.StatusBadRequest, "missing trader uid")
+		return
+	}
+	if err := h.svc.WatchTrader(r.Context(), uid, traderUID); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "followed"})
+}
+
+// DELETE /api/trader/{uid}/watch
+func (h *TraderHandler) UnwatchTrader(w http.ResponseWriter, r *http.Request) {
+	uid := middleware.GetUserUID(r.Context())
+	if uid == "" {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	traderUID := r.PathValue("uid")
+	if traderUID == "" {
+		writeError(w, http.StatusBadRequest, "missing trader uid")
+		return
+	}
+	if err := h.svc.UnwatchTrader(r.Context(), uid, traderUID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to unfollow")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "unfollowed"})
+}
+
+// GET /api/trader/my-watched
+func (h *TraderHandler) MyWatchedTraders(w http.ResponseWriter, r *http.Request) {
+	uid := middleware.GetUserUID(r.Context())
+	if uid == "" {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	traders, err := h.svc.GetFollowedTraders(r.Context(), uid)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get watched traders")
+		return
+	}
+	if traders == nil {
+		traders = []model.FollowedTrader{}
+	}
+	writeJSON(w, http.StatusOK, traders)
+}
+
+// GET /api/trader/copy-trade-logs
+func (h *TraderHandler) CopyTradeLogs(w http.ResponseWriter, r *http.Request) {
+	uid := middleware.GetUserUID(r.Context())
+	if uid == "" {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	if limit <= 0 {
+		limit = 50
+	}
+	logs, total, err := h.svc.GetCopyTradeLogs(r.Context(), uid, limit, offset)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"logs": logs, "total": total})
 }

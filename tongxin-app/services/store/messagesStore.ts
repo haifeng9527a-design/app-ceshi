@@ -15,12 +15,16 @@ import {
   type PeerProfile,
   type FriendProfile,
 } from '../api/messagesApi';
-import { chatWs } from '../websocket/chatWs';
+import { chatWs, type ChatConnectionStatus } from '../websocket/chatWs';
 import { useAuthStore } from './authStore';
 
 /** 会话 id 可能来自不同路径，避免严格 === 导致新消息无法并入当前聊天 */
 function sameConvoId(a: string | null | undefined, b: string | null | undefined): boolean {
   return String(a ?? '').trim() === String(b ?? '').trim();
+}
+
+function normId(v: string | null | undefined): string {
+  return String(v ?? '').trim();
 }
 
 interface MessagesState {
@@ -51,6 +55,7 @@ interface MessagesState {
 
   // WebSocket
   wsConnected: boolean;
+  wsStatus: ChatConnectionStatus;
 
   // Actions
   loadConversations: () => Promise<void>;
@@ -62,6 +67,7 @@ interface MessagesState {
     mediaUrl?: string;
     metadata?: Record<string, unknown>;
   }) => Promise<void>;
+  retryMessage: (messageId: string) => Promise<void>;
   markConversationRead: (conversationId: string) => Promise<void>;
   setActiveConversation: (id: string | null) => void;
   connectWs: () => Promise<void>;
@@ -72,12 +78,39 @@ interface MessagesState {
   loadUnreadCount: () => Promise<void>;
   /** 当前会话静默拉取（给接收方兜底：WS 未推送时仍能看见新消息） */
   refreshActiveMessages: () => Promise<void>;
+  flushQueuedMessages: () => Promise<void>;
 }
 
 export const useMessagesStore = create<MessagesState>((set, get) => {
   // WS new message handler reference (for cleanup)
   const wsMessageHandler = (message: ApiMessage) => {
     get().handleNewMessage(message);
+  };
+  let wsBound = false;
+
+  const isRetriableSendError = (e: unknown): boolean => {
+    const status = (e as any)?.response?.status;
+    const message = String((e as any)?.message ?? '').toLowerCase();
+    return (
+      status == null ||
+      status >= 500 ||
+      message.includes('network error') ||
+      message.includes('timeout') ||
+      message.includes('failed to fetch')
+    );
+  };
+
+  const sendStoredMessage = async (message: ApiMessage) => {
+    await sendMessageHttp({
+      conversation_id: message.conversation_id,
+      content: message.content,
+      message_type: message.message_type,
+      media_url: message.media_url,
+      metadata: message.metadata,
+      reply_to_message_id: message.reply_to_message_id,
+      reply_to_sender_name: message.reply_to_sender_name,
+      reply_to_content: message.reply_to_content,
+    });
   };
 
   return {
@@ -94,6 +127,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => {
     outgoingFriendRequests: [],
     totalUnread: 0,
     wsConnected: false,
+    wsStatus: 'disconnected',
 
     loadConversations: async () => {
       set({ conversationsLoading: true });
@@ -177,11 +211,16 @@ export const useMessagesStore = create<MessagesState>((set, get) => {
       set({ messagesLoading: true });
       try {
         const older = await fetchMessages(activeConversationId, 50, oldest.created_at);
-        set((state) => ({
-          messages: [...older, ...state.messages],
-          messagesLoading: false,
-          hasMoreMessages: older.length >= 50,
-        }));
+        set((state) => {
+          if (!sameConvoId(state.activeConversationId, activeConversationId)) {
+            return state;
+          }
+          return {
+            messages: [...older, ...state.messages],
+            messagesLoading: false,
+            hasMoreMessages: older.length >= 50,
+          };
+        });
       } catch (e) {
         console.error('[MessagesStore] loadMoreMessages failed:', e);
         set({ messagesLoading: false });
@@ -206,6 +245,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => {
         media_url: mediaUrl,
         metadata,
         created_at: new Date().toISOString(),
+        local_status: 'sending',
       };
 
       set((s) => ({ messages: [...s.messages, optimistic] }));
@@ -248,7 +288,73 @@ export const useMessagesStore = create<MessagesState>((set, get) => {
       } catch (e) {
         console.error('[MessagesStore] sendMessage failed:', e);
         set((s) => ({
-          messages: s.messages.filter((m) => m.id !== tempId),
+          messages: s.messages.map((m) =>
+            m.id === tempId
+              ? {
+                  ...m,
+                  local_status: isRetriableSendError(e) ? 'queued' : 'failed',
+                  local_error:
+                    e instanceof Error
+                      ? e.message
+                      : (e as any)?.response?.data?.error || '发送失败',
+                }
+              : m,
+          ),
+        }));
+      }
+    },
+
+    retryMessage: async (messageId: string) => {
+      const { activeConversationId, messages } = get();
+      const failed = messages.find((m) => m.id === messageId);
+      if (!activeConversationId || !failed || failed.local_status !== 'failed') return;
+
+      set((state) => ({
+        messages: state.messages.map((m) =>
+          m.id === messageId
+            ? {
+                ...m,
+                local_status: 'sending',
+                local_error: undefined,
+              }
+            : m,
+        ),
+      }));
+
+      const pullServer = async () => {
+        try {
+          const fresh = await fetchMessages(activeConversationId, 50);
+          set((state) => {
+            if (!sameConvoId(state.activeConversationId, activeConversationId)) return state;
+            return {
+              messages: fresh,
+              hasMoreMessages: fresh.length >= 50,
+            };
+          });
+          markAsRead(activeConversationId).catch(() => {});
+        } catch (e) {
+          console.error('[MessagesStore] retry pull failed:', e);
+        }
+      };
+
+        try {
+        await sendStoredMessage(failed);
+        await pullServer();
+      } catch (e) {
+        console.error('[MessagesStore] retryMessage failed:', e);
+        set((state) => ({
+          messages: state.messages.map((m) =>
+            m.id === messageId
+              ? {
+                  ...m,
+                  local_status: isRetriableSendError(e) ? 'queued' : 'failed',
+                  local_error:
+                    e instanceof Error
+                      ? e.message
+                      : (e as any)?.response?.data?.error || '重试失败',
+                }
+              : m,
+          ),
         }));
       }
     },
@@ -276,10 +382,28 @@ export const useMessagesStore = create<MessagesState>((set, get) => {
     },
 
     connectWs: async () => {
-      chatWs.onNewMessage(wsMessageHandler);
-      chatWs.setConnectionStateHandler((open) => set({ wsConnected: open }));
+      if (!wsBound) {
+        chatWs.onNewMessage(wsMessageHandler);
+        wsBound = true;
+      }
+      chatWs.setConnectionStateHandler((status) => {
+        const open = status === 'connected';
+        set({ wsConnected: open, wsStatus: status });
+        if (!open) return;
+
+        // Re-sync key state after reconnect so we don't rely on missed WS frames.
+        void get().loadConversations();
+        void get().loadUnreadCount();
+        void get().loadFriends();
+        void get().loadFriendRequests();
+        void get().flushQueuedMessages();
+        const activeId = get().activeConversationId;
+        if (activeId) {
+          void get().refreshActiveMessages();
+        }
+      });
       const ok = await chatWs.connect();
-      set({ wsConnected: ok });
+      set({ wsConnected: ok, wsStatus: ok ? 'connected' : 'disconnected' });
 
       const { conversations } = get();
       const ids = conversations.map((c) => c.id).filter(Boolean);
@@ -290,17 +414,22 @@ export const useMessagesStore = create<MessagesState>((set, get) => {
 
     disconnectWs: () => {
       chatWs.setConnectionStateHandler(null);
-      chatWs.offNewMessage(wsMessageHandler);
+      if (wsBound) {
+        chatWs.offNewMessage(wsMessageHandler);
+        wsBound = false;
+      }
       chatWs.disconnect();
-      set({ wsConnected: false });
+      set({ wsConnected: false, wsStatus: 'disconnected' });
     },
 
     handleNewMessage: (message: ApiMessage) => {
       const { activeConversationId } = get();
+      const selfId = useAuthStore.getState().user?.uid;
       const isActive = sameConvoId(message.conversation_id, activeConversationId);
       const hasConversation = get().conversations.some((c) =>
         sameConvoId(c.id, message.conversation_id),
       );
+      const isOwnMessage = normId(message.sender_id) === normId(selfId);
 
       set((state) => {
         const dup = state.messages.some((m) => m.id === message.id);
@@ -314,7 +443,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => {
             last_message: message.content,
             last_sender_name: message.sender_name,
             last_time: message.created_at,
-            unread_count: isActive ? 0 : c.unread_count + 1,
+            unread_count: isActive || isOwnMessage ? 0 : c.unread_count + 1,
           };
         });
 
@@ -324,7 +453,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => {
           return tb - ta;
         });
 
-        const newTotalUnread = isActive
+        const newTotalUnread = isActive || isOwnMessage
           ? state.totalUnread
           : state.totalUnread + 1;
 
@@ -407,6 +536,52 @@ export const useMessagesStore = create<MessagesState>((set, get) => {
         });
       } catch (e) {
         console.error('[MessagesStore] refreshActiveMessages failed:', e);
+      }
+    },
+
+    flushQueuedMessages: async () => {
+      const { activeConversationId, messages } = get();
+      const queued = messages.filter(
+        (m) => sameConvoId(m.conversation_id, activeConversationId) && m.local_status === 'queued',
+      );
+      if (queued.length === 0) return;
+
+      for (const queuedMessage of queued) {
+        set((state) => ({
+          messages: state.messages.map((m) =>
+            m.id === queuedMessage.id
+              ? { ...m, local_status: 'sending', local_error: undefined }
+              : m,
+          ),
+        }));
+
+        try {
+          await sendStoredMessage(queuedMessage);
+          const fresh = await fetchMessages(queuedMessage.conversation_id, 50);
+          set((state) => {
+            if (!sameConvoId(state.activeConversationId, queuedMessage.conversation_id)) return state;
+            return {
+              messages: fresh,
+              hasMoreMessages: fresh.length >= 50,
+            };
+          });
+          markAsRead(queuedMessage.conversation_id).catch(() => {});
+        } catch (e) {
+          set((state) => ({
+            messages: state.messages.map((m) =>
+              m.id === queuedMessage.id
+                ? {
+                    ...m,
+                    local_status: isRetriableSendError(e) ? 'queued' : 'failed',
+                    local_error:
+                      e instanceof Error
+                        ? e.message
+                        : (e as any)?.response?.data?.error || '自动重发失败',
+                  }
+                : m,
+            ),
+          }));
+        }
       }
     },
   };

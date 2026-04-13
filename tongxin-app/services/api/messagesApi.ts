@@ -35,6 +35,8 @@ export interface ApiMessage {
   reply_to_message_id?: string;
   reply_to_sender_name?: string;
   reply_to_content?: string;
+  local_status?: 'sending' | 'queued' | 'failed';
+  local_error?: string;
 }
 
 export interface PeerProfile {

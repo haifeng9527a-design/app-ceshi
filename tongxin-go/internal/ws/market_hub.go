@@ -108,10 +108,20 @@ func (h *MarketHub) onMessage(client *Client, raw []byte) {
 // StartRealtime listens on Binance and Polygon update channels and pushes immediately
 // Also runs REST fallback loops for stocks/forex/indices
 func (h *MarketHub) StartRealtime() {
-	go h.listenBinance()
-	go h.listenPolygon()
-	go h.restFallbackLoop()
-	go h.forexFastLoop()
+	go h.safeGo("listenBinance", h.listenBinance)
+	go h.safeGo("listenPolygon", h.listenPolygon)
+	go h.safeGo("restFallbackLoop", h.restFallbackLoop)
+	go h.safeGo("forexFastLoop", h.forexFastLoop)
+}
+
+// safeGo wraps a function with panic recovery to prevent crashing the process.
+func (h *MarketHub) safeGo(name string, fn func()) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[market-ws] PANIC in %s recovered: %v", name, r)
+		}
+	}()
+	fn()
 }
 
 // listenBinance reads crypto price updates and pushes to clients instantly

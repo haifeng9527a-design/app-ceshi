@@ -118,7 +118,7 @@ const SYMBOLS_BY_TAB: Record<AssetTab, string[]> = {
   futures: FUTURES_SYMBOLS,
 };
 
-type BottomTab = 'positions' | 'posHistory' | 'orders' | 'history' | 'analysis';
+type BottomTab = 'positions' | 'copyPositions' | 'posHistory' | 'orders' | 'history' | 'analysis';
 type OrderType = 'limit' | 'market';
 
 /* ════════════════════════════════════════
@@ -966,10 +966,13 @@ export default function TradingScreen() {
     const price = orderType === 'limit' ? (parseInputNumber(priceInput) || currentPrice) : currentPrice;
     if (!price || price <= 0) return;
     const available = account.available || 0;
-    const maxQtyCoin = (available * leverage) / price;
-    // 100%时留0.1%余量，避免浮点精度和价格微波动导致 insufficient balance
-    const safePct = pct >= 100 ? 99.9 : pct;
-    const qtyCoin = maxQtyCoin * (safePct / 100);
+    // Fee is on notional value: fee = margin * leverage * feeRate
+    // So total = margin + margin * leverage * feeRate = margin * (1 + leverage * feeRate)
+    // maxMargin = available / (1 + leverage * feeRate)
+    const feeRate = 0.0005;
+    const maxMargin = available / (1 + leverage * feeRate);
+    const maxQtyCoin = (maxMargin * leverage) / price;
+    const qtyCoin = maxQtyCoin * (pct / 100);
     if (qtyCoin <= 0) { setQtyInput(''); return; }
     const decimals = price >= 1000 ? 4 : price >= 1 ? 2 : 0;
     if (qtyMode === 'coin') {
@@ -1340,43 +1343,56 @@ export default function TradingScreen() {
             {/* Bottom tabs */}
             <View style={s.bottomPanel}>
               <View style={s.bottomTabRow}>
-                {([
-                  ['positions', '当前持仓'],
-                  ['orders', '当前委托'],
-                  ['posHistory', '历史仓位'],
-                  ['history', '历史委托'],
-                  ['analysis', '资产分析'],
-                ] as [BottomTab, string][]).map(([key, label]) => (
-                  <TouchableOpacity
-                    key={key}
-                    style={[s.bottomTabBtn, bottomTab === key && s.bottomTabBtnActive]}
-                    onPress={() => setBottomTab(key)}
-                    activeOpacity={0.7}
-                  >
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                      <Text style={[s.bottomTabText, bottomTab === key && s.bottomTabTextActive]}>
-                        {label}
-                      </Text>
-                      {key === 'orders' && pendingOrders.length > 0 && (
-                        <View style={{ backgroundColor: '#C9A84C', borderRadius: 8, minWidth: 16, height: 16, alignItems: 'center', justifyContent: 'center', marginLeft: 4, paddingHorizontal: 4 }}>
-                          <Text style={{ color: '#000', fontSize: 10, fontWeight: '700' }}>{pendingOrders.length}</Text>
+                {(() => {
+                  const selfPositions = positions.filter(p => !p.is_copy_trade);
+                  const copyPositions = positions.filter(p => p.is_copy_trade);
+                  return ([
+                    ['positions', '当前持仓'],
+                    ['copyPositions', '跟单'],
+                    ['orders', '当前委托'],
+                    ['posHistory', '历史仓位'],
+                    ['history', '历史委托'],
+                    ['analysis', '资产分析'],
+                  ] as [BottomTab, string][]).map(([key, label]) => {
+                    const badgeCount = key === 'positions' ? selfPositions.length
+                      : key === 'copyPositions' ? copyPositions.length
+                      : key === 'orders' ? pendingOrders.length
+                      : 0;
+                    return (
+                      <TouchableOpacity
+                        key={key}
+                        style={[s.bottomTabBtn, bottomTab === key && s.bottomTabBtnActive]}
+                        onPress={() => setBottomTab(key)}
+                        activeOpacity={0.7}
+                      >
+                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                          <Text style={[s.bottomTabText, bottomTab === key && s.bottomTabTextActive]}>
+                            {label}
+                          </Text>
+                          {badgeCount > 0 && (
+                            <View style={{ backgroundColor: key === 'copyPositions' ? '#C9A84C' : '#C9A84C', borderRadius: 8, minWidth: 16, height: 16, alignItems: 'center', justifyContent: 'center', marginLeft: 4, paddingHorizontal: 4 }}>
+                              <Text style={{ color: '#000', fontSize: 10, fontWeight: '700' }}>{badgeCount}</Text>
+                            </View>
+                          )}
                         </View>
-                      )}
-                      {key === 'positions' && positions.length > 0 && (
-                        <View style={{ backgroundColor: '#C9A84C', borderRadius: 8, minWidth: 16, height: 16, alignItems: 'center', justifyContent: 'center', marginLeft: 4, paddingHorizontal: 4 }}>
-                          <Text style={{ color: '#000', fontSize: 10, fontWeight: '700' }}>{positions.length}</Text>
-                        </View>
-                      )}
-                    </View>
-                  </TouchableOpacity>
-                ))}
+                      </TouchableOpacity>
+                    );
+                  });
+                })()}
               </View>
               <View>
-                {bottomTab === 'positions' && (
-                  positions.length > 0
-                    ? positions.map((p) => <PositionCard key={p.id} position={p} onClose={(id) => closePosition(id)} onUpdated={() => { fetchPositions(); fetchAccount(); }} />)
-                    : <View style={s.bottomEmpty}><Text style={{ color: Colors.textMuted, fontSize: 12 }}>暂无持仓</Text></View>
-                )}
+                {bottomTab === 'positions' && (() => {
+                  const selfPos = positions.filter(p => !p.is_copy_trade);
+                  return selfPos.length > 0
+                    ? selfPos.map((p) => <PositionCard key={p.id} position={p} onClose={(id) => closePosition(id)} onUpdated={() => { fetchPositions(); fetchAccount(); }} />)
+                    : <View style={s.bottomEmpty}><Text style={{ color: Colors.textMuted, fontSize: 12 }}>暂无持仓</Text></View>;
+                })()}
+                {bottomTab === 'copyPositions' && (() => {
+                  const copyPos = positions.filter(p => p.is_copy_trade);
+                  return copyPos.length > 0
+                    ? copyPos.map((p) => <PositionCard key={p.id} position={p} onClose={(id) => closePosition(id)} onUpdated={() => { fetchPositions(); fetchAccount(); }} />)
+                    : <View style={s.bottomEmpty}><Text style={{ color: Colors.textMuted, fontSize: 12 }}>暂无跟单仓位</Text></View>;
+                })()}
                 {bottomTab === 'posHistory' && (
                   positionHistory.length > 0
                     ? positionHistory.map((p) => <ClosedPositionCard key={p.id} position={p} />)
@@ -1515,7 +1531,7 @@ export default function TradingScreen() {
               )}
 
               <View style={s.pctSliderWrap}>
-                <input type="range" min={0} max={100} step={25} value={sliderPct} onChange={(e: any) => handleSliderChange(Number(e.target.value))} style={{ width: '100%', height: 4, accentColor: '#C9A84C', cursor: 'pointer' }} />
+                <input type="range" min={0} max={100} step={1} value={sliderPct} onChange={(e: any) => handleSliderChange(Number(e.target.value))} style={{ width: '100%', height: 4, accentColor: '#C9A84C', cursor: 'pointer' }} />
                 <View style={s.pctLabels}>
                   {['0%', '25%', '50%', '75%', '100%'].map((p) => (
                     <Text key={p} style={s.pctLabelText}>{p}</Text>
@@ -2049,7 +2065,7 @@ export default function TradingScreen() {
 
           {/* Percentage slider */}
           <View style={s.pctSliderWrap}>
-            <input type="range" min={0} max={100} step={25} defaultValue={0} style={{ width: '100%', height: 4, accentColor: '#C9A84C', cursor: 'pointer' }} />
+            <input type="range" min={0} max={100} step={1} defaultValue={0} style={{ width: '100%', height: 4, accentColor: '#C9A84C', cursor: 'pointer' }} />
             <View style={s.pctLabels}>
               {['0%', '25%', '50%', '75%', '100%'].map((p) => (
                 <Text key={p} style={s.pctLabelText}>{p}</Text>
