@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import apiClient from './client';
 
 export interface Feedback {
@@ -10,6 +11,7 @@ export interface Feedback {
   admin_reply: string;
   replied_by?: string;
   replied_at?: string;
+  user_unread: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -42,18 +44,48 @@ export async function listMyFeedbacks(limit = 20, offset = 0): Promise<{ feedbac
  */
 export async function uploadImage(uri: string): Promise<string> {
   const formData = new FormData();
-  const filename = uri.split('/').pop() || 'photo.jpg';
-  const ext = filename.split('.').pop()?.toLowerCase() || 'jpg';
-  const mimeType = ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : 'image/jpeg';
+  const filename = uri.split('/').pop()?.split('?')[0] || 'photo.jpg';
 
-  formData.append('file', {
-    uri,
-    name: filename,
-    type: mimeType,
-  } as any);
+  if (Platform.OS === 'web') {
+    // 浏览器的 FormData 不认 { uri, name, type }（会被序列化成 "[object Object]"），必须用 Blob。
+    const res = await fetch(uri);
+    const blob = await res.blob();
+    formData.append('file', blob, filename);
+  } else {
+    const ext = filename.split('.').pop()?.toLowerCase() || 'jpg';
+    const mimeType = ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : 'image/jpeg';
+    formData.append('file', {
+      uri,
+      name: filename,
+      type: mimeType,
+    } as any);
+  }
 
   const { data } = await apiClient.post('/api/upload', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   });
   return data.url;
+}
+
+/**
+ * 获取单条反馈详情（仅限本人）
+ */
+export async function getMyFeedback(id: string): Promise<Feedback> {
+  const { data } = await apiClient.get(`/api/feedbacks/${id}`);
+  return data;
+}
+
+/**
+ * 标记反馈已读（消除未读红点）
+ */
+export async function markFeedbackRead(id: string): Promise<void> {
+  await apiClient.post(`/api/feedbacks/${id}/read`);
+}
+
+/**
+ * 获取未读回复数
+ */
+export async function getFeedbackUnreadCount(): Promise<number> {
+  const { data } = await apiClient.get('/api/feedbacks/unread-count');
+  return data?.count ?? 0;
 }

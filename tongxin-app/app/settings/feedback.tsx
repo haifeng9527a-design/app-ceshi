@@ -2,6 +2,7 @@ import { useState } from 'react';
 import {
   Alert,
   Image,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -12,32 +13,46 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
+import { useTranslation } from 'react-i18next';
 import { Colors } from '../../theme/colors';
 import { submitFeedback, uploadImage } from '../../services/api/feedbackApi';
 import AppIcon, { type AppIconName } from '../../components/ui/AppIcon';
 
 type Category = 'complaint' | 'suggestion' | 'bug' | 'other';
 
-const CATEGORIES: { value: Category; label: string; icon: AppIconName }[] = [
-  { value: 'complaint', label: '投诉', icon: 'shield' },
-  { value: 'suggestion', label: '建议', icon: 'bulb' },
-  { value: 'bug', label: 'Bug', icon: 'settings' },
-  { value: 'other', label: '其他', icon: 'paper' },
-];
-
 const MAX_IMAGES = 3;
 const MAX_CONTENT = 500;
 
 export default function FeedbackScreen() {
   const router = useRouter();
+  const { t } = useTranslation();
   const [category, setCategory] = useState<Category>('suggestion');
   const [content, setContent] = useState('');
   const [images, setImages] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const categories: { value: Category; label: string; icon: AppIconName }[] = [
+    { value: 'complaint', label: t('feedback.categoryComplaint'), icon: 'shield' },
+    { value: 'suggestion', label: t('feedback.categorySuggestion'), icon: 'bulb' },
+    { value: 'bug', label: t('feedback.categoryBug'), icon: 'settings' },
+    { value: 'other', label: t('feedback.categoryOther'), icon: 'paper' },
+  ];
+
+  // 跨平台提示（Web 上 Alert.alert 静默无效，需要走 window.alert）
+  const notify = (title: string, body: string, onOk?: () => void) => {
+    if (Platform.OS === 'web') {
+      if (typeof window !== 'undefined') {
+        // eslint-disable-next-line no-alert
+        window.alert(`${title}\n\n${body}`);
+      }
+      onOk?.();
+    } else {
+      Alert.alert(title, body, [{ text: t('common.confirm'), onPress: onOk }]);
+    }
+  };
 
   const pickImage = async () => {
     if (images.length >= MAX_IMAGES) {
-      Alert.alert('提示', `最多上传 ${MAX_IMAGES} 张图片`);
+      notify(t('common.tip'), t('feedback.maxImages', { count: MAX_IMAGES }));
       return;
     }
 
@@ -58,7 +73,7 @@ export default function FeedbackScreen() {
 
   const handleSubmit = async () => {
     if (!content.trim()) {
-      Alert.alert('提示', '请填写反馈内容');
+      notify(t('common.tip'), t('feedback.contentRequired'));
       return;
     }
 
@@ -78,11 +93,13 @@ export default function FeedbackScreen() {
         category,
       });
 
-      Alert.alert('提交成功', '感谢您的反馈，我们会尽快处理！', [
-        { text: '确定', onPress: () => router.back() },
-      ]);
-    } catch {
-      Alert.alert('提交失败', '请检查网络后重试');
+      // 提交完成后跳"我的反馈"历史页，让用户看到刚提交的这条 → 闭环
+      notify(t('feedback.submitSuccessTitle'), t('feedback.submitSuccessBody'), () => {
+        router.replace('/settings/feedback-history');
+      });
+    } catch (e) {
+      console.error('[feedback] submit failed:', e);
+      notify(t('feedback.submitFailedTitle'), t('feedback.submitFailedBody'));
     } finally {
       setSubmitting(false);
     }
@@ -90,14 +107,25 @@ export default function FeedbackScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-      <Text style={styles.title}>投诉建议</Text>
-      <Text style={styles.subtitle}>请选择反馈类型并填写详情，我们会认真处理每一条反馈。</Text>
+      <View style={styles.headerRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.title}>{t('feedback.title')}</Text>
+          <Text style={styles.subtitle}>{t('feedback.subtitle')}</Text>
+        </View>
+        <TouchableOpacity
+          style={styles.historyLink}
+          activeOpacity={0.7}
+          onPress={() => router.push('/settings/feedback-history')}
+        >
+          <Text style={styles.historyLinkText}>{t('feedback.viewHistory')} →</Text>
+        </TouchableOpacity>
+      </View>
 
       {/* Category Picker */}
       <View style={styles.card}>
-        <Text style={styles.sectionLabel}>反馈类型</Text>
+        <Text style={styles.sectionLabel}>{t('feedback.categoryLabel')}</Text>
         <View style={styles.categoryRow}>
-          {CATEGORIES.map((cat) => {
+          {categories.map((cat) => {
             const active = cat.value === category;
             return (
               <TouchableOpacity
@@ -118,10 +146,10 @@ export default function FeedbackScreen() {
 
       {/* Content Input */}
       <View style={styles.card}>
-        <Text style={styles.sectionLabel}>详细描述</Text>
+        <Text style={styles.sectionLabel}>{t('feedback.contentLabel')}</Text>
         <TextInput
           style={styles.textInput}
-          placeholder="请描述您的问题或建议..."
+          placeholder={t('feedback.contentPlaceholder')}
           placeholderTextColor={Colors.textMuted}
           multiline
           maxLength={MAX_CONTENT}
@@ -134,7 +162,7 @@ export default function FeedbackScreen() {
 
       {/* Image Picker */}
       <View style={styles.card}>
-        <Text style={styles.sectionLabel}>附件图片（选填，最多{MAX_IMAGES}张）</Text>
+        <Text style={styles.sectionLabel}>{t('feedback.imagesLabel', { count: MAX_IMAGES })}</Text>
         <View style={styles.imageRow}>
           {images.map((uri, idx) => (
             <View key={idx} style={styles.imageWrapper}>
@@ -147,7 +175,7 @@ export default function FeedbackScreen() {
           {images.length < MAX_IMAGES && (
             <TouchableOpacity style={styles.addImageBtn} activeOpacity={0.8} onPress={pickImage}>
               <Text style={styles.addImageIcon}>+</Text>
-              <Text style={styles.addImageText}>添加</Text>
+              <Text style={styles.addImageText}>{t('feedback.addImage')}</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -163,7 +191,7 @@ export default function FeedbackScreen() {
         {submitting ? (
           <ActivityIndicator color={Colors.textOnPrimary} size="small" />
         ) : (
-          <Text style={styles.submitBtnText}>提交反馈</Text>
+          <Text style={styles.submitBtnText}>{t('feedback.submit')}</Text>
         )}
       </TouchableOpacity>
     </ScrollView>
@@ -180,11 +208,31 @@ const styles = StyleSheet.create({
     gap: 18,
     paddingBottom: 40,
   },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    marginTop: 12,
+    gap: 12,
+  },
+  historyLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  historyLinkText: {
+    color: Colors.primary,
+    fontSize: 12,
+    fontWeight: '600',
+  },
   title: {
     color: Colors.textActive,
     fontSize: 24,
     fontWeight: '800',
-    marginTop: 12,
   },
   subtitle: {
     color: Colors.textMuted,
