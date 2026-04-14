@@ -9,6 +9,7 @@ import {
   useWindowDimensions,
   ActivityIndicator,
   RefreshControl,
+  FlatList,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useTranslation } from 'react-i18next';
@@ -323,26 +324,32 @@ export default function MarketScreen() {
       </View>
 
       {/* ── Content ── */}
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={Colors.primary}
-            colors={[Colors.primary]}
-          />
-        }
-      >
-        {viewMode === 'overview' && renderOverview()}
-        {viewMode === 'crypto' && renderCategoryList(cryptoItems, t('market.crypto'), 'bitcoin', true)}
-        {viewMode === 'stocks' && renderCategoryList(stockItems, t('market.stocks'), 'market', true)}
-        {viewMode === 'forex' && renderCategoryList(forexItems, t('market.forex'), 'forex', true)}
-        {viewMode === 'futures' && renderCategoryList(futuresItems, t('market.futures', { defaultValue: '期货' }), 'futures', true)}
-        {viewMode === 'gainers' && renderGainersLosers()}
-      </ScrollView>
+      {viewMode === 'crypto' ? (
+        renderCategoryFlatList(cryptoItems, t('market.crypto'), 'bitcoin', true)
+      ) : viewMode === 'stocks' ? (
+        renderCategoryFlatList(stockItems, t('market.stocks'), 'market', true)
+      ) : viewMode === 'forex' ? (
+        renderCategoryFlatList(forexItems, t('market.forex'), 'forex', true)
+      ) : viewMode === 'futures' ? (
+        renderCategoryFlatList(futuresItems, t('market.futures', { defaultValue: '期货' }), 'futures', true)
+      ) : (
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={Colors.primary}
+              colors={[Colors.primary]}
+            />
+          }
+        >
+          {viewMode === 'overview' && renderOverview()}
+          {viewMode === 'gainers' && renderGainersLosers()}
+        </ScrollView>
+      )}
     </View>
   );
 
@@ -424,7 +431,7 @@ export default function MarketScreen() {
     );
   }
 
-  function renderCategoryList(items: MarketQuote[], title: string, icon: AppIconName, showStar: boolean) {
+  function renderCategoryHeader(items: MarketQuote[], title: string, icon: AppIconName, showStar: boolean) {
     return (
       <>
         <View style={styles.categoryHeader}>
@@ -447,16 +454,38 @@ export default function MarketScreen() {
           <Text style={[styles.colText, { width: 80, textAlign: 'right' }]}>{t('market.change')}</Text>
           {showStar && <Text style={[styles.colText, { width: 30 }]} />}
         </View>
-        {items.length === 0 ? (
+      </>
+    );
+  }
+
+  function renderCategoryFlatList(items: MarketQuote[], title: string, icon: AppIconName, showStar: boolean) {
+    return (
+      <FlatList
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={Colors.primary}
+            colors={[Colors.primary]}
+          />
+        }
+        data={items}
+        keyExtractor={(item) => item.symbol}
+        renderItem={({ item }) => <FullListRow item={item} showStar={showStar} />}
+        ListHeaderComponent={renderCategoryHeader(items, title, icon, showStar)}
+        ListEmptyComponent={
           <View style={styles.emptyState}>
             <Text style={styles.emptyText}>{t('common.noData')}</Text>
           </View>
-        ) : (
-          items.map((item) => (
-            <FullListRow key={item.symbol} item={item} showStar={showStar} />
-          ))
-        )}
-      </>
+        }
+        initialNumToRender={15}
+        windowSize={5}
+        maxToRenderPerBatch={10}
+        removeClippedSubviews
+      />
     );
   }
 
