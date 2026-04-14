@@ -183,6 +183,41 @@ func (h *MarketHub) listenBinance() {
 	}
 }
 
+// buildPolygonQuoteMap constructs a quote payload that only includes fields
+// the upstream actually provided. Tick-level messages (T.* trades, C.* forex
+// quotes) carry only price, so sending zero for high/low/volume/etc. would
+// overwrite the full OHLCV values previously stored by CAS/AM aggregates and
+// cause visible flicker on the client.
+func buildPolygonQuoteMap(pq market.PolygonQuote) map[string]any {
+	q := map[string]any{
+		"symbol": pq.Symbol,
+		"price":  pq.Price,
+		"close":  pq.Price,
+	}
+	if pq.Open != 0 {
+		q["open"] = pq.Open
+	}
+	if pq.High != 0 {
+		q["high"] = pq.High
+	}
+	if pq.Low != 0 {
+		q["low"] = pq.Low
+	}
+	if pq.Volume != 0 {
+		q["volume"] = pq.Volume
+	}
+	if pq.PrevClose != 0 {
+		q["prev_close"] = pq.PrevClose
+	}
+	if pq.Change != 0 {
+		q["change"] = pq.Change
+	}
+	if pq.ChangePct != 0 {
+		q["percent_change"] = pq.ChangePct
+	}
+	return q
+}
+
 // listenPolygon reads stock updates and pushes to clients instantly
 func (h *MarketHub) listenPolygon() {
 	if h.polygonWS == nil {
@@ -193,18 +228,7 @@ func (h *MarketHub) listenPolygon() {
 		case <-h.done:
 			return
 		case pq := <-h.polygonWS.Updates:
-			h.pushQuote(pq.Symbol, map[string]any{
-				"symbol":         pq.Symbol,
-				"price":          pq.Price,
-				"close":          pq.Price,
-				"open":           pq.Open,
-				"high":           pq.High,
-				"low":            pq.Low,
-				"volume":         pq.Volume,
-				"change":         pq.Change,
-				"percent_change": pq.ChangePct,
-				"prev_close":     pq.PrevClose,
-			})
+			h.pushQuote(pq.Symbol, buildPolygonQuoteMap(pq))
 		}
 	}
 }
@@ -219,18 +243,7 @@ func (h *MarketHub) listenForexWS() {
 		case <-h.done:
 			return
 		case pq := <-h.forexWS.Updates:
-			h.pushQuote(pq.Symbol, map[string]any{
-				"symbol":         pq.Symbol,
-				"price":          pq.Price,
-				"close":          pq.Price,
-				"open":           pq.Open,
-				"high":           pq.High,
-				"low":            pq.Low,
-				"volume":         pq.Volume,
-				"change":         pq.Change,
-				"percent_change": pq.ChangePct,
-				"prev_close":     pq.PrevClose,
-			})
+			h.pushQuote(pq.Symbol, buildPolygonQuoteMap(pq))
 		}
 	}
 }
