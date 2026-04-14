@@ -2,9 +2,12 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/jackc/pgx/v5"
 
 	"tongxin-go/internal/middleware"
 	"tongxin-go/internal/model"
@@ -76,6 +79,64 @@ func (h *FeedbackHandler) ListMy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"feedbacks": list, "total": total})
+}
+
+// GET /api/feedbacks/unread-count — 用户的未读回复数量（给 Profile 红点用）
+func (h *FeedbackHandler) UnreadCount(w http.ResponseWriter, r *http.Request) {
+	uid := middleware.GetUserUID(r.Context())
+	if uid == "" {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	n, err := h.repo.CountUserUnread(r.Context(), uid)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to count unread")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int{"count": n})
+}
+
+// GET /api/feedbacks/{id} — 用户查看自己一条反馈详情
+func (h *FeedbackHandler) GetOne(w http.ResponseWriter, r *http.Request) {
+	uid := middleware.GetUserUID(r.Context())
+	if uid == "" {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "missing feedback id")
+		return
+	}
+	fb, err := h.repo.GetByIDForUser(r.Context(), id, uid)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "feedback not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to load feedback")
+		return
+	}
+	writeJSON(w, http.StatusOK, fb)
+}
+
+// POST /api/feedbacks/{id}/read — 用户把某条反馈标记为已读，清掉未读红点
+func (h *FeedbackHandler) MarkRead(w http.ResponseWriter, r *http.Request) {
+	uid := middleware.GetUserUID(r.Context())
+	if uid == "" {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "missing feedback id")
+		return
+	}
+	if err := h.repo.MarkRead(r.Context(), id, uid); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to mark read")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // GET /api/admin/feedbacks — 管理员查看所有投诉建议

@@ -13,6 +13,7 @@ type Feedback struct {
 	AdminReply  string     `json:"admin_reply"`
 	RepliedBy   string     `json:"replied_by,omitempty"`
 	RepliedAt   *time.Time `json:"replied_at,omitempty"`
+	UserUnread  bool       `json:"user_unread"`
 	CreatedAt   time.Time  `json:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at"`
 }

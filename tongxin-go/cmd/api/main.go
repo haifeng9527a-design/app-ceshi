@@ -38,6 +38,7 @@ func main() {
 	var teacherRepo *repository.TeacherRepo
 	var watchlistRepo *repository.WatchlistRepo
 	var callRepo *repository.CallRepo
+	var supportRepo *repository.SupportRepo
 
 	var dbCloser func()
 	var pool *pgxpool.Pool
@@ -56,6 +57,7 @@ func main() {
 			callRepo = repository.NewCallRepo(pool)
 			teacherRepo = repository.NewTeacherRepo(pool)
 			watchlistRepo = repository.NewWatchlistRepo(pool)
+			supportRepo = repository.NewSupportRepo(pool)
 			log.Println("[OK] Database connected")
 		}
 	} else {
@@ -77,6 +79,7 @@ func main() {
 	var msgSvc *service.MessageService
 	var teacherSvc *service.TeacherService
 	var callSvc *service.CallService
+	var supportSvc *service.SupportService
 
 	if userRepo != nil {
 		userSvc = service.NewUserService(userRepo)
@@ -89,6 +92,9 @@ func main() {
 	}
 	if callRepo != nil && convRepo != nil {
 		callSvc = service.NewCallService(callRepo, convRepo)
+	}
+	if supportRepo != nil && userRepo != nil && convRepo != nil {
+		supportSvc = service.NewSupportService(supportRepo, userRepo, convRepo)
 	}
 	if teacherRepo != nil {
 		teacherSvc = service.NewTeacherService(teacherRepo)
@@ -305,6 +311,13 @@ func main() {
 		log.Println("[OK] Conversations + Messages routes registered")
 	}
 
+	if supportSvc != nil {
+		supportH := handler.NewSupportHandler(supportSvc, chatHub)
+		mux.Handle("GET /api/support/me", authMw.Authenticate(http.HandlerFunc(supportH.GetMyAssignment)))
+		mux.Handle("POST /api/support/me/ensure", authMw.Authenticate(http.HandlerFunc(supportH.EnsureMyAssignment)))
+		log.Println("[OK] Support user routes registered")
+	}
+
 	if callSvc != nil {
 		callsH := handler.NewCallsHandler(callSvc, chatHub, cfg)
 		mux.Handle("POST /api/calls/start", authMw.Authenticate(http.HandlerFunc(callsH.Start)))
@@ -451,6 +464,10 @@ func main() {
 		feedbackH = handler.NewFeedbackHandler(feedbackRepo)
 		mux.Handle("POST /api/feedbacks", authMw.Authenticate(http.HandlerFunc(feedbackH.Create)))
 		mux.Handle("GET /api/feedbacks", authMw.Authenticate(http.HandlerFunc(feedbackH.ListMy)))
+		// 具体路径放在 {id} 前面，net/http ServeMux 按最具体匹配；这里保险起见明确注册
+		mux.Handle("GET /api/feedbacks/unread-count", authMw.Authenticate(http.HandlerFunc(feedbackH.UnreadCount)))
+		mux.Handle("GET /api/feedbacks/{id}", authMw.Authenticate(http.HandlerFunc(feedbackH.GetOne)))
+		mux.Handle("POST /api/feedbacks/{id}/read", authMw.Authenticate(http.HandlerFunc(feedbackH.MarkRead)))
 		log.Println("[OK] Feedback routes registered")
 	}
 
@@ -532,6 +549,12 @@ func main() {
 		mux.Handle("GET /api/admin/admins", adminAuth(adminH.ListAdmins))
 		mux.Handle("POST /api/admin/admins", adminAuth(adminH.AddAdmin))
 		mux.Handle("DELETE /api/admin/admins/{uid}", adminAuth(adminH.RemoveAdmin))
+		if supportSvc != nil {
+			supportH := handler.NewSupportHandler(supportSvc, chatHub)
+			mux.Handle("GET /api/admin/support/agents", adminAuth(supportH.ListAgents))
+			mux.Handle("GET /api/admin/users/{uid}/support-assignment", adminAuth(supportH.AdminGetAssignment))
+			mux.Handle("POST /api/admin/users/{uid}/support-assignment", adminAuth(supportH.AdminAssign))
+		}
 		mux.Handle("POST /api/admin/announcements", adminAuth(adminH.CreateAnnouncement))
 		mux.Handle("GET /api/admin/reports", adminAuth(adminH.ListReports))
 
