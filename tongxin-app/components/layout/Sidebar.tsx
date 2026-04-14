@@ -6,11 +6,12 @@ import { Colors, Sizes, Shadows } from '../../theme/colors';
 import { useAuthStore } from '../../services/store/authStore';
 import { useMessagesStore } from '../../services/store/messagesStore';
 import { marketWs } from '../../services/websocket/marketWs';
+import AppIcon, { type AppIconName } from '../ui/AppIcon';
 
 interface NavItem {
   key: string;
   label: string;
-  icon: string;
+  icon: AppIconName;
   route: string;
 }
 
@@ -44,14 +45,14 @@ export default function Sidebar() {
   }, []);
 
   const navItems: NavItem[] = [
-    { key: 'market', label: t('nav.market'), icon: '📊', route: '/(tabs)/market' },
-    { key: 'watchlist', label: t('nav.watchlist'), icon: '⭐', route: '/(tabs)/watchlist' },
-    { key: 'following', label: '关注', icon: '👁', route: '/(tabs)/following' },
-    { key: 'trading', label: t('nav.trading'), icon: '📈', route: '/(tabs)/trading' },
-    { key: 'trader-center', label: t('nav.traderCenter'), icon: '🏅', route: '/(tabs)/trader-center' },
-    { key: 'rankings', label: t('nav.rankings'), icon: '🏆', route: '/(tabs)/rankings' },
-    { key: 'messages', label: t('messages.title'), icon: '💬', route: '/(tabs)/messages' },
-    { key: 'profile', label: t('nav.profile'), icon: '👤', route: '/(tabs)/profile' },
+    { key: 'market', label: t('nav.market'), icon: 'market', route: '/(tabs)/market' },
+    { key: 'watchlist', label: t('nav.watchlist'), icon: 'watchlist', route: '/(tabs)/watchlist' },
+    { key: 'following', label: '关注', icon: 'eye', route: '/(tabs)/following' },
+    { key: 'trading', label: t('nav.trading'), icon: 'trading', route: '/(tabs)/trading' },
+    { key: 'trader-center', label: t('nav.traderCenter'), icon: 'badge', route: '/(tabs)/trader-center' },
+    { key: 'rankings', label: t('nav.rankings'), icon: 'trophy', route: '/(tabs)/rankings' },
+    { key: 'messages', label: t('messages.title'), icon: 'message', route: '/(tabs)/messages' },
+    { key: 'profile', label: t('nav.profile'), icon: 'user', route: '/(tabs)/profile' },
   ];
 
   const isActive = (route: string) => pathname.includes(route.replace('/(tabs)', ''));
@@ -66,12 +67,12 @@ export default function Sidebar() {
             onPress={() => setCollapsed(false)}
             activeOpacity={0.7}
           >
-            <Text style={styles.logoEmoji}>🏛️</Text>
+            <AppIcon name="building" size={22} color={Colors.primary} />
           </TouchableOpacity>
         ) : (
           <>
             <View style={styles.logoIcon}>
-              <Text style={styles.logoEmoji}>🏛️</Text>
+              <AppIcon name="building" size={22} color={Colors.primary} />
             </View>
             <View style={styles.logoTextWrap}>
               <Text style={styles.logoTitle}>Sovereign</Text>
@@ -106,9 +107,13 @@ export default function Sidebar() {
               onPress={() => router.push(item.route as any)}
             >
               <View style={{ position: 'relative' }}>
-                <Text style={[styles.navIcon, collapsed && styles.navIconCollapsed]}>
-                  {item.icon}
-                </Text>
+                <View style={[styles.navIcon, collapsed && styles.navIconCollapsed]}>
+                  <AppIcon
+                    name={item.icon}
+                    size={18}
+                    color={active ? Colors.primary : Colors.textSecondary}
+                  />
+                </View>
                 {item.key === 'messages' && totalUnread > 0 && collapsed && (
                   <View style={styles.badgeDotSmall} />
                 )}
@@ -165,7 +170,9 @@ export default function Sidebar() {
               activeOpacity={0.7}
               onPress={async () => { await signOut(); router.replace('/'); }}
             >
-              <Text style={[styles.navIcon, collapsed && styles.navIconCollapsed]}>🚪</Text>
+              <View style={[styles.navIcon, collapsed && styles.navIconCollapsed]}>
+                <AppIcon name="logout" size={18} color={Colors.down} />
+              </View>
               {!collapsed && (
                 <Text style={[styles.navLabel, { color: Colors.down }]}>{t('auth.logout')}</Text>
               )}
@@ -177,7 +184,7 @@ export default function Sidebar() {
             activeOpacity={0.8}
             onPress={() => router.push('/(auth)/login' as any)}
           >
-            <Text style={styles.walletIcon}>🔐</Text>
+            <AppIcon name="lock" size={18} color={Colors.background} />
             {!collapsed && <Text style={styles.walletText}>{t('auth.loginOrRegister')}</Text>}
           </TouchableOpacity>
         )}
@@ -187,7 +194,9 @@ export default function Sidebar() {
           style={[styles.settingsItem, collapsed && styles.settingsItemCollapsed]}
           activeOpacity={0.7}
         >
-          <Text style={[styles.navIcon, collapsed && styles.navIconCollapsed]}>⚙️</Text>
+          <View style={[styles.navIcon, collapsed && styles.navIconCollapsed]}>
+            <AppIcon name="settings" size={18} color={Colors.textSecondary} />
+          </View>
           {!collapsed && <Text style={styles.navLabel}>{t('nav.settings')}</Text>}
         </TouchableOpacity>
 
@@ -304,14 +313,12 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   navIcon: {
-    fontSize: 16,
     width: 28,
-    textAlign: 'left',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   navIconCollapsed: {
-    width: 'auto',
-    textAlign: 'center',
-    fontSize: 18,
+    width: 20,
   },
   navLabel: {
     color: Colors.textSecondary,

@@ -15,6 +15,7 @@ import { useMarketStore } from '../../services/store/marketStore';
 import { marketWs } from '../../services/websocket/marketWs';
 import type { MarketQuote } from '../../services/api/client';
 import { Skeleton, SkeletonMarketItem } from '../../components/Skeleton';
+import AppIcon from '../../components/ui/AppIcon';
 
 export default function WatchlistScreen() {
   const { t } = useTranslation();
@@ -135,7 +136,10 @@ export default function WatchlistScreen() {
     return (
       <View style={styles.container}>
         <View style={styles.topBar}>
-          <Text style={styles.pageTitle}>⭐ {t('market.watchlist')}</Text>
+          <View style={styles.pageTitleWrap}>
+            <AppIcon name="watchlist" size={18} color={Colors.primary} />
+            <Text style={styles.pageTitle}>{t('market.watchlist')}</Text>
+          </View>
         </View>
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16 }}>
           {[1, 2, 3, 4].map((i) => <SkeletonMarketItem key={i} />)}
@@ -148,7 +152,10 @@ export default function WatchlistScreen() {
     <View style={styles.container}>
       {/* Top Bar */}
       <View style={styles.topBar}>
-        <Text style={styles.pageTitle}>⭐ {t('market.watchlist')}</Text>
+        <View style={styles.pageTitleWrap}>
+          <AppIcon name="watchlist" size={18} color={Colors.primary} />
+          <Text style={styles.pageTitle}>{t('market.watchlist')}</Text>
+        </View>
         <Text style={styles.countBadge}>{watchlist.length}</Text>
         <View style={{ flex: 1 }} />
       </View>
@@ -156,7 +163,7 @@ export default function WatchlistScreen() {
       {/* Search to add */}
       <View style={styles.searchArea}>
         <View style={styles.searchBox}>
-          <Text style={styles.searchIcon}>🔍</Text>
+          <AppIcon name="search" size={14} color={Colors.textMuted} />
           <TextInput
             style={styles.searchInput}
             placeholder={t('market.searchPairs')}
@@ -196,9 +203,7 @@ export default function WatchlistScreen() {
                     <Text style={styles.searchSymbol}>{item.symbol}</Text>
                     {item.name ? <Text style={styles.searchName}>{item.name}</Text> : null}
                   </View>
-                  <Text style={{ color: isWatched ? Colors.primary : Colors.textMuted, fontSize: 18 }}>
-                    {isWatched ? '★' : '☆'}
-                  </Text>
+                  <AppIcon name="watchlist" size={16} color={isWatched ? Colors.primary : Colors.textMuted} />
                 </TouchableOpacity>
               );
             })
@@ -220,7 +225,7 @@ export default function WatchlistScreen() {
       >
         {watchlistItems.length === 0 && watchlist.length === 0 ? (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyIcon}>⭐</Text>
+            <AppIcon name="watchlist" size={28} color={Colors.textMuted} />
             <Text style={styles.emptyTitle}>{t('market.noWatchlist')}</Text>
             <Text style={styles.emptyHint}>
               {t('market.watchlistHint', { defaultValue: '搜索并添加您关注的交易对' })}
@@ -251,7 +256,7 @@ export default function WatchlistScreen() {
                       onPress={() => removeWatchlist(sym)}
                       hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                     >
-                      <Text style={{ fontSize: 16, color: Colors.primary }}>★</Text>
+                      <AppIcon name="watchlist" size={16} color={Colors.primary} />
                     </TouchableOpacity>
                   </View>
                 );
@@ -286,7 +291,7 @@ export default function WatchlistScreen() {
                     }}
                     hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   >
-                    <Text style={{ fontSize: 16, color: Colors.primary }}>★</Text>
+                    <AppIcon name="watchlist" size={16} color={Colors.primary} />
                   </TouchableOpacity>
                 </TouchableOpacity>
               );
@@ -326,6 +331,11 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '800',
   },
+  pageTitleWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   countBadge: {
     color: Colors.primary,
     fontSize: 13,
@@ -353,7 +363,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     height: 40,
   },
-  searchIcon: { fontSize: 13, marginRight: 8 },
   searchInput: { flex: 1, color: Colors.textActive, fontSize: 14 },
   clearBtn: { color: Colors.textMuted, fontSize: 14, paddingLeft: 8 },
   searchResults: {
@@ -453,9 +462,6 @@ const styles = StyleSheet.create({
     paddingVertical: 80,
     alignItems: 'center',
     gap: 12,
-  },
-  emptyIcon: {
-    fontSize: 48,
   },
   emptyTitle: {
     color: Colors.textActive,

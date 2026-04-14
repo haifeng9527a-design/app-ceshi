@@ -13,6 +13,7 @@ import {
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Colors } from '../../theme/colors';
 import { HtmlContent } from '../../components/editor/RichTextEditor';
+import AppIcon from '../../components/ui/AppIcon';
 import { useAuthStore } from '../../services/store/authStore';
 import {
   getStrategy,
@@ -213,18 +214,24 @@ export default function StrategyDetailScreen() {
             style={[styles.likeBtn, liked && styles.likeBtnActive]}
             onPress={handleLike}
           >
-            <Text style={[styles.likeBtnText, liked && styles.likeBtnTextActive]}>
-              {liked ? '❤️' : '🤍'} {strategy.likes}
-            </Text>
+            <View style={styles.likeBtnInner}>
+              <AppIcon name="heart" size={14} color={liked ? Colors.background : Colors.primary} />
+              <Text style={[styles.likeBtnText, liked && styles.likeBtnTextActive]}>
+                {strategy.likes}
+              </Text>
+            </View>
           </TouchableOpacity>
         </View>
 
         {/* Status badge for drafts */}
         {strategy.status !== 'published' && (
           <View style={styles.draftBanner}>
-            <Text style={styles.draftBannerText}>
-              {strategy.status === 'draft' ? '📝 草稿 — 仅自己可见' : '📦 已归档'}
-            </Text>
+            <View style={styles.draftBannerInner}>
+              <AppIcon name={strategy.status === 'draft' ? 'paper' : 'futures'} size={14} color={Colors.primary} />
+              <Text style={styles.draftBannerText}>
+                {strategy.status === 'draft' ? '草稿 — 仅自己可见' : '已归档'}
+              </Text>
+            </View>
           </View>
         )}
 
@@ -424,6 +431,11 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 59, 48, 0.1)',
     borderColor: 'rgba(255, 59, 48, 0.3)',
   },
+  likeBtnInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   likeBtnText: {
     fontSize: 16,
     fontWeight: '600',
@@ -438,6 +450,11 @@ const styles = StyleSheet.create({
     padding: 12,
     alignItems: 'center',
     marginTop: 16,
+  },
+  draftBannerInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   draftBannerText: {
     color: '#FFCC00',

@@ -14,14 +14,15 @@ import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { Colors } from '../../theme/colors';
 import { submitFeedback, uploadImage } from '../../services/api/feedbackApi';
+import AppIcon, { type AppIconName } from '../../components/ui/AppIcon';
 
 type Category = 'complaint' | 'suggestion' | 'bug' | 'other';
 
-const CATEGORIES: { value: Category; label: string; emoji: string }[] = [
-  { value: 'complaint', label: '投诉', emoji: '😤' },
-  { value: 'suggestion', label: '建议', emoji: '💡' },
-  { value: 'bug', label: 'Bug', emoji: '🐛' },
-  { value: 'other', label: '其他', emoji: '📝' },
+const CATEGORIES: { value: Category; label: string; icon: AppIconName }[] = [
+  { value: 'complaint', label: '投诉', icon: 'shield' },
+  { value: 'suggestion', label: '建议', icon: 'bulb' },
+  { value: 'bug', label: 'Bug', icon: 'settings' },
+  { value: 'other', label: '其他', icon: 'paper' },
 ];
 
 const MAX_IMAGES = 3;
@@ -105,7 +106,7 @@ export default function FeedbackScreen() {
                 activeOpacity={0.8}
                 onPress={() => setCategory(cat.value)}
               >
-                <Text style={styles.categoryEmoji}>{cat.emoji}</Text>
+                <AppIcon name={cat.icon} size={18} color={active ? Colors.background : Colors.textSecondary} />
                 <Text style={[styles.categoryLabel, active && styles.categoryLabelActive]}>
                   {cat.label}
                 </Text>

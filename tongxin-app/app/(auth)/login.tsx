@@ -16,6 +16,7 @@ import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { Colors, Sizes, Shadows } from '../../theme/colors';
 import { useAuthStore } from '../../services/store/authStore';
+import AppIcon from '../../components/ui/AppIcon';
 
 type AuthMode = 'login' | 'register';
 
@@ -91,7 +92,7 @@ export default function LoginScreen() {
       {/* ── Top Nav Bar ── */}
       <View style={styles.topNav}>
         <Text style={styles.topNavTitle}>The Sovereign Exchange</Text>
-        <Text style={styles.topNavIcon}>🔒</Text>
+        <AppIcon name="lock" size={16} color={Colors.primary} />
       </View>
 
       <View style={styles.mainContainer}>
@@ -115,7 +116,7 @@ export default function LoginScreen() {
             <View style={styles.leftContent}>
               {/* Icon */}
               <View style={styles.leftIconWrap}>
-                <Text style={styles.leftIconText}>🏛️</Text>
+                <AppIcon name="building" size={28} color={Colors.primary} />
               </View>
 
               {/* Headline */}
@@ -179,13 +180,15 @@ export default function LoginScreen() {
               {/* ── Header ── */}
               <View style={styles.headerRow}>
                 <View style={styles.headerIcon}>
-                  <Text style={styles.headerIconText}>
-                    {mode === 'login' ? '🔐' : '✨'}
-                  </Text>
+                  <AppIcon
+                    name={mode === 'login' ? 'lock' : 'sparkles'}
+                    size={22}
+                    color={Colors.primary}
+                  />
                 </View>
                 <View>
                   <Text style={styles.headerTitle}>
-                    {mode === 'login' ? '账户通行证' : '创建新账户'}
+                    {mode === 'login' ? t('auth.loginTitle') : t('auth.registerTitle')}
                   </Text>
                   <Text style={styles.headerSub}>{t('auth.loginHint')}</Text>
                 </View>
@@ -198,10 +201,10 @@ export default function LoginScreen() {
                   <View style={styles.fieldGroup}>
                     <Text style={styles.fieldLabel}>DISPLAY NAME</Text>
                     <View style={styles.inputWrap}>
-                      <Text style={styles.inputIcon}>👤</Text>
+                      <AppIcon name="user" size={16} color={Colors.textMuted} />
                       <TextInput
                         style={styles.input}
-                        placeholder="Enter your name"
+                        placeholder={t('auth.displayNameHint')}
                         placeholderTextColor="rgba(107,107,128,0.6)"
                         value={displayName}
                         onChangeText={setDisplayName}
@@ -215,10 +218,10 @@ export default function LoginScreen() {
                 <View style={styles.fieldGroup}>
                   <Text style={styles.fieldLabel}>EMAIL</Text>
                   <View style={styles.inputWrap}>
-                    <Text style={styles.inputIcon}>📧</Text>
+                    <AppIcon name="mail" size={16} color={Colors.textMuted} />
                     <TextInput
                       style={styles.input}
-                      placeholder="请输入邮箱地址"
+                      placeholder={t('auth.emailHint')}
                       placeholderTextColor="rgba(107,107,128,0.6)"
                       value={email}
                       onChangeText={setEmail}
@@ -233,10 +236,10 @@ export default function LoginScreen() {
                 <View style={styles.fieldGroup}>
                   <Text style={styles.fieldLabel}>PASSWORD</Text>
                   <View style={styles.inputWrap}>
-                    <Text style={styles.inputIcon}>🔒</Text>
+                    <AppIcon name="lock" size={16} color={Colors.textMuted} />
                     <TextInput
                       style={styles.input}
-                      placeholder="请输入密码"
+                      placeholder={t('auth.passwordHint')}
                       placeholderTextColor="rgba(107,107,128,0.6)"
                       value={password}
                       onChangeText={setPassword}
@@ -246,9 +249,7 @@ export default function LoginScreen() {
                       onPress={() => setShowPassword(!showPassword)}
                       hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                     >
-                      <Text style={styles.visibilityIcon}>
-                        {showPassword ? '🙈' : '👁️'}
-                      </Text>
+                      <AppIcon name="visibility" size={16} color={Colors.textMuted} />
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -258,10 +259,10 @@ export default function LoginScreen() {
                   <View style={styles.fieldGroup}>
                     <Text style={styles.fieldLabel}>CONFIRM PASSWORD</Text>
                     <View style={styles.inputWrap}>
-                      <Text style={styles.inputIcon}>🔒</Text>
+                      <AppIcon name="lock" size={16} color={Colors.textMuted} />
                       <TextInput
                         style={styles.input}
-                        placeholder="再次输入密码"
+                        placeholder={t('auth.confirmPasswordHint')}
                         placeholderTextColor="rgba(107,107,128,0.6)"
                         value={confirmPassword}
                         onChangeText={setConfirmPassword}
@@ -291,7 +292,7 @@ export default function LoginScreen() {
                     <ActivityIndicator color={Colors.background} size="small" />
                   ) : (
                     <Text style={styles.submitBtnText}>
-                      {mode === 'login' ? '安全进入' : '创建账户'}
+                      {mode === 'login' ? t('auth.login') : t('auth.registerTitle')}
                     </Text>
                   )}
                 </TouchableOpacity>
@@ -300,7 +301,7 @@ export default function LoginScreen() {
               {/* ── Divider ── */}
               <View style={styles.divider}>
                 <View style={styles.dividerLine} />
-                <Text style={styles.dividerText}>THIRD-PARTY LOGIN</Text>
+                <Text style={styles.dividerText}>{t('auth.thirdPartyLogin')}</Text>
                 <View style={styles.dividerLine} />
               </View>
 
@@ -312,7 +313,7 @@ export default function LoginScreen() {
                 activeOpacity={0.7}
               >
                 <Text style={styles.googleIcon}>G</Text>
-                <Text style={styles.googleText}>使用 Google 身份关联登录</Text>
+                <Text style={styles.googleText}>{t('auth.googleLogin')}</Text>
               </TouchableOpacity>
 
               {(Platform.OS === 'ios' || Platform.OS === 'web') && (
@@ -323,7 +324,7 @@ export default function LoginScreen() {
                   activeOpacity={0.7}
                 >
                   <Text style={styles.googleIcon}>{'\uF8FF'}</Text>
-                  <Text style={styles.googleText}>使用 Apple ID 登录</Text>
+                  <Text style={styles.googleText}>{t('auth.appleLogin')}</Text>
                 </TouchableOpacity>
               )}
 

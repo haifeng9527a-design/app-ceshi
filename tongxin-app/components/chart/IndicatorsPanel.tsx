@@ -5,6 +5,7 @@ import {
 import { Colors } from '../../theme/colors';
 import { INDICATOR_REGISTRY, type IndicatorType, type IndicatorConfig } from './indicators';
 import type { ActiveIndicator } from './TradingViewChart';
+import AppIcon from '../ui/AppIcon';
 
 interface IndicatorsPanelProps {
   visible: boolean;
@@ -60,13 +61,13 @@ export default function IndicatorsPanel({
         <View style={ip.header}>
           <Text style={ip.title}>技术指标</Text>
           <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-            <Text style={ip.closeBtn}>✕</Text>
+            <AppIcon name="close" size={16} color={Colors.textMuted} />
           </TouchableOpacity>
         </View>
 
         {/* Search */}
         <View style={ip.searchRow}>
-          <Text style={ip.searchIcon}>🔍</Text>
+          <AppIcon name="search" size={15} color={Colors.textMuted} />
           <TextInput
             style={ip.searchInput}
             placeholder="搜索指标..."
@@ -87,7 +88,7 @@ export default function IndicatorsPanel({
                   <View key={ind.type} style={ip.activeChip}>
                     <Text style={ip.activeChipText}>{config?.name ?? ind.type}</Text>
                     <TouchableOpacity onPress={() => onRemoveIndicator(ind.type)}>
-                      <Text style={ip.activeChipRemove}>✕</Text>
+                      <AppIcon name="close" size={12} color={Colors.textMuted} />
                     </TouchableOpacity>
                   </View>
                 );

@@ -6,13 +6,7 @@ interface SentimentCardProps {
   score: number; // 0-100
 }
 
-function GaugeArc({ score }: { score: number }) {
-  const label =
-    score >= 75 ? 'Extreme Greed' :
-    score >= 55 ? 'Greed' :
-    score >= 45 ? 'Neutral' :
-    score >= 25 ? 'Fear' :
-    'Extreme Fear';
+function GaugeArc({ score, label }: { score: number; label: string }) {
 
   const color =
     score >= 75 ? Colors.up :
@@ -121,7 +115,13 @@ const bulletStyles = StyleSheet.create({
 export default function SentimentCard({ score }: SentimentCardProps) {
   const { t } = useTranslation();
 
-  const riskLabel = score >= 55 ? t('market.riskOn') : 'Risk Off';
+  const riskLabel = score >= 55 ? t('market.riskOn') : t('marketCard.riskOff');
+  const sentimentGaugeLabel =
+    score >= 75 ? t('marketCard.extremeGreed') :
+    score >= 55 ? t('marketCard.greed') :
+    score >= 45 ? t('marketCard.neutral') :
+    score >= 25 ? t('marketCard.fear') :
+    t('marketCard.extremeFear');
 
   return (
     <View style={styles.card}>
@@ -133,13 +133,13 @@ export default function SentimentCard({ score }: SentimentCardProps) {
         <Text style={styles.title}>{riskLabel}</Text>
       </View>
 
-      <GaugeArc score={score} />
+      <GaugeArc score={score} label={sentimentGaugeLabel} />
 
       {/* Bullet points */}
       <View style={styles.bullets}>
-        <Bullet icon="✅" text="Institutional inflows +12% YoY" type="positive" />
-        <Bullet icon="✅" text="Macro liquidity increasing" type="positive" />
-        <Bullet icon="⚠️" text="Retail sentiment peaking" type="warning" />
+        <Bullet icon="✅" text={t('marketCard.institutionalInflows')} type="positive" />
+        <Bullet icon="✅" text={t('marketCard.macroLiquidity')} type="positive" />
+        <Bullet icon="⚠️" text={t('marketCard.retailSentiment')} type="warning" />
       </View>
     </View>
   );

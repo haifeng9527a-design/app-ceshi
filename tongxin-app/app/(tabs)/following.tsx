@@ -14,6 +14,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { Colors, Shadows } from '../../theme/colors';
 import { useAuthStore } from '../../services/store/authStore';
+import AppIcon from '../../components/ui/AppIcon';
 import {
   getMyWatchedTraders,
   unwatchTrader,
@@ -81,7 +82,7 @@ export default function FollowingScreen() {
   if (!user) {
     return (
       <View style={styles.centered}>
-        <Text style={styles.emptyIcon}>🔒</Text>
+        <AppIcon name="lock" size={28} color={Colors.textMuted} />
         <Text style={styles.emptyTitle}>请先登录</Text>
         <Text style={styles.emptySubtitle}>登录后可查看关注列表</Text>
         <TouchableOpacity
@@ -207,7 +208,7 @@ export default function FollowingScreen() {
 
       {traders.length === 0 ? (
         <View style={styles.centered}>
-          <Text style={styles.emptyIcon}>👁</Text>
+          <AppIcon name="eye" size={28} color={Colors.textMuted} />
           <Text style={styles.emptyTitle}>暂无关注</Text>
           <Text style={styles.emptySubtitle}>去排行榜发现优秀交易员</Text>
           <TouchableOpacity
@@ -425,10 +426,6 @@ const styles = StyleSheet.create({
   },
 
   // Empty State
-  emptyIcon: {
-    fontSize: 48,
-    marginBottom: 16,
-  },
   emptyTitle: {
     color: Colors.textActive,
     fontSize: 18,

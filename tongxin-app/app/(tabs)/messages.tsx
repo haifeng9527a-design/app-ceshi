@@ -1131,8 +1131,9 @@ function ConvoRow({
       <AvatarCircle name={convo.name} size={44} online={convo.online} imageUrl={convo.avatarUrl} />
       <View style={styles.convoInfo}>
         <View style={styles.convoNameRow}>
+          {convo.isGroup && <AppIcon name="users-plus" size={14} color={Colors.textMuted} />}
           <Text style={styles.convoName} numberOfLines={1}>
-            {convo.isGroup ? '👥 ' : ''}{convo.name}
+            {convo.name}
           </Text>
           {convo.verified && <AppIcon name="verified" size={14} color={Colors.primary} strokeWidth={2.1} />}
           {!!badgeLabel && (

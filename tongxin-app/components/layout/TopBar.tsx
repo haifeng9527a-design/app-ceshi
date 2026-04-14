@@ -2,6 +2,7 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-nativ
 import { useTranslation } from 'react-i18next';
 import { Colors, Sizes } from '../../theme/colors';
 import { useAuthStore } from '../../services/store/authStore';
+import AppIcon from '../ui/AppIcon';
 
 interface TopBarProps {
   searchQuery: string;
@@ -17,7 +18,7 @@ export default function TopBar({ searchQuery, onSearchChange, wsConnected }: Top
     <View style={styles.container}>
       {/* Search */}
       <View style={styles.searchBox}>
-        <Text style={styles.searchIcon}>🔍</Text>
+        <AppIcon name="search" size={14} color={Colors.textMuted} />
         <TextInput
           style={styles.searchInput}
           placeholder={t('market.searchPairs')}
@@ -46,7 +47,7 @@ export default function TopBar({ searchQuery, onSearchChange, wsConnected }: Top
 
         {/* Notification */}
         <TouchableOpacity style={styles.iconBtn}>
-          <Text style={styles.iconEmoji}>🔔</Text>
+          <AppIcon name="bell" size={16} color={Colors.textSecondary} />
         </TouchableOpacity>
 
         {/* User Avatar */}

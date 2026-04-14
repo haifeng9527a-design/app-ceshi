@@ -19,6 +19,7 @@ import EquityCurve from '../../components/chart/EquityCurve';
 import { useAuthStore } from '../../services/store/authStore';
 import { useMarketStore } from '../../services/store/marketStore';
 import { marketWs } from '../../services/websocket/marketWs';
+import AppIcon from '../../components/ui/AppIcon';
 import {
   getTraderProfile,
   getTraderPositions,
@@ -193,7 +194,7 @@ export default function TraderDetailScreen() {
     : sentimentScore >= -25 ? '谨慎观望 Neutral'
     : sentimentScore >= -60 ? '偏空看跌 Bearish'
     : '强力看跌 Strong Bearish';
-  const sentimentIcon = sentimentScore >= 25 ? '📈' : sentimentScore >= -25 ? '📊' : '📉';
+  const sentimentIcon = sentimentScore >= 25 ? 'trend-up' : sentimentScore >= -25 ? 'market' : 'trend-down';
 
   return (
     <View style={styles.container}>
@@ -336,7 +337,7 @@ export default function TraderDetailScreen() {
                     {riskLevel} PROFILE
                   </Text>
                 </View>
-                <Text style={styles.shieldIcon}>🛡</Text>
+                <AppIcon name="shield" size={22} color={Colors.primary} />
               </View>
               <View style={styles.riskMetrics}>
                 <RiskBar label="夏普比率 Sharpe Ratio" value={sharpeRatio} pct={sharpePct} />
@@ -354,9 +355,9 @@ export default function TraderDetailScreen() {
             {/* Market Sentiment */}
             <View style={[styles.glassCard, styles.sentimentCardWrapper, { marginBottom: 0 }]}>
               <View style={styles.sentimentRow}>
-                <View style={styles.sentimentIcon}>
-                  <Text style={{ fontSize: 22 }}>{sentimentIcon}</Text>
-                </View>
+              <View style={styles.sentimentIcon}>
+                  <AppIcon name={sentimentIcon} size={22} color={sentimentScore >= -25 && sentimentScore < 25 ? Colors.primary : sentimentScore >= 25 ? Colors.up : Colors.down} />
+              </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.sentimentLabel}>当前情绪 Market Sentiment</Text>
                   <Text style={styles.sentimentValue}>
@@ -377,7 +378,7 @@ export default function TraderDetailScreen() {
           <View style={[styles.glassCard, { marginBottom: isDesktop ? 0 : 16 }, isDesktop && { flex: 1, minWidth: 0 }]}>
             <View style={styles.sectionHeader}>
               <View style={styles.sectionTitleRow}>
-                <Text style={styles.sectionTitleIcon}>📊</Text>
+                <AppIcon name="chart" size={16} color={Colors.primary} />
                 <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>当前持仓 Open Positions</Text>
               </View>
               {livePositions.length > 0 && (
@@ -428,7 +429,7 @@ export default function TraderDetailScreen() {
           <View style={[styles.glassCard, { marginBottom: 0 }, isDesktop && { flex: 1, minWidth: 0 }]}>
             <View style={styles.sectionHeader}>
               <View style={styles.sectionTitleRow}>
-                <Text style={styles.sectionTitleIcon}>🕐</Text>
+                <AppIcon name="clock" size={16} color={Colors.primary} />
                 <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>最近成交 Recent Trades</Text>
               </View>
               <TouchableOpacity>

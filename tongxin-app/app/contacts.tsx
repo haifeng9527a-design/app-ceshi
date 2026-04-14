@@ -23,6 +23,7 @@ import {
   createDirectConversation,
   type PeerProfile,
 } from '../services/api/messagesApi';
+import AppIcon from '../components/ui/AppIcon';
 
 function AvatarCircle({ name, size = 48, imageUrl }: { name: string; size?: number; imageUrl?: string | null }) {
   const letter = (name || '?').charAt(0).toUpperCase();
@@ -193,7 +194,7 @@ export default function ContactsScreen() {
         {/* WeChat-style row */}
         <View style={styles.wechatRow}>
           <View style={styles.wechatRowIcon}>
-            <Text style={{ fontSize: 22 }}>👤</Text>
+            <AppIcon name="user" size={22} color={Colors.textSecondary} />
             {newFriendTotal > 0 ? (
               <View style={styles.rowBadge}>
                 <Text style={styles.rowBadgeText}>{newFriendTotal > 99 ? '99+' : newFriendTotal}</Text>
@@ -308,7 +309,7 @@ export default function ContactsScreen() {
                 {openingChat === f.user_id ? (
                   <ActivityIndicator size="small" color={Colors.primary} />
                 ) : (
-                  <Text style={styles.chatIcon}>💬</Text>
+                  <AppIcon name="message" size={18} color={Colors.primary} />
                 )}
               </TouchableOpacity>
             ))

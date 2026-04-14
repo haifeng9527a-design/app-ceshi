@@ -1,15 +1,17 @@
 import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
+import type { ReactNode } from 'react';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { Colors, Sizes, Shadows } from '../../theme/colors';
 import { useMarketStore } from '../../services/store/marketStore';
 import { usePriceFlash } from '../../hooks/usePriceFlash';
 import type { MarketQuote } from '../../services/api/client';
+import AppIcon from '../ui/AppIcon';
 
 interface AssetListCardProps {
   title: string;
   subtitle?: string;
-  icon: string;
+  icon: ReactNode;
   items: MarketQuote[];
   showViewAll?: boolean;
   onViewAll?: () => void;
@@ -103,9 +105,7 @@ function AssetRow({ item, showWatchlistToggle }: { item: MarketQuote; showWatchl
           }}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
-          <Text style={[styles.star, isWatched && styles.starActive]}>
-            {isWatched ? '★' : '☆'}
-          </Text>
+          <AppIcon name="watchlist" size={16} color={isWatched ? Colors.primary : Colors.textMuted} />
         </TouchableOpacity>
       )}
     </TouchableOpacity>
@@ -129,7 +129,7 @@ export default function AssetListCard({
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Text style={styles.headerIcon}>{icon}</Text>
+            <View style={styles.headerIcon}>{icon}</View>
             <Text style={styles.headerTitle}>{title}</Text>
           </View>
           {subtitle ? (
@@ -180,8 +180,9 @@ const styles = StyleSheet.create({
     borderBottomColor: Colors.border,
   },
   headerIcon: {
-    fontSize: 16,
     marginRight: 8,
+    width: 18,
+    alignItems: 'center',
   },
   headerTitle: {
     color: Colors.textActive,

@@ -29,6 +29,7 @@ import {
   createDirectConversation,
   type FriendProfile,
 } from '../services/api/messagesApi';
+import AppIcon, { type AppIconName } from '../components/ui/AppIcon';
 
 /* ════════════════════════════════════════
    Teacher type (lightweight)
@@ -59,10 +60,10 @@ const MOCK_TRADERS: RecommendedTrader[] = [
 
 type SearchTab = 'email' | 'id' | 'qrcode';
 
-const TABS: { key: SearchTab; icon: string; label: string }[] = [
-  { key: 'email', icon: '✉️', label: '邮箱' },
-  { key: 'id', icon: '🔑', label: '账号ID' },
-  { key: 'qrcode', icon: '⊞', label: '二维码' },
+const TABS: { key: SearchTab; icon: AppIconName; label: string }[] = [
+  { key: 'email', icon: 'mail', label: '邮箱' },
+  { key: 'id', icon: 'key', label: '账号ID' },
+  { key: 'qrcode', icon: 'qr', label: '二维码' },
 ];
 
 function normId(s: string | undefined | null): string {
@@ -113,7 +114,7 @@ function QRCodeTab({
   user,
   onScanned,
 }: {
-  user: { uid: string; displayName: string | null; email: string | null; shortId?: string };
+  user: { uid: string; displayName: string | null; email: string | null; shortId?: string; photoURL?: string | null };
   onScanned: (uid: string) => void;
 }) {
   const [qrMode, setQRMode] = useState<'my' | 'scan'>('my');
@@ -186,7 +187,7 @@ function QRCodeTab({
         <View style={{ flex: 1, minHeight: 300 }}>
           {Platform.OS === 'web' ? (
             <View style={s.qrWebFallback}>
-              <Text style={{ fontSize: 48 }}>📷</Text>
+              <AppIcon name="camera" size={48} color={Colors.textMuted} />
               <Text style={s.qrWebText}>扫码功能需在移动设备上使用</Text>
               <Text style={s.qrWebSubText}>请使用手机 App 扫描二维码添加好友</Text>
             </View>
@@ -396,7 +397,11 @@ export default function AddFriendPage() {
                 onPress={() => { setActiveTab(tab.key); setSearchQuery(''); setSearchResults([]); }}
                 activeOpacity={0.7}
               >
-                <Text style={s.tabIcon}>{tab.icon}</Text>
+                <AppIcon
+                  name={tab.icon}
+                  size={18}
+                  color={activeTab === tab.key ? Colors.primary : Colors.textSecondary}
+                />
                 <Text style={[s.tabLabel, activeTab === tab.key && s.tabLabelActive]}>
                   {tab.label}
                 </Text>
@@ -424,7 +429,7 @@ export default function AddFriendPage() {
                 <View style={s.fieldGroup}>
                   <Text style={s.fieldLabel}>SEARCH CREDENTIALS</Text>
                   <View style={s.inputWrap}>
-                    <Text style={s.inputIcon}>🔍</Text>
+                    <AppIcon name="search" size={16} color={Colors.textMuted} />
                     <TextInput
                       style={s.input}
                       placeholder={placeholder}
@@ -450,7 +455,7 @@ export default function AddFriendPage() {
                     <ActivityIndicator color={Colors.background} size="small" />
                   ) : (
                     <>
-                      <Text style={s.searchBtnIcon}>🔎</Text>
+                      <AppIcon name="search" size={18} color={Colors.background} />
                       <Text style={s.searchBtnText}>搜索</Text>
                     </>
                   )}
@@ -531,7 +536,7 @@ export default function AddFriendPage() {
                 {creating === f.user_id ? (
                   <ActivityIndicator size="small" color={Colors.primary} />
                 ) : (
-                  <Text style={{ fontSize: 20 }}>💬</Text>
+                  <AppIcon name="message" size={18} color={Colors.primary} />
                 )}
               </TouchableOpacity>
             ))}

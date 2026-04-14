@@ -18,6 +18,7 @@ import EquityCurve from '../chart/EquityCurve';
 import { useAuthStore } from '../../services/store/authStore';
 import { useMarketStore } from '../../services/store/marketStore';
 import { marketWs } from '../../services/websocket/marketWs';
+import AppIcon from '../ui/AppIcon';
 import {
   getTraderProfile,
   getTraderPositions,
@@ -252,7 +253,7 @@ export default function TraderDetailPanel({ uid, onClose, embedded }: Props) {
     : sentimentScore >= -25 ? '谨慎观望 Neutral'
     : sentimentScore >= -60 ? '偏空看跌 Bearish'
     : '强力看跌 Strong Bearish';
-  const sentimentIcon = sentimentScore >= 25 ? '📈' : sentimentScore >= -25 ? '📊' : '📉';
+  const sentimentIcon = sentimentScore >= 25 ? 'trend-up' : sentimentScore >= -25 ? 'market' : 'trend-down';
 
   return (
     <View style={styles.container}>
@@ -424,7 +425,7 @@ export default function TraderDetailPanel({ uid, onClose, embedded }: Props) {
                     {riskLevel} PROFILE
                   </Text>
                 </View>
-                <Text style={styles.shieldIcon}>🛡</Text>
+                <AppIcon name="shield" size={22} color={Colors.primary} />
               </View>
               <View style={styles.riskMetrics}>
                 <RiskBar label="夏普比率 Sharpe Ratio" value={sharpeRatio} pct={sharpePct} />
@@ -443,7 +444,7 @@ export default function TraderDetailPanel({ uid, onClose, embedded }: Props) {
             <View style={[styles.glassCard, styles.sentimentCardWrapper, { marginBottom: 0 }]}>
               <View style={styles.sentimentRow}>
                 <View style={styles.sentimentIcon}>
-                  <Text style={{ fontSize: 22 }}>{sentimentIcon}</Text>
+                  <AppIcon name={sentimentIcon} size={22} color={sentimentScore >= -25 && sentimentScore < 25 ? Colors.primary : sentimentScore >= 25 ? Colors.up : Colors.down} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.sentimentLabel}>当前情绪 MARKET SENTIMENT ({sentimentScore > 0 ? '+' : ''}{sentimentScore})</Text>
@@ -461,7 +462,7 @@ export default function TraderDetailPanel({ uid, onClose, embedded }: Props) {
           <View style={styles.glassCard}>
             <View style={styles.sectionHeader}>
               <View style={styles.sectionTitleRow}>
-                <Text style={styles.sectionTitleIcon}>📝</Text>
+                <AppIcon name="paper" size={16} color={Colors.primary} />
                 <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>策略文章 Strategies</Text>
               </View>
               <View style={styles.activeBadge}>
@@ -490,13 +491,19 @@ export default function TraderDetailPanel({ uid, onClose, embedded }: Props) {
                         <Text style={styles.strategyCategoryText}>{categoryLabels[s.category] || s.category}</Text>
                       </View>
                       <Text style={styles.strategyMetaText}>{date}</Text>
-                      <Text style={styles.strategyMetaText}>👁 {s.views}</Text>
-                      <Text style={styles.strategyMetaText}>❤️ {s.likes}</Text>
+                      <View style={styles.strategyMetaInline}>
+                        <AppIcon name="eye" size={12} color={Colors.textMuted} />
+                        <Text style={styles.strategyMetaText}>{s.views}</Text>
+                      </View>
+                      <View style={styles.strategyMetaInline}>
+                        <AppIcon name="heart" size={12} color={Colors.textMuted} />
+                        <Text style={styles.strategyMetaText}>{s.likes}</Text>
+                      </View>
                     </View>
                   </View>
                   {s.cover_image ? (
                     <View style={styles.strategyCover}>
-                      <Text style={{ fontSize: 20 }}>📄</Text>
+                      <AppIcon name="paper" size={20} color={Colors.textMuted} />
                     </View>
                   ) : null}
                 </TouchableOpacity>
@@ -511,7 +518,7 @@ export default function TraderDetailPanel({ uid, onClose, embedded }: Props) {
           <View style={[styles.glassCard, { marginBottom: isDesktop ? 0 : 16 }, isDesktop && { flex: 1, minWidth: 0 }]}>
             <View style={styles.sectionHeader}>
               <View style={styles.sectionTitleRow}>
-                <Text style={styles.sectionTitleIcon}>📊</Text>
+                <AppIcon name="chart" size={16} color={Colors.primary} />
                 <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>当前持仓 Open Positions</Text>
               </View>
               {livePositions.length > 0 && (
@@ -562,7 +569,7 @@ export default function TraderDetailPanel({ uid, onClose, embedded }: Props) {
           <View style={[styles.glassCard, { marginBottom: 0 }, isDesktop && { flex: 1, minWidth: 0 }]}>
             <View style={styles.sectionHeader}>
               <View style={styles.sectionTitleRow}>
-                <Text style={styles.sectionTitleIcon}>🕐</Text>
+                <AppIcon name="clock" size={16} color={Colors.primary} />
                 <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>最近成交 Recent Trades</Text>
               </View>
               <TouchableOpacity>
@@ -1042,6 +1049,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+  },
+  strategyMetaInline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   strategyCategoryTag: {
     backgroundColor: Colors.primaryDim,

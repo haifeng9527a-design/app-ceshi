@@ -1,5 +1,7 @@
 import { View, Text, TouchableOpacity, Image, StyleSheet, Linking } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { Colors, Sizes, Shadows } from '../../theme/colors';
+import AppIcon from '../ui/AppIcon';
 import type { NewsItem } from '../../services/store/marketStore';
 
 interface NewsCardProps {
@@ -19,13 +21,15 @@ function timeAgo(dateStr?: string): string {
 }
 
 export default function NewsCard({ items, loading }: NewsCardProps) {
+  const { t } = useTranslation();
+
   if (loading) {
     return (
       <View style={styles.card}>
         <View style={styles.badge}>
-          <Text style={styles.badgeText}>MACRO SPOTLIGHT</Text>
+          <Text style={styles.badgeText}>{t('market.macroSpotlight')}</Text>
         </View>
-        <Text style={styles.loadingText}>Loading news...</Text>
+        <Text style={styles.loadingText}>{t('marketCard.loadingNews')}</Text>
       </View>
     );
   }
@@ -34,9 +38,9 @@ export default function NewsCard({ items, loading }: NewsCardProps) {
     return (
       <View style={styles.card}>
         <View style={styles.badge}>
-          <Text style={styles.badgeText}>MACRO SPOTLIGHT</Text>
+          <Text style={styles.badgeText}>{t('market.macroSpotlight')}</Text>
         </View>
-        <Text style={styles.loadingText}>No news available</Text>
+        <Text style={styles.loadingText}>{t('marketCard.noNews')}</Text>
       </View>
     );
   }
@@ -55,7 +59,7 @@ export default function NewsCard({ items, loading }: NewsCardProps) {
         {/* Left: text */}
         <View style={styles.featuredText}>
           <View style={styles.badge}>
-            <Text style={styles.badgeText}>MACRO SPOTLIGHT</Text>
+            <Text style={styles.badgeText}>{t('market.macroSpotlight')}</Text>
           </View>
           <Text style={styles.featuredTitle} numberOfLines={2}>
             {featured.headline}
@@ -71,7 +75,7 @@ export default function NewsCard({ items, loading }: NewsCardProps) {
             ) : null}
             <Text style={styles.time}>{timeAgo(featured.publishedUtc)}</Text>
           </View>
-          <Text style={styles.readMore}>Read Institutional Analysis →</Text>
+          <Text style={styles.readMore}>{t('marketCard.readAnalysis')} →</Text>
         </View>
 
         {/* Right: image */}
@@ -83,7 +87,7 @@ export default function NewsCard({ items, loading }: NewsCardProps) {
           />
         ) : (
           <View style={styles.imagePlaceholder}>
-            <Text style={styles.placeholderIcon}>📊</Text>
+            <AppIcon name="market" size={28} color={Colors.textMuted} />
           </View>
         )}
       </TouchableOpacity>
@@ -196,9 +200,6 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.border,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  placeholderIcon: {
-    fontSize: 28,
   },
   // More news
   moreSection: {

@@ -22,6 +22,7 @@ import { useMarketStore } from '../../services/store/marketStore';
 import { marketWs } from '../../services/websocket/marketWs';
 import { Config } from '../../services/config';
 import ApplicationForm from '../../components/trader/ApplicationForm';
+import AppIcon from '../../components/ui/AppIcon';
 import {
   getMyApplication,
   getMyStats,
@@ -298,7 +299,7 @@ export default function TraderCenterScreen() {
     : sentimentScore >= -25 ? '谨慎观望 Neutral'
     : sentimentScore >= -60 ? '偏空看跌 Bearish'
     : '强力看跌 Strong Bearish';
-  const sentimentIcon = sentimentScore >= 25 ? '📈' : sentimentScore >= -25 ? '📊' : '📉';
+  const sentimentIcon = sentimentScore >= 25 ? 'trend-up' : sentimentScore >= -25 ? 'market' : 'trend-down';
 
   return (
     <ScrollView
@@ -406,7 +407,7 @@ export default function TraderCenterScreen() {
                   {riskLevel} PROFILE
                 </Text>
               </View>
-              <Text style={styles.shieldIcon}>🛡</Text>
+              <AppIcon name="shield" size={22} color={Colors.primary} />
             </View>
             <View style={styles.riskMetrics}>
               <RiskBar label="夏普比率 Sharpe Ratio" value={sharpeRatio} pct={sharpePct} />
@@ -424,7 +425,7 @@ export default function TraderCenterScreen() {
           <View style={[styles.glassCard, styles.sentimentCardWrapper, { marginBottom: 0 }]}>
             <View style={styles.sentimentRow}>
               <View style={styles.sentimentIcon}>
-                <Text style={{ fontSize: 22 }}>{sentimentIcon}</Text>
+                <AppIcon name={sentimentIcon} size={22} color={sentimentScore >= -25 && sentimentScore < 25 ? Colors.primary : sentimentScore >= 25 ? Colors.up : Colors.down} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.sentimentLabel}>当前情绪 MARKET SENTIMENT ({sentimentScore > 0 ? '+' : ''}{sentimentScore})</Text>
@@ -441,20 +442,23 @@ export default function TraderCenterScreen() {
       <View style={[styles.glassCard, { marginBottom: 16 }]}>
         <View style={styles.sectionHeader}>
           <View style={styles.sectionTitleRow}>
-            <Text style={styles.sectionTitleIcon}>📝</Text>
+            <AppIcon name="paper" size={16} color={Colors.primary} />
             <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>我的策略 My Strategies</Text>
           </View>
           <TouchableOpacity
             style={styles.writeBtn}
             onPress={() => router.push('/strategy/editor' as any)}
           >
-            <Text style={styles.writeBtnText}>✍️ 发布策略</Text>
+            <View style={styles.writeBtnInner}>
+              <AppIcon name="paper" size={15} color={Colors.background} />
+              <Text style={styles.writeBtnText}>发布策略</Text>
+            </View>
           </TouchableOpacity>
         </View>
 
         {strategies.length === 0 ? (
           <View style={styles.emptyStrategy}>
-            <Text style={styles.emptyStrategyIcon}>📄</Text>
+            <AppIcon name="paper" size={26} color={Colors.textMuted} />
             <Text style={styles.emptyText}>还没有发布策略</Text>
             <Text style={[styles.emptyText, { fontSize: 12, marginTop: 4 }]}>
               分享你的交易见解，建立影响力
@@ -481,8 +485,14 @@ export default function TraderCenterScreen() {
                   <Text style={styles.strategySummary} numberOfLines={2}>{s.summary}</Text>
                   <View style={styles.strategyMeta}>
                     <Text style={styles.strategyMetaText}>{date}</Text>
-                    <Text style={styles.strategyMetaText}>· {s.views} 阅读</Text>
-                    <Text style={styles.strategyMetaText}>· {s.likes} 赞</Text>
+                    <View style={styles.strategyMetaInline}>
+                      <AppIcon name="eye" size={12} color={Colors.textMuted} />
+                      <Text style={styles.strategyMetaText}>{s.views} 阅读</Text>
+                    </View>
+                    <View style={styles.strategyMetaInline}>
+                      <AppIcon name="heart" size={12} color={Colors.textMuted} />
+                      <Text style={styles.strategyMetaText}>{s.likes} 赞</Text>
+                    </View>
                   </View>
                 </View>
                 {s.cover_image ? (
@@ -500,7 +510,7 @@ export default function TraderCenterScreen() {
         <View style={[styles.glassCard, { marginBottom: isDesktop ? 0 : 16 }, isDesktop && { flex: 1, minWidth: 0 }]}>
           <View style={styles.sectionHeader}>
             <View style={styles.sectionTitleRow}>
-              <Text style={styles.sectionTitleIcon}>📊</Text>
+              <AppIcon name="chart" size={16} color={Colors.primary} />
               <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>当前持仓 Open Positions</Text>
             </View>
             {livePositions.length > 0 && (
@@ -550,7 +560,7 @@ export default function TraderCenterScreen() {
         <View style={[styles.glassCard, { marginBottom: 0 }, isDesktop && { flex: 1, minWidth: 0 }]}>
           <View style={styles.sectionHeader}>
             <View style={styles.sectionTitleRow}>
-              <Text style={styles.sectionTitleIcon}>🕐</Text>
+              <AppIcon name="clock" size={16} color={Colors.primary} />
               <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>最近成交 Recent Trades</Text>
             </View>
             <TouchableOpacity>
@@ -597,7 +607,7 @@ export default function TraderCenterScreen() {
         <View style={[styles.glassCard, { marginBottom: isDesktop ? 0 : 16 }, isDesktop && { flex: 1, minWidth: 0 }]}>
           <View style={styles.sectionHeader}>
             <View style={styles.sectionTitleRow}>
-              <Text style={styles.sectionTitleIcon}>⚙️</Text>
+              <AppIcon name="settings" size={16} color={Colors.primary} />
               <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>跟单管理 Copy Trading</Text>
             </View>
           </View>
@@ -621,7 +631,7 @@ export default function TraderCenterScreen() {
         <View style={[styles.glassCard, { marginBottom: 0 }, isDesktop && { flex: 1, minWidth: 0 }]}>
           <View style={styles.sectionHeader}>
             <View style={styles.sectionTitleRow}>
-              <Text style={styles.sectionTitleIcon}>👥</Text>
+              <AppIcon name="users" size={16} color={Colors.primary} />
               <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>我的跟单者 Followers</Text>
             </View>
             <View style={styles.activeBadge}>
@@ -1034,6 +1044,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.primary,
   },
+  writeBtnInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   writeBtnText: {
     color: Colors.primary,
     fontSize: 13,
@@ -1042,11 +1057,6 @@ const styles = StyleSheet.create({
   emptyStrategy: {
     alignItems: 'center',
     paddingVertical: 32,
-  },
-  emptyStrategyIcon: {
-    fontSize: 36,
-    marginBottom: 8,
-    opacity: 0.5,
   },
   strategyItem: {
     flexDirection: 'row',
@@ -1080,8 +1090,14 @@ const styles = StyleSheet.create({
   },
   strategyMeta: {
     flexDirection: 'row',
+    alignItems: 'center',
     gap: 6,
     marginTop: 8,
+  },
+  strategyMetaInline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   strategyMetaText: {
     color: Colors.textMuted,

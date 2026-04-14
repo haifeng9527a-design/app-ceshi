@@ -19,6 +19,7 @@ import * as ImagePicker from 'expo-image-picker';
 import apiClient, { getStoredToken } from '../../services/api/client';
 import { useAuthStore } from '../../services/store/authStore';
 import { Colors, Sizes, Shadows } from '../../theme/colors';
+import AppIcon, { type AppIconName } from '../../components/ui/AppIcon';
 
 function AvatarCircle({ name, size = 84, imageUrl }: { name: string; size?: number; imageUrl?: string | null }) {
   const letter = (name || '?').charAt(0).toUpperCase();
@@ -49,7 +50,7 @@ type QuickAction = {
   key: string;
   title: string;
   description: string;
-  icon: string;
+  icon: AppIconName;
   onPress: () => void;
 };
 
@@ -295,7 +296,7 @@ export default function ProfileScreen() {
         key: 'trading',
         title: '交易中心',
         description: '快速进入交易页，查看资产、持仓与下单面板。',
-        icon: '📊',
+        icon: 'chart',
         onPress: () => router.push('/(tabs)/trading' as any),
       },
       {
@@ -304,21 +305,21 @@ export default function ProfileScreen() {
         description: user?.isTrader
           ? '进入交易员中心管理策略、跟单设置和交易员资料。'
           : '先进入交易员中心，查看认证与策略发布能力。',
-        icon: '💡',
+        icon: 'bulb',
         onPress: () => router.push('/(tabs)/trader-center' as any),
       },
       {
         key: 'friends',
         title: '交易玩友',
         description: '查看好友、好友申请和群聊相关入口。',
-        icon: '👥',
+        icon: 'users',
         onPress: () => router.push('/contacts' as any),
       },
       {
         key: 'public-profile',
         title: '公开主页',
         description: user?.isTrader ? '查看外部用户看到的交易员主页。' : '成为交易员后，这里会显示你的公开主页。',
-        icon: '🌐',
+        icon: 'globe',
         onPress: () => {
           if (user?.isTrader) {
             router.push(`/trader/${user.uid}` as any);
@@ -393,7 +394,7 @@ export default function ProfileScreen() {
           {quickActions.map((action) => (
             <TouchableOpacity key={action.key} style={styles.tile} activeOpacity={0.85} onPress={action.onPress}>
               <View style={styles.tileIconWrap}>
-                <Text style={styles.tileIcon}>{action.icon}</Text>
+                <AppIcon name={action.icon} size={20} color={Colors.primary} />
               </View>
               <Text style={styles.tileTitle}>{action.title}</Text>
               <Text style={styles.tileDesc}>{action.description}</Text>
@@ -406,13 +407,13 @@ export default function ProfileScreen() {
         </View>
 
         <View style={styles.menuCard}>
-          <MenuItem icon="👥" label="交易玩友" description="进入通讯录和好友管理" onPress={() => router.push('/contacts' as any)} />
-          <MenuItem icon="❓" label="帮助中心" description="查看常见问题和使用说明" onPress={() => router.push('/help' as any)} />
-          <MenuItem icon="🔒" label="隐私政策" description="查看平台数据与隐私说明" onPress={() => router.push('/privacy' as any)} />
-          <MenuItem icon="🏪" label="交易员市场" description="查看排行榜和活跃交易员" onPress={() => router.push('/(tabs)/rankings' as any)} />
-          <MenuItem icon="🤖" label="投诉建议" description="提交投诉或建议反馈" onPress={() => router.push('/settings/feedback' as any)} />
+          <MenuItem icon="users" label="交易玩友" description="进入通讯录和好友管理" onPress={() => router.push('/contacts' as any)} />
+          <MenuItem icon="help" label="帮助中心" description="查看常见问题和使用说明" onPress={() => router.push('/help' as any)} />
+          <MenuItem icon="lock" label="隐私政策" description="查看平台数据与隐私说明" onPress={() => router.push('/privacy' as any)} />
+          <MenuItem icon="market" label="交易员市场" description="查看排行榜和活跃交易员" onPress={() => router.push('/(tabs)/rankings' as any)} />
+          <MenuItem icon="bot" label="投诉建议" description="提交投诉或建议反馈" onPress={() => router.push('/settings/feedback' as any)} />
           <MenuItem
-            icon="🌐"
+            icon="globe"
             label="语言设置"
             description="切换中文或英文界面"
             rightText={currentLanguageLabel}
@@ -423,7 +424,7 @@ export default function ProfileScreen() {
 
         <View style={styles.destructRow}>
           <TouchableOpacity style={styles.logoutBtn} onPress={handleSignOut} activeOpacity={0.85}>
-            <Text style={styles.logoutIcon}>↩</Text>
+            <AppIcon name="logout" size={18} color={Colors.down} />
             <Text style={styles.logoutText}>退出登录</Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -431,7 +432,7 @@ export default function ProfileScreen() {
             activeOpacity={0.85}
             onPress={() => Alert.alert('暂不支持自助注销', '当前版本先不开放自助注销，请联系管理员或客服处理。')}
           >
-            <Text style={styles.deleteIcon}>🗑</Text>
+            <AppIcon name="trash" size={18} color={Colors.textMuted} />
             <Text style={styles.deleteText}>注销账户</Text>
           </TouchableOpacity>
         </View>
@@ -557,7 +558,7 @@ function MenuItem({
   last,
   disabled,
 }: {
-  icon: string;
+  icon: AppIconName;
   label: string;
   description: string;
   rightText?: string;
@@ -572,7 +573,7 @@ function MenuItem({
       onPress={disabled ? undefined : onPress}
     >
       <View style={styles.menuIconWrap}>
-        <Text style={styles.menuIcon}>{icon}</Text>
+        <AppIcon name={icon} size={18} color={Colors.primary} />
       </View>
       <View style={styles.menuContent}>
         <Text style={styles.menuLabel}>{label}</Text>

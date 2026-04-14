@@ -367,7 +367,7 @@ export default function MarketScreen() {
           <View style={styles.networkBadge}>
             <View style={[styles.networkDot, { backgroundColor: wsConnected ? Colors.online : Colors.offline }]} />
             <Text style={styles.networkText}>
-              {wsConnected ? 'Network Online' : 'Offline'}
+              {wsConnected ? t('market.networkOnline') : t('market.networkOffline')}
             </Text>
           </View>
         </View>
@@ -396,7 +396,7 @@ export default function MarketScreen() {
         <View style={[styles.assetGrid, isDesktop && styles.assetGridDesktop]}>
           <AssetListCard
             title={t('market.forex')}
-            subtitle="GLOBAL MAJORS"
+            subtitle={t('marketCard.globalMajors')}
             icon={<AppIcon name="forex" size={18} color={Colors.primary} />}
             items={forexItems.slice(0, 4)}
             showWatchlistToggle
@@ -404,7 +404,7 @@ export default function MarketScreen() {
           />
           <AssetListCard
             title={t('market.stocks')}
-            subtitle="ACTIVE NYSE"
+            subtitle={t('marketCard.activeNyse')}
             icon={<AppIcon name="market" size={18} color={Colors.primary} />}
             items={stockItems.slice(0, 4)}
             showWatchlistToggle
@@ -412,7 +412,7 @@ export default function MarketScreen() {
           />
           <AssetListCard
             title={t('market.crypto')}
-            subtitle="LIQUIDITY POOL"
+            subtitle={t('marketCard.liquidityPool')}
             icon={<AppIcon name="bitcoin" size={18} color={Colors.primary} />}
             items={cryptoItems.slice(0, 4)}
             showWatchlistToggle
@@ -420,7 +420,7 @@ export default function MarketScreen() {
           />
           <AssetListCard
             title={t('market.futures', { defaultValue: '期货' })}
-            subtitle="FUTURES"
+            subtitle={t('marketCard.futuresDesk')}
             icon={<AppIcon name="futures" size={18} color={Colors.primary} />}
             items={futuresItems.slice(0, 4)}
             showWatchlistToggle
