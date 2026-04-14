@@ -248,7 +248,12 @@ func (h *MarketHub) listenForexWS() {
 	}
 }
 
-// pushQuote sends a single quote to all clients subscribed to that symbol
+// pushQuote sends a single quote to all clients subscribed to that symbol.
+// Only fields that have meaningful values are forwarded: tick-level updates
+// from Polygon carry price only, so explicitly emitting zero/nil for
+// high/low/volume/open/prev_close would overwrite the good OHLCV values the
+// client had previously merged from an aggregate (CAS/AM) message, producing
+// visible flicker in the chart page's stats bar.
 func (h *MarketHub) pushQuote(symbol string, quote map[string]any) {
 	// Trigger limit order check callback
 	if h.onPriceUpdate != nil {
@@ -258,17 +263,31 @@ func (h *MarketHub) pushQuote(symbol string, quote map[string]any) {
 	}
 
 	msg := map[string]any{
-		"type":           "quote",
-		"symbol":         symbol,
-		"price":          quote["price"],
-		"close":          quote["price"],
-		"open":           quote["open"],
-		"high":           quote["high"],
-		"low":            quote["low"],
-		"volume":         quote["volume"],
-		"change":         quote["change"],
-		"percent_change": quote["percent_change"],
-		"prev_close":     quote["prev_close"],
+		"type":   "quote",
+		"symbol": symbol,
+	}
+	// price / close must be a positive number to be meaningful.
+	if v, ok := quote["price"]; ok && isPositiveNumber(v) {
+		msg["price"] = v
+		msg["close"] = v
+	}
+	// Prices and volume: skip zero / missing so that sparse tick messages
+	// don't wipe the aggregate-derived fields on the client.
+	for _, k := range []string{"open", "high", "low", "volume", "prev_close"} {
+		if v, ok := quote[k]; ok && isPositiveNumber(v) {
+			msg[k] = v
+		}
+	}
+	// change / percent_change may legitimately be negative. Skip only when
+	// the key is absent entirely (the client recomputes from price - prev_close).
+	for _, k := range []string{"change", "percent_change"} {
+		if v, ok := quote[k]; ok && isNonZeroNumber(v) {
+			msg[k] = v
+		}
+	}
+	// Pass through the market label if provided (stocks/forex/futures/crypto)
+	if v, ok := quote["market"]; ok && v != nil {
+		msg["market"] = v
 	}
 
 	data, err := json.Marshal(msg)
@@ -486,5 +505,37 @@ func mapKeys(m map[string]bool) []string {
 		keys = append(keys, k)
 	}
 	return keys
+}
+
+// isPositiveNumber returns true when v is a numeric value strictly greater
+// than zero (used for prices and volume — zero means "unknown, don't send").
+func isPositiveNumber(v any) bool {
+	switch x := v.(type) {
+	case float64:
+		return x > 0
+	case float32:
+		return x > 0
+	case int:
+		return x > 0
+	case int64:
+		return x > 0
+	}
+	return false
+}
+
+// isNonZeroNumber returns true when v is a numeric value not equal to zero
+// (used for change / percent_change where negatives are legitimate).
+func isNonZeroNumber(v any) bool {
+	switch x := v.(type) {
+	case float64:
+		return x != 0
+	case float32:
+		return x != 0
+	case int:
+		return x != 0
+	case int64:
+		return x != 0
+	}
+	return false
 }
 
