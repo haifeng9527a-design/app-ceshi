@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -13,11 +13,12 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import * as ImagePicker from 'expo-image-picker';
 import apiClient, { getStoredToken } from '../../services/api/client';
 import { useAuthStore } from '../../services/store/authStore';
+import { useFeedbackStore } from '../../services/store/feedbackStore';
 import { Colors, Sizes, Shadows } from '../../theme/colors';
 import AppIcon, { type AppIconName } from '../../components/ui/AppIcon';
 
@@ -65,12 +66,21 @@ function formatFileSize(bytes: number) {
 }
 
 export default function ProfileScreen() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const router = useRouter();
   const { width } = useWindowDimensions();
   const isWeb = typeof document !== 'undefined';
   const { user, signOut, syncProfile } = useAuthStore();
+  const feedbackUnread = useFeedbackStore((s) => s.unreadCount);
+  const fetchFeedbackUnread = useFeedbackStore((s) => s.fetchUnreadCount);
   const isDesktop = width >= 768;
+
+  // 进入我的页面时刷新未读数（含 Tab 切换回来）
+  useFocusEffect(
+    useCallback(() => {
+      if (user) fetchFeedbackUnread();
+    }, [user, fetchFeedbackUnread])
+  );
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
@@ -78,7 +88,7 @@ export default function ProfileScreen() {
   const [avatarUrl, setAvatarUrl] = useState('');
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState('');
   const [avatarUploadProgress, setAvatarUploadProgress] = useState(0);
-  const [avatarUploadMessage, setAvatarUploadMessage] = useState('支持 JPG、PNG、GIF、WEBP，文件大小不超过 10MB。');
+  const [avatarUploadMessage, setAvatarUploadMessage] = useState(t('profile.avatarFormatsHint'));
   const [avatarUploadMeta, setAvatarUploadMeta] = useState<{ name: string; size: number } | null>(null);
   const [phone, setPhone] = useState('');
   const [bio, setBio] = useState('');
@@ -90,13 +100,13 @@ export default function ProfileScreen() {
     setAvatarPreviewUrl(user.photoURL || '');
     setAvatarUploadProgress(0);
     setAvatarUploadMeta(null);
-    setAvatarUploadMessage('支持 JPG、PNG、GIF、WEBP，文件大小不超过 10MB。');
+    setAvatarUploadMessage(t('profile.avatarFormatsHint'));
     setPhone(user.phone || '');
     setBio(user.signature || '');
   }, [user?.uid, user?.displayName, user?.photoURL, user?.phone, user?.signature]);
 
   const handleSignOut = () => {
-    Alert.alert(t('auth.logout'), '确定要退出登录吗？', [
+    Alert.alert(t('auth.logout'), t('profile.logoutConfirmBody'), [
       { text: t('common.cancel'), style: 'cancel' },
       {
         text: t('auth.logout'),
@@ -111,7 +121,7 @@ export default function ProfileScreen() {
 
   const handleSaveProfile = async () => {
     if (!displayName.trim()) {
-      Alert.alert('提示', '昵称不能为空。');
+      Alert.alert(t('profile.hintTitle'), t('profile.nicknameRequired'));
       return;
     }
     setSavingProfile(true);
@@ -124,11 +134,11 @@ export default function ProfileScreen() {
       });
       await syncProfile();
       setAvatarPreviewUrl(avatarUrl.trim());
-      setAvatarUploadMessage('头像与资料已保存。');
+      setAvatarUploadMessage(t('profile.avatarSaved'));
       setShowEditProfile(false);
-      Alert.alert('已更新', '个人资料已保存。');
+      Alert.alert(t('profile.updatedTitle'), t('profile.updatedBody'));
     } catch (e: any) {
-      Alert.alert('保存失败', e?.response?.data?.error || e?.message || '资料保存失败，请稍后重试。');
+      Alert.alert(t('profile.saveFailedTitle'), e?.response?.data?.error || e?.message || t('profile.saveFailedBody'));
     } finally {
       setSavingProfile(false);
     }
@@ -157,11 +167,11 @@ export default function ProfileScreen() {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(data?.error || '头像上传失败');
+        throw new Error(data?.error || t('profile.avatarUploadFailedBody'));
       }
       const rawUrl = data?.url || '';
       if (!rawUrl) {
-        throw new Error('上传成功但未返回图片地址');
+        throw new Error(t('profile.avatarMissingUrl'));
       }
       onProgress?.(100);
       return rawUrl.startsWith('http') ? rawUrl : `${apiClient.defaults.baseURL}${rawUrl}`;
@@ -182,7 +192,7 @@ export default function ProfileScreen() {
 
       const rawUrl = data?.url || '';
       if (!rawUrl) {
-        throw new Error('上传成功但未返回图片地址');
+        throw new Error(t('profile.avatarMissingUrl'));
       }
       return rawUrl.startsWith('http') ? rawUrl : `${apiClient.defaults.baseURL}${rawUrl}`;
     }
@@ -214,11 +224,11 @@ export default function ProfileScreen() {
       const size = asset.fileSize ?? 0;
       const mimeType = asset.mimeType || 'image/jpeg';
       if (size > MAX_AVATAR_UPLOAD_BYTES) {
-        setAvatarUploadMessage(`图片过大，当前 ${formatFileSize(size)}，请控制在 10MB 以内。`);
+        setAvatarUploadMessage(t('profile.avatarTooLarge', { size: formatFileSize(size) }));
         return;
       }
       if (mimeType && !ALLOWED_AVATAR_TYPES.includes(mimeType)) {
-        setAvatarUploadMessage('当前图片格式不支持，请使用 JPG、PNG、GIF 或 WEBP。');
+        setAvatarUploadMessage(t('profile.avatarInvalidFormat'));
         return;
       }
 
@@ -229,7 +239,7 @@ export default function ProfileScreen() {
       setAvatarPreviewUrl(asset.uri);
       setUploadingAvatar(true);
       setAvatarUploadProgress(0);
-      setAvatarUploadMessage('正在上传头像…');
+      setAvatarUploadMessage(t('profile.avatarUploading'));
       const uploadedUrl = await uploadAvatar(
         asset.uri,
         asset.fileName,
@@ -240,13 +250,13 @@ export default function ProfileScreen() {
       setAvatarUrl(uploadedUrl);
       setAvatarPreviewUrl(uploadedUrl);
       setAvatarUploadProgress(100);
-      setAvatarUploadMessage('上传完成，点“保存资料”后才会正式更新账号头像。');
-      Alert.alert('上传成功', '头像已上传，保存资料后会同步到账号。');
+      setAvatarUploadMessage(t('profile.avatarUploadedPendingSave'));
+      Alert.alert(t('profile.avatarUploadSuccessTitle'), t('profile.avatarUploadSuccessBody'));
     } catch (e: any) {
       setAvatarPreviewUrl(avatarUrl || user?.photoURL || '');
       setAvatarUploadProgress(0);
-      setAvatarUploadMessage(e?.response?.data?.error || e?.message || '头像上传失败，请检查网络后重试。');
-      Alert.alert('头像上传失败', e?.message || '请检查网络后重试。');
+      setAvatarUploadMessage(e?.response?.data?.error || e?.message || t('profile.avatarUploadFailedBody'));
+      Alert.alert(t('profile.avatarUploadFailedTitle'), e?.message || t('profile.avatarUploadFailedBody'));
     } finally {
       setUploadingAvatar(false);
     }
@@ -256,11 +266,11 @@ export default function ProfileScreen() {
     const file = event?.target?.files?.[0] as File | undefined;
     if (!file) return;
     if (file.size > MAX_AVATAR_UPLOAD_BYTES) {
-      setAvatarUploadMessage(`图片过大，当前 ${formatFileSize(file.size)}，请控制在 10MB 以内。`);
+      setAvatarUploadMessage(t('profile.avatarTooLarge', { size: formatFileSize(file.size) }));
       return;
     }
     if (file.type && !ALLOWED_AVATAR_TYPES.includes(file.type)) {
-      setAvatarUploadMessage('当前图片格式不支持，请使用 JPG、PNG、GIF 或 WEBP。');
+      setAvatarUploadMessage(t('profile.avatarInvalidFormat'));
       return;
     }
 
@@ -269,7 +279,7 @@ export default function ProfileScreen() {
     setAvatarPreviewUrl(localPreview);
     setUploadingAvatar(true);
     setAvatarUploadProgress(0);
-    setAvatarUploadMessage('正在上传头像…');
+    setAvatarUploadMessage(t('profile.avatarUploading'));
     try {
       const uploadedUrl = await uploadAvatar(localPreview, file.name, file.type, file, (percent) =>
         setAvatarUploadProgress(percent),
@@ -277,13 +287,13 @@ export default function ProfileScreen() {
       setAvatarUrl(uploadedUrl);
       setAvatarPreviewUrl(uploadedUrl);
       setAvatarUploadProgress(100);
-      setAvatarUploadMessage('上传完成，点“保存资料”后才会正式更新账号头像。');
-      Alert.alert('上传成功', '头像已上传，保存资料后会同步到账号。');
+      setAvatarUploadMessage(t('profile.avatarUploadedPendingSave'));
+      Alert.alert(t('profile.avatarUploadSuccessTitle'), t('profile.avatarUploadSuccessBody'));
     } catch (e: any) {
       setAvatarPreviewUrl(avatarUrl || user?.photoURL || '');
       setAvatarUploadProgress(0);
-      setAvatarUploadMessage(e?.response?.data?.error || e?.message || '头像上传失败，请检查网络后重试。');
-      Alert.alert('头像上传失败', e?.response?.data?.error || e?.message || '请检查网络后重试。');
+      setAvatarUploadMessage(e?.response?.data?.error || e?.message || t('profile.avatarUploadFailedBody'));
+      Alert.alert(t('profile.avatarUploadFailedTitle'), e?.response?.data?.error || e?.message || t('profile.avatarUploadFailedBody'));
     } finally {
       setUploadingAvatar(false);
       URL.revokeObjectURL(localPreview);
@@ -294,44 +304,47 @@ export default function ProfileScreen() {
     () => [
       {
         key: 'trading',
-        title: '交易中心',
-        description: '快速进入交易页，查看资产、持仓与下单面板。',
+        title: t('profile.tradingCenter'),
+        description: t('profile.tradingCenterDesc'),
         icon: 'chart',
         onPress: () => router.push('/(tabs)/trading' as any),
       },
       {
         key: 'strategy',
-        title: user?.isTrader ? '发布策略' : '交易员中心',
+        title: user?.isTrader ? t('profile.publishStrategy') : t('profile.traderCenterEntry'),
         description: user?.isTrader
-          ? '进入交易员中心管理策略、跟单设置和交易员资料。'
-          : '先进入交易员中心，查看认证与策略发布能力。',
+          ? t('profile.publishStrategyDesc')
+          : t('profile.traderCenterEntryDesc'),
         icon: 'bulb',
         onPress: () => router.push('/(tabs)/trader-center' as any),
       },
       {
         key: 'friends',
-        title: '交易玩友',
-        description: '查看好友、好友申请和群聊相关入口。',
+        title: t('profile.friendsEntry'),
+        description: t('profile.friendsEntryDesc'),
         icon: 'users',
         onPress: () => router.push('/contacts' as any),
       },
       {
         key: 'public-profile',
-        title: '公开主页',
-        description: user?.isTrader ? '查看外部用户看到的交易员主页。' : '成为交易员后，这里会显示你的公开主页。',
+        title: t('profile.publicProfile'),
+        description: user?.isTrader ? t('profile.publicProfileDesc') : t('profile.publicProfileLockedDesc'),
         icon: 'globe',
         onPress: () => {
           if (user?.isTrader) {
             router.push(`/trader/${user.uid}` as any);
             return;
           }
-          Alert.alert('暂未开放', '当前账号还不是认证交易员，公开主页暂不可用。');
+          Alert.alert(t('profile.publicProfileUnavailableTitle'), t('profile.publicProfileUnavailableBody'));
         },
       },
     ],
-    [router, user?.isTrader, user?.uid],
+    [router, t, user?.isTrader, user?.uid],
   );
-  const currentLanguageLabel = useMemo(() => (t('nav.profile') === '我的' ? '简体中文' : 'English'), [t]);
+  const currentLanguageLabel = useMemo(
+    () => (i18n.language.startsWith('zh') ? t('profile.languageZh') : t('profile.languageEn')),
+    [i18n.language, t],
+  );
 
   if (!user) {
     return (
@@ -358,8 +371,8 @@ export default function ProfileScreen() {
         ]}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.pageTitle}>我的</Text>
-        <Text style={styles.pageSub}>把账号资料、业务入口和设置放在一个真正可操作的面板里，而不是只展示静态菜单。</Text>
+        <Text style={styles.pageTitle}>{t('profile.title')}</Text>
+        <Text style={styles.pageSub}>{t('profile.pageSubtitle')}</Text>
 
         <View style={styles.headerCard}>
           <View style={styles.headerRow}>
@@ -378,15 +391,15 @@ export default function ProfileScreen() {
                   </View>
                 ) : null}
               </View>
-              <Text style={styles.metaLine}>UID: {user.uid || '--'}</Text>
-              <Text style={styles.metaLine}>Email: {user.email || '--'}</Text>
-              {user.phone ? <Text style={styles.metaLine}>Phone: {user.phone}</Text> : null}
+              <Text style={styles.metaLine}>{t('profile.uidLabel')}: {user.uid || '--'}</Text>
+              <Text style={styles.metaLine}>{t('profile.emailLabel')}: {user.email || '--'}</Text>
+              {user.phone ? <Text style={styles.metaLine}>{t('profile.phoneLabel')}: {user.phone}</Text> : null}
               {user.signature ? <Text style={styles.bioText}>{user.signature}</Text> : null}
             </View>
           </View>
 
           <TouchableOpacity style={styles.editBtn} activeOpacity={0.85} onPress={() => setShowEditProfile(true)}>
-            <Text style={styles.editBtnText}>编辑资料</Text>
+            <Text style={styles.editBtnText}>{t('profile.editProfile')}</Text>
           </TouchableOpacity>
         </View>
 
@@ -399,7 +412,7 @@ export default function ProfileScreen() {
               <Text style={styles.tileTitle}>{action.title}</Text>
               <Text style={styles.tileDesc}>{action.description}</Text>
               <View style={styles.tileCta}>
-                <Text style={styles.tileCtaText}>进入</Text>
+                <Text style={styles.tileCtaText}>{t('profile.enter')}</Text>
                 <Text style={styles.tileCtaArrow}>→</Text>
               </View>
             </TouchableOpacity>
@@ -407,15 +420,21 @@ export default function ProfileScreen() {
         </View>
 
         <View style={styles.menuCard}>
-          <MenuItem icon="users" label="交易玩友" description="进入通讯录和好友管理" onPress={() => router.push('/contacts' as any)} />
-          <MenuItem icon="help" label="帮助中心" description="查看常见问题和使用说明" onPress={() => router.push('/help' as any)} />
-          <MenuItem icon="lock" label="隐私政策" description="查看平台数据与隐私说明" onPress={() => router.push('/privacy' as any)} />
-          <MenuItem icon="market" label="交易员市场" description="查看排行榜和活跃交易员" onPress={() => router.push('/(tabs)/rankings' as any)} />
-          <MenuItem icon="bot" label="投诉建议" description="提交投诉或建议反馈" onPress={() => router.push('/settings/feedback' as any)} />
+          <MenuItem icon="users" label={t('profile.friendsEntry')} description={t('profile.friendsMenuDesc')} onPress={() => router.push('/contacts' as any)} />
+          <MenuItem icon="help" label={t('profile.help')} description={t('profile.helpMenuDesc')} onPress={() => router.push('/help' as any)} />
+          <MenuItem icon="lock" label={t('profile.privacyPolicy')} description={t('profile.privacyMenuDesc')} onPress={() => router.push('/privacy' as any)} />
+          <MenuItem icon="market" label={t('profile.traderMarket')} description={t('profile.traderMarketDesc')} onPress={() => router.push('/(tabs)/rankings' as any)} />
+          <MenuItem
+            icon="bot"
+            label={t('profile.feedback')}
+            description={t('profile.feedbackDesc')}
+            badge={feedbackUnread}
+            onPress={() => router.push('/settings/feedback-history' as any)}
+          />
           <MenuItem
             icon="globe"
-            label="语言设置"
-            description="切换中文或英文界面"
+            label={t('profile.language')}
+            description={t('profile.languageDesc')}
             rightText={currentLanguageLabel}
             onPress={() => router.push('/settings/language' as any)}
             last
@@ -425,15 +444,15 @@ export default function ProfileScreen() {
         <View style={styles.destructRow}>
           <TouchableOpacity style={styles.logoutBtn} onPress={handleSignOut} activeOpacity={0.85}>
             <AppIcon name="logout" size={18} color={Colors.down} />
-            <Text style={styles.logoutText}>退出登录</Text>
+            <Text style={styles.logoutText}>{t('profile.logout')}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.deleteBtn}
             activeOpacity={0.85}
-            onPress={() => Alert.alert('暂不支持自助注销', '当前版本先不开放自助注销，请联系管理员或客服处理。')}
+            onPress={() => Alert.alert(t('profile.deleteUnsupportedTitle'), t('profile.deleteUnsupportedBody'))}
           >
             <AppIcon name="trash" size={18} color={Colors.textMuted} />
-            <Text style={styles.deleteText}>注销账户</Text>
+            <Text style={styles.deleteText}>{t('profile.deleteAccount')}</Text>
           </TouchableOpacity>
         </View>
 
@@ -445,8 +464,8 @@ export default function ProfileScreen() {
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
               <View>
-                <Text style={styles.modalTitle}>编辑资料</Text>
-                <Text style={styles.modalSubtitle}>先把高频且已有接口支持的资料项做成闭环。</Text>
+                <Text style={styles.modalTitle}>{t('profile.editProfile')}</Text>
+                <Text style={styles.modalSubtitle}>{t('profile.modalSubtitle')}</Text>
               </View>
               <TouchableOpacity style={styles.modalCloseBtn} activeOpacity={0.8} onPress={() => setShowEditProfile(false)}>
                 <Text style={styles.modalCloseText}>×</Text>
@@ -454,18 +473,18 @@ export default function ProfileScreen() {
             </View>
 
             <View style={styles.formGroup}>
-              <Text style={styles.formLabel}>昵称</Text>
+              <Text style={styles.formLabel}>{t('profile.nickname')}</Text>
               <TextInput
                 style={styles.formInput}
                 value={displayName}
                 onChangeText={setDisplayName}
-                placeholder="输入昵称"
+                placeholder={t('profile.nicknamePlaceholder')}
                 placeholderTextColor={Colors.textMuted}
               />
             </View>
 
             <View style={styles.formGroup}>
-              <Text style={styles.formLabel}>头像</Text>
+              <Text style={styles.formLabel}>{t('profile.avatar')}</Text>
               <View style={styles.avatarUploaderRow}>
                 <AvatarCircle
                   name={displayName || user.email || 'U'}
@@ -473,12 +492,10 @@ export default function ProfileScreen() {
                   imageUrl={avatarPreviewUrl || avatarUrl || user.photoURL}
                 />
                 <View style={styles.avatarUploaderMeta}>
-                  <Text style={styles.avatarUploaderHint}>
-                    直接从本地相册选择图片。选图时会先进入裁切流程，随后立即本地预览，再上传到服务器。
-                  </Text>
+                  <Text style={styles.avatarUploaderHint}>{t('profile.avatarHint')}</Text>
                   {avatarUploadMeta ? (
                     <Text style={styles.avatarUploadMetaText}>
-                      已选文件: {avatarUploadMeta.name} · {formatFileSize(avatarUploadMeta.size)}
+                      {t('profile.selectedFile')}: {avatarUploadMeta.name} · {formatFileSize(avatarUploadMeta.size)}
                     </Text>
                   ) : null}
                   <View style={styles.avatarProgressTrack}>
@@ -499,7 +516,7 @@ export default function ProfileScreen() {
                     {uploadingAvatar ? (
                       <ActivityIndicator size="small" color={Colors.background} />
                     ) : (
-                      <Text style={styles.avatarUploadBtnText}>选择并上传头像</Text>
+                      <Text style={styles.avatarUploadBtnText}>{t('profile.pickAndUploadAvatar')}</Text>
                     )}
                   </TouchableOpacity>
                 </View>
@@ -507,24 +524,24 @@ export default function ProfileScreen() {
             </View>
 
             <View style={styles.formGroup}>
-              <Text style={styles.formLabel}>手机号</Text>
+              <Text style={styles.formLabel}>{t('profile.phone')}</Text>
               <TextInput
                 style={styles.formInput}
                 value={phone}
                 onChangeText={setPhone}
-                placeholder="输入手机号"
+                placeholder={t('profile.phonePlaceholder')}
                 placeholderTextColor={Colors.textMuted}
                 keyboardType="phone-pad"
               />
             </View>
 
             <View style={styles.formGroup}>
-              <Text style={styles.formLabel}>个人简介</Text>
+              <Text style={styles.formLabel}>{t('profile.bio')}</Text>
               <TextInput
                 style={[styles.formInput, styles.formTextarea]}
                 value={bio}
                 onChangeText={setBio}
-                placeholder="写一句介绍自己或交易风格的话"
+                placeholder={t('profile.bioPlaceholder')}
                 placeholderTextColor={Colors.textMuted}
                 multiline
               />
@@ -539,7 +556,7 @@ export default function ProfileScreen() {
               {savingProfile ? (
                 <ActivityIndicator size="small" color={Colors.background} />
               ) : (
-                <Text style={styles.saveBtnText}>保存资料</Text>
+                <Text style={styles.saveBtnText}>{t('profile.saveProfile')}</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -557,6 +574,7 @@ function MenuItem({
   onPress,
   last,
   disabled,
+  badge,
 }: {
   icon: AppIconName;
   label: string;
@@ -565,6 +583,7 @@ function MenuItem({
   onPress?: () => void;
   last?: boolean;
   disabled?: boolean;
+  badge?: number;
 }) {
   return (
     <TouchableOpacity
@@ -576,7 +595,14 @@ function MenuItem({
         <AppIcon name={icon} size={18} color={Colors.primary} />
       </View>
       <View style={styles.menuContent}>
-        <Text style={styles.menuLabel}>{label}</Text>
+        <View style={styles.menuLabelRow}>
+          <Text style={styles.menuLabel}>{label}</Text>
+          {badge !== undefined && badge > 0 && (
+            <View style={styles.menuBadge}>
+              <Text style={styles.menuBadgeText}>{badge > 99 ? '99+' : String(badge)}</Text>
+            </View>
+          )}
+        </View>
         <Text style={styles.menuDescription}>{description}</Text>
       </View>
       <View style={styles.menuRight}>
@@ -814,9 +840,28 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 4,
   },
+  menuLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   menuLabel: {
     color: Colors.textActive,
     fontSize: 14,
+    fontWeight: '700',
+  },
+  menuBadge: {
+    minWidth: 16,
+    height: 16,
+    paddingHorizontal: 5,
+    borderRadius: 8,
+    backgroundColor: '#ff3b30',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  menuBadgeText: {
+    color: '#fff',
+    fontSize: 10,
     fontWeight: '700',
   },
   menuDescription: {
