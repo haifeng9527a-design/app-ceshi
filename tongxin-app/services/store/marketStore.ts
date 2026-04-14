@@ -86,6 +86,16 @@ const INTERVAL_MAP: Record<string, string> = {
   '1W': '1week',
 };
 
+// ─── High-frequency quote update batching ─────────────────────────
+// WS pushes can fire 100+ times/second. We coalesce multiple updateQuote()
+// calls for different symbols into a single set({ quotes }) every QUOTE_FLUSH_MS.
+// This dramatically reduces React re-render pressure without changing the
+// public updateQuote API — callers simply see a <= 50ms delay before the
+// store reflects the latest value.
+const QUOTE_FLUSH_MS = 50;
+const pendingQuoteUpdates: Record<string, Partial<MarketQuote>> = {};
+let quoteFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
 export const useMarketStore = create<MarketState>((set, get) => ({
   quotes: {},
   watchlist: ['BTC/USD', 'ETH/USD', 'AAPL', 'EUR/USD'],
@@ -240,20 +250,32 @@ export const useMarketStore = create<MarketState>((set, get) => ({
   },
 
   updateQuote: (symbol, data) => {
-    const quotes = { ...get().quotes };
-    const existing = quotes[symbol] || {} as MarketQuote;
-    const merged = { ...existing, ...data, symbol };
+    // Coalesce into pending batch; flush together every QUOTE_FLUSH_MS.
+    const existing = pendingQuoteUpdates[symbol] || {};
+    pendingQuoteUpdates[symbol] = { ...existing, ...data };
 
-    // 24h 涨跌幅：始终基于 prev_close 重新计算
-    const prevClose = merged.prev_close;
-    const price = merged.price;
-    if (prevClose && prevClose !== 0 && price != null) {
-      merged.change = price - prevClose;
-      merged.percent_change = ((price - prevClose) / prevClose) * 100;
-    }
-
-    quotes[symbol] = merged;
-    set({ quotes });
+    if (quoteFlushTimer != null) return;
+    quoteFlushTimer = setTimeout(() => {
+      quoteFlushTimer = null;
+      const symbols = Object.keys(pendingQuoteUpdates);
+      if (symbols.length === 0) return;
+      const quotes = { ...get().quotes };
+      for (const sym of symbols) {
+        const patch = pendingQuoteUpdates[sym];
+        delete pendingQuoteUpdates[sym];
+        const prev = quotes[sym] || ({} as MarketQuote);
+        const merged = { ...prev, ...patch, symbol: sym } as MarketQuote;
+        // 24h 涨跌幅：始终基于 prev_close 重新计算
+        const prevClose = merged.prev_close;
+        const price = merged.price;
+        if (prevClose && prevClose !== 0 && price != null) {
+          merged.change = price - prevClose;
+          merged.percent_change = ((price - prevClose) / prevClose) * 100;
+        }
+        quotes[sym] = merged;
+      }
+      set({ quotes });
+    }, QUOTE_FLUSH_MS);
   },
 
   updateIndex: (symbol, data) => {
