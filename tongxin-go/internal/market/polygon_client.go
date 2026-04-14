@@ -935,13 +935,21 @@ func (p *PolygonClient) GetFuturesQuotes(symbols []string) (map[string]map[strin
 		}
 	}
 
-	// If futures API returned nothing (unauthorized), fall back to stock snapshot
+	// If futures API returned nothing (unauthorized), fall back to stock snapshot.
+	// NB: GetSnapshotParsed returns cached maps shared across callers — must copy
+	// before mutating, otherwise a concurrent JSON encode of that same cache entry
+	// races with our "market" write and crashes with "concurrent map iteration and
+	// map write".
 	if len(result) == 0 {
 		snaps, err := p.GetSnapshotParsed(symbols)
 		if err == nil {
 			for sym, snap := range snaps {
-				snap["market"] = "futures"
-				result[sym] = snap
+				copied := make(map[string]any, len(snap)+1)
+				for k, v := range snap {
+					copied[k] = v
+				}
+				copied["market"] = "futures"
+				result[sym] = copied
 			}
 		}
 	}
