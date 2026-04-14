@@ -575,20 +575,20 @@ func (p *PolygonWS) handleStockTrade(raw json.RawMessage) {
 func (p *PolygonWS) handleStockAggregate(raw json.RawMessage) {
 	var a struct {
 		Symbol string  `json:"sym"`
-		Open   float64 `json:"o"`
-		High   float64 `json:"h"`
-		Low    float64 `json:"l"`
 		Close  float64 `json:"c"`
-		Volume float64 `json:"v"`
 	}
 	if json.Unmarshal(raw, &a) != nil || a.Close == 0 {
 		return
 	}
+	// NOTE: Aggregate messages (A=per-second, AM=per-minute) carry OHLCV
+	// for that single short bar, NOT the full trading day. Forwarding
+	// high/low/volume here would overwrite the day-level values supplied
+	// by the REST fallback loop and cause the stats bar to flicker
+	// (e.g., high == low == current tick price, volume == 1 bar). Only
+	// emit the close price; REST remains the source of truth for
+	// day-level OHLCV.
 	select {
-	case p.Updates <- PolygonQuote{
-		Symbol: a.Symbol, Price: a.Close, Open: a.Open,
-		High: a.High, Low: a.Low, Volume: a.Volume, Market: "stocks",
-	}:
+	case p.Updates <- PolygonQuote{Symbol: a.Symbol, Price: a.Close, Market: "stocks"}:
 	default:
 	}
 }
@@ -611,21 +611,17 @@ func (p *PolygonWS) handleForexQuote(raw json.RawMessage) {
 
 func (p *PolygonWS) handleForexAggregate(raw json.RawMessage) {
 	var a struct {
-		Pair   string  `json:"pair"`
-		Open   float64 `json:"o"`
-		High   float64 `json:"h"`
-		Low    float64 `json:"l"`
-		Close  float64 `json:"c"`
-		Volume float64 `json:"v"`
+		Pair  string  `json:"pair"`
+		Close float64 `json:"c"`
 	}
 	if json.Unmarshal(raw, &a) != nil || a.Close == 0 {
 		return
 	}
+	// See note on handleStockAggregate: CA/CAS are per-minute/per-second bars,
+	// so their OHLCV is intra-bar, not intra-day. Only forward the close price;
+	// REST /forex/quotes is the source of truth for day-level high/low/volume.
 	select {
-	case p.Updates <- PolygonQuote{
-		Symbol: polygonForexToDisplay(a.Pair), Price: a.Close, Open: a.Open,
-		High: a.High, Low: a.Low, Volume: a.Volume, Market: "forex",
-	}:
+	case p.Updates <- PolygonQuote{Symbol: polygonForexToDisplay(a.Pair), Price: a.Close, Market: "forex"}:
 	default:
 	}
 }
