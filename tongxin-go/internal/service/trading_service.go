@@ -573,12 +573,15 @@ func (s *TradingService) placeMarketOrder(ctx context.Context, userID string, re
 		}
 	}
 
-	// Calculate liquidation price
+	// Calculate liquidation price.
+	// For cross margin, derive equity locally from the pre-freeze wallet we already
+	// fetched above. After FreezeMargin+ChargeFee:
+	//   new_balance + new_frozen = (old_balance - margin - openFee) + (old_frozen + margin)
+	//                            = old_balance + old_frozen - openFee
+	// so one DB round-trip is avoidable here.
 	var liqEquity float64
 	if req.MarginMode == "cross" {
-		if w, err := s.walletRepo.GetWallet(ctx, userID); err == nil {
-			liqEquity = w.Balance + w.Frozen
-		}
+		liqEquity = wallet.Balance + wallet.Frozen - openFee
 	}
 	liqPrice := calcLiqPrice(currentPrice, req.Side, req.Qty, margin, req.MarginMode, liqEquity)
 
@@ -632,12 +635,12 @@ func (s *TradingService) placeMarketOrder(ctx context.Context, userID string, re
 		pos.SlPrice = req.SlPrice
 	}
 
-	// Recalculate liq price based on merged position data
+	// Recalculate liq price based on merged position data.
+	// UpsertPosition does not touch the wallet, so the derived equity from above
+	// is still valid (old_balance + old_frozen - openFee).
 	var liqEquity2 float64
 	if pos.MarginMode == "cross" {
-		if w, err := s.walletRepo.GetWallet(ctx, userID); err == nil {
-			liqEquity2 = w.Balance + w.Frozen
-		}
+		liqEquity2 = wallet.Balance + wallet.Frozen - openFee
 	}
 	newLiq := calcLiqPrice(pos.EntryPrice, pos.Side, pos.Qty, pos.MarginAmount, pos.MarginMode, liqEquity2)
 	pos.LiqPrice = &newLiq
