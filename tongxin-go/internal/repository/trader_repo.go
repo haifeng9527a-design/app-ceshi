@@ -646,20 +646,22 @@ func (r *TraderRepo) AdjustAllocatedCapital(ctx context.Context, copyTradingID s
 		}
 		return nil
 	}
-	// 赎回：|delta| 必须 ≤ available；allocated 同步减
+	// 赎回：|delta| 上限 = available（含已实现盈亏，允许把盈利提走）。
+	// allocated 同步减但用 GREATEST 钳到 0 —— 保持 chk_capital_nonneg 约束，
+	// 提走盈利后 allocated 归零属于预期行为（再开仓得先追加本金）。
 	withdraw := -delta
 	tag, err := r.pool.Exec(ctx, `
 		UPDATE copy_trading
-		SET allocated_capital = allocated_capital - $2,
+		SET allocated_capital = GREATEST(0, allocated_capital - $2),
 		    available_capital = available_capital - $2,
 		    updated_at = NOW()
-		WHERE id = $1 AND status = 'active' AND available_capital >= $2 AND allocated_capital >= $2
+		WHERE id = $1 AND status = 'active' AND available_capital >= $2
 	`, copyTradingID, withdraw)
 	if err != nil {
 		return fmt.Errorf("withdraw from bucket: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("withdraw exceeds bucket available or allocated: %s", copyTradingID)
+		return fmt.Errorf("withdraw exceeds bucket available: %s", copyTradingID)
 	}
 	return nil
 }

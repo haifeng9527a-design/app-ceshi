@@ -236,9 +236,14 @@ func (r *WalletRepo) AllocateToCopyBucket(ctx context.Context, userID, copyTradi
 }
 
 // WithdrawFromCopyBucket atomically transfers from a copy_trading bucket back to main wallet.
-// 单事务里：copy_trading.{allocated,available} -= amount，wallets.balance += amount，
-// 写一条 wallet_transactions(type='copy_withdraw')。
-// amount 必须 ≤ 子账户 available_capital 和 allocated_capital。
+// 单事务里：copy_trading.available -= amount，allocated 同步缩减但不为负
+// （用 GREATEST(0, ...) 兜底），wallets.balance += amount，写一条
+// wallet_transactions(type='copy_withdraw')。
+//
+// 设计要点：amount 上限 = available_capital（含已实现盈亏），允许把盈利提走。
+// allocated_capital 跟着减是为了维持「allocated = 累计净注入」的语义，
+// 一旦盈利全部提走，allocated 会归零（≠ 负数），下次按比例算仓位的基数也归零，
+// 用户想继续跟单需要重新追加本金 —— 这是符合预期的。
 func (r *WalletRepo) WithdrawFromCopyBucket(ctx context.Context, userID, copyTradingID string, amount float64) (*model.Wallet, error) {
 	if amount <= 0 {
 		return nil, fmt.Errorf("withdraw amount must be positive")
@@ -249,20 +254,22 @@ func (r *WalletRepo) WithdrawFromCopyBucket(ctx context.Context, userID, copyTra
 	}
 	defer tx.Rollback(ctx)
 
-	// 1. 扣子账户（先扣再加，防止并发拿空）
+	// 1. 扣子账户（先扣再加，防止并发拿空）。
+	//    守卫只检查 available — 允许提取盈利让 allocated < 实际投入，
+	//    GREATEST 把 allocated 钳到 0（chk_capital_nonneg 约束要求非负）。
 	tag, err := tx.Exec(ctx,
 		`UPDATE copy_trading
-		 SET allocated_capital = allocated_capital - $3,
+		 SET allocated_capital = GREATEST(0, allocated_capital - $3),
 		     available_capital = available_capital - $3,
 		     updated_at = NOW()
 		 WHERE id = $1 AND follower_id = $2
-		   AND available_capital >= $3 AND allocated_capital >= $3`,
+		   AND available_capital >= $3`,
 		copyTradingID, userID, amount)
 	if err != nil {
 		return nil, fmt.Errorf("withdraw from bucket: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return nil, fmt.Errorf("withdraw exceeds bucket available or allocated")
+		return nil, fmt.Errorf("withdraw exceeds bucket available")
 	}
 
 	// 2. 加钱包
