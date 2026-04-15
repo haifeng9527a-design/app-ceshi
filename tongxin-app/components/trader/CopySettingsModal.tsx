@@ -27,6 +27,10 @@ interface Props {
   traderName?: string;
   traderUid?: string;
   onBucketUpdated?: (ct: CopyTrading) => void;
+  // Trader 当前默认抽成比例（0~0.2）。新建跟单时用于显示提示；
+  // 实际 snapshot 在后端 FollowTrader 时完成。编辑现有跟单时不用这个——
+  // 该关系的 rate 已从 initialSettings.profit_share_rate 读出。
+  defaultProfitShareRate?: number;
 }
 
 export default function CopySettingsModal({
@@ -37,6 +41,7 @@ export default function CopySettingsModal({
   traderName,
   traderUid,
   onBucketUpdated,
+  defaultProfitShareRate,
 }: Props) {
   const isEdit = !!initialSettings;
   const wallet = useTradingStore((s) => s.wallet);
@@ -274,6 +279,20 @@ export default function CopySettingsModal({
                     ⓘ 这笔资金会划转到该交易员的"跟单池"。仓位按池子大小计算，盈亏直接进出池子，与主钱包独立。最少 100 USDT。
                   </Text>
                 </View>
+                {typeof defaultProfitShareRate === 'number' && defaultProfitShareRate > 0 && (
+                  <View style={s.shareNoticeBox}>
+                    <Text style={s.shareNoticeTitle}>⚠ 分润说明</Text>
+                    <Text style={s.shareNoticeBody}>
+                      该交易员对盈利部分抽取 {(defaultProfitShareRate * 100).toFixed(1)}%。
+                    </Text>
+                    <Text style={s.shareNoticeLine}>· 仅在你赚钱且突破历史净值峰值时收取</Text>
+                    <Text style={s.shareNoticeLine}>· 亏损不收取</Text>
+                    <Text style={s.shareNoticeLine}>· 取消跟单后不再收取</Text>
+                    <Text style={s.shareNoticeFooter}>
+                      当前跟单时该比例 ({(defaultProfitShareRate * 100).toFixed(1)}%) 将锁定，即使交易员后续调整也不会影响你。
+                    </Text>
+                  </View>
+                )}
               </>
             ) : (
               <>
@@ -312,6 +331,22 @@ export default function CopySettingsModal({
                             bucket.available_capital + bucket.frozen_capital - bucket.allocated_capital;
                           return `${pnl >= 0 ? '+' : ''}${formatUsd(pnl)} USDT`;
                         })()}
+                      </Text>
+                    </View>
+                  )}
+                  {bucket && (bucket.cumulative_profit_shared ?? 0) > 0 && (
+                    <View style={s.bucketRow}>
+                      <Text style={[s.bucketLabel, s.bucketLabelMuted]}>累计分润</Text>
+                      <Text style={[s.bucketValue, s.bucketValueMuted]}>
+                        −{formatUsd(bucket.cumulative_profit_shared)} USDT
+                      </Text>
+                    </View>
+                  )}
+                  {bucket && (bucket.profit_share_rate ?? 0) > 0 && (
+                    <View style={s.bucketRow}>
+                      <Text style={[s.bucketLabel, s.bucketLabelMuted]}>跟单比例</Text>
+                      <Text style={[s.bucketValue, s.bucketValueMuted]}>
+                        {((bucket.profit_share_rate ?? 0) * 100).toFixed(1)}% (锁定)
                       </Text>
                     </View>
                   )}
@@ -729,6 +764,49 @@ const s = StyleSheet.create({
     color: Colors.textSecondary,
     fontSize: 11,
     lineHeight: 16,
+  },
+  bucketLabelMuted: {
+    color: Colors.textMuted,
+    fontSize: 11,
+  },
+  bucketValueMuted: {
+    color: Colors.textMuted,
+    fontSize: 12,
+    fontWeight: '500',
+    fontFamily: 'monospace',
+  },
+  // 新跟单弹窗里的「分润说明」黄底提示卡——要够显眼，让用户平心静气看完再确认
+  shareNoticeBox: {
+    backgroundColor: 'rgba(242, 202, 80, 0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(242, 202, 80, 0.45)',
+    borderRadius: Sizes.borderRadiusSm,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginTop: 8,
+  },
+  shareNoticeTitle: {
+    color: Colors.warning,
+    fontSize: 12,
+    fontWeight: '700',
+    marginBottom: 6,
+  },
+  shareNoticeBody: {
+    color: Colors.textActive,
+    fontSize: 12,
+    lineHeight: 17,
+    marginBottom: 4,
+  },
+  shareNoticeLine: {
+    color: Colors.textSecondary,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  shareNoticeFooter: {
+    color: Colors.textSecondary,
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 6,
   },
   adjustRow: {
     flexDirection: 'row',

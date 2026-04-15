@@ -461,6 +461,29 @@ export default function TraderDetailPanel({ uid, onClose, embedded }: Props) {
                   );
                 })()}
               </View>
+              {/* 跟单分润：profit_share_rate snapshot 在该关系上，不会因 trader 改默认而变。*/}
+              {(copySettings.profit_share_rate ?? 0) > 0 && (
+                <>
+                  <View style={styles.bucketStat}>
+                    <Text style={styles.bucketStatLabel}>
+                      {t('traderCenter.bucketCumulativeShare')}
+                    </Text>
+                    <Text style={[styles.bucketStatValue, styles.bucketStatValueMuted]}>
+                      −${formatMoney(copySettings.cumulative_profit_shared || 0)}
+                    </Text>
+                  </View>
+                  <View style={styles.bucketStat}>
+                    <Text style={styles.bucketStatLabel}>
+                      {t('traderCenter.bucketShareRate')}
+                    </Text>
+                    <Text style={[styles.bucketStatValue, styles.bucketStatValueMuted]}>
+                      {t('traderCenter.shareRateLocked', {
+                        rate: ((copySettings.profit_share_rate ?? 0) * 100).toFixed(1),
+                      })}
+                    </Text>
+                  </View>
+                </>
+              )}
             </View>
           </View>
         )}
@@ -715,6 +738,7 @@ export default function TraderDetailPanel({ uid, onClose, embedded }: Props) {
           traderName={profile.display_name}
           traderUid={uid}
           onBucketUpdated={(updated) => setCopySettings(updated)}
+          defaultProfitShareRate={profile.default_profit_share_rate}
         />
       </ScrollView>
     </View>
@@ -850,6 +874,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     fontFamily: 'monospace',
+  },
+  bucketStatValueMuted: {
+    // 分润相关的行用灰色，弱化视觉权重——不是本金、不是盈亏，只是一个事后披露
+    color: Colors.textMuted,
+    fontWeight: '500',
+    fontSize: 13,
   },
 
   headerContent: {},
