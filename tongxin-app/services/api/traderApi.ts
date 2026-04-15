@@ -62,6 +62,8 @@ export interface TraderProfile {
   allow_copy_trading: boolean;
   stats: TraderStats | null;
   is_followed: boolean;
+  // 跟单分润：trader 当前默认抽成比例（0~0.2），新跟单者会 snapshot 这个值
+  default_profit_share_rate?: number;
 }
 
 export interface FollowedTrader {
@@ -110,6 +112,11 @@ export interface CopyTrading {
   allocated_capital: number;
   available_capital: number;
   frozen_capital: number;
+  // 跟单分润 snapshot（建立跟单时锁定，trader 改默认比例不影响存量行）
+  profit_share_rate?: number;
+  cumulative_profit_shared?: number;
+  high_water_mark?: number;
+  cumulative_net_deposit?: number;
   created_at: string;
   updated_at: string;
   trader_name?: string;
@@ -331,4 +338,61 @@ export interface EquityPoint {
 export async function getTraderEquity(uid: string, period: '7d' | '30d' | 'all' = '30d'): Promise<EquityPoint[]> {
   const { data } = await apiClient.get(`/api/trader/${uid}/equity`, { params: { period } });
   return data || [];
+}
+
+// ── Profit Share (跟单分润) ──
+
+export interface ProfitShareSummary {
+  // 与 internal/model/trader.go ProfitShareSummary JSON 字段一一对齐
+  lifetime: number;            // 累计已收分润
+  this_month: number;          // 本月已收分润
+  active_followers: number;    // 活跃跟随者人数
+  default_share_rate: number;  // 当前默认分润比例（0~0.2）
+}
+
+export interface ProfitShareRecord {
+  id: string;
+  created_at: string;
+  copy_trading_id: string;
+  follower_user_id: string;
+  trader_user_id: string;
+  position_id: string;
+  gross_pnl: number;
+  close_fee: number;
+  net_pnl: number;
+  equity_before: number;
+  equity_after: number;
+  hwm_before: number;
+  hwm_after: number;
+  rate_applied: number;
+  share_amount: number;
+  status: 'settled' | 'skipped_below_hwm' | 'skipped_loss' | 'skipped_zero_rate';
+  // 后端 dashboard 接口 JOIN 进来的显示字段
+  follower_name?: string;
+  position_info?: string; // e.g. "BTCUSDT close"
+}
+
+export async function getProfitShareSummary(): Promise<ProfitShareSummary> {
+  const { data } = await apiClient.get('/api/trader/profit-share/summary');
+  return data;
+}
+
+export async function getProfitShareRecords(
+  limit = 20,
+  offset = 0,
+): Promise<{ records: ProfitShareRecord[]; total: number }> {
+  const { data } = await apiClient.get('/api/trader/profit-share/records', {
+    params: { limit: String(limit), offset: String(offset) },
+  });
+  return {
+    records: data?.records ?? [],
+    total: data?.total ?? 0,
+  };
+}
+
+// trader 修改默认分润比例。rate ∈ [0, 0.2]，越界后端返 400。
+// 修改不会影响存量 follower（snapshot 锁定）。
+export async function updateDefaultShareRate(rate: number): Promise<{ default_profit_share_rate: number }> {
+  const { data } = await apiClient.put('/api/trader/profile/share-rate', { rate });
+  return data;
 }

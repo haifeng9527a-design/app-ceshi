@@ -425,6 +425,14 @@ export default function ProfileScreen() {
           <MenuItem icon="help" label={t('profile.help')} description={t('profile.helpMenuDesc')} onPress={() => router.push('/help' as any)} />
           <MenuItem icon="lock" label={t('profile.privacyPolicy')} description={t('profile.privacyMenuDesc')} onPress={() => router.push('/privacy' as any)} />
           <MenuItem icon="market" label={t('profile.traderMarket')} description={t('profile.traderMarketDesc')} onPress={() => router.push('/(tabs)/rankings' as any)} />
+          {user.isTrader ? (
+            <MenuItem
+              icon="trophy"
+              label={t('profile.profitShareEntry')}
+              description={t('profile.profitShareEntryDesc')}
+              onPress={() => router.push('/trader/dashboard' as any)}
+            />
+          ) : null}
           <MenuItem
             icon="bot"
             label={t('profile.feedback')}
