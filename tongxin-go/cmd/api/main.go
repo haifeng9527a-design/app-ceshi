@@ -392,6 +392,7 @@ func main() {
 		tradingHub = ws.NewTradingHub()
 
 		tradingSvc = service.NewTradingService(walletRepo, orderRepo, positionRepo, userRepo, traderRepoEarly, feeRepo, binance, polygonClient, tradingHub)
+		tradingSvc.ProfitShareEnabled = cfg.ProfitShareEnabled
 
 		// Load fee schedule from DB
 		tradingSvc.LoadFeeSchedule(context.Background())
@@ -481,6 +482,7 @@ func main() {
 	if pool != nil {
 		traderRepo := repository.NewTraderRepo(pool)
 		traderSvc = service.NewTraderService(traderRepo, walletRepo)
+		traderSvc.ProfitShareEnabled = cfg.ProfitShareEnabled
 		chatProfileSvc = service.NewChatProfileService(userSvc, friendSvc, traderSvc)
 		traderH := handler.NewTraderHandler(traderSvc, tradingSvc)
 
@@ -508,6 +510,11 @@ func main() {
 		mux.Handle("POST /api/trader/{uid}/follow/pause", authMw.Authenticate(http.HandlerFunc(traderH.PauseCopyTrading)))
 		mux.Handle("POST /api/trader/{uid}/follow/resume", authMw.Authenticate(http.HandlerFunc(traderH.ResumeCopyTrading)))
 		mux.Handle("GET /api/trader/copy-trade-logs", authMw.Authenticate(http.HandlerFunc(traderH.CopyTradeLogs)))
+
+		// Profit share (跟单分润) — trader 仪表盘
+		mux.Handle("PUT /api/trader/profile/share-rate", authMw.Authenticate(http.HandlerFunc(traderH.UpdateDefaultShareRate)))
+		mux.Handle("GET /api/trader/profit-share/summary", authMw.Authenticate(http.HandlerFunc(traderH.ProfitShareSummary)))
+		mux.Handle("GET /api/trader/profit-share/records", authMw.Authenticate(http.HandlerFunc(traderH.ProfitShareRecords)))
 
 		// Admin trader routes (require auth + admin role)
 		adminTraderAuth := func(h http.HandlerFunc) http.Handler {

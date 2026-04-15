@@ -51,6 +51,12 @@ type TradingService struct {
 	polygon      *market.PolygonClient
 	pusher       TradingPusher
 
+	// ProfitShareEnabled 控制平仓时走 SettleToBucket（旧路径，无分润、无审计）
+	// 还是 SettleToBucketWithCommission（新路径，HWM 算法 + 分润 + 审计）。
+	// 受 env PROFIT_SHARE_ENABLED 控制；与 TraderService.ProfitShareEnabled 必须保持一致。
+	// 关闭时跟单平仓行为与本 commit 之前完全等价，便于灰度回滚。
+	ProfitShareEnabled bool
+
 	// In-memory pending limit orders cache for instant trigger
 	pendingMu       sync.RWMutex
 	pendingBySymbol map[string][]model.Order
@@ -838,10 +844,30 @@ func (s *TradingService) ClosePosition(ctx context.Context, userID, positionID s
 	// 跟单仓位 vs 普通仓位的结算分流：
 	//   普通仓位 → wallet.SettleTrade
 	//   跟单仓位 → bucket.SettleToBucket（钱永远不出主钱包）
+	//             ProfitShareEnabled 时走 SettleToBucketWithCommission，自动按
+	//             snapshot rate + HWM 算分润；rate=0 的存量行天然 skip。
+	var psResult *repository.ProfitShareResult
 	if pos.IsCopyTrade && pos.CopyTradingID != nil && s.traderRepo != nil {
-		if err := s.traderRepo.SettleToBucket(ctx, *pos.CopyTradingID, pos.MarginAmount, pnl, closeFee); err != nil {
-			log.Printf("[trading] CRITICAL: copy position %s closed but bucket settle failed: %v", positionID, err)
-			return nil, fmt.Errorf("settle to bucket: %w", err)
+		if s.ProfitShareEnabled {
+			ct, ctErr := s.traderRepo.GetCopyTradingByID(ctx, *pos.CopyTradingID)
+			if ctErr != nil {
+				log.Printf("[trading] CRITICAL: copy position %s closed but copy_trading lookup failed: %v", positionID, ctErr)
+				return nil, fmt.Errorf("settle to bucket: load ct: %w", ctErr)
+			}
+			res, sErr := s.traderRepo.SettleToBucketWithCommission(
+				ctx, *pos.CopyTradingID, ct.TraderID, positionID,
+				pos.MarginAmount, pnl, closeFee,
+			)
+			if sErr != nil {
+				log.Printf("[trading] CRITICAL: copy position %s closed but bucket settle (commission) failed: %v", positionID, sErr)
+				return nil, fmt.Errorf("settle to bucket commission: %w", sErr)
+			}
+			psResult = res
+		} else {
+			if err := s.traderRepo.SettleToBucket(ctx, *pos.CopyTradingID, pos.MarginAmount, pnl, closeFee); err != nil {
+				log.Printf("[trading] CRITICAL: copy position %s closed but bucket settle failed: %v", positionID, err)
+				return nil, fmt.Errorf("settle to bucket: %w", err)
+			}
 		}
 	} else {
 		if err := s.walletRepo.SettleTrade(ctx, userID, pos.MarginAmount, pnl, closeFee); err != nil {
@@ -867,6 +893,12 @@ func (s *TradingService) ClosePosition(ctx context.Context, userID, positionID s
 		if wallet != nil {
 			s.pushBalanceUpdate(userID, wallet)
 		}
+	}
+
+	// 分润 WS 推送：成功抽分润时给 trader 推 profit_share_received，
+	// 给 follower 推 copy_profit_share_paid（带 hwm/bucket 余额）。
+	if psResult != nil {
+		s.pushProfitShareEvents(ctx, pos, psResult)
 	}
 
 	// Trigger copy close for followers
@@ -959,17 +991,39 @@ func (s *TradingService) PartialClosePosition(ctx context.Context, userID, posit
 		return nil, fmt.Errorf("reduce position: %w", err)
 	}
 
-	// 跟单仓位 vs 普通仓位结算分流
+	// 跟单仓位 vs 普通仓位结算分流（部分平仓走与全平相同的分润逻辑）
+	var psResult *repository.ProfitShareResult
 	if pos.IsCopyTrade && pos.CopyTradingID != nil && s.traderRepo != nil {
-		if err := s.traderRepo.SettleToBucket(ctx, *pos.CopyTradingID, releasedMargin, pnl, closeFee); err != nil {
-			log.Printf("[trading] CRITICAL: copy position %s reduced but bucket settle failed: %v", positionID, err)
-			return nil, fmt.Errorf("settle partial close to bucket: %w", err)
+		if s.ProfitShareEnabled {
+			ct, ctErr := s.traderRepo.GetCopyTradingByID(ctx, *pos.CopyTradingID)
+			if ctErr != nil {
+				log.Printf("[trading] CRITICAL: copy position %s reduced but copy_trading lookup failed: %v", positionID, ctErr)
+				return nil, fmt.Errorf("settle partial: load ct: %w", ctErr)
+			}
+			res, sErr := s.traderRepo.SettleToBucketWithCommission(
+				ctx, *pos.CopyTradingID, ct.TraderID, positionID,
+				releasedMargin, pnl, closeFee,
+			)
+			if sErr != nil {
+				log.Printf("[trading] CRITICAL: copy position %s reduced but bucket settle (commission) failed: %v", positionID, sErr)
+				return nil, fmt.Errorf("settle partial close commission: %w", sErr)
+			}
+			psResult = res
+		} else {
+			if err := s.traderRepo.SettleToBucket(ctx, *pos.CopyTradingID, releasedMargin, pnl, closeFee); err != nil {
+				log.Printf("[trading] CRITICAL: copy position %s reduced but bucket settle failed: %v", positionID, err)
+				return nil, fmt.Errorf("settle partial close to bucket: %w", err)
+			}
 		}
 	} else {
 		if err := s.walletRepo.SettleTrade(ctx, userID, releasedMargin, pnl, closeFee); err != nil {
 			log.Printf("[trading] CRITICAL: position %s reduced but settle failed: %v", positionID, err)
 			return nil, fmt.Errorf("settle partial close: %w", err)
 		}
+	}
+	// 部分平仓也推分润事件（即使 share=0 也会更新 follower 的 hwm/bucket 余额）
+	if psResult != nil {
+		s.pushProfitShareEvents(ctx, pos, psResult)
 	}
 
 	// Update cache
@@ -1361,6 +1415,60 @@ func (s *TradingService) pushAccountUpdate(userID string) {
 		"type": "account_update",
 		"data": info,
 	})
+}
+
+// pushProfitShareEvents 推送分润事件（与 SettleToBucketWithCommission 配套）。
+// 永远会推 copy_profit_share_settled 给 follower（含本次 hwm/bucket 余额，
+// 即使 share=0 也让前端可以刷新跟单池子卡片）。
+// 仅在 share>0 时给 trader 推 profit_share_received。
+func (s *TradingService) pushProfitShareEvents(ctx context.Context, pos *model.Position, res *repository.ProfitShareResult) {
+	if pos == nil || res == nil || s.pusher == nil {
+		return
+	}
+	// follower（pos.UserID 即 follower 的 uid）—— 分润完成事件
+	s.pusher.PushToUser(pos.UserID, map[string]any{
+		"type": "copy_profit_share_settled",
+		"data": map[string]any{
+			"copy_trading_id": deref(pos.CopyTradingID),
+			"position_id":     pos.ID,
+			"share_paid":      res.ShareAmount,
+			"hwm_after":       res.HwmAfter,
+			"equity_after":    res.EquityAfter,
+			"bucket_balance":  res.BucketBalance,
+			"net_pnl":         res.NetPnl,
+			"status":          res.Status,
+		},
+	})
+	// trader 推送：仅在真的有进账时
+	if !res.Settled || res.ShareAmount <= 0 {
+		return
+	}
+	if s.traderRepo == nil || pos.CopyTradingID == nil {
+		return
+	}
+	ct, err := s.traderRepo.GetCopyTradingByID(ctx, *pos.CopyTradingID)
+	if err != nil || ct == nil {
+		return
+	}
+	s.pusher.PushToUser(ct.TraderID, map[string]any{
+		"type": "profit_share_received",
+		"data": map[string]any{
+			"copy_trading_id":    ct.ID,
+			"from_follower_id":   ct.FollowerID,
+			"position_id":        pos.ID,
+			"symbol":             pos.Symbol,
+			"amount":             res.ShareAmount,
+			"new_lifetime_total": res.NewLifetimeIn,
+		},
+	})
+}
+
+// deref helper (used for *string -> string in WS payloads)
+func deref(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }
 
 // ─── Helpers ────────────────────────────────────

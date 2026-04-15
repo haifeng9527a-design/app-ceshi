@@ -298,7 +298,11 @@ func (r *TraderRepo) ListTraderRankings(ctx context.Context, sortBy string, limi
 
 // ── Copy Trading ──
 
-func (r *TraderRepo) CreateCopyTrading(ctx context.Context, followerID, traderID string, req *model.FollowTraderRequest) (*model.CopyTrading, error) {
+// CreateCopyTrading 创建 / 复活 copy_trading 行。
+// snapshotShareRate 在 INSERT 时直接写入 profit_share_rate 列；
+// ON CONFLICT (复活) 时**不**覆盖原行的 profit_share_rate（保护存量 follower 的 snapshot）。
+// 调用方传 0 表示禁用分润（feature flag off 或 trader 没设默认比例）。
+func (r *TraderRepo) CreateCopyTrading(ctx context.Context, followerID, traderID string, req *model.FollowTraderRequest, snapshotShareRate float64) (*model.CopyTrading, error) {
 	ct := &model.CopyTrading{}
 	copyMode := req.CopyMode
 	if copyMode == "" {
@@ -316,14 +320,21 @@ func (r *TraderRepo) CreateCopyTrading(ctx context.Context, followerID, traderID
 	if followDir == "" {
 		followDir = "both"
 	}
+	// 防御性夹紧（service 层应已校验，repo 再夹一次保护数据库 CHECK 约束）
+	if snapshotShareRate < 0 {
+		snapshotShareRate = 0
+	}
+	if snapshotShareRate > 0.2 {
+		snapshotShareRate = 0.2
+	}
 	// 注意：本方法只创建 / 复活 copy_trading 行（纯配置 + status），
 	// 不动 allocated_capital/available_capital/frozen_capital。
 	// 资金划转必须通过 walletRepo.AllocateToCopyBucket 在独立事务里完成。
 	err := r.pool.QueryRow(ctx, `
 		INSERT INTO copy_trading (follower_id, trader_id, copy_mode, copy_ratio, fixed_amount,
 			max_position, max_single_margin, follow_symbols, leverage_mode, custom_leverage,
-			tp_sl_mode, custom_tp_ratio, custom_sl_ratio, follow_direction)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+			tp_sl_mode, custom_tp_ratio, custom_sl_ratio, follow_direction, profit_share_rate)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 		ON CONFLICT (follower_id, trader_id) DO UPDATE SET
 			status = 'active', copy_mode = $3, copy_ratio = $4, fixed_amount = $5,
 			max_position = $6, max_single_margin = $7, follow_symbols = $8,
@@ -339,7 +350,7 @@ func (r *TraderRepo) CreateCopyTrading(ctx context.Context, followerID, traderID
 	`, followerID, traderID, copyMode, req.CopyRatio, req.FixedAmount,
 		req.MaxPosition, req.MaxSingleMargin, req.FollowSymbols,
 		leverageMode, req.CustomLeverage, tpSlMode,
-		req.CustomTpRatio, req.CustomSlRatio, followDir).Scan(
+		req.CustomTpRatio, req.CustomSlRatio, followDir, snapshotShareRate).Scan(
 		&ct.ID, &ct.FollowerID, &ct.TraderID, &ct.Status,
 		&ct.CopyMode, &ct.CopyRatio, &ct.FixedAmount,
 		&ct.MaxPosition, &ct.MaxSingleMargin, &ct.FollowSymbols,

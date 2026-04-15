@@ -566,3 +566,71 @@ func (h *TraderHandler) CopyTradeLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"logs": logs, "total": total})
 }
+
+// ── Profit Share (跟单分润) ──
+
+// PUT /api/trader/profile/share-rate
+// body: { "rate": 0.10 }
+// 仅 trader 可调；rate 必须 ∈ [0, 0.2]，否则 400。
+// 修改不影响存量 follower 的 copy_trading.profit_share_rate（snapshot 锁定）。
+func (h *TraderHandler) UpdateDefaultShareRate(w http.ResponseWriter, r *http.Request) {
+	uid := middleware.GetUserUID(r.Context())
+	if uid == "" {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	var req model.UpdateDefaultShareRateRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Rate < 0 || req.Rate > 0.2 {
+		writeError(w, http.StatusBadRequest, "rate must be between 0 and 0.2")
+		return
+	}
+	if err := h.svc.UpdateDefaultShareRate(r.Context(), uid, req.Rate); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"default_profit_share_rate": req.Rate})
+}
+
+// GET /api/trader/profit-share/summary
+// 返回：lifetime / this_month / active_followers / default_share_rate
+func (h *TraderHandler) ProfitShareSummary(w http.ResponseWriter, r *http.Request) {
+	uid := middleware.GetUserUID(r.Context())
+	if uid == "" {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	sum, err := h.svc.GetProfitShareSummary(r.Context(), uid)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get summary")
+		return
+	}
+	writeJSON(w, http.StatusOK, sum)
+}
+
+// GET /api/trader/profit-share/records?limit=20&offset=0
+// 仅返回 status='settled' 的明细（前端不展示 skip 项）。
+func (h *TraderHandler) ProfitShareRecords(w http.ResponseWriter, r *http.Request) {
+	uid := middleware.GetUserUID(r.Context())
+	if uid == "" {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	if limit <= 0 {
+		limit = 20
+	}
+	recs, total, err := h.svc.ListProfitShareRecords(r.Context(), uid, limit, offset)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if recs == nil {
+		recs = []model.ProfitShareRecord{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"records": recs, "total": total})
+}

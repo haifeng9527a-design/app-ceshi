@@ -12,6 +12,12 @@ import (
 type TraderService struct {
 	repo       *repository.TraderRepo
 	walletRepo *repository.WalletRepo // 跟单本金（子账户）和主钱包之间的资金划转
+
+	// ProfitShareEnabled 控制 FollowTrader 时是否把 trader 的默认分润比例 snapshot
+	// 到 copy_trading 行。off → 始终 snapshot 0（永不抽分润，存量与新跟单都安全）。
+	// on → 按 trader 当前 default_profit_share_rate 抽。受 env PROFIT_SHARE_ENABLED 控制，
+	// 与 TradingService.ProfitShareEnabled 必须保持同步开关。
+	ProfitShareEnabled bool
 }
 
 func NewTraderService(repo *repository.TraderRepo, walletRepo *repository.WalletRepo) *TraderService {
@@ -145,8 +151,15 @@ func (s *TraderService) FollowTrader(ctx context.Context, followerID, traderID s
 	// Auto-follow when starting copy trading
 	_ = s.repo.FollowUser(ctx, followerID, traderID)
 
-	// 1) 创建/复活 copy_trading 行（仅配置，capital 字段保持 0）
-	ct, err := s.repo.CreateCopyTrading(ctx, followerID, traderID, req)
+	// 跟单分润 snapshot：只在 feature flag 打开时读 trader 的默认比例，
+	// 否则一律传 0。snapshot 锁定后，trader 改默认比例不影响这个 follower。
+	var snapshotRate float64
+	if s.ProfitShareEnabled {
+		snapshotRate, _ = s.repo.GetDefaultShareRate(ctx, traderID)
+	}
+
+	// 1) 创建/复活 copy_trading 行（仅配置 + 分润 snapshot，capital 字段保持 0）
+	ct, err := s.repo.CreateCopyTrading(ctx, followerID, traderID, req, snapshotRate)
 	if err != nil {
 		return nil, err
 	}
@@ -297,4 +310,26 @@ func (s *TraderService) SetTraderStatus(ctx context.Context, uid string, isTrade
 
 func (s *TraderService) GetEquityHistory(ctx context.Context, uid string, period string) ([]model.EquityPoint, error) {
 	return s.repo.GetEquityHistory(ctx, uid, period)
+}
+
+// ── Profit Share (跟单分润) ──
+
+// UpdateDefaultShareRate trader 修改默认分润比例。要求调用者已是 trader，
+// repo 层会再校验一次（is_trader=true），否则返回 not-found。
+// rate 范围 [0, 0.2]，越界报错。
+//
+// 仅修改 users.default_profit_share_rate，**不**触发任何 copy_trading 行更新
+// （存量 follower 的 snapshot 永远锁定）。
+func (s *TraderService) UpdateDefaultShareRate(ctx context.Context, traderUID string, rate float64) error {
+	return s.repo.UpdateDefaultShareRate(ctx, traderUID, rate)
+}
+
+// GetProfitShareSummary trader 仪表盘顶部三卡片汇总 + 当前默认比例。
+func (s *TraderService) GetProfitShareSummary(ctx context.Context, traderUID string) (*model.ProfitShareSummary, error) {
+	return s.repo.GetProfitShareSummary(ctx, traderUID)
+}
+
+// ListProfitShareRecords trader 仪表盘明细列表（已成功 settled 的分润记录）。
+func (s *TraderService) ListProfitShareRecords(ctx context.Context, traderUID string, limit, offset int) ([]model.ProfitShareRecord, int, error) {
+	return s.repo.ListProfitShareRecords(ctx, traderUID, limit, offset)
 }

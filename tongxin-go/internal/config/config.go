@@ -36,6 +36,13 @@ type Config struct {
 	LiveKitURL       string
 	LiveKitAPIKey    string
 	LiveKitAPISecret string
+
+	// Feature flags
+	// ProfitShareEnabled 控制跟单分润链路是否开启：
+	//   - off (默认)：FollowTrader 永远 snapshot 0，平仓走旧 SettleToBucket，零分润、零审计
+	//   - on：FollowTrader 按 trader 的 default_profit_share_rate snapshot，平仓走 SettleToBucketWithCommission
+	// 上线灰度时通过环境变量 PROFIT_SHARE_ENABLED=true 打开。
+	ProfitShareEnabled bool
 }
 
 func Load() *Config {
@@ -56,6 +63,8 @@ func Load() *Config {
 		LiveKitURL:       getEnv("LIVEKIT_URL", ""),
 		LiveKitAPIKey:    getEnv("LIVEKIT_API_KEY", ""),
 		LiveKitAPISecret: getEnv("LIVEKIT_API_SECRET", ""),
+
+		ProfitShareEnabled: strings.EqualFold(getEnv("PROFIT_SHARE_ENABLED", "false"), "true"),
 	}
 
 	origins := getEnv("CORS_ORIGINS", "http://localhost:8081,http://localhost:19006")
