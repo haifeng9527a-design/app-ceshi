@@ -314,19 +314,19 @@ func (r *TraderRepo) CreateCopyTrading(ctx context.Context, followerID, traderID
 	if followDir == "" {
 		followDir = "both"
 	}
+	// 注意：本方法只创建 / 复活 copy_trading 行（纯配置 + status），
+	// 不动 allocated_capital/available_capital/frozen_capital。
+	// 资金划转必须通过 walletRepo.AllocateToCopyBucket 在独立事务里完成。
 	err := r.pool.QueryRow(ctx, `
 		INSERT INTO copy_trading (follower_id, trader_id, copy_mode, copy_ratio, fixed_amount,
 			max_position, max_single_margin, follow_symbols, leverage_mode, custom_leverage,
-			tp_sl_mode, custom_tp_ratio, custom_sl_ratio, follow_direction,
-			allocated_capital, available_capital, frozen_capital)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15, 0)
+			tp_sl_mode, custom_tp_ratio, custom_sl_ratio, follow_direction)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		ON CONFLICT (follower_id, trader_id) DO UPDATE SET
 			status = 'active', copy_mode = $3, copy_ratio = $4, fixed_amount = $5,
 			max_position = $6, max_single_margin = $7, follow_symbols = $8,
 			leverage_mode = $9, custom_leverage = $10, tp_sl_mode = $11,
 			custom_tp_ratio = $12, custom_sl_ratio = $13, follow_direction = $14,
-			allocated_capital = copy_trading.allocated_capital + $15,
-			available_capital = copy_trading.available_capital + $15,
 			updated_at = NOW()
 		RETURNING id, follower_id, trader_id, status, copy_mode, copy_ratio, fixed_amount,
 			max_position, max_single_margin, follow_symbols, leverage_mode, custom_leverage,
@@ -336,8 +336,7 @@ func (r *TraderRepo) CreateCopyTrading(ctx context.Context, followerID, traderID
 	`, followerID, traderID, copyMode, req.CopyRatio, req.FixedAmount,
 		req.MaxPosition, req.MaxSingleMargin, req.FollowSymbols,
 		leverageMode, req.CustomLeverage, tpSlMode,
-		req.CustomTpRatio, req.CustomSlRatio, followDir,
-		req.AllocatedCapital).Scan(
+		req.CustomTpRatio, req.CustomSlRatio, followDir).Scan(
 		&ct.ID, &ct.FollowerID, &ct.TraderID, &ct.Status,
 		&ct.CopyMode, &ct.CopyRatio, &ct.FixedAmount,
 		&ct.MaxPosition, &ct.MaxSingleMargin, &ct.FollowSymbols,

@@ -222,11 +222,45 @@ func (h *TraderHandler) UnfollowTrader(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.svc.UnfollowTrader(r.Context(), uid, traderUID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to unfollow")
+		// 暴露原始错误（前端用 "has open positions" 来弹「请先平仓」提示）
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "unfollowed"})
+}
+
+// PATCH /api/trader/{uid}/follow/capital — 追加 / 赎回跟单池子本金
+// body: { "delta": 5000 }  正数为追加，负数为赎回
+func (h *TraderHandler) AdjustAllocatedCapital(w http.ResponseWriter, r *http.Request) {
+	uid := middleware.GetUserUID(r.Context())
+	if uid == "" {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	traderUID := r.PathValue("uid")
+	if traderUID == "" {
+		writeError(w, http.StatusBadRequest, "missing trader uid")
+		return
+	}
+
+	var req model.AdjustAllocatedCapitalRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if req.Delta == 0 {
+		writeError(w, http.StatusBadRequest, "delta must be non-zero")
+		return
+	}
+
+	ct, err := h.svc.AdjustAllocatedCapital(r.Context(), uid, traderUID, req.Delta)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, ct)
 }
 
 // GET /api/trader/{uid}/positions — public: open positions of a trader

@@ -480,7 +480,7 @@ func main() {
 	var traderSvc *service.TraderService
 	if pool != nil {
 		traderRepo := repository.NewTraderRepo(pool)
-		traderSvc = service.NewTraderService(traderRepo)
+		traderSvc = service.NewTraderService(traderRepo, walletRepo)
 		chatProfileSvc = service.NewChatProfileService(userSvc, friendSvc, traderSvc)
 		traderH := handler.NewTraderHandler(traderSvc, tradingSvc)
 
@@ -504,6 +504,7 @@ func main() {
 		mux.Handle("POST /api/trader/{uid}/follow", authMw.Authenticate(http.HandlerFunc(traderH.FollowTrader)))
 		mux.Handle("DELETE /api/trader/{uid}/follow", authMw.Authenticate(http.HandlerFunc(traderH.UnfollowTrader)))
 		mux.Handle("PUT /api/trader/{uid}/follow/settings", authMw.Authenticate(http.HandlerFunc(traderH.UpdateCopySettings)))
+		mux.Handle("PATCH /api/trader/{uid}/follow/capital", authMw.Authenticate(http.HandlerFunc(traderH.AdjustAllocatedCapital)))
 		mux.Handle("POST /api/trader/{uid}/follow/pause", authMw.Authenticate(http.HandlerFunc(traderH.PauseCopyTrading)))
 		mux.Handle("POST /api/trader/{uid}/follow/resume", authMw.Authenticate(http.HandlerFunc(traderH.ResumeCopyTrading)))
 		mux.Handle("GET /api/trader/copy-trade-logs", authMw.Authenticate(http.HandlerFunc(traderH.CopyTradeLogs)))

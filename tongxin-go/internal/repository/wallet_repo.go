@@ -179,6 +179,119 @@ func (r *WalletRepo) SettleTrade(ctx context.Context, userID string, unfreezeAmo
 	return tx.Commit(ctx)
 }
 
+// AllocateToCopyBucket atomically transfers from main wallet to a copy_trading bucket.
+// 单事务里：wallets.balance -= amount，copy_trading.allocated/available += amount，
+// 写一条 wallet_transactions(type='copy_allocate')。
+// 返回更新后的 wallet 给 service 层用。
+func (r *WalletRepo) AllocateToCopyBucket(ctx context.Context, userID, copyTradingID string, amount float64) (*model.Wallet, error) {
+	if amount <= 0 {
+		return nil, fmt.Errorf("allocate amount must be positive")
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("allocate begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// 1. 扣钱包
+	var w model.Wallet
+	err = tx.QueryRow(ctx,
+		`UPDATE wallets SET balance = balance - $2, updated_at = NOW()
+		 WHERE user_id = $1 AND balance >= $2
+		 RETURNING user_id, balance, frozen, total_deposit, updated_at, created_at`,
+		userID, amount).
+		Scan(&w.UserID, &w.Balance, &w.Frozen, &w.TotalDeposit, &w.UpdatedAt, &w.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("insufficient balance for copy allocate")
+	}
+
+	// 2. 加子账户（必须存在且 status='active'，且 follower_id 必须匹配，防越权）
+	tag, err := tx.Exec(ctx,
+		`UPDATE copy_trading
+		 SET allocated_capital = allocated_capital + $3,
+		     available_capital = available_capital + $3,
+		     updated_at = NOW()
+		 WHERE id = $1 AND follower_id = $2 AND status = 'active'`,
+		copyTradingID, userID, amount)
+	if err != nil {
+		return nil, fmt.Errorf("allocate to bucket: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, fmt.Errorf("copy_trading not active or not owned by user")
+	}
+
+	// 3. 写流水
+	_, err = tx.Exec(ctx,
+		`INSERT INTO wallet_transactions (user_id, type, amount, balance_after, ref_id, note)
+		 VALUES ($1, 'copy_allocate', $2, $3, $4, 'Allocate to copy trading bucket')`,
+		userID, -amount, w.Balance, copyTradingID)
+	if err != nil {
+		return nil, fmt.Errorf("allocate record tx: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("allocate commit: %w", err)
+	}
+	return &w, nil
+}
+
+// WithdrawFromCopyBucket atomically transfers from a copy_trading bucket back to main wallet.
+// 单事务里：copy_trading.{allocated,available} -= amount，wallets.balance += amount，
+// 写一条 wallet_transactions(type='copy_withdraw')。
+// amount 必须 ≤ 子账户 available_capital 和 allocated_capital。
+func (r *WalletRepo) WithdrawFromCopyBucket(ctx context.Context, userID, copyTradingID string, amount float64) (*model.Wallet, error) {
+	if amount <= 0 {
+		return nil, fmt.Errorf("withdraw amount must be positive")
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("withdraw begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// 1. 扣子账户（先扣再加，防止并发拿空）
+	tag, err := tx.Exec(ctx,
+		`UPDATE copy_trading
+		 SET allocated_capital = allocated_capital - $3,
+		     available_capital = available_capital - $3,
+		     updated_at = NOW()
+		 WHERE id = $1 AND follower_id = $2
+		   AND available_capital >= $3 AND allocated_capital >= $3`,
+		copyTradingID, userID, amount)
+	if err != nil {
+		return nil, fmt.Errorf("withdraw from bucket: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, fmt.Errorf("withdraw exceeds bucket available or allocated")
+	}
+
+	// 2. 加钱包
+	var w model.Wallet
+	err = tx.QueryRow(ctx,
+		`UPDATE wallets SET balance = balance + $2, updated_at = NOW()
+		 WHERE user_id = $1
+		 RETURNING user_id, balance, frozen, total_deposit, updated_at, created_at`,
+		userID, amount).
+		Scan(&w.UserID, &w.Balance, &w.Frozen, &w.TotalDeposit, &w.UpdatedAt, &w.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("withdraw update wallet: %w", err)
+	}
+
+	// 3. 写流水
+	_, err = tx.Exec(ctx,
+		`INSERT INTO wallet_transactions (user_id, type, amount, balance_after, ref_id, note)
+		 VALUES ($1, 'copy_withdraw', $2, $3, $4, 'Withdraw from copy trading bucket')`,
+		userID, amount, w.Balance, copyTradingID)
+	if err != nil {
+		return nil, fmt.Errorf("withdraw record tx: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("withdraw commit: %w", err)
+	}
+	return &w, nil
+}
+
 // GetTransactions returns paginated transaction history.
 func (r *WalletRepo) GetTransactions(ctx context.Context, userID string, limit, offset int) ([]model.WalletTransaction, error) {
 	if limit <= 0 {

@@ -10,12 +10,16 @@ import (
 )
 
 type TraderService struct {
-	repo *repository.TraderRepo
+	repo       *repository.TraderRepo
+	walletRepo *repository.WalletRepo // 跟单本金（子账户）和主钱包之间的资金划转
 }
 
-func NewTraderService(repo *repository.TraderRepo) *TraderService {
-	return &TraderService{repo: repo}
+func NewTraderService(repo *repository.TraderRepo, walletRepo *repository.WalletRepo) *TraderService {
+	return &TraderService{repo: repo, walletRepo: walletRepo}
 }
+
+// 跟单本金最小分配额（USDT），防止 dust 订阅
+const MinAllocatedCapital = 100.0
 
 // ── Application ──
 
@@ -119,16 +123,113 @@ func (s *TraderService) FollowTrader(ctx context.Context, followerID, traderID s
 		return nil, errors.New("trader has disabled copy trading")
 	}
 
+	// 跟单本金校验：必填且 >= 最小阈值
+	if req.AllocatedCapital < MinAllocatedCapital {
+		return nil, fmt.Errorf("allocated capital must be >= %.2f USDT", MinAllocatedCapital)
+	}
+	// 钱包余额校验
+	if s.walletRepo != nil {
+		wallet, werr := s.walletRepo.GetWallet(ctx, followerID)
+		if werr != nil {
+			return nil, fmt.Errorf("wallet not found: %w", werr)
+		}
+		if wallet.Balance < req.AllocatedCapital {
+			return nil, fmt.Errorf("insufficient wallet balance (need %.2f, have %.2f)",
+				req.AllocatedCapital, wallet.Balance)
+		}
+	}
+
 	if req.CopyRatio <= 0 {
 		req.CopyRatio = 1.0
 	}
 	// Auto-follow when starting copy trading
 	_ = s.repo.FollowUser(ctx, followerID, traderID)
-	return s.repo.CreateCopyTrading(ctx, followerID, traderID, req)
+
+	// 1) 创建/复活 copy_trading 行（仅配置，capital 字段保持 0）
+	ct, err := s.repo.CreateCopyTrading(ctx, followerID, traderID, req)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2) 钱包 → 子账户原子划转
+	if s.walletRepo != nil {
+		if _, err := s.walletRepo.AllocateToCopyBucket(ctx, followerID, ct.ID, req.AllocatedCapital); err != nil {
+			// 回滚：不能让 copy_trading 留在 active 但 bucket=0 的状态 → 把它停掉
+			_ = s.repo.StopCopyTrading(ctx, followerID, traderID)
+			return nil, fmt.Errorf("allocate capital: %w", err)
+		}
+		// 拿最新快照（含 allocated/available）
+		updated, gerr := s.repo.GetCopyTradingByID(ctx, ct.ID)
+		if gerr == nil {
+			ct = updated
+		}
+	}
+	return ct, nil
 }
 
+// UnfollowTrader 取消跟单：先检查无未平仓位 → 子账户余额回主钱包 → status=stopped
+// 错误信息「has open positions」会被前端用来弹「请先平仓」提示
 func (s *TraderService) UnfollowTrader(ctx context.Context, followerID, traderID string) error {
+	ct, err := s.repo.GetCopyRelation(ctx, followerID, traderID)
+	if err != nil {
+		// 找不到关系：直接走旧路径（幂等）
+		return s.repo.StopCopyTrading(ctx, followerID, traderID)
+	}
+	if ct.Status == "stopped" {
+		return nil
+	}
+	if ct.FrozenCapital > 0 {
+		return fmt.Errorf("has open positions, please close first (frozen=%.2f)", ct.FrozenCapital)
+	}
+	// 子账户余额 → 钱包
+	if s.walletRepo != nil && ct.AvailableCapital > 0 {
+		if _, err := s.walletRepo.WithdrawFromCopyBucket(ctx, followerID, ct.ID, ct.AvailableCapital); err != nil {
+			return fmt.Errorf("withdraw bucket: %w", err)
+		}
+	}
 	return s.repo.StopCopyTrading(ctx, followerID, traderID)
+}
+
+// AdjustAllocatedCapital 用户主动追加 / 赎回某个跟单池子的本金。
+// delta>0 追加（钱包→子账户），<0 赎回（子账户→钱包）。
+// 赎回时检查子账户 available 是否充足；不能赎回到 allocated 以下（保留 PnL 增量逻辑给后续）。
+func (s *TraderService) AdjustAllocatedCapital(ctx context.Context, followerID, traderID string, delta float64) (*model.CopyTrading, error) {
+	if delta == 0 {
+		return s.repo.GetCopyRelation(ctx, followerID, traderID)
+	}
+	if s.walletRepo == nil {
+		return nil, errors.New("wallet not initialized")
+	}
+	ct, err := s.repo.GetCopyRelation(ctx, followerID, traderID)
+	if err != nil {
+		return nil, fmt.Errorf("copy relation not found: %w", err)
+	}
+	if ct.Status != "active" {
+		return nil, errors.New("copy trading is not active")
+	}
+
+	if delta > 0 {
+		// 追加：检查钱包余额
+		wallet, werr := s.walletRepo.GetWallet(ctx, followerID)
+		if werr != nil {
+			return nil, fmt.Errorf("wallet not found: %w", werr)
+		}
+		if wallet.Balance < delta {
+			return nil, fmt.Errorf("insufficient wallet balance (need %.2f, have %.2f)", delta, wallet.Balance)
+		}
+		if _, err := s.walletRepo.AllocateToCopyBucket(ctx, followerID, ct.ID, delta); err != nil {
+			return nil, fmt.Errorf("top up bucket: %w", err)
+		}
+	} else {
+		withdraw := -delta
+		if ct.AvailableCapital < withdraw {
+			return nil, fmt.Errorf("insufficient bucket available (need %.2f, have %.2f)", withdraw, ct.AvailableCapital)
+		}
+		if _, err := s.walletRepo.WithdrawFromCopyBucket(ctx, followerID, ct.ID, withdraw); err != nil {
+			return nil, fmt.Errorf("withdraw from bucket: %w", err)
+		}
+	}
+	return s.repo.GetCopyTradingByID(ctx, ct.ID)
 }
 
 func (s *TraderService) GetMyFollowers(ctx context.Context, uid string) ([]model.CopyTrading, error) {
