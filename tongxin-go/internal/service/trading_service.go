@@ -835,10 +835,19 @@ func (s *TradingService) ClosePosition(ctx context.Context, userID, positionID s
 		return nil, fmt.Errorf("close position: %w", err)
 	}
 
-	// Settle: unfreeze margin + apply PnL - close fee (safe: position already marked closed)
-	if err := s.walletRepo.SettleTrade(ctx, userID, pos.MarginAmount, pnl, closeFee); err != nil {
-		log.Printf("[trading] CRITICAL: position %s closed but settle failed: %v", positionID, err)
-		return nil, fmt.Errorf("settle trade: %w", err)
+	// 跟单仓位 vs 普通仓位的结算分流：
+	//   普通仓位 → wallet.SettleTrade
+	//   跟单仓位 → bucket.SettleToBucket（钱永远不出主钱包）
+	if pos.IsCopyTrade && pos.CopyTradingID != nil && s.traderRepo != nil {
+		if err := s.traderRepo.SettleToBucket(ctx, *pos.CopyTradingID, pos.MarginAmount, pnl, closeFee); err != nil {
+			log.Printf("[trading] CRITICAL: copy position %s closed but bucket settle failed: %v", positionID, err)
+			return nil, fmt.Errorf("settle to bucket: %w", err)
+		}
+	} else {
+		if err := s.walletRepo.SettleTrade(ctx, userID, pos.MarginAmount, pnl, closeFee); err != nil {
+			log.Printf("[trading] CRITICAL: position %s closed but settle failed: %v", positionID, err)
+			return nil, fmt.Errorf("settle trade: %w", err)
+		}
 	}
 
 	pos.Status = "closed"
@@ -851,10 +860,13 @@ func (s *TradingService) ClosePosition(ctx context.Context, userID, positionID s
 	// Remove from position cache
 	s.removePositionFromCache(pos.Symbol, positionID)
 
-	wallet, _ := s.walletRepo.GetWallet(ctx, userID)
 	s.pushPositionClosed(userID, pos)
-	if wallet != nil {
-		s.pushBalanceUpdate(userID, wallet)
+	// 跟单仓位主钱包没动，不必刷 balance；普通仓位才推
+	if !pos.IsCopyTrade {
+		wallet, _ := s.walletRepo.GetWallet(ctx, userID)
+		if wallet != nil {
+			s.pushBalanceUpdate(userID, wallet)
+		}
 	}
 
 	// Trigger copy close for followers
@@ -914,10 +926,17 @@ func (s *TradingService) PartialClosePosition(ctx context.Context, userID, posit
 		return nil, fmt.Errorf("reduce position: %w", err)
 	}
 
-	// Settle the closed portion: release proportional margin + PnL - fee (safe: position already updated)
-	if err := s.walletRepo.SettleTrade(ctx, userID, releasedMargin, pnl, closeFee); err != nil {
-		log.Printf("[trading] CRITICAL: position %s reduced but settle failed: %v", positionID, err)
-		return nil, fmt.Errorf("settle partial close: %w", err)
+	// 跟单仓位 vs 普通仓位结算分流
+	if pos.IsCopyTrade && pos.CopyTradingID != nil && s.traderRepo != nil {
+		if err := s.traderRepo.SettleToBucket(ctx, *pos.CopyTradingID, releasedMargin, pnl, closeFee); err != nil {
+			log.Printf("[trading] CRITICAL: copy position %s reduced but bucket settle failed: %v", positionID, err)
+			return nil, fmt.Errorf("settle partial close to bucket: %w", err)
+		}
+	} else {
+		if err := s.walletRepo.SettleTrade(ctx, userID, releasedMargin, pnl, closeFee); err != nil {
+			log.Printf("[trading] CRITICAL: position %s reduced but settle failed: %v", positionID, err)
+			return nil, fmt.Errorf("settle partial close: %w", err)
+		}
 	}
 
 	// Update cache
@@ -1510,21 +1529,20 @@ func (s *TradingService) triggerCopyOpen(ctx context.Context, traderID string, o
 			}
 		}
 
-		// Get follower wallet early (needed for both ratio calc and balance check)
-		log.Printf("[copy-trading] passed direction/symbol filters for follower=%s", ct.FollowerID)
-		wallet, err := s.walletRepo.GetWallet(ctx, ct.FollowerID)
-		if err != nil {
-			log.Printf("[copy-trading] get wallet error for follower=%s: %v", ct.FollowerID, err)
-			s.logCopySkip(ctx, &ct, order, pos, "wallet_error")
+		// 跟单子账户语义：每个 copy_trading 行是独立的虚拟池子（allocated_capital）
+		// 仓位计算 / 资金来源都基于这个池子，与主钱包余额完全解耦。
+		log.Printf("[copy-trading] passed direction/symbol filters for follower=%s bucket: allocated=%.2f available=%.2f frozen=%.2f",
+			ct.FollowerID, ct.AllocatedCapital, ct.AvailableCapital, ct.FrozenCapital)
+		if ct.AllocatedCapital <= 0 || ct.AvailableCapital <= 0 {
+			s.logCopySkip(ctx, &ct, order, pos, "bucket_empty")
 			continue
 		}
 
 		// Calculate follower margin
 		var followerMargin float64
 		if ct.CopyMode == "ratio" {
-			// Ratio mode: proportional to trader's equity usage
-			// traderRatio = traderMargin / traderEquity (how much % of equity the trader used)
-			// followerMargin = followerEquity × traderRatio × copy_ratio
+			// Ratio mode: 用交易员保证金占其总权益的比例 × 跟随者的「分配本金」 × 用户自定 copy_ratio
+			// followerMargin = ct.AllocatedCapital × (traderMargin / traderEquity) × copy_ratio
 			traderWallet, err := s.walletRepo.GetWallet(ctx, traderID)
 			if err != nil || traderWallet == nil {
 				log.Printf("[copy-trading] cannot get trader wallet for ratio calc, trader=%s: %v", traderID, err)
@@ -1537,10 +1555,9 @@ func (s *TradingService) triggerCopyOpen(ctx context.Context, traderID string, o
 				continue
 			}
 			traderRatio := order.MarginAmount / traderEquity // e.g. 10%
-			followerEquity := wallet.Balance + wallet.Frozen
-			followerMargin = followerEquity * traderRatio * ct.CopyRatio
-			log.Printf("[copy-trading] ratio calc: traderEquity=%.2f traderMargin=%.2f traderRatio=%.4f followerEquity=%.2f copyRatio=%.2f → followerMargin=%.2f",
-				traderEquity, order.MarginAmount, traderRatio, followerEquity, ct.CopyRatio, followerMargin)
+			followerMargin = ct.AllocatedCapital * traderRatio * ct.CopyRatio
+			log.Printf("[copy-trading] ratio calc: traderEquity=%.2f traderMargin=%.2f traderRatio=%.4f bucketAllocated=%.2f copyRatio=%.2f → followerMargin=%.2f",
+				traderEquity, order.MarginAmount, traderRatio, ct.AllocatedCapital, ct.CopyRatio, followerMargin)
 		} else {
 			// fixed amount
 			if ct.FixedAmount != nil {
@@ -1555,7 +1572,8 @@ func (s *TradingService) triggerCopyOpen(ctx context.Context, traderID string, o
 			followerMargin = *ct.MaxSingleMargin
 		}
 
-		// Check max_position total limit
+		// 注意：max_position 上限的语义已与 allocated_capital 重叠，
+		// 但保留逻辑做硬上限（用户可能想限制单交易员里实际开仓占池子的比例）。
 		if ct.MaxPosition != nil {
 			usedMargin, _ := s.traderRepo.GetTotalCopyMarginByTrader(ctx, ct.FollowerID, traderID)
 			remaining := *ct.MaxPosition - usedMargin
@@ -1568,21 +1586,19 @@ func (s *TradingService) triggerCopyOpen(ctx context.Context, traderID string, o
 			}
 		}
 
-		// Check follower balance, shrink margin if needed (wallet already fetched above)
-		// wallet.Balance is already the available portion (FreezeMargin moves funds
-		// from balance → frozen), so don't subtract frozen again.
-		available := wallet.Balance
-		// Reserve 1% for open fee
-		maxAffordable := available / 1.01
-		log.Printf("[copy-trading] follower=%s balance=%.2f frozen=%.2f available=%.2f needed_margin=%.2f",
-			ct.FollowerID, wallet.Balance, wallet.Frozen, available, followerMargin)
+		// 检查池子剩余 available 能否覆盖 margin + 1% open fee 预留
+		bucketAvailable := ct.AvailableCapital
+		maxAffordable := bucketAvailable / 1.01
+		log.Printf("[copy-trading] follower=%s bucket_available=%.2f needed_margin=%.2f maxAffordable=%.2f",
+			ct.FollowerID, bucketAvailable, followerMargin, maxAffordable)
 		if followerMargin > maxAffordable {
 			if maxAffordable < 1 {
-				log.Printf("[copy-trading] follower=%s insufficient balance (available=%.2f)", ct.FollowerID, available)
-				s.logCopySkip(ctx, &ct, order, pos, "insufficient_balance")
+				// 池子余额不足，直接跳过这笔（不强行缩到 0）
+				log.Printf("[copy-trading] follower=%s insufficient bucket capital (available=%.2f)", ct.FollowerID, bucketAvailable)
+				s.logCopySkip(ctx, &ct, order, pos, "insufficient_allocated_capital")
 				continue
 			}
-			log.Printf("[copy-trading] follower=%s shrinking margin from %.2f to %.2f (available limit)",
+			log.Printf("[copy-trading] follower=%s shrinking margin from %.2f to %.2f (bucket limit)",
 				ct.FollowerID, followerMargin, maxAffordable)
 			followerMargin = maxAffordable
 		}
@@ -1656,6 +1672,12 @@ func (s *TradingService) triggerCopyOpen(ctx context.Context, traderID string, o
 		}
 		_ = s.traderRepo.CreateCopyTradeLog(ctx, logEntry)
 
+		// 拿最新池子快照（available/frozen 已被本次开仓修改）
+		var bucket *model.CopyTrading
+		if updated, gerr := s.traderRepo.GetCopyTradingByID(ctx, ct.ID); gerr == nil {
+			bucket = updated
+		}
+
 		// Push notification to follower
 		s.pusher.PushToUser(ct.FollowerID, map[string]any{
 			"type": "copy_trade_opened",
@@ -1663,6 +1685,7 @@ func (s *TradingService) triggerCopyOpen(ctx context.Context, traderID string, o
 				"order":       copyOrder,
 				"position":    copyPos,
 				"trader_name": ct.TraderName,
+				"bucket":      bucket,
 			},
 		})
 
@@ -1682,20 +1705,14 @@ func (s *TradingService) placeCopyOrder(
 	leverage int,
 	tpPrice, slPrice *float64,
 ) (*model.Order, *model.Position, error) {
-	// Freeze margin
-	if err := s.walletRepo.FreezeMargin(ctx, followerID, margin); err != nil {
-		return nil, nil, fmt.Errorf("freeze margin: %w", err)
-	}
-
-	// Calculate fee
+	// 跟单仓位的资金来源是 copy_trading 子账户（池子），主钱包完全不动。
+	// 1. 计算 open fee
 	vipLevel, _ := s.userRepo.GetVipLevel(ctx, followerID)
 	_, takerRate := s.getVipFeeRates(vipLevel)
 	openFee := math.Round(sourcePos.EntryPrice*qty*takerRate*1e8) / 1e8
-	if openFee > 0 {
-		if err := s.walletRepo.ChargeFee(ctx, followerID, openFee, "", "Copy trade open fee"); err != nil {
-			log.Printf("[copy-trade] insufficient balance for fee, follower=%s fee=%.4f, skipping fee", followerID, openFee)
-			openFee = 0
-		}
+	// 2. 一次性原子扣 (margin + openFee)：margin 进 frozen，fee 是损耗
+	if err := s.traderRepo.FreezeFromBucket(ctx, ct.ID, margin, openFee); err != nil {
+		return nil, nil, fmt.Errorf("freeze from bucket: %w", err)
 	}
 
 	// Calculate liq price
@@ -1725,7 +1742,7 @@ func (s *TradingService) placeCopyOrder(
 	order.FilledAt = &now
 
 	if err := s.orderRepo.Create(ctx, order); err != nil {
-		s.walletRepo.UnfreezeMargin(ctx, followerID, margin)
+		_ = s.traderRepo.UnfreezeBucket(ctx, ct.ID, margin, openFee)
 		return nil, nil, fmt.Errorf("create order: %w", err)
 	}
 
@@ -1752,8 +1769,9 @@ func (s *TradingService) placeCopyOrder(
 
 	pos, err := s.positionRepo.CreateCopyPosition(ctx, pos)
 	if err != nil {
-		s.walletRepo.UnfreezeMargin(ctx, followerID, margin)
-		log.Printf("[copy-trade] position creation failed, unfroze margin=%.4f for follower=%s: %v", margin, followerID, err)
+		_ = s.traderRepo.UnfreezeBucket(ctx, ct.ID, margin, openFee)
+		log.Printf("[copy-trade] position creation failed, unfroze bucket margin=%.4f fee=%.4f for follower=%s: %v",
+			margin, openFee, followerID, err)
 		return nil, nil, fmt.Errorf("create position: %w", err)
 	}
 
@@ -1766,13 +1784,10 @@ func (s *TradingService) placeCopyOrder(
 	// Add to cache
 	s.addPositionToCache(pos)
 
-	// Push events to follower
-	wallet, _ := s.walletRepo.GetWallet(ctx, followerID)
+	// Push events to follower（跟单仓位不动主钱包，所以不推 balance update；
+	// 池子最新状态会随 copy_trade_opened 推送）
 	s.pushOrderFilled(followerID, order)
 	s.pushPositionUpdate(followerID, pos)
-	if wallet != nil {
-		s.pushBalanceUpdate(followerID, wallet)
-	}
 
 	return order, pos, nil
 }
@@ -1818,11 +1833,18 @@ func (s *TradingService) triggerCopyClose(ctx context.Context, traderID, positio
 		}
 		_ = s.traderRepo.CreateCopyTradeLog(ctx, logEntry)
 
-		// Push copy trade closed notification
+		// 推送时附带最新池子余额，前端可即时刷新「跟单本金」
+		var bucket *model.CopyTrading
+		if fp.CopyTradingID != nil {
+			if updated, gerr := s.traderRepo.GetCopyTradingByID(ctx, *fp.CopyTradingID); gerr == nil {
+				bucket = updated
+			}
+		}
 		s.pusher.PushToUser(fp.UserID, map[string]any{
 			"type": "copy_trade_closed",
 			"data": map[string]any{
 				"position": closedPos,
+				"bucket":   bucket,
 			},
 		})
 

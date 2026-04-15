@@ -544,24 +544,52 @@ func (r *TraderRepo) GetTotalCopyMarginByTrader(ctx context.Context, followerID,
 
 // ── Copy Trading: Allocated Capital (虚拟子账户) ──
 
-// FreezeFromBucket 跟单开仓时，从子账户 available 扣保证金，转入 frozen。
-// 受影响行 = 0 表示余额不足或 ID 不存在，应在调用方报错并跳过。
-func (r *TraderRepo) FreezeFromBucket(ctx context.Context, copyTradingID string, amount float64) error {
-	if amount <= 0 {
-		return fmt.Errorf("freeze amount must be positive: %v", amount)
+// FreezeFromBucket 跟单开仓时一次性扣 margin + openFee：
+//   available -= (margin + fee)
+//   frozen    += margin   （fee 是真实损耗，不进 frozen）
+// 失败（available 不够 or 池子非 active）会返回错误，调用方应跳过这笔。
+func (r *TraderRepo) FreezeFromBucket(ctx context.Context, copyTradingID string, margin, fee float64) error {
+	if margin <= 0 {
+		return fmt.Errorf("freeze margin must be positive: %v", margin)
+	}
+	if fee < 0 {
+		return fmt.Errorf("fee must be >= 0: %v", fee)
 	}
 	tag, err := r.pool.Exec(ctx, `
 		UPDATE copy_trading
-		SET available_capital = available_capital - $2,
+		SET available_capital = available_capital - $2 - $3,
 		    frozen_capital    = frozen_capital + $2,
 		    updated_at = NOW()
-		WHERE id = $1 AND status = 'active' AND available_capital >= $2
-	`, copyTradingID, amount)
+		WHERE id = $1 AND status = 'active' AND available_capital >= $2 + $3
+	`, copyTradingID, margin, fee)
 	if err != nil {
 		return fmt.Errorf("freeze from bucket: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return fmt.Errorf("insufficient bucket capital or copy_trading not active: %s", copyTradingID)
+	}
+	return nil
+}
+
+// UnfreezeBucket 撤销 FreezeFromBucket（当后续 createOrder/createPosition 失败时使用）。
+//   frozen    -= margin
+//   available += (margin + fee)   （fee 也退回，因为整笔回滚）
+func (r *TraderRepo) UnfreezeBucket(ctx context.Context, copyTradingID string, margin, fee float64) error {
+	if margin <= 0 {
+		return nil
+	}
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE copy_trading
+		SET frozen_capital    = frozen_capital - $2,
+		    available_capital = available_capital + $2 + $3,
+		    updated_at = NOW()
+		WHERE id = $1 AND frozen_capital >= $2
+	`, copyTradingID, margin, fee)
+	if err != nil {
+		return fmt.Errorf("unfreeze bucket: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("frozen insufficient or copy_trading not found: %s", copyTradingID)
 	}
 	return nil
 }
