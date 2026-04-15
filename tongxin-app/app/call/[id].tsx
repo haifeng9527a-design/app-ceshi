@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, Platform, Image } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { Colors, Sizes } from '../../theme/colors';
 import { endCall, getCall, getLiveKitToken, type CallRecord, type LiveKitTokenPayload } from '../../services/api/callsApi';
 import { fetchConversation, fetchUserProfilesBatch, type ApiConversation, type PeerProfile } from '../../services/api/messagesApi';
@@ -19,6 +20,7 @@ function formatDuration(totalSeconds: number): string {
 }
 
 export default function CallScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
   const currentUser = useAuthStore((s) => s.user);
   const currentCall = useCallStore((s) => s.currentCall);
@@ -83,7 +85,7 @@ export default function CallScreen() {
         }
       } catch (e: any) {
         if (!cancelled) {
-          Alert.alert('加载失败', e?.response?.data?.error || e?.message || '无法加载通话信息');
+          Alert.alert(t('call.loadFailedTitle'), e?.response?.data?.error || e?.message || t('call.loadFailedBody'));
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -278,7 +280,7 @@ export default function CallScreen() {
       } catch (e: any) {
         if (!cancelled) {
           setLkConnected(false);
-          setLkError(e?.message || '网页端连接 LiveKit 失败');
+          setLkError(e?.message || t('call.livekitConnectFailed'));
         }
       }
     };
@@ -308,7 +310,7 @@ export default function CallScreen() {
       await endCall(callId, 'hangup');
       router.back();
     } catch (e: any) {
-      Alert.alert('挂断失败', e?.response?.data?.error || e?.message || '挂断失败');
+      Alert.alert(t('call.hangupFailedTitle'), e?.response?.data?.error || e?.message || t('call.hangupFailedBody'));
     } finally {
       setEnding(false);
     }
@@ -320,7 +322,7 @@ export default function CallScreen() {
       await room.localParticipant.setMicrophoneEnabled(next);
       setMicEnabled(next);
     } catch (e: any) {
-      Alert.alert('麦克风切换失败', e?.message || '无法切换麦克风');
+      Alert.alert(t('call.toggleMicFailedTitle'), e?.message || t('call.toggleMicFailedBody'));
     }
   };
 
@@ -330,7 +332,7 @@ export default function CallScreen() {
       setNeedsAudioStart(false);
       setLkError(null);
     } catch (e: any) {
-      Alert.alert('音频播放失败', e?.message || '浏览器未允许播放远端音频');
+      Alert.alert(t('call.audioPlaybackFailedTitle'), e?.message || t('call.audioPlaybackFailedBody'));
     }
   };
 
@@ -345,53 +347,53 @@ export default function CallScreen() {
 
   const statusLabel =
     call?.status === 'active'
-      ? '通话中'
+      ? t('call.statusActive')
       : call?.status === 'ringing'
-        ? '等待对方接听'
+        ? t('call.statusRinging')
         : call?.status === 'ended'
-          ? '已结束'
+          ? t('call.statusEnded')
           : call?.status === 'rejected'
-            ? '已拒绝'
-            : '准备连接';
+            ? t('call.statusRejected')
+            : t('call.statusPreparing');
 
   const statusHint =
     Platform.OS === 'web'
       ? needsAudioStart
-        ? '浏览器已连房，点击“开启声音”后才能听见对方。'
+        ? t('call.webNeedsAudio')
         : lkConnected
-          ? '网页端已经连上语音房间，可以直接开始通话。'
-          : '正在连接语音房间，请稍候。'
+          ? t('call.webConnected')
+          : t('call.webConnecting')
       : lkConnected
-        ? '原生语音链路已经连通，当前可直接静音或挂断。'
-        : '正在初始化原生音频会话。';
+        ? t('call.nativeConnected')
+        : t('call.nativeConnecting');
 
   const stageItems =
     Platform.OS === 'web'
       ? [
-          { label: '房间票据', value: tokenData ? '已就绪' : '等待中' },
-          { label: '麦克风', value: micEnabled ? '已打开' : '已静音' },
-          { label: '远端音频', value: needsAudioStart ? '待手动开启' : '可播放' },
+          { label: t('call.ticketLabel'), value: tokenData ? t('call.ticketReady') : t('call.ticketPending') },
+          { label: t('call.micLabel'), value: micEnabled ? t('call.micOn') : t('call.micMuted') },
+          { label: t('call.remoteAudioLabel'), value: needsAudioStart ? t('call.remoteAudioPending') : t('call.remoteAudioReady') },
         ]
       : [
-          { label: '房间票据', value: tokenData ? '已就绪' : '等待中' },
-          { label: '音频会话', value: lkConnected ? '已连通' : '初始化中' },
-          { label: '麦克风', value: micEnabled ? '已打开' : '已静音' },
+          { label: t('call.ticketLabel'), value: tokenData ? t('call.ticketReady') : t('call.ticketPending') },
+          { label: t('call.audioSession'), value: lkConnected ? t('call.connected') : t('call.audioSessionConnecting') },
+          { label: t('call.micLabel'), value: micEnabled ? t('call.micOn') : t('call.micMuted') },
         ];
 
   const participantLabel =
     remoteParticipantCount > 0
-      ? `对方已加入`
+      ? t('call.otherJoined')
       : call?.status === 'active'
-        ? '通话已建立'
+        ? t('call.callEstablished')
         : call?.status === 'ringing'
-          ? '等待对方接听'
-      : '准备中';
+          ? t('call.statusRinging')
+      : t('call.preparingShort');
 
   const displayName =
     (conversation?.type === 'group'
       ? conversation?.title
       : peerProfile?.display_name || conversation?.title) ||
-    '通话中';
+    t('call.statusActive');
 
   const displayAvatarUrl =
     (conversation?.type === 'group' ? conversation?.avatar_url : peerProfile?.avatar_url || conversation?.avatar_url) || '';
@@ -401,13 +403,13 @@ export default function CallScreen() {
   const subtleStatus =
     Platform.OS === 'web'
       ? needsAudioStart
-        ? '点一下开启声音'
+        ? t('call.tapEnableAudio')
         : lkConnected
           ? participantLabel
-          : '连接语音中'
+          : t('call.connectingVoice')
       : lkConnected
         ? participantLabel
-        : '连接语音中';
+        : t('call.connectingVoice');
 
   const headerCard = (
     <View style={styles.heroCard}>
@@ -426,16 +428,16 @@ export default function CallScreen() {
 
       <View style={styles.heroStatsRow}>
         <View style={styles.heroStat}>
-          <Text style={styles.heroStatLabel}>通话时长</Text>
+          <Text style={styles.heroStatLabel}>{t('call.duration')}</Text>
           <Text style={styles.heroStatValue}>{formatDuration(elapsedSeconds)}</Text>
         </View>
         <View style={styles.heroStat}>
-          <Text style={styles.heroStatLabel}>麦克风</Text>
-          <Text style={styles.heroStatValue}>{micEnabled ? '已开启' : '已静音'}</Text>
+          <Text style={styles.heroStatLabel}>{t('call.micLabel')}</Text>
+          <Text style={styles.heroStatValue}>{micEnabled ? t('call.micOn') : t('call.micMuted')}</Text>
         </View>
         <View style={styles.heroStat}>
-          <Text style={styles.heroStatLabel}>通话状态</Text>
-          <Text style={styles.heroStatValue}>{lkConnected ? '已连接' : '连接中'}</Text>
+          <Text style={styles.heroStatLabel}>{t('call.callStatus')}</Text>
+          <Text style={styles.heroStatValue}>{lkConnected ? t('call.connected') : t('call.connecting')}</Text>
         </View>
       </View>
     </View>
@@ -444,7 +446,7 @@ export default function CallScreen() {
   const detailCard = (
     <View style={styles.detailCard}>
       <View style={styles.checklistCard}>
-        <Text style={styles.checklistTitle}>{Platform.OS === 'web' ? '通话提示' : '通话状态'}</Text>
+        <Text style={styles.checklistTitle}>{Platform.OS === 'web' ? t('call.tipsTitle') : t('call.statusTitle')}</Text>
         {stageItems.map((item) => (
           <View key={item.label} style={styles.checklistRow}>
             <Text style={styles.checklistDot}>•</Text>
@@ -456,16 +458,16 @@ export default function CallScreen() {
 
       {needsAudioStart ? (
         <View style={styles.warnBox}>
-          <Text style={styles.warnTitle}>还差一步</Text>
+          <Text style={styles.warnTitle}>{t('call.oneMoreStep')}</Text>
           <Text style={styles.warnText}>
-            浏览器为了防止网页自动出声，要求你先点一次“开启声音”。这一步做完后，远端语音就能正常播放。
+            {t('call.oneMoreStepBody')}
           </Text>
         </View>
       ) : null}
 
       {lkError ? (
         <View style={styles.warnBox}>
-          <Text style={styles.warnTitle}>连接异常</Text>
+          <Text style={styles.warnTitle}>{t('call.connectionIssue')}</Text>
           <Text style={styles.warnText}>{lkError}</Text>
         </View>
       ) : null}
@@ -480,12 +482,12 @@ export default function CallScreen() {
         disabled={!lkConnected}
         onPress={handleToggleMic}
       >
-        <Text style={styles.secondaryActionText}>{micEnabled ? '静音麦克风' : '恢复麦克风'}</Text>
+        <Text style={styles.secondaryActionText}>{micEnabled ? t('call.muteMic') : t('call.unmuteMic')}</Text>
       </TouchableOpacity>
 
       {Platform.OS === 'web' && needsAudioStart ? (
         <TouchableOpacity style={styles.primaryActionBtn} activeOpacity={0.85} onPress={handleStartWebAudio}>
-          <Text style={styles.primaryActionText}>开启声音</Text>
+          <Text style={styles.primaryActionText}>{t('call.startAudio')}</Text>
         </TouchableOpacity>
       ) : null}
 
@@ -499,7 +501,7 @@ export default function CallScreen() {
         disabled={ending}
         onPress={handleHangup}
       >
-        <Text style={styles.hangupText}>{ending ? '挂断中...' : '挂断通话'}</Text>
+        <Text style={styles.hangupText}>{ending ? t('call.ending') : t('call.hangupCall')}</Text>
       </TouchableOpacity>
     </View>
   );
@@ -515,7 +517,7 @@ export default function CallScreen() {
   return (
     <View style={styles.container}>
       <TouchableOpacity style={styles.backBtn} activeOpacity={0.8} onPress={() => router.back()}>
-        <Text style={styles.backText}>← 返回消息</Text>
+        <Text style={styles.backText}>← {t('call.backToMessages')}</Text>
       </TouchableOpacity>
 
       {loading ? (
@@ -526,7 +528,7 @@ export default function CallScreen() {
           {detailCard}
           {actionRow}
           <Text style={styles.webHint}>
-            网页端现在已支持真实语音。若你能看到连接正常但听不到声音，通常是浏览器还在等一次用户手势来开启音频。
+            {t('call.webHint')}
           </Text>
         </View>
       ) : tokenData && LiveKitRoom ? (
@@ -556,16 +558,16 @@ export default function CallScreen() {
           <View style={styles.detailCard}>
             {tokenData ? (
               <View style={styles.readyBox}>
-                <Text style={styles.readyTitle}>Ready For LiveKit</Text>
+                <Text style={styles.readyTitle}>{t('call.readyForLiveKit')}</Text>
                 <Text style={styles.readyText}>
-                  房间票据已经就绪，原生端会在进入页面后自动完成 LiveKit 连房和音频初始化。
+                  {t('call.readyForLiveKitBody')}
                 </Text>
               </View>
             ) : (
               <View style={styles.warnBox}>
-                <Text style={styles.warnTitle}>暂时无法开始通话</Text>
+                <Text style={styles.warnTitle}>{t('call.notReadyTitle')}</Text>
                 <Text style={styles.warnText}>
-                  语音服务还没准备好，请稍后再试。
+                  {t('call.notReadyBody')}
                 </Text>
               </View>
             )}

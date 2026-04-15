@@ -59,7 +59,7 @@ function AssetRow({ item, showWatchlistToggle }: { item: MarketQuote; showWatchl
       activeOpacity={0.6}
       onPress={() =>
         router.push({
-          pathname: '/chart/[symbol]',
+          pathname: '/(tabs)/trading',
           params: { symbol: item.symbol },
         })
       }

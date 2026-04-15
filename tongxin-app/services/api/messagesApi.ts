@@ -67,6 +67,66 @@ export interface ApiFriendRequest {
   created_at: string;
 }
 
+export interface SupportAssignment {
+  id: string;
+  customer_uid: string;
+  agent_uid: string;
+  assigned_by?: string | null;
+  status: 'active' | 'transferred' | 'closed';
+  conversation_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SupportAssignmentDetail {
+  assignment: SupportAssignment | null;
+  agent_online?: boolean;
+  agent: {
+    uid: string;
+    display_name: string;
+    email: string;
+    avatar_url?: string;
+    role?: string;
+    status?: string;
+  } | null;
+}
+
+export type ChatRelationshipStatus =
+  | 'self'
+  | 'friend'
+  | 'pending_outgoing'
+  | 'pending_incoming'
+  | 'not_friend'
+  | 'support';
+
+export interface ChatTraderSummary {
+  is_trader: boolean;
+  allow_copy_trading: boolean;
+  win_rate: number;
+  copiers_count: number;
+  total_trades: number;
+  total_pnl: number;
+}
+
+export interface ChatUserProfile {
+  uid: string;
+  display_name: string;
+  avatar_url?: string;
+  email?: string;
+  short_id?: string;
+  bio?: string;
+  role?: string;
+  status?: string;
+  online: boolean;
+  is_self: boolean;
+  is_support_agent: boolean;
+  relationship_status: ChatRelationshipStatus;
+  relationship_request_id?: string;
+  can_add_friend: boolean;
+  can_accept_friend: boolean;
+  trader_summary?: ChatTraderSummary | null;
+}
+
 function mapFriendProfile(raw: any): FriendProfile {
   const user_id = String(raw?.user_id ?? raw?.uid ?? raw?.id ?? '').trim();
   return {
@@ -113,9 +173,24 @@ export async function fetchConversations(): Promise<ApiConversation[]> {
   return data || [];
 }
 
+export async function fetchMySupportAssignment(): Promise<SupportAssignmentDetail> {
+  const { data } = await messagesClient.get('/api/support/me');
+  return data;
+}
+
+export async function ensureMySupportAssignment(): Promise<SupportAssignmentDetail> {
+  const { data } = await messagesClient.post('/api/support/me/ensure');
+  return data;
+}
+
 export async function fetchConversation(id: string): Promise<ApiConversation | null> {
   const { data } = await messagesClient.get(`/api/conversations/${id}`);
   return data || null;
+}
+
+export async function fetchChatUserProfile(uid: string): Promise<ChatUserProfile> {
+  const { data } = await messagesClient.get(`/api/users/${encodeURIComponent(uid)}/chat-profile`);
+  return data;
 }
 
 export async function fetchMessages(

@@ -21,17 +21,19 @@ import {
   deleteStrategy,
   TraderStrategy,
 } from '../../services/api/traderStrategyApi';
+import { useTranslation } from 'react-i18next';
 
 const CATEGORY_LABELS: Record<string, string> = {
-  technical: '技术分析',
-  fundamental: '基本面',
-  macro: '宏观经济',
-  news: '市场资讯',
-  education: '交易教学',
-  other: '其他',
+  technical: 'strategy.categoryTechnical',
+  fundamental: 'strategy.categoryFundamental',
+  macro: 'strategy.categoryMacro',
+  news: 'strategy.categoryNews',
+  education: 'strategy.categoryEducation',
+  other: 'strategy.categoryOther',
 };
 
 export default function StrategyDetailScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useAuthStore();
@@ -69,10 +71,10 @@ export default function StrategyDetailScreen() {
   };
 
   const handleDelete = () => {
-    Alert.alert('确认删除', '删除后无法恢复，确定要删除这篇策略吗？', [
-      { text: '取消', style: 'cancel' },
+    Alert.alert(t('strategy.confirmDeleteTitle'), t('strategy.confirmDeleteBody'), [
+      { text: t('common.cancel'), style: 'cancel' },
       {
-        text: '删除',
+        text: t('common.delete'),
         style: 'destructive',
         onPress: async () => {
           try {
@@ -108,9 +110,9 @@ export default function StrategyDetailScreen() {
   if (!strategy) {
     return (
       <View style={styles.centered}>
-        <Text style={styles.errorText}>策略不存在</Text>
+        <Text style={styles.errorText}>{t('strategy.notFound')}</Text>
         <TouchableOpacity onPress={goBack} style={styles.backButton}>
-          <Text style={styles.backButtonText}>返回</Text>
+          <Text style={styles.backButtonText}>{t('common.back')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -164,13 +166,13 @@ export default function StrategyDetailScreen() {
           {strategy.category ? (
             <View style={styles.categoryBadge}>
               <Text style={styles.categoryBadgeText}>
-                {CATEGORY_LABELS[strategy.category] || strategy.category}
+                {t(CATEGORY_LABELS[strategy.category] || strategy.category)}
               </Text>
             </View>
           ) : null}
           <Text style={styles.metaText}>{publishDate}</Text>
-          <Text style={styles.metaText}>· {strategy.views} 阅读</Text>
-          <Text style={styles.metaText}>· {strategy.likes} 赞</Text>
+          <Text style={styles.metaText}>· {strategy.views} {t('traderCenter.reads')}</Text>
+          <Text style={styles.metaText}>· {strategy.likes} {t('traderCenter.likesUnit')}</Text>
         </View>
 
         {/* Title */}
@@ -198,7 +200,7 @@ export default function StrategyDetailScreen() {
           <View>
             <Text style={styles.authorName}>{strategy.author_name || 'Unknown'}</Text>
             <Text style={styles.authorRole}>
-              {strategy.is_trader ? '认证交易员' : '用户'}
+              {strategy.is_trader ? t('messages.badgeTrader') : t('strategy.authorRoleUser')}
             </Text>
           </View>
         </TouchableOpacity>
@@ -229,7 +231,7 @@ export default function StrategyDetailScreen() {
             <View style={styles.draftBannerInner}>
               <AppIcon name={strategy.status === 'draft' ? 'paper' : 'futures'} size={14} color={Colors.primary} />
               <Text style={styles.draftBannerText}>
-                {strategy.status === 'draft' ? '草稿 — 仅自己可见' : '已归档'}
+              {strategy.status === 'draft' ? t('strategy.draftPrivate') : t('strategy.archived')}
               </Text>
             </View>
           </View>

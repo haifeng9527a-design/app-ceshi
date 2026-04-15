@@ -11,6 +11,8 @@ import {
   useWindowDimensions,
   ActivityIndicator,
 } from 'react-native';
+import { useTranslation } from 'react-i18next';
+import { useLocalSearchParams } from 'expo-router';
 import { Colors, Sizes } from '../../theme/colors';
 import { useMarketStore } from '../../services/store/marketStore';
 import { useAuthStore } from '../../services/store/authStore';
@@ -57,13 +59,6 @@ const TIMEFRAME_LABELS: Record<string, string> = {
 // ChartType imported from TradingViewChart
 
 type AssetTab = 'crypto' | 'stocks' | 'forex' | 'futures';
-
-const ASSET_TABS: { key: AssetTab; label: string }[] = [
-  { key: 'crypto', label: '数字货币' },
-  { key: 'stocks', label: '美股' },
-  { key: 'forex', label: '外汇' },
-  { key: 'futures', label: '期货' },
-];
 
 const CRYPTO_SYMBOLS = [
   'BTC/USD','ETH/USD','SOL/USD','BNB/USD','XRP/USD','DOGE/USD','ADA/USD','AVAX/USD',
@@ -508,8 +503,18 @@ function SymbolDropdown({
   onClose: () => void;
   quotes: Record<string, MarketQuote>;
 }) {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<AssetTab>('crypto');
   const [filter, setFilter] = useState('');
+  const tabs = useMemo(
+    () => [
+      { key: 'crypto' as const, label: t('trading.crypto') },
+      { key: 'stocks' as const, label: t('trading.stock') },
+      { key: 'forex' as const, label: t('trading.forex') },
+      { key: 'futures' as const, label: t('trading.futures') },
+    ],
+    [t],
+  );
 
   if (!visible) return null;
 
@@ -527,7 +532,7 @@ function SymbolDropdown({
           <AppIcon name="search" size={15} color={Colors.textMuted} />
           <TextInput
             style={dd.searchInput}
-            placeholder="搜索交易对..."
+                      placeholder={t('trading.searchPairs')}
             placeholderTextColor={Colors.textMuted}
             value={filter}
             onChangeText={setFilter}
@@ -540,7 +545,7 @@ function SymbolDropdown({
 
         {/* Tabs */}
         <View style={dd.tabRow}>
-          {ASSET_TABS.map((tab) => (
+          {tabs.map((tab) => (
             <TouchableOpacity
               key={tab.key}
               style={[dd.tab, activeTab === tab.key && dd.tabActive]}
@@ -556,9 +561,9 @@ function SymbolDropdown({
 
         {/* Header */}
         <View style={dd.listHeader}>
-          <Text style={dd.headerText}>交易对</Text>
-          <Text style={[dd.headerText, { textAlign: 'right' }]}>价格</Text>
-          <Text style={[dd.headerText, { textAlign: 'right' }]}>24h 涨跌</Text>
+          <Text style={dd.headerText}>{t('trading.pair')}</Text>
+          <Text style={[dd.headerText, { textAlign: 'right' }]}>{t('trading.price')}</Text>
+          <Text style={[dd.headerText, { textAlign: 'right' }]}>{t('trading.changePercent')}</Text>
         </View>
 
         {/* List */}
@@ -588,7 +593,7 @@ function SymbolDropdown({
           })}
           {filtered.length === 0 && (
             <View style={dd.empty}>
-              <Text style={{ color: Colors.textMuted, fontSize: 13 }}>无匹配结果</Text>
+              <Text style={{ color: Colors.textMuted, fontSize: 13 }}>{t('trading.noMatch')}</Text>
             </View>
           )}
         </ScrollView>
@@ -717,9 +722,11 @@ const dd = StyleSheet.create({
    ════════════════════════════════════════ */
 
 export default function TradingScreen() {
+  const { t } = useTranslation();
   const { width } = useWindowDimensions();
   const isDesktop = width >= 900;
   const { user } = useAuthStore();
+  const routeParams = useLocalSearchParams<{ symbol?: string }>();
 
   // Fine-grained selectors — re-render only when the specific field changes
   const positions = useTradingStore((s) => s.positions);
@@ -784,6 +791,25 @@ export default function TradingScreen() {
   const [clearDrawings, setClearDrawings] = useState(false);
   const [enabledTools, setEnabledTools] = useState<DrawingTool[]>(DEFAULT_ENABLED_TOOLS);
   const [showDrawingToolsSettings, setShowDrawingToolsSettings] = useState(false);
+  const timeframeLabels = useMemo<Record<string, string>>(
+    () => ({
+      '1min': t('chart.timeframe1m'),
+      '3min': '3m',
+      '5min': t('chart.timeframe5m'),
+      '15min': t('chart.timeframe15m'),
+      '30min': t('chart.timeframe30m'),
+      '1h': t('chart.timeframe1h'),
+      '2h': '2H',
+      '4h': '4H',
+      '6h': '6H',
+      '12h': '12H',
+      '1day': t('chart.timeframe1d'),
+      '3day': '3D',
+      '1week': t('chart.timeframe1w'),
+      '1month': '1M',
+    }),
+    [t],
+  );
 
   // Network status monitoring
   const [netConnected, setNetConnected] = useState(true);
@@ -797,6 +823,14 @@ export default function TradingScreen() {
     if (!user) { setVipInfo(null); return; }
     fetchVipInfo().then(setVipInfo).catch(() => {});
   }, [user]);
+
+  // Sync selected symbol from route params (when user clicks a pair on the market page)
+  useEffect(() => {
+    const sym = routeParams.symbol;
+    if (sym && typeof sym === 'string' && sym.trim().length > 0) {
+      setSelectedSymbol(sym);
+    }
+  }, [routeParams.symbol]);
 
   // Load enabled tools from localStorage on mount
   useEffect(() => {
@@ -884,12 +918,12 @@ export default function TradingScreen() {
 
   const handlePlaceOrder = useCallback(async (side: 'long' | 'short') => {
     if (!user) {
-      if (Platform.OS === 'web') window.alert('请先登录');
+      if (Platform.OS === 'web') window.alert(t('trading.loginFirst'));
       return;
     }
     const qty = getActualQty();
     if (!qty || qty <= 0) {
-      if (Platform.OS === 'web') window.alert('请输入数量');
+      if (Platform.OS === 'web') window.alert(t('trading.enterQuantity'));
       return;
     }
     const req: any = {
@@ -909,7 +943,7 @@ export default function TradingScreen() {
     if (orderType === 'limit') {
       const price = parseInputNumber(priceInput);
       if (!price || price <= 0) {
-        if (Platform.OS === 'web') window.alert('请输入限价');
+        if (Platform.OS === 'web') window.alert(t('trading.enterLimitPrice'));
         return;
       }
       req.price = price;
@@ -920,17 +954,17 @@ export default function TradingScreen() {
       setQtyInput('');
       setSliderPct(0);
     } catch (e: any) {
-      const msg = e?.response?.data?.error || e?.message || '下单失败';
+      const msg = e?.response?.data?.error || e?.message || t('trading.orderFailed');
       if (Platform.OS === 'web') window.alert(msg);
     } finally {
       setOrderLoading(false);
     }
-  }, [user, getActualQty, selectedSymbol, orderType, leverage, marginMode, placeOrder, showTPSL, tpInput, slInput, priceInput]);
+  }, [user, getActualQty, selectedSymbol, orderType, leverage, marginMode, placeOrder, showTPSL, tpInput, slInput, priceInput, t]);
 
   const handleCloseAll = useCallback(async () => {
     const openPositions = positions.filter(p => !p.is_copy_trade);
     if (openPositions.length === 0) return;
-    const msg = `确定平掉全部 ${openPositions.length} 个持仓？`;
+    const msg = t('trading.closeAllConfirm', { count: openPositions.length });
     if (Platform.OS === 'web') {
       if (!window.confirm(msg)) return;
     }
@@ -945,11 +979,11 @@ export default function TradingScreen() {
     } finally {
       setCloseAllLoading(false);
     }
-  }, [positions, closePosition, fetchPositions, fetchPositionHistory, fetchAccount]);
+  }, [positions, closePosition, fetchPositions, fetchPositionHistory, fetchAccount, t]);
 
   const handleDeposit = useCallback(async (amount: number) => {
     if (!user) {
-      if (Platform.OS === 'web') window.alert('请先登录');
+      if (Platform.OS === 'web') window.alert(t('trading.loginFirst'));
       return;
     }
     try {
@@ -958,9 +992,9 @@ export default function TradingScreen() {
       setShowDepositModal(false);
       setDepositAmount('');
     } catch (e: any) {
-      if (Platform.OS === 'web') window.alert('充值失败');
+      if (Platform.OS === 'web') window.alert(t('trading.depositFailed'));
     }
-  }, [doDeposit, user, fetchAccount]);
+  }, [doDeposit, user, fetchAccount, t]);
 
   const calcMargin = useCallback(() => {
     const qty = getActualQty();
@@ -1164,7 +1198,7 @@ export default function TradingScreen() {
 
               {/* Change */}
               <View style={s.statItem}>
-                <Text style={s.statLabel}>涨跌额</Text>
+                <Text style={s.statLabel}>{t('trading.changeAmount')}</Text>
                 <Text style={[s.statValue, { color: changeColor(selectedQuote?.percent_change) }]}>
                   {selectedQuote?.change != null
                     ? `${selectedQuote.change >= 0 ? '+' : '-'}${fmtChange(Math.abs(selectedQuote.change), selectedSymbol, currentPrice)}`
@@ -1172,7 +1206,7 @@ export default function TradingScreen() {
                 </Text>
               </View>
               <View style={s.statItem}>
-                <Text style={s.statLabel}>涨跌幅</Text>
+                <Text style={s.statLabel}>{t('trading.changePercent')}</Text>
                 <Text style={[s.statValue, { color: changeColor(selectedQuote?.percent_change) }]}>
                   {formatChange(selectedQuote?.percent_change)}
                 </Text>
@@ -1181,46 +1215,54 @@ export default function TradingScreen() {
               <View style={s.statDivider} />
 
               <View style={s.statItem}>
-                <Text style={s.statLabel}>24h 最高</Text>
+                <Text style={s.statLabel}>{t('trading.high24h')}</Text>
                 <Text style={s.statValue}>{formatPrice(selectedQuote?.high, selectedSymbol)}</Text>
               </View>
               <View style={s.statItem}>
-                <Text style={s.statLabel}>24h 最低</Text>
+                <Text style={s.statLabel}>{t('trading.low24h')}</Text>
                 <Text style={s.statValue}>{formatPrice(selectedQuote?.low, selectedSymbol)}</Text>
               </View>
 
-              <View style={s.statDivider} />
+              {/* Forex is OTC decentralized — there is no meaningful global 24h
+                  volume / turnover (Polygon's `day.v` for forex is quote-tick
+                  count, not notional volume). Hide these fields for FX to
+                  avoid misleading users. */}
+              {getAssetType(selectedSymbol) !== 'forex' && (
+                <>
+                  <View style={s.statDivider} />
 
-              <View style={s.statItem}>
-                <Text style={s.statLabel}>24h 成交量</Text>
-                <Text style={s.statValue}>
-                  {selectedQuote?.volume
-                    ? selectedQuote.volume >= 1e6
-                      ? `${(selectedQuote.volume / 1e6).toFixed(2)}M`
-                      : selectedQuote.volume.toFixed(2)
-                    : '--'}
-                </Text>
-              </View>
-              <View style={s.statItem}>
-                <Text style={s.statLabel}>24h 成交额</Text>
-                <Text style={s.statValue}>
-                  {selectedQuote?.volume && currentPrice
-                    ? `${((selectedQuote.volume * currentPrice) / 1e6).toFixed(2)}M`
-                    : '--'}
-                </Text>
-              </View>
+                  <View style={s.statItem}>
+                    <Text style={s.statLabel}>{t('trading.volume24h')}</Text>
+                    <Text style={s.statValue}>
+                      {selectedQuote?.volume
+                        ? selectedQuote.volume >= 1e6
+                          ? `${(selectedQuote.volume / 1e6).toFixed(2)}M`
+                          : selectedQuote.volume.toFixed(2)
+                        : '--'}
+                    </Text>
+                  </View>
+                  <View style={s.statItem}>
+                    <Text style={s.statLabel}>{t('trading.turnover24h')}</Text>
+                    <Text style={s.statValue}>
+                      {selectedQuote?.volume && currentPrice
+                        ? `${((selectedQuote.volume * currentPrice) / 1e6).toFixed(2)}M`
+                        : '--'}
+                    </Text>
+                  </View>
+                </>
+              )}
 
               {fundingRate?.fundingRate != null && (
                 <>
                   <View style={s.statDivider} />
                   <View style={s.statItem}>
-                    <Text style={s.statLabel}>资金费率</Text>
+                    <Text style={s.statLabel}>{t('trading.fundingRate')}</Text>
                     <Text style={[s.statValue, { color: parseFloat(fundingRate.fundingRate) >= 0 ? '#0ECB81' : '#F6465D' }]}>
                       {(parseFloat(fundingRate.fundingRate) * 100).toFixed(4)}%
                     </Text>
                   </View>
                   <View style={s.statItem}>
-                    <Text style={s.statLabel}>倒计时</Text>
+                    <Text style={s.statLabel}>{t('trading.countdown')}</Text>
                     <FundingCountdown nextTime={fundingRate.nextFundingTime} />
                   </View>
                 </>
@@ -1232,7 +1274,7 @@ export default function TradingScreen() {
             {!netConnected && (
               <View style={{ backgroundColor: 'rgba(246,70,93,0.15)', paddingVertical: 6, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#F6465D' }} />
-                <Text style={{ color: '#F6465D', fontSize: 12 }}>网络连接已断开，行情数据已暂停，正在重连...</Text>
+                <Text style={{ color: '#F6465D', fontSize: 12 }}>{t('trading.networkDisconnected')}</Text>
               </View>
             )}
 
@@ -1247,7 +1289,7 @@ export default function TradingScreen() {
                     activeOpacity={0.7}
                   >
                     <Text style={[s.tfText, timeframe === tf && s.tfTextActive]}>
-                      {TIMEFRAME_LABELS[tf]}
+                      {timeframeLabels[tf]}
                     </Text>
                   </TouchableOpacity>
                 ))}
@@ -1259,7 +1301,7 @@ export default function TradingScreen() {
                   activeOpacity={0.7}
                 >
                   <Text style={[s.tfText, (showMoreTf || ALL_EXTRA_TFS.has(timeframe)) && s.tfTextActive]}>
-                    {ALL_EXTRA_TFS.has(timeframe) ? TIMEFRAME_LABELS[timeframe] : 'More'} ▾
+                    {ALL_EXTRA_TFS.has(timeframe) ? timeframeLabels[timeframe] : t('trading.moreTimeframes')} ▾
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -1319,7 +1361,7 @@ export default function TradingScreen() {
                         activeOpacity={0.7}
                       >
                         <Text style={[s.moreTfText, timeframe === tf && s.moreTfTextActive]}>
-                          {TIMEFRAME_LABELS[tf]}
+                          {timeframeLabels[tf]}
                         </Text>
                       </TouchableOpacity>
                     ))}
@@ -1360,7 +1402,7 @@ export default function TradingScreen() {
                   ) : (
                     <View style={s.chartPlaceholder}>
                       <Text style={s.chartWatermark}>SOVEREIGN</Text>
-                      <Text style={{ color: Colors.textMuted, fontSize: 13 }}>暂无K线数据</Text>
+                      <Text style={{ color: Colors.textMuted, fontSize: 13 }}>{t('trading.noKlineData')}</Text>
                     </View>
                   )}
                 </View>
@@ -1374,12 +1416,12 @@ export default function TradingScreen() {
                   const selfPositions = positions.filter(p => !p.is_copy_trade);
                   const copyPositions = positions.filter(p => p.is_copy_trade);
                   return ([
-                    ['positions', '当前持仓'],
-                    ['copyPositions', '跟单'],
-                    ['orders', '当前委托'],
-                    ['posHistory', '历史仓位'],
-                    ['history', '历史委托'],
-                    ['analysis', '资产分析'],
+                    ['positions', t('trading.openPositions')],
+                    ['copyPositions', t('trading.copyPositions')],
+                    ['orders', t('trading.currentOrders')],
+                    ['posHistory', t('trading.positionHistory')],
+                    ['history', t('trading.orderHistory')],
+                    ['analysis', t('trading.assetAnalysis')],
                   ] as [BottomTab, string][]).map(([key, label]) => {
                     const badgeCount = key === 'positions' ? selfPositions.length
                       : key === 'copyPositions' ? copyPositions.length
@@ -1416,7 +1458,7 @@ export default function TradingScreen() {
                     activeOpacity={0.7}
                   >
                     <Text style={{ color: '#DC3545', fontSize: 11, fontWeight: '600' }}>
-                      {closeAllLoading ? '平仓中...' : '一键平仓'}
+                      {closeAllLoading ? t('trading.closing') : t('trading.closeAll')}
                     </Text>
                   </TouchableOpacity>
                 )}
@@ -1426,36 +1468,36 @@ export default function TradingScreen() {
                   const selfPos = positions.filter(p => !p.is_copy_trade);
                   return selfPos.length > 0
                     ? selfPos.map((p) => <PositionCard key={p.id} position={p} onClose={(id) => closePosition(id)} onUpdated={() => { fetchPositions(); fetchAccount(); }} />)
-                    : <View style={s.bottomEmpty}><Text style={{ color: Colors.textMuted, fontSize: 12 }}>暂无持仓</Text></View>;
+                    : <View style={s.bottomEmpty}><Text style={{ color: Colors.textMuted, fontSize: 12 }}>{t('trading.noPositions')}</Text></View>;
                 })()}
                 {bottomTab === 'copyPositions' && (() => {
                   const copyPos = positions.filter(p => p.is_copy_trade);
                   return copyPos.length > 0
                     ? copyPos.map((p) => <PositionCard key={p.id} position={p} onClose={(id) => closePosition(id)} onUpdated={() => { fetchPositions(); fetchAccount(); }} />)
-                    : <View style={s.bottomEmpty}><Text style={{ color: Colors.textMuted, fontSize: 12 }}>暂无跟单仓位</Text></View>;
+                    : <View style={s.bottomEmpty}><Text style={{ color: Colors.textMuted, fontSize: 12 }}>{t('trading.noCopyPositions')}</Text></View>;
                 })()}
                 {bottomTab === 'posHistory' && (
                   positionHistory.length > 0
                     ? positionHistory.map((p) => <ClosedPositionCard key={p.id} position={p} />)
-                    : <View style={s.bottomEmpty}><Text style={{ color: Colors.textMuted, fontSize: 12 }}>暂无历史仓位</Text></View>
+                    : <View style={s.bottomEmpty}><Text style={{ color: Colors.textMuted, fontSize: 12 }}>{t('trading.noPositionHistory')}</Text></View>
                 )}
                 {bottomTab === 'orders' && (
                   pendingOrders.length > 0
                     ? pendingOrders.map((o) => <OrderCard key={o.id} order={o} onCancel={(id) => cancelTradingOrder(id)} />)
-                    : <View style={s.bottomEmpty}><Text style={{ color: Colors.textMuted, fontSize: 12 }}>暂无委托</Text></View>
+                    : <View style={s.bottomEmpty}><Text style={{ color: Colors.textMuted, fontSize: 12 }}>{t('trading.noOrders')}</Text></View>
                 )}
                 {bottomTab === 'history' && (
                   orderHistory.length > 0
                     ? orderHistory.map((o) => <OrderCard key={o.id} order={o} />)
-                    : <View style={s.bottomEmpty}><Text style={{ color: Colors.textMuted, fontSize: 12 }}>暂无历史</Text></View>
+                    : <View style={s.bottomEmpty}><Text style={{ color: Colors.textMuted, fontSize: 12 }}>{t('trading.noHistory')}</Text></View>
                 )}
                 {bottomTab === 'analysis' && (
                   <View style={s.bottomEmpty}>
                     <Text style={{ color: '#fff', fontSize: 14, marginBottom: 4 }}>
-                      余额: {account?.balance?.toFixed(2) || '0.00'} USDT
+                      {t('trading.balanceLabel')}: {account?.balance?.toFixed(2) || '0.00'} USDT
                     </Text>
                     <Text style={{ color: '#888', fontSize: 12 }}>
-                      冻结: {account?.frozen?.toFixed(2) || '0.00'} | 权益: {account?.equity?.toFixed(2) || '0.00'}
+                      {t('trading.frozenLabel')}: {account?.frozen?.toFixed(2) || '0.00'} | {t('trading.equityLabel')}: {account?.equity?.toFixed(2) || '0.00'}
                     </Text>
                   </View>
                 )}
@@ -1467,11 +1509,11 @@ export default function TradingScreen() {
           <View style={s.rightPanel}>
             {/* Order Book */}
             <View style={s.orderBookHeader}>
-              <Text style={s.orderBookTitle}>委托账本</Text>
+              <Text style={s.orderBookTitle}>{t('trading.orderBook')}</Text>
             </View>
             <View style={s.obColHeader}>
-              <Text style={s.obColLabel}>价格(USDT)</Text>
-              <Text style={[s.obColLabel, { textAlign: 'right' }]}>数量</Text>
+              <Text style={s.obColLabel}>{t('trading.price')}(USDT)</Text>
+              <Text style={[s.obColLabel, { textAlign: 'right' }]}>{t('trading.amount')}</Text>
             </View>
             <View style={s.orderBookContent}>
               {orderBook.asks.map((a, i) => (
@@ -1493,12 +1535,12 @@ export default function TradingScreen() {
 
             {/* Long/Short Ratio Bar */}
             <View style={s.lsRatioRow}>
-              <Text style={[s.lsLabel, { color: Colors.up }]}>B {orderBook.buyPct}%</Text>
+              <Text style={[s.lsLabel, { color: Colors.up }]}>{t('trading.buyShortLabel', { pct: orderBook.buyPct })}</Text>
               <View style={s.lsBarTrack}>
                 <View style={[s.lsBarBuy, { flex: orderBook.buyPct }]} />
                 <View style={[s.lsBarSell, { flex: 100 - orderBook.buyPct }]} />
               </View>
-              <Text style={[s.lsLabel, { color: Colors.down }]}>{100 - orderBook.buyPct}% S</Text>
+              <Text style={[s.lsLabel, { color: Colors.down }]}>{t('trading.sellShortLabel', { pct: 100 - orderBook.buyPct })}</Text>
             </View>
 
             {/* Execution Panel */}
@@ -1507,11 +1549,11 @@ export default function TradingScreen() {
               <View style={s.execTopBar}>
                 {getAssetType(selectedSymbol) === 'crypto' ? (
                   <TouchableOpacity style={s.execTopChip} onPress={() => setMarginMode(marginMode === 'cross' ? 'isolated' : 'cross')} activeOpacity={0.7}>
-                    <Text style={s.execTopChipText}>{marginMode === 'cross' ? '全仓' : '逐仓'}</Text>
+                    <Text style={s.execTopChipText}>{marginMode === 'cross' ? t('trading.cross') : t('trading.isolated')}</Text>
                   </TouchableOpacity>
                 ) : (
                   <View style={s.execTopChip}>
-                    <Text style={s.execTopChipText}>{getAssetType(selectedSymbol) === 'forex' ? '外汇' : getAssetType(selectedSymbol) === 'futures' ? '期货' : '股票'}</Text>
+                    <Text style={s.execTopChipText}>{getAssetType(selectedSymbol) === 'forex' ? t('trading.forex') : getAssetType(selectedSymbol) === 'futures' ? t('trading.futures') : t('trading.stock')}</Text>
                   </View>
                 )}
                 <TouchableOpacity style={s.execTopChip} onPress={() => setShowLeverageModal(true)} activeOpacity={0.7}>
@@ -1522,10 +1564,10 @@ export default function TradingScreen() {
               {/* Open / Close */}
               <View style={s.openCloseRow}>
                 <TouchableOpacity style={[s.openBtn, panelMode === 'open' && s.openBtnActive]} activeOpacity={0.7} onPress={() => setPanelMode('open')}>
-                  <Text style={[s.openBtnText, panelMode === 'open' && s.openBtnTextActive]}>开仓</Text>
+                  <Text style={[s.openBtnText, panelMode === 'open' && s.openBtnTextActive]}>{t('trading.open')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[s.closeBtn, panelMode === 'close' && s.closeBtnActive]} activeOpacity={0.7} onPress={() => setPanelMode('close')}>
-                  <Text style={[s.closeBtnText, panelMode === 'close' && s.closeBtnTextActive]}>平仓</Text>
+                  <Text style={[s.closeBtnText, panelMode === 'close' && s.closeBtnTextActive]}>{t('trading.close')}</Text>
                 </TouchableOpacity>
               </View>
 
@@ -1533,35 +1575,35 @@ export default function TradingScreen() {
               {/* Limit / Market */}
               <View style={s.execTabRow}>
                 <TouchableOpacity onPress={() => setOrderType('limit')} activeOpacity={0.7}>
-                  <Text style={[s.execTabText, orderType === 'limit' && s.execTabTextActive]}>限价</Text>
+                  <Text style={[s.execTabText, orderType === 'limit' && s.execTabTextActive]}>{t('trading.limit')}</Text>
                   {orderType === 'limit' && <View style={s.execTabUnderline} />}
                 </TouchableOpacity>
                 <TouchableOpacity onPress={() => setOrderType('market')} activeOpacity={0.7}>
-                  <Text style={[s.execTabText, orderType === 'market' && s.execTabTextActive]}>市价</Text>
+                  <Text style={[s.execTabText, orderType === 'market' && s.execTabTextActive]}>{t('trading.marketOrder')}</Text>
                   {orderType === 'market' && <View style={s.execTabUnderline} />}
                 </TouchableOpacity>
               </View>
 
               <View style={s.availRow}>
-                <Text style={s.availLabel}>可用</Text>
+                <Text style={s.availLabel}>{t('trading.available')}</Text>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <Text style={s.availValue}>{account?.available?.toFixed(2) || '0.00'} USDT</Text>
                   <TouchableOpacity onPress={() => { console.log('[deposit] btn pressed'); setShowDepositModal(true); }} activeOpacity={0.7} style={{ paddingHorizontal: 6, paddingVertical: 4 }}>
-                    <Text style={{ color: '#C9A84C', fontSize: 11, fontWeight: '600' }}>充值</Text>
+                    <Text style={{ color: '#C9A84C', fontSize: 11, fontWeight: '600' }}>{t('trading.deposit')}</Text>
                   </TouchableOpacity>
                 </View>
               </View>
 
               {orderType === 'limit' && (
                 <View style={s.execInputRow}>
-                  <Text style={s.execInputLabel}>价格</Text>
+                  <Text style={s.execInputLabel}>{t('trading.price')}</Text>
                   <TextInput style={s.execInput} value={priceInput} onChangeText={setPriceInput} keyboardType="decimal-pad" placeholderTextColor={Colors.textMuted} />
                   <Text style={s.execInputUnit}>USDT</Text>
                 </View>
               )}
 
               <View style={s.execInputRow}>
-                <Text style={s.execInputLabel}>数量</Text>
+                <Text style={s.execInputLabel}>{t('trading.quantity')}</Text>
                 <TextInput style={s.execInput} value={qtyInput} onChangeText={(v: string) => { setQtyInput(v); setSliderPct(0); }} placeholder="0.00" keyboardType="decimal-pad" placeholderTextColor={Colors.textMuted} />
                 <TouchableOpacity style={s.unitDropdown} activeOpacity={0.7} onPress={() => setShowQtyModeDropdown(!showQtyModeDropdown)}>
                   <Text style={s.execInputUnit}>{qtyModeLabel} ▾</Text>
@@ -1570,13 +1612,13 @@ export default function TradingScreen() {
               {showQtyModeDropdown && (
                 <View style={s.qtyModeMenu}>
                   <TouchableOpacity style={[s.qtyModeItem, qtyMode === 'coin' && s.qtyModeItemActive]} onPress={() => { setQtyMode('coin'); setShowQtyModeDropdown(false); setQtyInput(''); }} activeOpacity={0.7}>
-                    <Text style={s.qtyModeItemText}>币本位 ({baseAsset})</Text>
+                    <Text style={s.qtyModeItemText}>{t('trading.coinMode', { asset: baseAsset })}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity style={[s.qtyModeItem, qtyMode === 'notional' && s.qtyModeItemActive]} onPress={() => { setQtyMode('notional'); setShowQtyModeDropdown(false); setQtyInput(''); }} activeOpacity={0.7}>
-                    <Text style={s.qtyModeItemText}>名义价值 (USDT)</Text>
+                    <Text style={s.qtyModeItemText}>{t('trading.notionalMode')}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity style={[s.qtyModeItem, qtyMode === 'margin' && s.qtyModeItemActive]} onPress={() => { setQtyMode('margin'); setShowQtyModeDropdown(false); setQtyInput(''); }} activeOpacity={0.7}>
-                    <Text style={s.qtyModeItemText}>保证金价值 (USDT)</Text>
+                    <Text style={s.qtyModeItemText}>{t('trading.marginMode')}</Text>
                   </TouchableOpacity>
                 </View>
               )}
@@ -1592,18 +1634,18 @@ export default function TradingScreen() {
 
               <TouchableOpacity style={s.checkRow} activeOpacity={0.7} onPress={() => setShowTPSL(!showTPSL)}>
                 <View style={[s.checkbox, showTPSL && s.checkboxActive]} />
-                <Text style={s.checkLabel}>止盈/止损 TP/SL</Text>
+                <Text style={s.checkLabel}>{t('trading.tpsl')}</Text>
               </TouchableOpacity>
               {showTPSL && (
                 <>
                   <View style={s.execInputRow}>
-                    <Text style={s.execInputLabel}>止盈</Text>
-                    <TextInput style={s.execInput} value={tpInput} onChangeText={setTpInput} placeholder="TP 价格" keyboardType="decimal-pad" placeholderTextColor={Colors.textMuted} />
+                    <Text style={s.execInputLabel}>{t('trading.takeProfit')}</Text>
+                    <TextInput style={s.execInput} value={tpInput} onChangeText={setTpInput} placeholder={t('trading.tpPrice')} keyboardType="decimal-pad" placeholderTextColor={Colors.textMuted} />
                     <Text style={s.execInputUnit}>USDT</Text>
                   </View>
                   <View style={s.execInputRow}>
-                    <Text style={s.execInputLabel}>止损</Text>
-                    <TextInput style={s.execInput} value={slInput} onChangeText={setSlInput} placeholder="SL 价格" keyboardType="decimal-pad" placeholderTextColor={Colors.textMuted} />
+                    <Text style={s.execInputLabel}>{t('trading.stopLoss')}</Text>
+                    <TextInput style={s.execInput} value={slInput} onChangeText={setSlInput} placeholder={t('trading.slPrice')} keyboardType="decimal-pad" placeholderTextColor={Colors.textMuted} />
                     <Text style={s.execInputUnit}>USDT</Text>
                   </View>
                 </>
@@ -1611,19 +1653,19 @@ export default function TradingScreen() {
 
               <View style={s.actionRow}>
                 <TouchableOpacity style={s.longBtn} activeOpacity={0.8} onPress={() => handlePlaceOrder('long')} disabled={orderLoading}>
-                  <Text style={s.longBtnText}>{orderLoading ? '...' : '做多 Long'}</Text>
+                  <Text style={s.longBtnText}>{orderLoading ? '...' : t('trading.longAction')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={s.shortBtn} activeOpacity={0.8} onPress={() => handlePlaceOrder('short')} disabled={orderLoading}>
-                  <Text style={s.shortBtnText}>{orderLoading ? '...' : '做空 Short'}</Text>
+                  <Text style={s.shortBtnText}>{orderLoading ? '...' : t('trading.shortAction')}</Text>
                 </TouchableOpacity>
               </View>
 
               <View style={s.infoRow}>
-                <Text style={s.infoLabel}>成本</Text>
+                <Text style={s.infoLabel}>{t('trading.cost')}</Text>
                 <Text style={s.infoValue}>{calcMargin().toFixed(2)} USDT</Text>
               </View>
               <View style={s.infoRow}>
-                <Text style={s.infoLabel}>预估强平价</Text>
+                <Text style={s.infoLabel}>{t('trading.estLiqPrice')}</Text>
                 <Text style={s.infoValue}>{calcLiqPrice('long').toFixed(2)} / {calcLiqPrice('short').toFixed(2)}</Text>
               </View>
 
@@ -1631,18 +1673,20 @@ export default function TradingScreen() {
               {vipInfo && (
                 <>
                   <View style={s.infoRow}>
-                    <Text style={s.infoLabel}>VIP 等级</Text>
+                    <Text style={s.infoLabel}>{t('trading.vipLevel')}</Text>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                       <View style={{ backgroundColor: vipInfo.vip_level >= 3 ? '#FFB800' : '#C9A84C', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 1 }}>
                         <Text style={{ color: '#000', fontSize: 10, fontWeight: '700' }}>VIP{vipInfo.vip_level}</Text>
                       </View>
                       <Text style={s.infoValue}>
-                        {orderType === 'limit' ? `Maker ${(vipInfo.maker_fee * 100).toFixed(3)}%` : `Taker ${(vipInfo.taker_fee * 100).toFixed(3)}%`}
+                        {orderType === 'limit'
+                          ? `${t('trading.makerFee')} ${(vipInfo.maker_fee * 100).toFixed(3)}%`
+                          : `${t('trading.takerFee')} ${(vipInfo.taker_fee * 100).toFixed(3)}%`}
                       </Text>
                     </View>
                   </View>
                   <View style={s.infoRow}>
-                    <Text style={s.infoLabel}>预估手续费</Text>
+                    <Text style={s.infoLabel}>{t('trading.estFee')}</Text>
                     <Text style={s.infoValue}>
                       {(() => {
                         const qty = getActualQty();
@@ -1659,18 +1703,18 @@ export default function TradingScreen() {
               {/* ── Margin Ratio ── */}
               <View style={s.acctSection}>
                 <View style={s.acctSectionHeader}>
-                  <Text style={s.acctSectionTitle}>保证金比率</Text>
-                  <Text style={s.acctSectionBadge}>{marginMode === 'cross' ? 'USDT 全仓' : 'USDT 逐仓'}</Text>
+                  <Text style={s.acctSectionTitle}>{t('trading.marginRatio')}</Text>
+                  <Text style={s.acctSectionBadge}>{marginMode === 'cross' ? `USDT ${t('trading.cross')}` : `USDT ${t('trading.isolated')}`}</Text>
                 </View>
                 <View style={s.acctDivider} />
                 <View style={s.acctRow}>
-                  <Text style={s.acctRowLabel}>保证金比率</Text>
+                  <Text style={s.acctRowLabel}>{t('trading.marginRatio')}</Text>
                   <Text style={[s.acctRowValue, { color: '#0ECB81' }]}>
                     {account && account.equity > 0 ? ((account.margin_used / account.equity) * 100).toFixed(2) : '0.00'}%
                   </Text>
                 </View>
                 <View style={s.acctRow}>
-                  <Text style={s.acctRowLabel}>维持保证金</Text>
+                  <Text style={s.acctRowLabel}>{t('trading.maintMargin')}</Text>
                   <Text style={s.acctRowValue}>{account?.margin_used?.toFixed(2) || '0.00'} USDT</Text>
                 </View>
               </View>
@@ -1678,21 +1722,21 @@ export default function TradingScreen() {
               {/* ── Futures Assets ── */}
               <View style={s.acctSection}>
                 <View style={s.acctSectionHeader}>
-                  <Text style={s.acctSectionTitle}>合约资产</Text>
+                  <Text style={s.acctSectionTitle}>{t('trading.contractAssets')}</Text>
                   <Text style={s.acctSectionBadge}>USDT</Text>
                 </View>
                 <View style={s.acctDivider} />
                 <Text style={s.acctBalance}>{account?.equity?.toFixed(2) || '0.00'} USDT</Text>
                 <View style={s.acctRow}>
-                  <Text style={s.acctRowLabel}>可用</Text>
+                  <Text style={s.acctRowLabel}>{t('trading.available')}</Text>
                   <Text style={s.acctRowValue}>{account?.available?.toFixed(2) || '0.00'} USDT</Text>
                 </View>
                 <View style={s.acctRow}>
-                  <Text style={s.acctRowLabel}>已冻结</Text>
+                  <Text style={s.acctRowLabel}>{t('trading.frozenLabel')}</Text>
                   <Text style={s.acctRowValue}>{account?.frozen?.toFixed(2) || '0.00'} USDT</Text>
                 </View>
                 <View style={s.acctRow}>
-                  <Text style={s.acctRowLabel}>未实现盈亏</Text>
+                  <Text style={s.acctRowLabel}>{t('trading.unrealizedPnl')}</Text>
                   <Text style={[s.acctRowValue, { color: (account?.unrealized_pnl ?? 0) >= 0 ? '#0ECB81' : '#F6465D' }]}>
                     {(account?.unrealized_pnl ?? 0) >= 0 ? '+' : ''}{account?.unrealized_pnl?.toFixed(2) || '0.00'} USDT
                   </Text>
@@ -1701,30 +1745,30 @@ export default function TradingScreen() {
 
               {/* ── Contract Info ── */}
               <View style={s.acctSection}>
-                <Text style={s.acctSectionTitle}>合约信息</Text>
+                <Text style={s.acctSectionTitle}>{t('trading.contractInfo')}</Text>
                 <View style={s.acctDivider} />
                 <View style={s.acctRow}>
-                  <Text style={s.acctRowLabel}>合约</Text>
+                  <Text style={s.acctRowLabel}>{t('trading.contract')}</Text>
                   <Text style={s.acctRowValue}>{selectedSymbol.replace('/', '')}</Text>
                 </View>
                 <View style={s.acctRow}>
-                  <Text style={s.acctRowLabel}>结算方式</Text>
-                  <Text style={s.acctRowValue}>永续</Text>
+                  <Text style={s.acctRowLabel}>{t('trading.settlementType')}</Text>
+                  <Text style={s.acctRowValue}>{t('trading.perpetual')}</Text>
                 </View>
                 <View style={s.acctRow}>
-                  <Text style={s.acctRowLabel}>标的资产</Text>
-                  <Text style={s.acctRowValue}>{selectedSymbol.replace('/', '')} Index</Text>
+                  <Text style={s.acctRowLabel}>{t('trading.underlyingAsset')}</Text>
+                  <Text style={s.acctRowValue}>{selectedSymbol.replace('/', '')} {t('trading.indexSuffix')}</Text>
                 </View>
                 <View style={s.acctRow}>
-                  <Text style={s.acctRowLabel}>保证金资产</Text>
+                  <Text style={s.acctRowLabel}>{t('trading.marginAsset')}</Text>
                   <Text style={s.acctRowValue}>USDT</Text>
                 </View>
                 <View style={s.acctRow}>
-                  <Text style={s.acctRowLabel}>最小价格变动</Text>
+                  <Text style={s.acctRowLabel}>{t('trading.tickSize')}</Text>
                   <Text style={s.acctRowValue}>0.1 USDT</Text>
                 </View>
                 <View style={s.acctRow}>
-                  <Text style={s.acctRowLabel}>最低维持保证金</Text>
+                  <Text style={s.acctRowLabel}>{t('trading.minMaintMargin')}</Text>
                   <Text style={s.acctRowValue}>0.50%</Text>
                 </View>
               </View>
@@ -1732,7 +1776,7 @@ export default function TradingScreen() {
               /* Close Position Panel */
               <View style={{ gap: 8 }}>
                 {positions.length === 0 ? (
-                  <Text style={{ color: '#666', fontSize: 12, textAlign: 'center', marginTop: 20 }}>暂无持仓</Text>
+                  <Text style={{ color: '#666', fontSize: 12, textAlign: 'center', marginTop: 20 }}>{t('trading.noPositions')}</Text>
                 ) : (
                   positions.map((pos) => (
                     <PositionCard key={pos.id} position={pos} onClose={(id) => closePosition(id)} onUpdated={() => { fetchPositions(); fetchAccount(); }} />
@@ -1752,7 +1796,7 @@ export default function TradingScreen() {
             <View style={s.leverageModalOverlay}>
               <View style={s.leverageModal}>
                 <View style={s.leverageModalHeader}>
-                  <Text style={s.leverageModalTitle}>调整杠杆</Text>
+                  <Text style={s.leverageModalTitle}>{t('trading.adjustLeverage')}</Text>
                   <TouchableOpacity onPress={() => setShowLeverageModal(false)} activeOpacity={0.7}>
                     <Text style={s.leverageModalClose}>✕</Text>
                   </TouchableOpacity>
@@ -1781,9 +1825,9 @@ export default function TradingScreen() {
                     </TouchableOpacity>
                   ))}
                 </View>
-                <Text style={s.leverageModalHint}>最大可用杠杆 {config.max}x</Text>
+                <Text style={s.leverageModalHint}>{t('trading.maxLeverageHint', { max: config.max })}</Text>
                 <TouchableOpacity style={s.leverageModalConfirm} onPress={() => setShowLeverageModal(false)} activeOpacity={0.8}>
-                  <Text style={s.leverageModalConfirmText}>确认</Text>
+                  <Text style={s.leverageModalConfirmText}>{t('common.confirm')}</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -1817,12 +1861,12 @@ export default function TradingScreen() {
           <View style={s.leverageModalOverlay}>
             <View style={[s.leverageModal, { width: 340 }]}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>充值 USDT</Text>
+                <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>{t('trading.depositUsdt')}</Text>
                 <TouchableOpacity onPress={() => setShowDepositModal(false)}>
                   <Text style={{ color: '#888', fontSize: 18 }}>✕</Text>
                 </TouchableOpacity>
               </View>
-              <Text style={{ color: '#888', fontSize: 12, marginBottom: 12 }}>当前余额: {account?.balance?.toFixed(2) || '0.00'} USDT</Text>
+              <Text style={{ color: '#888', fontSize: 12, marginBottom: 12 }}>{t('trading.currentBalance')}: {account?.balance?.toFixed(2) || '0.00'} USDT</Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
                 {[100, 500, 1000, 5000, 10000, 50000].map((amt) => (
                   <TouchableOpacity
@@ -1840,7 +1884,7 @@ export default function TradingScreen() {
                   style={{ flex: 1, backgroundColor: '#1a1a1a', color: '#fff', borderRadius: 6, paddingHorizontal: 12, paddingVertical: 8, fontSize: 14, borderWidth: 1, borderColor: '#333' }}
                   value={depositAmount}
                   onChangeText={setDepositAmount}
-                  placeholder="自定义金额"
+                  placeholder={t('trading.customAmount')}
                   keyboardType="decimal-pad"
                   placeholderTextColor="#666"
                 />
@@ -1852,7 +1896,7 @@ export default function TradingScreen() {
                   }}
                   activeOpacity={0.7}
                 >
-                  <Text style={{ color: '#000', fontSize: 13, fontWeight: '700' }}>充值</Text>
+                  <Text style={{ color: '#000', fontSize: 13, fontWeight: '700' }}>{t('trading.deposit')}</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -1891,38 +1935,40 @@ export default function TradingScreen() {
         {/* Stats */}
         <View style={s.mobileStatsRow}>
           <View style={s.mobileStatItem}>
-            <Text style={s.statLabel}>涨跌额</Text>
+            <Text style={s.statLabel}>{t('trading.changeAmount')}</Text>
             <Text style={[s.statValue, { color: changeColor(selectedQuote?.percent_change) }]}>
               {selectedQuote?.change != null ? `${selectedQuote.change >= 0 ? '+' : '-'}${fmtChange(Math.abs(selectedQuote.change), selectedSymbol, currentPrice)}` : '--'}
             </Text>
           </View>
           <View style={s.mobileStatItem}>
-            <Text style={s.statLabel}>涨跌幅</Text>
+            <Text style={s.statLabel}>{t('trading.changePercent')}</Text>
             <Text style={[s.statValue, { color: changeColor(selectedQuote?.percent_change) }]}>
               {formatChange(selectedQuote?.percent_change)}
             </Text>
           </View>
           <View style={s.mobileStatItem}>
-            <Text style={s.statLabel}>最高</Text>
+            <Text style={s.statLabel}>{t('market.high')}</Text>
             <Text style={s.statValue}>{formatPrice(selectedQuote?.high, selectedSymbol)}</Text>
           </View>
           <View style={s.mobileStatItem}>
-            <Text style={s.statLabel}>最低</Text>
+            <Text style={s.statLabel}>{t('market.low')}</Text>
             <Text style={s.statValue}>{formatPrice(selectedQuote?.low, selectedSymbol)}</Text>
           </View>
-          <View style={s.mobileStatItem}>
-            <Text style={s.statLabel}>成交量</Text>
-            <Text style={s.statValue}>
-              {selectedQuote?.volume
-                ? selectedQuote.volume >= 1e6
-                  ? `${(selectedQuote.volume / 1e6).toFixed(1)}M`
-                  : selectedQuote.volume.toFixed(2)
-                : '--'}
-            </Text>
-          </View>
+          {getAssetType(selectedSymbol) !== 'forex' && (
+            <View style={s.mobileStatItem}>
+              <Text style={s.statLabel}>{t('trading.volume24h')}</Text>
+              <Text style={s.statValue}>
+                {selectedQuote?.volume
+                  ? selectedQuote.volume >= 1e6
+                    ? `${(selectedQuote.volume / 1e6).toFixed(1)}M`
+                    : selectedQuote.volume.toFixed(2)
+                  : '--'}
+              </Text>
+            </View>
+          )}
           {fundingRate?.fundingRate != null && (
             <View style={s.mobileStatItem}>
-              <Text style={s.statLabel}>资金费率</Text>
+              <Text style={s.statLabel}>{t('trading.fundingRate')}</Text>
               <Text style={[s.statValue, { color: parseFloat(fundingRate.fundingRate) >= 0 ? '#0ECB81' : '#F6465D', fontSize: 10 }]}>
                 {(parseFloat(fundingRate.fundingRate) * 100).toFixed(4)}%
               </Text>
@@ -1931,9 +1977,9 @@ export default function TradingScreen() {
           <View style={[s.mobileStatItem, { flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
             <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: !netConnected ? '#F6465D' : netLatency < 100 ? '#0ECB81' : netLatency < 300 ? '#F0B90B' : '#F6465D' }} />
             <View>
-              <Text style={s.statLabel}>延迟</Text>
+              <Text style={s.statLabel}>{t('trading.latency')}</Text>
               <Text style={[s.statValue, { color: !netConnected ? '#F6465D' : netLatency < 100 ? '#0ECB81' : netLatency < 300 ? '#F0B90B' : '#F6465D', fontSize: 10 }]}>
-                {!netConnected ? '断开' : netLatency >= 0 ? `${netLatency}ms` : '...'}
+                {!netConnected ? t('trading.disconnected') : netLatency >= 0 ? `${netLatency}ms` : '...'}
               </Text>
             </View>
           </View>
@@ -1943,7 +1989,7 @@ export default function TradingScreen() {
         {!netConnected && (
           <View style={{ backgroundColor: 'rgba(246,70,93,0.15)', paddingVertical: 6, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 6, marginHorizontal: 8, marginBottom: 4, borderRadius: 4 }}>
             <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#F6465D' }} />
-            <Text style={{ color: '#F6465D', fontSize: 11 }}>网络已断开，行情暂停，重连中...</Text>
+            <Text style={{ color: '#F6465D', fontSize: 11 }}>{t('trading.networkDisconnectedShort')}</Text>
           </View>
         )}
 
@@ -1958,7 +2004,7 @@ export default function TradingScreen() {
                 activeOpacity={0.7}
               >
                 <Text style={[s.tfText, timeframe === tf && s.tfTextActive]}>
-                  {TIMEFRAME_LABELS[tf]}
+                  {timeframeLabels[tf]}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -2000,13 +2046,13 @@ export default function TradingScreen() {
               realtimePrice={currentPrice}
             />
           ) : (
-            <Text style={{ color: Colors.textMuted, fontSize: 13 }}>暂无K线数据</Text>
+            <Text style={{ color: Colors.textMuted, fontSize: 13 }}>{t('trading.noKlineData')}</Text>
           )}
         </View>
 
         {/* Order Book (compact) */}
         <View style={s.mobileOrderBook}>
-          <Text style={s.orderBookTitle}>委托账本</Text>
+          <Text style={s.orderBookTitle}>{t('trading.orderBook')}</Text>
           <View style={{ flexDirection: 'row', gap: 12, marginTop: 10 }}>
             {/* Bids side */}
             <View style={{ flex: 1 }}>
@@ -2032,12 +2078,12 @@ export default function TradingScreen() {
 
           {/* Long/Short Ratio Bar */}
           <View style={s.lsRatioRow}>
-            <Text style={[s.lsLabel, { color: Colors.up }]}>B {orderBook.buyPct}%</Text>
+            <Text style={[s.lsLabel, { color: Colors.up }]}>{t('trading.buyShortLabel', { pct: orderBook.buyPct })}</Text>
             <View style={s.lsBarTrack}>
               <View style={[s.lsBarBuy, { flex: orderBook.buyPct }]} />
               <View style={[s.lsBarSell, { flex: 100 - orderBook.buyPct }]} />
             </View>
-            <Text style={[s.lsLabel, { color: Colors.down }]}>{100 - orderBook.buyPct}% S</Text>
+            <Text style={[s.lsLabel, { color: Colors.down }]}>{t('trading.sellShortLabel', { pct: 100 - orderBook.buyPct })}</Text>
           </View>
         </View>
 
@@ -2047,11 +2093,11 @@ export default function TradingScreen() {
           <View style={s.execTopBar}>
             {getAssetType(selectedSymbol) === 'crypto' ? (
               <TouchableOpacity style={s.execTopChip} onPress={() => setMarginMode(marginMode === 'cross' ? 'isolated' : 'cross')} activeOpacity={0.7}>
-                <Text style={s.execTopChipText}>{marginMode === 'cross' ? '全仓' : '逐仓'}</Text>
+                <Text style={s.execTopChipText}>{marginMode === 'cross' ? t('trading.cross') : t('trading.isolated')}</Text>
               </TouchableOpacity>
             ) : (
               <View style={s.execTopChip}>
-                <Text style={s.execTopChipText}>{getAssetType(selectedSymbol) === 'forex' ? '外汇' : getAssetType(selectedSymbol) === 'futures' ? '期货' : '股票'}</Text>
+                <Text style={s.execTopChipText}>{getAssetType(selectedSymbol) === 'forex' ? t('trading.forex') : getAssetType(selectedSymbol) === 'futures' ? t('trading.futures') : t('trading.stock')}</Text>
               </View>
             )}
             <TouchableOpacity style={s.execTopChip} onPress={() => setShowLeverageModal(true)} activeOpacity={0.7}>
@@ -2062,10 +2108,10 @@ export default function TradingScreen() {
           {/* Open / Close */}
           <View style={s.openCloseRow}>
             <TouchableOpacity style={[s.openBtn, panelMode === 'open' && s.openBtnActive]} activeOpacity={0.7} onPress={() => setPanelMode('open')}>
-              <Text style={[s.openBtnText, panelMode === 'open' && s.openBtnTextActive]}>开仓</Text>
+              <Text style={[s.openBtnText, panelMode === 'open' && s.openBtnTextActive]}>{t('trading.open')}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[s.closeBtn, panelMode === 'close' && s.closeBtnActive]} activeOpacity={0.7} onPress={() => setPanelMode('close')}>
-              <Text style={[s.closeBtnText, panelMode === 'close' && s.closeBtnTextActive]}>平仓</Text>
+              <Text style={[s.closeBtnText, panelMode === 'close' && s.closeBtnTextActive]}>{t('trading.close')}</Text>
             </TouchableOpacity>
           </View>
 
@@ -2073,22 +2119,22 @@ export default function TradingScreen() {
           {/* Order type tabs */}
           <View style={s.execTabRow}>
             <TouchableOpacity onPress={() => setOrderType('limit')} activeOpacity={0.7}>
-              <Text style={[s.execTabText, orderType === 'limit' && s.execTabTextActive]}>限价</Text>
+              <Text style={[s.execTabText, orderType === 'limit' && s.execTabTextActive]}>{t('trading.limit')}</Text>
               {orderType === 'limit' && <View style={s.execTabUnderline} />}
             </TouchableOpacity>
             <TouchableOpacity onPress={() => setOrderType('market')} activeOpacity={0.7}>
-              <Text style={[s.execTabText, orderType === 'market' && s.execTabTextActive]}>市价</Text>
+              <Text style={[s.execTabText, orderType === 'market' && s.execTabTextActive]}>{t('trading.marketOrder')}</Text>
               {orderType === 'market' && <View style={s.execTabUnderline} />}
             </TouchableOpacity>
           </View>
 
           {/* Available */}
           <View style={s.availRow}>
-            <Text style={s.availLabel}>可用</Text>
+            <Text style={s.availLabel}>{t('trading.available')}</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Text style={s.availValue}>{account?.available?.toFixed(2) || '0.00'} USDT</Text>
               <TouchableOpacity onPress={() => { console.log('[deposit] btn pressed'); setShowDepositModal(true); }} activeOpacity={0.7} style={{ paddingHorizontal: 6, paddingVertical: 4 }}>
-                <Text style={{ color: '#C9A84C', fontSize: 11, fontWeight: '600' }}>充值</Text>
+                <Text style={{ color: '#C9A84C', fontSize: 11, fontWeight: '600' }}>{t('trading.deposit')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -2096,7 +2142,7 @@ export default function TradingScreen() {
           {/* Price input */}
           {orderType === 'limit' && (
             <View style={s.execInputRow}>
-              <Text style={s.execInputLabel}>价格</Text>
+              <Text style={s.execInputLabel}>{t('trading.price')}</Text>
               <TextInput style={s.execInput} value={priceInput} onChangeText={setPriceInput} keyboardType="decimal-pad" placeholderTextColor={Colors.textMuted} />
               <Text style={s.execInputUnit}>USDT</Text>
             </View>
@@ -2104,7 +2150,7 @@ export default function TradingScreen() {
 
           {/* Quantity */}
           <View style={s.execInputRow}>
-            <Text style={s.execInputLabel}>数量</Text>
+            <Text style={s.execInputLabel}>{t('trading.quantity')}</Text>
             <TextInput style={s.execInput} value={qtyInput} onChangeText={(v: string) => { setQtyInput(v); setSliderPct(0); }} placeholder="0.00" keyboardType="decimal-pad" placeholderTextColor={Colors.textMuted} />
             <TouchableOpacity style={s.unitDropdown} activeOpacity={0.7} onPress={() => setShowQtyModeDropdown(!showQtyModeDropdown)}>
               <Text style={s.execInputUnit}>{qtyModeLabel} ▾</Text>
@@ -2113,13 +2159,13 @@ export default function TradingScreen() {
           {showQtyModeDropdown && (
             <View style={s.qtyModeMenu}>
               <TouchableOpacity style={[s.qtyModeItem, qtyMode === 'coin' && s.qtyModeItemActive]} onPress={() => { setQtyMode('coin'); setShowQtyModeDropdown(false); setQtyInput(''); }} activeOpacity={0.7}>
-                <Text style={s.qtyModeItemText}>币本位 ({baseAsset})</Text>
+                <Text style={s.qtyModeItemText}>{t('trading.coinMode', { asset: baseAsset })}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[s.qtyModeItem, qtyMode === 'notional' && s.qtyModeItemActive]} onPress={() => { setQtyMode('notional'); setShowQtyModeDropdown(false); setQtyInput(''); }} activeOpacity={0.7}>
-                <Text style={s.qtyModeItemText}>名义价值 (USDT)</Text>
+                <Text style={s.qtyModeItemText}>{t('trading.notionalMode')}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[s.qtyModeItem, qtyMode === 'margin' && s.qtyModeItemActive]} onPress={() => { setQtyMode('margin'); setShowQtyModeDropdown(false); setQtyInput(''); }} activeOpacity={0.7}>
-                <Text style={s.qtyModeItemText}>保证金价值 (USDT)</Text>
+                <Text style={s.qtyModeItemText}>{t('trading.marginMode')}</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -2137,26 +2183,26 @@ export default function TradingScreen() {
           {/* TP/SL */}
           <TouchableOpacity style={s.checkRow} activeOpacity={0.7}>
             <View style={s.checkbox} />
-            <Text style={s.checkLabel}>止盈/止损 TP/SL</Text>
+            <Text style={s.checkLabel}>{t('trading.tpsl')}</Text>
           </TouchableOpacity>
 
           {/* Long / Short */}
           <View style={s.actionRow}>
             <TouchableOpacity style={s.longBtn} activeOpacity={0.8} onPress={() => handlePlaceOrder('long')} disabled={orderLoading}>
-              <Text style={s.longBtnText}>{orderLoading ? '...' : '做多 Long'}</Text>
+              <Text style={s.longBtnText}>{orderLoading ? '...' : t('trading.longAction')}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={s.shortBtn} activeOpacity={0.8} onPress={() => handlePlaceOrder('short')} disabled={orderLoading}>
-              <Text style={s.shortBtnText}>{orderLoading ? '...' : '做空 Short'}</Text>
+              <Text style={s.shortBtnText}>{orderLoading ? '...' : t('trading.shortAction')}</Text>
             </TouchableOpacity>
           </View>
 
           {/* Info */}
           <View style={s.infoRow}>
-            <Text style={s.infoLabel}>成本</Text>
+            <Text style={s.infoLabel}>{t('trading.cost')}</Text>
             <Text style={s.infoValue}>{calcMargin().toFixed(2)} USDT</Text>
           </View>
           <View style={s.infoRow}>
-            <Text style={s.infoLabel}>预估强平价</Text>
+            <Text style={s.infoLabel}>{t('trading.estLiqPrice')}</Text>
             <Text style={s.infoValue}>{calcLiqPrice('long').toFixed(2)} / {calcLiqPrice('short').toFixed(2)}</Text>
           </View>
 
@@ -2164,18 +2210,20 @@ export default function TradingScreen() {
           {vipInfo && (
             <>
               <View style={s.infoRow}>
-                <Text style={s.infoLabel}>VIP 等级</Text>
+                <Text style={s.infoLabel}>{t('trading.vipLevel')}</Text>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                   <View style={{ backgroundColor: vipInfo.vip_level >= 3 ? '#FFB800' : '#C9A84C', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 1 }}>
                     <Text style={{ color: '#000', fontSize: 10, fontWeight: '700' }}>VIP{vipInfo.vip_level}</Text>
                   </View>
                   <Text style={s.infoValue}>
-                    {orderType === 'limit' ? `Maker ${(vipInfo.maker_fee * 100).toFixed(3)}%` : `Taker ${(vipInfo.taker_fee * 100).toFixed(3)}%`}
+                    {orderType === 'limit'
+                      ? `${t('trading.makerFee')} ${(vipInfo.maker_fee * 100).toFixed(3)}%`
+                      : `${t('trading.takerFee')} ${(vipInfo.taker_fee * 100).toFixed(3)}%`}
                   </Text>
                 </View>
               </View>
               <View style={s.infoRow}>
-                <Text style={s.infoLabel}>预估手续费</Text>
+                <Text style={s.infoLabel}>{t('trading.estFee')}</Text>
                 <Text style={s.infoValue}>
                   {(() => {
                     const qty = getActualQty();
@@ -2192,7 +2240,7 @@ export default function TradingScreen() {
           /* Close Position Panel (mobile) */
           <View style={{ gap: 8, paddingHorizontal: 4 }}>
             {positions.length === 0 ? (
-              <Text style={{ color: '#666', fontSize: 12, textAlign: 'center', marginTop: 20 }}>暂无持仓</Text>
+              <Text style={{ color: '#666', fontSize: 12, textAlign: 'center', marginTop: 20 }}>{t('trading.noPositions')}</Text>
             ) : (
               positions.map((pos) => (
                 <PositionCard key={pos.id} position={pos} onClose={(id) => closePosition(id)} onUpdated={() => { fetchPositions(); fetchAccount(); }} />
@@ -2230,12 +2278,12 @@ export default function TradingScreen() {
         <View style={s.leverageModalOverlay}>
           <View style={[s.leverageModal, { width: 340 }]}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>充值 USDT</Text>
+              <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>{t('trading.depositUsdt')}</Text>
               <TouchableOpacity onPress={() => setShowDepositModal(false)}>
                 <Text style={{ color: '#888', fontSize: 18 }}>✕</Text>
               </TouchableOpacity>
             </View>
-            <Text style={{ color: '#888', fontSize: 12, marginBottom: 12 }}>当前余额: {account?.balance?.toFixed(2) || '0.00'} USDT</Text>
+            <Text style={{ color: '#888', fontSize: 12, marginBottom: 12 }}>{t('trading.currentBalance')}: {account?.balance?.toFixed(2) || '0.00'} USDT</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
               {[100, 500, 1000, 5000, 10000, 50000].map((amt) => (
                 <TouchableOpacity
@@ -2253,7 +2301,7 @@ export default function TradingScreen() {
                 style={{ flex: 1, backgroundColor: '#1a1a1a', color: '#fff', borderRadius: 6, paddingHorizontal: 12, paddingVertical: 8, fontSize: 14, borderWidth: 1, borderColor: '#333' }}
                 value={depositAmount}
                 onChangeText={setDepositAmount}
-                placeholder="自定义金额"
+                placeholder={t('trading.customAmount')}
                 keyboardType="decimal-pad"
                 placeholderTextColor="#666"
               />
@@ -2265,7 +2313,7 @@ export default function TradingScreen() {
                 }}
                 activeOpacity={0.7}
               >
-                <Text style={{ color: '#000', fontSize: 13, fontWeight: '700' }}>充值</Text>
+                <Text style={{ color: '#000', fontSize: 13, fontWeight: '700' }}>{t('trading.deposit')}</Text>
               </TouchableOpacity>
             </View>
           </View>

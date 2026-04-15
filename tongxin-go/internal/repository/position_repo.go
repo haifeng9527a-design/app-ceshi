@@ -257,22 +257,78 @@ func scanPositions(rows interface {
 
 // ── Copy Trading Position Methods ──
 
-// CreateCopyPosition always INSERTs a new position (no upsert/merge). Used for copy trades.
+// CreateCopyPosition creates or merges into a follower's open position for the
+// given copy_trading subscription. The unique index
+// idx_positions_user_symbol_side_open — (user_id, symbol, side, copy_trading_id)
+// WHERE status='open' — forbids two open rows for the same subscription, so when
+// the trader adds to a position we must merge (weighted-average entry price,
+// sum qty/margin/open_fee) instead of inserting a new row. liq_price is left to
+// the service layer to recalculate after merge.
 func (r *PositionRepo) CreateCopyPosition(ctx context.Context, p *model.Position) (*model.Position, error) {
-	err := r.pool.QueryRow(ctx,
-		`INSERT INTO positions (user_id, symbol, side, qty, entry_price, leverage,
-		 margin_mode, margin_amount, liq_price, tp_price, sl_price, open_fee, status,
-		 is_copy_trade, source_position_id, source_trader_id, copy_trading_id)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'open',$13,$14,$15,$16)
-		 RETURNING id, created_at, updated_at`,
-		p.UserID, p.Symbol, p.Side, p.Qty, p.EntryPrice, p.Leverage,
-		p.MarginMode, p.MarginAmount, p.LiqPrice, p.TpPrice, p.SlPrice, p.OpenFee,
-		p.IsCopyTrade, p.SourcePositionID, p.SourceTraderID, p.CopyTradingID).
-		Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt)
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("create copy position: %w", err)
+		return nil, fmt.Errorf("create copy position begin: %w", err)
 	}
-	p.Status = "open"
+	defer tx.Rollback(ctx)
+
+	// Look up an existing open position for the same subscription.
+	var existing model.Position
+	err = tx.QueryRow(ctx,
+		`SELECT id, qty, entry_price, margin_amount, open_fee FROM positions
+		 WHERE user_id = $1 AND symbol = $2 AND side = $3 AND status = 'open'
+		 AND copy_trading_id = $4`,
+		p.UserID, p.Symbol, p.Side, p.CopyTradingID).
+		Scan(&existing.ID, &existing.Qty, &existing.EntryPrice, &existing.MarginAmount, &existing.OpenFee)
+
+	if err == pgx.ErrNoRows {
+		// First fill for this subscription → INSERT.
+		err = tx.QueryRow(ctx,
+			`INSERT INTO positions (user_id, symbol, side, qty, entry_price, leverage,
+			 margin_mode, margin_amount, liq_price, tp_price, sl_price, open_fee, status,
+			 is_copy_trade, source_position_id, source_trader_id, copy_trading_id)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'open',$13,$14,$15,$16)
+			 RETURNING id, created_at, updated_at`,
+			p.UserID, p.Symbol, p.Side, p.Qty, p.EntryPrice, p.Leverage,
+			p.MarginMode, p.MarginAmount, p.LiqPrice, p.TpPrice, p.SlPrice, p.OpenFee,
+			p.IsCopyTrade, p.SourcePositionID, p.SourceTraderID, p.CopyTradingID).
+			Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("insert copy position: %w", err)
+		}
+		p.Status = "open"
+	} else if err != nil {
+		return nil, fmt.Errorf("check existing copy position: %w", err)
+	} else {
+		// Merge: weighted-average entry, sum qty/margin/open_fee. Point the row at
+		// the latest source position so triggerCopyClose can still locate it.
+		newQty := existing.Qty + p.Qty
+		newAvgEntry := (existing.Qty*existing.EntryPrice + p.Qty*p.EntryPrice) / newQty
+		newMargin := existing.MarginAmount + p.MarginAmount
+		newOpenFee := existing.OpenFee + p.OpenFee
+
+		err = tx.QueryRow(ctx,
+			`UPDATE positions SET qty = $2, entry_price = $3, margin_amount = $4,
+			 open_fee = $5, source_position_id = $6, updated_at = NOW()
+			 WHERE id = $1
+			 RETURNING id, user_id, symbol, side, qty, entry_price, leverage,
+			 margin_mode, margin_amount, liq_price, tp_price, sl_price,
+			 status, realized_pnl, open_fee, close_fee,
+			 is_copy_trade, source_position_id, source_trader_id, copy_trading_id,
+			 created_at, updated_at`,
+			existing.ID, newQty, newAvgEntry, newMargin, newOpenFee, p.SourcePositionID).
+			Scan(&p.ID, &p.UserID, &p.Symbol, &p.Side, &p.Qty, &p.EntryPrice,
+				&p.Leverage, &p.MarginMode, &p.MarginAmount, &p.LiqPrice,
+				&p.TpPrice, &p.SlPrice, &p.Status, &p.RealizedPnl, &p.OpenFee, &p.CloseFee,
+				&p.IsCopyTrade, &p.SourcePositionID, &p.SourceTraderID, &p.CopyTradingID,
+				&p.CreatedAt, &p.UpdatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("merge copy position: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("create copy position commit: %w", err)
+	}
 	return p, nil
 }
 

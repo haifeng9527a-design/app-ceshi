@@ -70,6 +70,41 @@ func (h *AdminHandler) UpdateUserStatus(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
 }
 
+// POST /api/admin/users/{uid}/password
+func (h *AdminHandler) ResetUserPassword(w http.ResponseWriter, r *http.Request) {
+	targetUID := r.PathValue("uid")
+	var req struct {
+		Password string `json:"password"`
+	}
+	if err := decodeJSON(r, &req); err != nil || req.Password == "" {
+		writeError(w, http.StatusBadRequest, "password is required")
+		return
+	}
+	if err := h.userSvc.ResetPassword(r.Context(), targetUID, req.Password); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+// POST /api/admin/users/{uid}/support-agent
+func (h *AdminHandler) SetSupportAgent(w http.ResponseWriter, r *http.Request) {
+	targetUID := r.PathValue("uid")
+	var req struct {
+		IsSupportAgent bool `json:"is_support_agent"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	user, err := h.userSvc.SetSupportAgent(r.Context(), targetUID, req.IsSupportAgent)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, user)
+}
+
 // GET /api/admin/teachers/pending
 func (h *AdminHandler) PendingTeachers(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))

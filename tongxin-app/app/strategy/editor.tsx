@@ -11,6 +11,7 @@ import {
   Platform,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { Colors, Shadows } from '../../theme/colors';
 import RichTextEditor from '../../components/editor/RichTextEditor';
 import apiClient from '../../services/api/client';
@@ -22,15 +23,16 @@ import {
 } from '../../services/api/traderStrategyApi';
 
 const CATEGORIES = [
-  { key: 'technical', label: '技术分析' },
-  { key: 'fundamental', label: '基本面' },
-  { key: 'macro', label: '宏观经济' },
-  { key: 'news', label: '市场资讯' },
-  { key: 'education', label: '交易教学' },
-  { key: 'other', label: '其他' },
+  { key: 'technical', label: 'strategy.categoryTechnical' },
+  { key: 'fundamental', label: 'strategy.categoryFundamental' },
+  { key: 'macro', label: 'strategy.categoryMacro' },
+  { key: 'news', label: 'strategy.categoryNews' },
+  { key: 'education', label: 'strategy.categoryEducation' },
+  { key: 'other', label: 'strategy.categoryOther' },
 ];
 
 export default function StrategyEditorScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string }>();
   const isEdit = !!params.id;
@@ -59,10 +61,10 @@ export default function StrategyEditorScreen() {
           setCategory(strategy.category || 'technical');
           setCoverImage(strategy.cover_image || '');
         })
-        .catch(() => setError('加载策略失败'))
+        .catch(() => setError(t('strategy.loadFailed')))
         .finally(() => setLoading(false));
     }
-  }, [params.id]);
+  }, [params.id, t]);
 
   // Extract summary from HTML (first 200 chars of plain text)
   const extractSummary = (html: string): string => {
@@ -80,11 +82,11 @@ export default function StrategyEditorScreen() {
     setSuccess('');
 
     if (!title.trim()) {
-      setError('请输入标题');
+      setError(t('strategy.titleRequired'));
       return;
     }
     if (!contentHtml.trim() || contentHtml === '<br>') {
-      setError('请输入内容');
+      setError(t('strategy.contentRequired'));
       return;
     }
 
@@ -111,12 +113,12 @@ export default function StrategyEditorScreen() {
         });
       }
 
-      setSuccess(status === 'published' ? '策略已发布！' : '草稿已保存！');
+      setSuccess(status === 'published' ? t('strategy.publishSuccess') : t('strategy.draftSaved'));
       setTimeout(() => {
         router.replace('/(tabs)/trader-center' as any);
       }, 1000);
     } catch (err: any) {
-      setError(err?.response?.data?.error || err.message || '保存失败');
+      setError(err?.response?.data?.error || err.message || t('strategy.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -139,10 +141,10 @@ export default function StrategyEditorScreen() {
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={goBack}>
-          <Text style={styles.backBtn}>← 返回</Text>
+          <Text style={styles.backBtn}>← {t('common.back')}</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>
-          {isEdit ? '编辑策略' : '发布策略'}
+          {isEdit ? t('strategy.editorTitleEdit') : t('strategy.editorTitleCreate')}
         </Text>
         <View style={styles.headerActions}>
           <TouchableOpacity
@@ -151,7 +153,7 @@ export default function StrategyEditorScreen() {
             disabled={saving}
           >
             <Text style={styles.draftBtnText}>
-              {saving ? '...' : '存草稿'}
+              {saving ? '...' : t('strategy.saveDraft')}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -160,7 +162,7 @@ export default function StrategyEditorScreen() {
             disabled={saving}
           >
             <Text style={styles.publishBtnText}>
-              {saving ? '发布中...' : '发布'}
+              {saving ? t('strategy.publishing') : t('strategy.publishNow')}
             </Text>
           </TouchableOpacity>
         </View>
@@ -188,7 +190,7 @@ export default function StrategyEditorScreen() {
         {/* Title */}
         <TextInput
           style={styles.titleInput}
-          placeholder="输入标题..."
+          placeholder={t('strategy.titlePlaceholder')}
           placeholderTextColor={Colors.textMuted}
           value={title}
           onChangeText={setTitle}
@@ -197,7 +199,7 @@ export default function StrategyEditorScreen() {
 
         {/* Category Chips */}
         <View style={styles.categoryRow}>
-          <Text style={styles.fieldLabel}>分类:</Text>
+          <Text style={styles.fieldLabel}>{t('strategy.categoryLabel')}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <View style={styles.chipRow}>
               {CATEGORIES.map((cat) => (
@@ -215,7 +217,7 @@ export default function StrategyEditorScreen() {
                       category === cat.key && styles.chipTextActive,
                     ]}
                   >
-                    {cat.label}
+                    {t(cat.label)}
                   </Text>
                 </TouchableOpacity>
               ))}
@@ -225,10 +227,10 @@ export default function StrategyEditorScreen() {
 
         {/* Cover Image URL */}
         <View style={styles.fieldRow}>
-          <Text style={styles.fieldLabel}>封面图片 (可选):</Text>
+          <Text style={styles.fieldLabel}>{t('strategy.coverImageOptional')}</Text>
           <TextInput
             style={styles.urlInput}
-            placeholder="输入图片URL..."
+            placeholder={t('strategy.coverImagePlaceholder')}
             placeholderTextColor={Colors.textMuted}
             value={coverImage}
             onChangeText={setCoverImage}
@@ -237,11 +239,11 @@ export default function StrategyEditorScreen() {
 
         {/* Rich Text Editor */}
         <View style={styles.editorSection}>
-          <Text style={styles.fieldLabel}>正文内容:</Text>
+          <Text style={styles.fieldLabel}>{t('strategy.contentLabel')}</Text>
           <RichTextEditor
             initialContent={contentHtml}
             onContentChange={setContentHtml}
-            placeholder="开始撰写你的交易策略分析..."
+            placeholder={t('strategy.contentPlaceholder')}
             minHeight={500}
           />
         </View>

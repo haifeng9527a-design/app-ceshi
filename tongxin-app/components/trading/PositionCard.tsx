@@ -1,5 +1,6 @@
 import { memo, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, StyleSheet, Alert, Platform, Modal, ScrollView } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import type { PositionResponse } from '../../services/api/tradingApi';
 import { updateTPSL, partialClosePosition } from '../../services/api/tradingApi';
 
@@ -13,13 +14,14 @@ const fmt = (v: number | undefined | null, d = 2) =>
   v != null && isFinite(v) ? v.toFixed(d) : '--';
 
 function PositionCard({ position, onClose, onUpdated }: Props) {
+  const { t } = useTranslation();
   const baseAsset = position.symbol.includes('/') ? position.symbol.split('/')[0] : position.symbol;
   const isLong = position.side === 'long';
   const pnl = position.unrealized_pnl ?? 0;
   const roe = position.roe ?? 0;
   const pnlColor = pnl >= 0 ? '#0ECB81' : '#F6465D';
   const sideColor = isLong ? '#0ECB81' : '#F6465D';
-  const sideLabel = isLong ? '多' : '空';
+  const sideLabel = isLong ? t('trading.longSide') : t('trading.shortSide');
   const roeStr = roe >= 0 ? `+${fmt(roe)}%` : `${fmt(roe)}%`;
   const pnlStr = pnl >= 0 ? `+${fmt(pnl)}` : fmt(pnl);
 
@@ -165,9 +167,9 @@ function PositionCard({ position, onClose, onUpdated }: Props) {
       setShowTPSL(false);
       onUpdated?.();
     } catch (e: any) {
-      const msg = e?.response?.data?.error || e?.message || '设置失败';
+      const msg = e?.response?.data?.error || e?.message || t('trading.setFailed');
       if (Platform.OS === 'web') window.alert(msg);
-      else Alert.alert('错误', msg);
+      else Alert.alert(t('trading.setFailed'), msg);
     } finally {
       setTpslLoading(false);
     }
@@ -182,9 +184,9 @@ function PositionCard({ position, onClose, onUpdated }: Props) {
       setCloseQtyInput('');
       onUpdated?.();
     } catch (e: any) {
-      const msg = e?.response?.data?.error || e?.message || '平仓失败';
+      const msg = e?.response?.data?.error || e?.message || t('trading.closeFailed');
       if (Platform.OS === 'web') window.alert(msg);
-      else Alert.alert('错误', msg);
+      else Alert.alert(t('trading.closeFailed'), msg);
     } finally {
       setPartialLoading(false);
     }
@@ -201,13 +203,13 @@ function PositionCard({ position, onClose, onUpdated }: Props) {
           <Text style={st.symbol}>{position.symbol}</Text>
           {position.is_copy_trade && (
             <View style={st.copyBadge}>
-              <Text style={st.copyBadgeText}>跟单</Text>
+              <Text style={st.copyBadgeText}>{t('trading.copyTrade')}</Text>
             </View>
           )}
           <View style={st.leverageBadge}>
             <Text style={st.leverageText}>{position.leverage ?? '--'}x</Text>
           </View>
-          <Text style={st.marginModeText}>{position.margin_mode === 'cross' ? '全仓' : '逐仓'}</Text>
+          <Text style={st.marginModeText}>{position.margin_mode === 'cross' ? t('trading.crossModeFull') : t('trading.isolatedMode')}</Text>
         </View>
         <View style={{ alignItems: 'flex-end' }}>
           <Text style={[st.headerPnl, { color: pnlColor }]}>{pnlStr} USDT</Text>
@@ -219,14 +221,14 @@ function PositionCard({ position, onClose, onUpdated }: Props) {
       <View style={st.detailGrid}>
         <View style={[st.detailCell, showQtyMenu && { zIndex: 20 }]}>
           <TouchableOpacity onPress={() => setShowQtyMenu(!showQtyMenu)} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Text style={st.detailLabel}>数量({qtyUnit})</Text>
+            <Text style={st.detailLabel}>{t('trading.quantity')}({qtyUnit})</Text>
             <Text style={st.toggleArrow}> ▾</Text>
           </TouchableOpacity>
           <Text style={st.detailValue}>{qtyValue}</Text>
           {showQtyMenu && (
             <View style={st.qtyMenu}>
               <TouchableOpacity style={[st.qtyMenuItem, !qtyUsdt && st.qtyMenuItemActive]} onPress={() => { setQtyUsdt(false); setShowQtyMenu(false); }} activeOpacity={0.7}>
-                <Text style={st.qtyMenuItemText}>币本位 ({baseAsset})</Text>
+                <Text style={st.qtyMenuItemText}>{t('trading.coinMode', { asset: baseAsset })}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[st.qtyMenuItem, qtyUsdt && st.qtyMenuItemActive]} onPress={() => { setQtyUsdt(true); setShowQtyMenu(false); }} activeOpacity={0.7}>
                 <Text style={st.qtyMenuItemText}>USDT</Text>
@@ -234,10 +236,10 @@ function PositionCard({ position, onClose, onUpdated }: Props) {
             </View>
           )}
         </View>
-        <DetailItem label="保证金" value={fmt(position.margin_amount)} />
-        <DetailItem label="开仓均价" value={fmt(position.entry_price)} />
-        <DetailItem label="标记价格" value={fmt(position.current_price)} />
-        <DetailItem label="强平价格" value={position.liq_price ? fmt(position.liq_price) : '--'} />
+        <DetailItem label={t('trading.margin')} value={fmt(position.margin_amount)} />
+        <DetailItem label={t('trading.openAvgPrice')} value={fmt(position.entry_price)} />
+        <DetailItem label={t('trading.markPrice')} value={fmt(position.current_price)} />
+        <DetailItem label={t('trading.liqPrice')} value={position.liq_price ? fmt(position.liq_price) : '--'} />
         <TouchableOpacity style={st.detailCell} activeOpacity={0.7} onPress={() => {
           const tp = position.tp_price != null ? String(position.tp_price) : '';
           const sl = position.sl_price != null ? String(position.sl_price) : '';
@@ -261,35 +263,35 @@ function PositionCard({ position, onClose, onUpdated }: Props) {
           onMouseEnter={() => setShowRealizedDetail(true)}
           onMouseLeave={() => setShowRealizedDetail(false)}
         >
-          <Text style={[st.detailLabel, { textDecorationLine: 'underline', textDecorationStyle: 'dashed' }]}>已实现盈亏</Text>
+          <Text style={[st.detailLabel, { textDecorationLine: 'underline', textDecorationStyle: 'dashed' }]}>{t('trading.realizedPnl')}</Text>
           <Text style={[st.detailValue, { color: totalRealizedPnl >= 0 ? '#0ECB81' : '#F6465D', fontWeight: '600' }]}>
             {totalRealizedPnl >= 0 ? '+' : ''}{fmt(totalRealizedPnl, 8)}
           </Text>
           {showRealizedDetail && (
             <View style={st.realizedTooltip}>
               <View style={st.realizedPopoverRow}>
-                <Text style={st.realizedPopoverTitle}>已实现盈亏</Text>
+                <Text style={st.realizedPopoverTitle}>{t('trading.realizedPnl')}</Text>
                 <Text style={[st.realizedPopoverTitleVal, { color: totalRealizedPnl >= 0 ? '#0ECB81' : '#F6465D' }]}>
                   {fmt(totalRealizedPnl, 8)} USDT
                 </Text>
               </View>
               <View style={st.realizedPopoverDivider} />
               <View style={st.realizedPopoverRow}>
-                <Text style={st.realizedPopoverLabel}>平仓盈亏</Text>
+                <Text style={st.realizedPopoverLabel}>{t('trading.closingPnl')}</Text>
                 <Text style={st.realizedPopoverVal}>{fmt(closingPnl, 8)} USDT</Text>
               </View>
               <View style={st.realizedPopoverRow}>
-                <Text style={st.realizedPopoverLabel}>资金费用</Text>
+                <Text style={st.realizedPopoverLabel}>{t('trading.fundingFee')}</Text>
                 <Text style={st.realizedPopoverVal}>{fmt(fundingFee, 8)} USDT</Text>
               </View>
               <View style={st.realizedPopoverRow}>
-                <Text style={st.realizedPopoverLabel}>交易费用</Text>
+                <Text style={st.realizedPopoverLabel}>{t('trading.tradingFee')}</Text>
                 <Text style={[st.realizedPopoverVal, { color: tradingFee < 0 ? '#F6465D' : '#bbb' }]}>
                   {fmt(tradingFee, 8)} USDT
                 </Text>
               </View>
               <View style={st.realizedPopoverDivider} />
-              <Text style={st.realizedPopoverFormula}>已实现盈亏 = 平仓盈亏 + 资金费用 + 交易费用</Text>
+              <Text style={st.realizedPopoverFormula}>{t('trading.realizedFormula')}</Text>
             </View>
           )}
         </View>
@@ -298,11 +300,11 @@ function PositionCard({ position, onClose, onUpdated }: Props) {
       {/* Action row */}
       <View style={st.actions}>
         <View style={st.closeFieldGroup}>
-          <Text style={st.closeFieldLabel}>价格</Text>
+          <Text style={st.closeFieldLabel}>{t('trading.price')}</Text>
           <Text style={st.closeFieldValue}>Market</Text>
         </View>
         <View style={st.closeFieldGroup}>
-          <Text style={st.closeFieldLabel}>数量</Text>
+          <Text style={st.closeFieldLabel}>{t('trading.quantity')}</Text>
           <TextInput
             style={st.closeFieldInput}
             value={closeQtyInput}
@@ -312,10 +314,10 @@ function PositionCard({ position, onClose, onUpdated }: Props) {
           />
         </View>
         <TouchableOpacity style={st.closeExecBtn} onPress={handlePartialClose} disabled={partialLoading} activeOpacity={0.7}>
-          <Text style={st.closeExecBtnText}>{partialLoading ? '...' : '平仓'}</Text>
+          <Text style={st.closeExecBtnText}>{partialLoading ? '...' : t('trading.closePosition')}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={st.actionBtn} onPress={() => onClose(position.id)} activeOpacity={0.7}>
-          <Text style={st.actionBtnText}>市价全平</Text>
+          <Text style={st.actionBtnText}>{t('trading.marketCloseAll')}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={[st.actionBtn, st.actionBtnHighlight]} onPress={() => {
           const tp = position.tp_price != null ? String(position.tp_price) : '';
@@ -389,7 +391,7 @@ function PositionCard({ position, onClose, onUpdated }: Props) {
                     style={st.tpslInput}
                     value={tpInput}
                     onChangeText={handleTpPriceChange}
-                    placeholder="触发价格"
+                    placeholder={t('trading.triggerPrice')}
                     placeholderTextColor="#555"
                     keyboardType="decimal-pad"
                   />
@@ -428,7 +430,7 @@ function PositionCard({ position, onClose, onUpdated }: Props) {
                     style={st.tpslInput}
                     value={slInput}
                     onChangeText={handleSlPriceChange}
-                    placeholder="触发价格"
+                    placeholder={t('trading.triggerPrice')}
                     placeholderTextColor="#555"
                     keyboardType="decimal-pad"
                   />
@@ -465,14 +467,20 @@ function PositionCard({ position, onClose, onUpdated }: Props) {
                 <View style={st.summaryBox}>
                   {tpInput ? (
                     <Text style={st.summaryText}>
-                      {'当价格达到 '}<Text style={{ color: '#fff', fontWeight: '700' }}>{tpInput}</Text>{' USDT 时，系统将市价平仓，预计盈利 '}
-                      <Text style={{ color: '#0ECB81', fontWeight: '700' }}>{tpProfitInput || '--'}</Text>{` ${tpMode === 'pnl' ? 'USDT' : '%'}`}
+                      {t('trading.tpSummary', {
+                        price: tpInput,
+                        value: tpProfitInput || '--',
+                        unit: ` ${tpMode === 'pnl' ? 'USDT' : '%'}`,
+                      })}
                     </Text>
                   ) : null}
                   {slInput ? (
                     <Text style={st.summaryText}>
-                      {'当价格达到 '}<Text style={{ color: '#fff', fontWeight: '700' }}>{slInput}</Text>{' USDT 时，系统将市价平仓，预计亏损 '}
-                      <Text style={{ color: '#F6465D', fontWeight: '700' }}>{slLossInput || '--'}</Text>{` ${slMode === 'pnl' ? 'USDT' : '%'}`}
+                      {t('trading.slSummary', {
+                        price: slInput,
+                        value: slLossInput || '--',
+                        unit: ` ${slMode === 'pnl' ? 'USDT' : '%'}`,
+                      })}
                     </Text>
                   ) : null}
                 </View>

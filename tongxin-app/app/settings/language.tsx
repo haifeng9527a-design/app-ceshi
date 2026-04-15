@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import i18n from '../../i18n';
 import { Colors, Sizes } from '../../theme/colors';
 import { saveLanguagePreference } from '../../services/storage/preferences';
+import AppIcon from '../../components/ui/AppIcon';
 
 type LanguageOption = {
   value: 'zh' | 'en';
@@ -11,29 +13,43 @@ type LanguageOption = {
   description: string;
 };
 
-const OPTIONS: LanguageOption[] = [
-  { value: 'zh', label: '简体中文', description: '适合中文用户，界面文案更自然。' },
-  { value: 'en', label: 'English', description: 'Useful for international users and English-first workflows.' },
-];
-
 export default function LanguageSettingsScreen() {
   const router = useRouter();
+  const { t } = useTranslation();
   const current = useMemo<'zh' | 'en'>(
     () => (i18n.language?.startsWith('en') ? 'en' : 'zh'),
     []
   );
   const [selected, setSelected] = useState<'zh' | 'en'>(current);
   const [saving, setSaving] = useState(false);
+  const options: LanguageOption[] = useMemo(
+    () => [
+      {
+        value: 'zh',
+        label: t('language.zhLabel'),
+        description: t('language.zhDescription'),
+      },
+      {
+        value: 'en',
+        label: t('language.enLabel'),
+        description: t('language.enDescription'),
+      },
+    ],
+    [t]
+  );
 
   const handleSave = async () => {
     setSaving(true);
     try {
       await i18n.changeLanguage(selected);
       await saveLanguagePreference(selected);
-      Alert.alert('已更新', selected === 'zh' ? '语言已切换为简体中文。' : 'Language switched to English.');
+      Alert.alert(
+        t('language.updatedTitle'),
+        selected === 'zh' ? t('language.updatedZh') : t('language.updatedEn')
+      );
       router.back();
     } catch (e: any) {
-      Alert.alert('切换失败', e?.message || '语言切换失败，请稍后重试。');
+      Alert.alert(t('language.failedTitle'), e?.message || t('language.failedBody'));
     } finally {
       setSaving(false);
     }
@@ -41,16 +57,20 @@ export default function LanguageSettingsScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-      <Text style={styles.title}>语言设置</Text>
-      <Text style={styles.subtitle}>选择你更习惯的界面语言，切换后会立即作用于全局页面。</Text>
+      <TouchableOpacity style={styles.backBtn} activeOpacity={0.8} onPress={() => router.back()}>
+        <AppIcon name="back" size={16} color={Colors.primary} />
+        <Text style={styles.backBtnText}>{t('common.back')}</Text>
+      </TouchableOpacity>
+      <Text style={styles.title}>{t('language.title')}</Text>
+      <Text style={styles.subtitle}>{t('language.subtitle')}</Text>
 
       <View style={styles.card}>
-        {OPTIONS.map((option, index) => {
+        {options.map((option, index) => {
           const active = option.value === selected;
           return (
             <TouchableOpacity
               key={option.value}
-              style={[styles.optionRow, index < OPTIONS.length - 1 && styles.optionBorder, active && styles.optionRowActive]}
+              style={[styles.optionRow, index < options.length - 1 && styles.optionBorder, active && styles.optionRowActive]}
               activeOpacity={0.8}
               onPress={() => setSelected(option.value)}
             >
@@ -72,7 +92,7 @@ export default function LanguageSettingsScreen() {
         onPress={() => void handleSave()}
         disabled={saving}
       >
-        <Text style={styles.saveBtnText}>{saving ? '保存中…' : '保存语言设置'}</Text>
+        <Text style={styles.saveBtnText}>{saving ? t('language.saving') : t('language.save')}</Text>
       </TouchableOpacity>
     </ScrollView>
   );
@@ -86,6 +106,18 @@ const styles = StyleSheet.create({
   content: {
     padding: 20,
     gap: 18,
+  },
+  backBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    alignSelf: 'flex-start',
+    paddingVertical: 4,
+  },
+  backBtnText: {
+    color: Colors.primary,
+    fontSize: 13,
+    fontWeight: '700',
   },
   title: {
     color: Colors.textActive,

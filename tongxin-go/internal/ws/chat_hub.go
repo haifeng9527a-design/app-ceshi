@@ -105,6 +105,14 @@ func (h *ChatHub) broadcastToLocalMembers(memberIDs []string, frame map[string]a
 	}
 }
 
+func (h *ChatHub) IsUserOnline(userID string) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	userClients, ok := h.clients[userID]
+	return ok && len(userClients) > 0
+}
+
 func (h *ChatHub) publishChatFanout(ctx context.Context, memberIDs []string, frame map[string]any) {
 	if len(memberIDs) == 0 || frame == nil {
 		return
@@ -162,13 +170,13 @@ func (h *ChatHub) HandleWS(w http.ResponseWriter, r *http.Request, userID string
 }
 
 type wsMessage struct {
-	Type             string          `json:"type"`
-	ConversationID   string          `json:"conversation_id,omitempty"`
-	ConversationIDs  []string        `json:"conversation_ids,omitempty"`
-	Content          string          `json:"content,omitempty"`
-	MessageType      string          `json:"message_type,omitempty"`
-	MediaURL         string          `json:"media_url,omitempty"`
-	Metadata         json.RawMessage `json:"metadata,omitempty"`
+	Type            string          `json:"type"`
+	ConversationID  string          `json:"conversation_id,omitempty"`
+	ConversationIDs []string        `json:"conversation_ids,omitempty"`
+	Content         string          `json:"content,omitempty"`
+	MessageType     string          `json:"message_type,omitempty"`
+	MediaURL        string          `json:"media_url,omitempty"`
+	Metadata        json.RawMessage `json:"metadata,omitempty"`
 }
 
 func (h *ChatHub) onMessage(client *Client, raw []byte) {
@@ -215,9 +223,9 @@ func (h *ChatHub) handleSubscribe(client *Client, msg wsMessage) {
 		return
 	}
 	client.SendJSON(map[string]any{
-		"type":              "subscribed",
-		"conversation_ids":  uniq,
-		"conversation_id":   uniq[0],
+		"type":             "subscribed",
+		"conversation_ids": uniq,
+		"conversation_id":  uniq[0],
 	})
 }
 
@@ -339,4 +347,14 @@ func (h *ChatHub) BroadcastToUser(userID string, payload any) {
 		}
 	}
 	h.publishChatFanout(context.Background(), []string{userID}, frame)
+}
+
+func (h *ChatHub) IsUserConnected(userID string) bool {
+	if h == nil || userID == "" {
+		return false
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	userClients, ok := h.clients[userID]
+	return ok && len(userClients) > 0
 }

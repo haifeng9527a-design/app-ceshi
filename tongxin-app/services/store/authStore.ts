@@ -14,6 +14,7 @@ export interface UserProfile {
   signature?: string;
   phone?: string;
   isTrader?: boolean;
+  isSupportAgent?: boolean;
   allowCopyTrading?: boolean;
   vipLevel?: number;
 }
@@ -159,6 +160,7 @@ function backendUserToProfile(user: any): UserProfile {
     signature: user.bio || user.signature,
     phone: user.phone || null,
     isTrader: user.is_trader || false,
+    isSupportAgent: user.is_support_agent || false,
     allowCopyTrading: user.allow_copy_trading || false,
     vipLevel: user.vip_level || 0,
   };

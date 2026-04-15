@@ -109,6 +109,102 @@ func (h *AuthHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, user)
 }
 
+// POST /api/auth/change-password (requires token)
+func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
+	uid := middleware.GetUserUID(r.Context())
+	if uid == "" {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	var req model.ChangePasswordRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.CurrentPassword == "" || req.NewPassword == "" {
+		writeError(w, http.StatusBadRequest, "current_password and new_password are required")
+		return
+	}
+
+	if err := h.userSvc.ChangePassword(r.Context(), uid, req.CurrentPassword, req.NewPassword); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "password_updated"})
+}
+
+// POST /api/auth/change-email (requires token)
+func (h *AuthHandler) ChangeEmail(w http.ResponseWriter, r *http.Request) {
+	uid := middleware.GetUserUID(r.Context())
+	if uid == "" {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	var req model.ChangeEmailRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.NewEmail == "" || req.CurrentPassword == "" {
+		writeError(w, http.StatusBadRequest, "new_email and current_password are required")
+		return
+	}
+
+	user, err := h.userSvc.ChangeEmail(r.Context(), uid, req.NewEmail, req.CurrentPassword)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, user)
+}
+
+// GET /api/auth/delete-account/check (requires token)
+func (h *AuthHandler) CheckDeleteAccount(w http.ResponseWriter, r *http.Request) {
+	uid := middleware.GetUserUID(r.Context())
+	if uid == "" {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	data, err := h.userSvc.CheckDeleteAccount(r.Context(), uid)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to check delete account")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, data)
+}
+
+// POST /api/auth/delete-account (requires token)
+func (h *AuthHandler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
+	uid := middleware.GetUserUID(r.Context())
+	if uid == "" {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	var req model.DeleteAccountRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.CurrentPassword == "" {
+		writeError(w, http.StatusBadRequest, "current_password is required")
+		return
+	}
+
+	if err := h.userSvc.DeleteAccount(r.Context(), uid, req.CurrentPassword); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "account_deleted"})
+}
+
 // GET /api/auth/profile/{id} (requires token)
 func (h *AuthHandler) GetProfileByID(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")

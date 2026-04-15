@@ -420,6 +420,7 @@ export default function ProfileScreen() {
         </View>
 
         <View style={styles.menuCard}>
+          <MenuItem icon="shield" label={t('profile.accountSecurity')} description={t('profile.accountSecurityDesc')} onPress={() => router.push('/settings/account-security' as any)} />
           <MenuItem icon="users" label={t('profile.friendsEntry')} description={t('profile.friendsMenuDesc')} onPress={() => router.push('/contacts' as any)} />
           <MenuItem icon="help" label={t('profile.help')} description={t('profile.helpMenuDesc')} onPress={() => router.push('/help' as any)} />
           <MenuItem icon="lock" label={t('profile.privacyPolicy')} description={t('profile.privacyMenuDesc')} onPress={() => router.push('/privacy' as any)} />
@@ -449,7 +450,7 @@ export default function ProfileScreen() {
           <TouchableOpacity
             style={styles.deleteBtn}
             activeOpacity={0.85}
-            onPress={() => Alert.alert(t('profile.deleteUnsupportedTitle'), t('profile.deleteUnsupportedBody'))}
+            onPress={() => router.push('/settings/account-security' as any)}
           >
             <AppIcon name="trash" size={18} color={Colors.textMuted} />
             <Text style={styles.deleteText}>{t('profile.deleteAccount')}</Text>

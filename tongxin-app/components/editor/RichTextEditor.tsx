@@ -1,4 +1,5 @@
 import React, { useRef, useCallback, useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   View,
   Text,
@@ -43,15 +44,17 @@ function ToolbarBtn({
 export default function RichTextEditor({
   initialContent = '',
   onContentChange,
-  placeholder = '开始撰写策略...',
+  placeholder,
   editable = true,
   minHeight = 400,
 }: RichTextEditorProps) {
+  const { t } = useTranslation();
   const editorRef = useRef<any>(null);
   const fileInputRef = useRef<any>(null);
   const [isFocused, setIsFocused] = useState(false);
   const [isEmpty, setIsEmpty] = useState(!initialContent);
   const [uploading, setUploading] = useState(false);
+  const resolvedPlaceholder = placeholder || t('strategy.editorPlaceholder');
   const composingRef = useRef(false);
   const mountedRef = useRef(false);
 
@@ -104,23 +107,23 @@ export default function RichTextEditor({
               <View style={styles.toolbarDivider} />
               <ToolbarBtn label="UL" onPress={() => document.execCommand('insertUnorderedList')} />
               <ToolbarBtn label="OL" onPress={() => document.execCommand('insertOrderedList')} />
-              <ToolbarBtn label="引用" onPress={() => document.execCommand('formatBlock', false, 'blockquote')} />
+              <ToolbarBtn label={t('strategy.toolbarQuote')} onPress={() => document.execCommand('formatBlock', false, 'blockquote')} />
               <View style={styles.toolbarDivider} />
-              <ToolbarBtn label="代码" onPress={() => document.execCommand('formatBlock', false, 'pre')} />
+              <ToolbarBtn label={t('strategy.toolbarCode')} onPress={() => document.execCommand('formatBlock', false, 'pre')} />
               <ToolbarBtn
-                label="链接"
+                label={t('strategy.toolbarLink')}
                 onPress={() => {
-                  const url = prompt('输入链接地址:');
+                  const url = prompt(t('strategy.linkPrompt'));
                   if (url) document.execCommand('createLink', false, url);
                 }}
               />
               <ToolbarBtn
-                label={uploading ? '...' : '图片'}
+                label={uploading ? '...' : t('strategy.toolbarImage')}
                 onPress={handleImageUpload}
               />
               <View style={styles.toolbarDivider} />
-              <ToolbarBtn label="撤销" onPress={() => document.execCommand('undo')} />
-              <ToolbarBtn label="重做" onPress={() => document.execCommand('redo')} />
+              <ToolbarBtn label={t('strategy.toolbarUndo')} onPress={() => document.execCommand('undo')} />
+              <ToolbarBtn label={t('strategy.toolbarRedo')} onPress={() => document.execCommand('redo')} />
             </ScrollView>
           </View>
         )}
@@ -136,7 +139,7 @@ export default function RichTextEditor({
 
         <View style={[styles.editorWrapper, isFocused && styles.editorFocused]}>
           {isEmpty && !isFocused && (
-            <Text style={styles.placeholder}>{placeholder}</Text>
+            <Text style={styles.placeholder}>{resolvedPlaceholder}</Text>
           )}
           <div
             ref={(node) => {
@@ -242,7 +245,7 @@ export default function RichTextEditor({
   return (
     <View style={styles.container}>
       <View style={[styles.editorWrapper, { minHeight }]}>
-        <Text style={styles.placeholder}>富文本编辑器仅在 Web 端可用</Text>
+        <Text style={styles.placeholder}>{t('strategy.editorWebOnly')}</Text>
       </View>
     </View>
   );
@@ -250,6 +253,7 @@ export default function RichTextEditor({
 
 // ── Read-only HTML renderer ──
 export function HtmlContent({ html, style }: { html: string; style?: any }) {
+  const { t } = useTranslation();
   if (Platform.OS === 'web') {
     return (
       <View style={style}>
@@ -313,7 +317,7 @@ export function HtmlContent({ html, style }: { html: string; style?: any }) {
 
   return (
     <View style={style}>
-      <Text style={{ color: Colors.textMuted }}>HTML内容仅在Web端渲染</Text>
+      <Text style={{ color: Colors.textMuted }}>{t('strategy.htmlWebOnly')}</Text>
     </View>
   );
 }

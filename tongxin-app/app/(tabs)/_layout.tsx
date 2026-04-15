@@ -90,9 +90,9 @@ export default function TabLayout() {
       <Modal visible={showGlobalIncomingCall} transparent animationType="fade" onRequestClose={() => void rejectIncomingCall()}>
         <View style={styles.callOverlay}>
           <View style={styles.callCard}>
-            <Text style={styles.callCardEyebrow}>来电</Text>
-            <Text style={styles.callCardTitle}>语音通话邀请</Text>
-            <Text style={styles.callCardSub}>会话 ID: {incomingCall?.conversation_id || '--'}</Text>
+            <Text style={styles.callCardEyebrow}>{t('messages.incomingCall')}</Text>
+            <Text style={styles.callCardTitle}>{t('messages.incomingCallInvite')}</Text>
+            <Text style={styles.callCardSub}>{t('messages.callConversationId', { id: incomingCall?.conversation_id || '--' })}</Text>
             <View style={styles.callActionRow}>
               <TouchableOpacity
                 style={[styles.callBtn, styles.callRejectBtn, pendingCall && styles.callBtnDisabled]}
@@ -100,7 +100,7 @@ export default function TabLayout() {
                 disabled={pendingCall}
                 onPress={() => void rejectIncomingCall()}
               >
-                <Text style={styles.callRejectText}>拒绝</Text>
+                <Text style={styles.callRejectText}>{t('messages.rejectCall')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.callBtn, styles.callAcceptBtn, pendingCall && styles.callBtnDisabled]}
@@ -114,11 +114,11 @@ export default function TabLayout() {
                       router.push(`/call/${latestCallId}` as any);
                     }
                   } catch (e: any) {
-                    Alert.alert('接听失败', e?.response?.data?.error || e?.message || '接听语音失败');
+                    Alert.alert(t('messages.acceptCallFailedTitle'), e?.response?.data?.error || e?.message || t('messages.acceptVoiceCallFailed'));
                   }
                 }}
               >
-                <Text style={styles.callAcceptText}>接听</Text>
+                <Text style={styles.callAcceptText}>{t('messages.acceptCall')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -167,7 +167,7 @@ export default function TabLayout() {
           <Tabs.Screen
             name="following"
             options={{
-              title: '关注',
+              title: t('following.title'),
               tabBarIcon: ({ color }) => null,
             }}
           />

@@ -60,12 +60,6 @@ const MOCK_TRADERS: RecommendedTrader[] = [
 
 type SearchTab = 'email' | 'id' | 'qrcode';
 
-const TABS: { key: SearchTab; icon: AppIconName; label: string }[] = [
-  { key: 'email', icon: 'mail', label: '邮箱' },
-  { key: 'id', icon: 'key', label: '账号ID' },
-  { key: 'qrcode', icon: 'qr', label: '二维码' },
-];
-
 function normId(s: string | undefined | null): string {
   return String(s ?? '').trim();
 }
@@ -117,6 +111,7 @@ function QRCodeTab({
   user: { uid: string; displayName: string | null; email: string | null; shortId?: string; photoURL?: string | null };
   onScanned: (uid: string) => void;
 }) {
+  const { t } = useTranslation();
   const [qrMode, setQRMode] = useState<'my' | 'scan'>('my');
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
@@ -141,10 +136,10 @@ function QRCodeTab({
       } catch {
         // not valid
       }
-      Alert.alert('无法识别', '不是有效的通心用户二维码');
+      Alert.alert(t('contacts.invalidQrTitle'), t('contacts.invalidQrBody'));
       setTimeout(() => setScanned(false), 2000);
     },
-    [scanned, onScanned],
+    [onScanned, scanned, t],
   );
 
   return (
@@ -157,7 +152,7 @@ function QRCodeTab({
           activeOpacity={0.7}
         >
           <Text style={[s.qrToggleText, qrMode === 'my' && s.qrToggleTextActive]}>
-            我的二维码
+            {t('contacts.myQrCode')}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -166,7 +161,7 @@ function QRCodeTab({
           activeOpacity={0.7}
         >
           <Text style={[s.qrToggleText, qrMode === 'scan' && s.qrToggleTextActive]}>
-            扫一扫
+            {t('contacts.scanQrCode')}
           </Text>
         </TouchableOpacity>
       </View>
@@ -180,7 +175,7 @@ function QRCodeTab({
           <View style={s.qrCodeContainer}>
             <QRCode value={qrValue} size={180} backgroundColor="white" color="#1a1a1a" />
           </View>
-          <Text style={s.qrMyHint}>扫一扫上面的二维码，加我为好友</Text>
+          <Text style={s.qrMyHint}>{t('contacts.myQrHint')}</Text>
         </View>
       ) : (
         /* ── Scanner ── */
@@ -188,14 +183,14 @@ function QRCodeTab({
           {Platform.OS === 'web' ? (
             <View style={s.qrWebFallback}>
               <AppIcon name="camera" size={48} color={Colors.textMuted} />
-              <Text style={s.qrWebText}>扫码功能需在移动设备上使用</Text>
-              <Text style={s.qrWebSubText}>请使用手机 App 扫描二维码添加好友</Text>
+              <Text style={s.qrWebText}>{t('contacts.qrMobileOnly')}</Text>
+              <Text style={s.qrWebSubText}>{t('contacts.qrMobileOnlySub')}</Text>
             </View>
           ) : !permission?.granted ? (
             <View style={s.qrWebFallback}>
-              <Text style={{ color: '#fff', fontSize: 15 }}>需要相机权限才能扫描</Text>
+              <Text style={{ color: '#fff', fontSize: 15 }}>{t('contacts.qrNeedCamera')}</Text>
               <TouchableOpacity style={s.permBtn} onPress={requestPermission} activeOpacity={0.8}>
-                <Text style={{ color: Colors.background, fontWeight: '700' }}>授权相机</Text>
+                <Text style={{ color: Colors.background, fontWeight: '700' }}>{t('contacts.grantCamera')}</Text>
               </TouchableOpacity>
             </View>
           ) : (
@@ -211,7 +206,7 @@ function QRCodeTab({
                   <View style={[s.corner, s.cornerBL]} />
                   <View style={[s.corner, s.cornerBR]} />
                 </View>
-                <Text style={s.scanHint}>将二维码放入框内即可自动扫描</Text>
+                <Text style={s.scanHint}>{t('contacts.qrScanHint')}</Text>
               </View>
             </CameraView>
           )}
@@ -243,6 +238,14 @@ export default function AddFriendPage() {
   const [sendingId, setSendingId] = useState<string | null>(null);
   const [creating, setCreating] = useState<string | null>(null);
   const [recommendedTraders, setRecommendedTraders] = useState<RecommendedTrader[]>([]);
+  const tabs = useMemo<{ key: SearchTab; icon: AppIconName; label: string }[]>(
+    () => [
+      { key: 'email', icon: 'mail', label: t('contacts.emailTab') },
+      { key: 'id', icon: 'key', label: t('contacts.accountIdTab') },
+      { key: 'qrcode', icon: 'qr', label: t('contacts.qrCodeTab') },
+    ],
+    [t],
+  );
 
   useEffect(() => {
     if (!user) return;
@@ -270,10 +273,10 @@ export default function AddFriendPage() {
   }, [user?.uid]);
 
   const placeholder = useMemo(() => {
-    if (activeTab === 'email') return '输入好友的电子邮箱地址...';
-    if (activeTab === 'id') return '输入好友的账号 ID...';
+    if (activeTab === 'email') return t('contacts.searchByEmailPlaceholder');
+    if (activeTab === 'id') return t('contacts.searchByIdPlaceholder');
     return '';
-  }, [activeTab]);
+  }, [activeTab, t]);
 
   const handleSearch = useCallback(async () => {
     const q = searchQuery.trim();
@@ -368,7 +371,7 @@ export default function AddFriendPage() {
         <TouchableOpacity onPress={() => router.back()} style={s.backBtn} activeOpacity={0.7}>
           <Text style={s.backArrow}>←</Text>
         </TouchableOpacity>
-        <Text style={s.headerTitle}>添加好友</Text>
+        <Text style={s.headerTitle}>{t('contacts.addFriend')}</Text>
         <TouchableOpacity onPress={() => router.push('/contacts' as any)} style={s.headerRightLink} activeOpacity={0.7}>
           <Text style={s.headerRightLinkText}>{t('contacts.title')}</Text>
         </TouchableOpacity>
@@ -382,15 +385,15 @@ export default function AddFriendPage() {
       >
         {/* Page Title */}
         <View style={s.titleSection}>
-          <Text style={s.pageTitle}>添加好友</Text>
-          <Text style={s.pageSubtitle}>搜索并添加 Sovereign 网络中的精英成员</Text>
+          <Text style={s.pageTitle}>{t('contacts.addFriend')}</Text>
+          <Text style={s.pageSubtitle}>{t('contacts.addFriendSubtitle')}</Text>
         </View>
 
         {/* Tab Card */}
         <View style={s.card}>
           {/* Segmented Tabs */}
           <View style={s.tabRow}>
-            {TABS.map((tab) => (
+            {tabs.map((tab) => (
               <TouchableOpacity
                 key={tab.key}
                 style={[s.tab, activeTab === tab.key && s.tabActive]}
@@ -416,18 +419,18 @@ export default function AddFriendPage() {
                 <QRCodeTab user={user} onScanned={handleQRScanned} />
               ) : (
                 <View style={{ alignItems: 'center', padding: 40 }}>
-                  <Text style={{ color: Colors.textMuted, fontSize: 14 }}>请先登录后使用二维码功能</Text>
+                  <Text style={{ color: Colors.textMuted, fontSize: 14 }}>{t('contacts.loginForQr')}</Text>
                 </View>
               )
             ) : !isLoggedIn ? (
               <View style={{ alignItems: 'center', padding: 40 }}>
-                <Text style={{ color: Colors.textMuted, fontSize: 14 }}>请先登录后搜索好友</Text>
+                <Text style={{ color: Colors.textMuted, fontSize: 14 }}>{t('contacts.loginForSearch')}</Text>
               </View>
             ) : (
               <>
                 {/* Search Input */}
                 <View style={s.fieldGroup}>
-                  <Text style={s.fieldLabel}>SEARCH CREDENTIALS</Text>
+                  <Text style={s.fieldLabel}>{t('contacts.searchCredentials')}</Text>
                   <View style={s.inputWrap}>
                     <AppIcon name="search" size={16} color={Colors.textMuted} />
                     <TextInput
@@ -456,7 +459,7 @@ export default function AddFriendPage() {
                   ) : (
                     <>
                       <AppIcon name="search" size={18} color={Colors.background} />
-                      <Text style={s.searchBtnText}>搜索</Text>
+                      <Text style={s.searchBtnText}>{t('common.search')}</Text>
                     </>
                   )}
                 </TouchableOpacity>
@@ -468,7 +471,7 @@ export default function AddFriendPage() {
         {/* Search Results */}
         {activeTab !== 'qrcode' && searchResults.length > 0 && (
           <View style={s.resultsSection}>
-            <Text style={s.sectionLabel}>搜索结果</Text>
+            <Text style={s.sectionLabel}>{t('contacts.searchResults')}</Text>
             {searchResults.map((u) => {
               const rowUid = normId(u.user_id);
               const isSelf = rowUid === normId(user?.uid);
@@ -484,11 +487,11 @@ export default function AddFriendPage() {
                   <ActivityIndicator size="small" color={Colors.primary} style={{ flexShrink: 0 }} />
                 ) : isSelf ? (
                   <View style={s.selfBtn}>
-                    <Text style={s.selfBtnText} numberOfLines={1}>你自己</Text>
+                    <Text style={s.selfBtnText} numberOfLines={1}>{t('contacts.selfTag')}</Text>
                   </View>
                 ) : isFriend ? (
                   <View style={s.addedBtn}>
-                    <Text style={s.addedBtnText} numberOfLines={1}>已添加</Text>
+                    <Text style={s.addedBtnText} numberOfLines={1}>{t('contacts.addedTag')}</Text>
                   </View>
                 ) : requestSentMap[rowUid] ? (
                   <View style={s.waitingBtn}>
@@ -506,7 +509,7 @@ export default function AddFriendPage() {
                     onPress={() => handleSendRequest(rowUid)}
                     hitSlop={{ top: 14, bottom: 14, left: 10, right: 10 }}
                   >
-                    <Text style={s.addBtnText} numberOfLines={1}>+ 添加</Text>
+                    <Text style={s.addBtnText} numberOfLines={1}>{t('contacts.addAction')}</Text>
                   </Pressable>
                 )}
               </View>
@@ -517,7 +520,7 @@ export default function AddFriendPage() {
         {/* Matched friends (existing) */}
         {activeTab !== 'qrcode' && filteredFriends.length > 0 && (
           <View style={s.resultsSection}>
-            <Text style={s.sectionLabel}>已有好友</Text>
+            <Text style={s.sectionLabel}>{t('contacts.existingFriends')}</Text>
             {filteredFriends.map((f) => (
               <TouchableOpacity
                 key={f.user_id}
@@ -546,14 +549,14 @@ export default function AddFriendPage() {
         {/* No results */}
         {activeTab !== 'qrcode' && searching === false && searchQuery.trim().length >= 2 && searchResults.length === 0 && filteredFriends.length === 0 && (
           <View style={s.emptyState}>
-            <Text style={s.emptyText}>未找到匹配的用户</Text>
+            <Text style={s.emptyText}>{t('contacts.noMatchedUsers')}</Text>
           </View>
         )}
 
         {/* Recommended Traders — 2-column grid */}
         {recommendedTraders.length > 0 && (
           <View style={s.resultsSection}>
-            <Text style={s.recSectionTitle}>推荐交易员</Text>
+            <Text style={s.recSectionTitle}>{t('contacts.recommendedTraders')}</Text>
             <View style={s.recGrid}>
               {recommendedTraders.map((trader) => {
                 const tid = normId(trader.user_id);
@@ -569,7 +572,7 @@ export default function AddFriendPage() {
                   <View style={{ flex: 1, gap: 2 }}>
                     <Text style={s.recName} numberOfLines={1}>{trader.display_name}</Text>
                     <Text style={s.recRole} numberOfLines={1}>
-                      {trader.signature || trader.title || '交易员'}
+                      {trader.signature || trader.title || t('contacts.traderFallback')}
                     </Text>
                   </View>
                   {sendingId === tid ? (

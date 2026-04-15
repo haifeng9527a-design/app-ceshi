@@ -59,12 +59,12 @@ export default function FollowingScreen() {
 
   const handleUnwatch = async (traderUid: string, name: string) => {
     Alert.alert(
-      '取消关注',
-      `确定取消关注 ${name} 吗？`,
+      t('following.unwatchTitle'),
+      t('following.unwatchBody', { name }),
       [
-        { text: '取消', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: '确定',
+          text: t('common.confirm'),
           style: 'destructive',
           onPress: async () => {
             try {
@@ -83,13 +83,13 @@ export default function FollowingScreen() {
     return (
       <View style={styles.centered}>
         <AppIcon name="lock" size={28} color={Colors.textMuted} />
-        <Text style={styles.emptyTitle}>请先登录</Text>
-        <Text style={styles.emptySubtitle}>登录后可查看关注列表</Text>
+        <Text style={styles.emptyTitle}>{t('following.loginTitle')}</Text>
+        <Text style={styles.emptySubtitle}>{t('following.loginSubtitle')}</Text>
         <TouchableOpacity
           style={styles.loginBtn}
           onPress={() => router.push('/(auth)/login' as any)}
         >
-          <Text style={styles.loginBtnText}>去登录</Text>
+          <Text style={styles.loginBtnText}>{t('following.goLogin')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -109,15 +109,15 @@ export default function FollowingScreen() {
     const winRate = stats?.win_rate || 0;
     const followers = stats?.followers_count || 0;
 
-    let statusLabel = '仅关注';
+    let statusLabel = t('following.statusWatchOnly');
     let statusColor = Colors.textMuted;
     let statusBg = Colors.surfaceAlt;
     if (item.is_copying && item.copy_status === 'active') {
-      statusLabel = '跟单中';
+      statusLabel = t('following.statusCopying');
       statusColor = Colors.up;
       statusBg = Colors.upDim;
     } else if (item.is_copying && item.copy_status === 'paused') {
-      statusLabel = '已暂停';
+      statusLabel = t('following.statusPaused');
       statusColor = '#F0B90B';
       statusBg = 'rgba(240, 185, 11, 0.12)';
     }
@@ -146,7 +146,7 @@ export default function FollowingScreen() {
                 )}
               </View>
               <Text style={styles.followDate}>
-                关注于 {new Date(item.followed_at).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })}
+                {t('following.followedOn', { date: new Date(item.followed_at).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' }) })}
               </Text>
             </View>
           </View>
@@ -158,19 +158,19 @@ export default function FollowingScreen() {
         {/* Stats Row */}
         <View style={styles.statsRow}>
           <View style={styles.statItem}>
-            <Text style={styles.statLabel}>总盈亏</Text>
+            <Text style={styles.statLabel}>{t('following.totalPnl')}</Text>
             <Text style={[styles.statValue, { color: pnl >= 0 ? Colors.up : Colors.down }]}>
               {pnl >= 0 ? '+' : ''}${formatMoney(pnl)}
             </Text>
           </View>
           <View style={styles.statItem}>
-            <Text style={styles.statLabel}>胜率</Text>
+            <Text style={styles.statLabel}>{t('following.winRate')}</Text>
             <Text style={[styles.statValue, { color: winRate >= 50 ? Colors.up : Colors.down }]}>
               {winRate.toFixed(1)}%
             </Text>
           </View>
           <View style={styles.statItem}>
-            <Text style={styles.statLabel}>跟随</Text>
+            <Text style={styles.statLabel}>{t('following.followers')}</Text>
             <Text style={styles.statValue}>{followers}</Text>
           </View>
         </View>
@@ -181,14 +181,14 @@ export default function FollowingScreen() {
             style={styles.unwatchBtn}
             onPress={() => handleUnwatch(item.uid, item.display_name)}
           >
-            <Text style={styles.unwatchBtnText}>取消关注</Text>
+            <Text style={styles.unwatchBtnText}>{t('following.unwatch')}</Text>
           </TouchableOpacity>
           {!item.is_copying && item.allow_copy_trading && (
             <TouchableOpacity
               style={styles.copyBtn}
               onPress={() => router.push(`/(tabs)/rankings?trader=${item.uid}` as any)}
             >
-              <Text style={styles.copyBtnText}>一键跟单</Text>
+              <Text style={styles.copyBtnText}>{t('following.copyNow')}</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -200,22 +200,22 @@ export default function FollowingScreen() {
     <View style={styles.container}>
       {/* Page Header */}
       <View style={styles.pageHeader}>
-        <Text style={styles.pageTitle}>关注列表</Text>
+        <Text style={styles.pageTitle}>{t('following.title')}</Text>
         <Text style={styles.pageSubtitle}>
-          {traders.length > 0 ? `已关注 ${traders.length} 位交易员` : ''}
+          {traders.length > 0 ? t('following.subtitle', { count: traders.length }) : ''}
         </Text>
       </View>
 
       {traders.length === 0 ? (
         <View style={styles.centered}>
           <AppIcon name="eye" size={28} color={Colors.textMuted} />
-          <Text style={styles.emptyTitle}>暂无关注</Text>
-          <Text style={styles.emptySubtitle}>去排行榜发现优秀交易员</Text>
+          <Text style={styles.emptyTitle}>{t('following.emptyTitle')}</Text>
+          <Text style={styles.emptySubtitle}>{t('following.emptySubtitle')}</Text>
           <TouchableOpacity
             style={styles.loginBtn}
             onPress={() => router.push('/(tabs)/rankings' as any)}
           >
-            <Text style={styles.loginBtnText}>去排行榜</Text>
+            <Text style={styles.loginBtnText}>{t('following.goRankings')}</Text>
           </TouchableOpacity>
         </View>
       ) : (

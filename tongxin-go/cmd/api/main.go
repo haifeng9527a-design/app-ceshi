@@ -80,6 +80,7 @@ func main() {
 	var teacherSvc *service.TeacherService
 	var callSvc *service.CallService
 	var supportSvc *service.SupportService
+	var chatProfileSvc *service.ChatProfileService
 
 	if userRepo != nil {
 		userSvc = service.NewUserService(userRepo)
@@ -262,6 +263,10 @@ func main() {
 		// Protected — token needed
 		mux.Handle("GET /api/auth/profile", authMw.Authenticate(http.HandlerFunc(authH.GetProfile)))
 		mux.Handle("PUT /api/auth/profile", authMw.Authenticate(http.HandlerFunc(authH.UpdateProfile)))
+		mux.Handle("POST /api/auth/change-password", authMw.Authenticate(http.HandlerFunc(authH.ChangePassword)))
+		mux.Handle("POST /api/auth/change-email", authMw.Authenticate(http.HandlerFunc(authH.ChangeEmail)))
+		mux.Handle("GET /api/auth/delete-account/check", authMw.Authenticate(http.HandlerFunc(authH.CheckDeleteAccount)))
+		mux.Handle("POST /api/auth/delete-account", authMw.Authenticate(http.HandlerFunc(authH.DeleteAccount)))
 		mux.Handle("GET /api/auth/profile/{id}", authMw.Authenticate(http.HandlerFunc(authH.GetProfileByID)))
 
 		mux.Handle("GET /api/users/batch-profiles", authMw.Authenticate(http.HandlerFunc(usersH.BatchProfiles)))
@@ -476,6 +481,7 @@ func main() {
 	if pool != nil {
 		traderRepo := repository.NewTraderRepo(pool)
 		traderSvc = service.NewTraderService(traderRepo)
+		chatProfileSvc = service.NewChatProfileService(userSvc, friendSvc, traderSvc)
 		traderH := handler.NewTraderHandler(traderSvc, tradingSvc)
 
 		// Public trader routes (profile uses optional auth for is_followed)
@@ -531,6 +537,12 @@ func main() {
 		log.Println("[OK] Trader strategy routes registered")
 	}
 
+	if chatProfileSvc != nil {
+		chatProfileH := handler.NewChatProfileHandler(chatProfileSvc, chatHub)
+		mux.Handle("GET /api/users/{uid}/chat-profile", authMw.Authenticate(http.HandlerFunc(chatProfileH.Get)))
+		log.Println("[OK] Chat profile route registered")
+	}
+
 	// Admin
 	if userSvc != nil && teacherSvc != nil {
 		adminH := handler.NewAdminHandler(userSvc, teacherSvc, traderSvc)
@@ -540,6 +552,8 @@ func main() {
 		mux.Handle("GET /api/admin/users", adminAuth(adminH.ListUsers))
 		mux.Handle("POST /api/admin/users/{uid}/role", adminAuth(adminH.UpdateUserRole))
 		mux.Handle("POST /api/admin/users/{uid}/status", adminAuth(adminH.UpdateUserStatus))
+		mux.Handle("POST /api/admin/users/{uid}/password", adminAuth(adminH.ResetUserPassword))
+		mux.Handle("POST /api/admin/users/{uid}/support-agent", adminAuth(adminH.SetSupportAgent))
 		mux.Handle("POST /api/admin/users/{uid}/trader", adminAuth(adminH.SetTrader))
 		mux.Handle("GET /api/admin/teachers/pending", adminAuth(adminH.PendingTeachers))
 		mux.Handle("POST /api/admin/teachers/{id}/approve", adminAuth(adminH.ApproveTeacher))
@@ -552,6 +566,7 @@ func main() {
 		if supportSvc != nil {
 			supportH := handler.NewSupportHandler(supportSvc, chatHub)
 			mux.Handle("GET /api/admin/support/agents", adminAuth(supportH.ListAgents))
+			mux.Handle("GET /api/admin/support/agent-loads", adminAuth(supportH.AgentLoads))
 			mux.Handle("GET /api/admin/users/{uid}/support-assignment", adminAuth(supportH.AdminGetAssignment))
 			mux.Handle("POST /api/admin/users/{uid}/support-assignment", adminAuth(supportH.AdminAssign))
 		}

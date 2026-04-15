@@ -1,32 +1,41 @@
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { Colors } from '../theme/colors';
-
-const SECTIONS = [
-  {
-    title: '1. 我们收集哪些信息',
-    body: '包括账号资料、消息相关的最小必要信息、交易员资料、跟单配置，以及为了保障安全而产生的登录与设备记录。',
-  },
-  {
-    title: '2. 信息如何被使用',
-    body: '主要用于身份识别、消息送达、交易员展示、跟单功能、风控校验和体验优化。不会因为单纯做产品统计而暴露你的私聊内容。',
-  },
-  {
-    title: '3. 谁可以看到这些信息',
-    body: '公开主页只展示用户主动开放的资料；私聊、群聊、跟单配置等仅在业务需要的范围内使用，敏感信息不会作为公开资料展示。',
-  },
-  {
-    title: '4. 数据保留与安全',
-    body: '消息和交易相关数据会按业务需要保留，系统会尽量通过鉴权、权限分层、连接校验和操作日志降低误用风险。',
-  },
-];
+import AppIcon from '../components/ui/AppIcon';
 
 export default function PrivacyScreen() {
+  const router = useRouter();
+  const { t } = useTranslation();
+  const sections = [
+    {
+      title: t('privacy.section1Title'),
+      body: t('privacy.section1Body'),
+    },
+    {
+      title: t('privacy.section2Title'),
+      body: t('privacy.section2Body'),
+    },
+    {
+      title: t('privacy.section3Title'),
+      body: t('privacy.section3Body'),
+    },
+    {
+      title: t('privacy.section4Title'),
+      body: t('privacy.section4Body'),
+    },
+  ];
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-      <Text style={styles.title}>隐私政策</Text>
-      <Text style={styles.subtitle}>当前先提供应用内可阅读版本，后续可再替换成法务确认后的正式文本。</Text>
+      <TouchableOpacity style={styles.backBtn} activeOpacity={0.8} onPress={() => router.back()}>
+        <AppIcon name="back" size={16} color={Colors.primary} />
+        <Text style={styles.backBtnText}>{t('common.back')}</Text>
+      </TouchableOpacity>
+      <Text style={styles.title}>{t('privacy.title')}</Text>
+      <Text style={styles.subtitle}>{t('privacy.subtitle')}</Text>
 
-      {SECTIONS.map((section) => (
+      {sections.map((section) => (
         <View key={section.title} style={styles.card}>
           <Text style={styles.sectionTitle}>{section.title}</Text>
           <Text style={styles.sectionBody}>{section.body}</Text>
@@ -44,6 +53,18 @@ const styles = StyleSheet.create({
   content: {
     padding: 20,
     gap: 16,
+  },
+  backBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    alignSelf: 'flex-start',
+    paddingVertical: 4,
+  },
+  backBtnText: {
+    color: Colors.primary,
+    fontSize: 13,
+    fontWeight: '700',
   },
   title: {
     marginTop: 12,

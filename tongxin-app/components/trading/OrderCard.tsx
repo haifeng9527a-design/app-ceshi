@@ -1,5 +1,6 @@
 import { memo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import type { OrderResponse } from '../../services/api/tradingApi';
 
 interface Props {
@@ -11,17 +12,18 @@ const fmt = (v: number | undefined | null, d = 2) =>
   v != null && isFinite(v) ? v.toFixed(d) : '--';
 
 function OrderCard({ order, onCancel }: Props) {
+  const { t } = useTranslation();
   const isLong = order.side === 'long';
   const sideColor = isLong ? '#0ECB81' : '#F6465D';
-  const sideLabel = isLong ? '多' : '空';
+  const sideLabel = isLong ? t('trading.longSide') : t('trading.shortSide');
   const isPending = order.status === 'pending';
   const isFilled = order.status === 'filled';
 
   const statusLabel: Record<string, string> = {
-    pending: '待成交',
-    filled: '已成交',
-    cancelled: '已撤销',
-    rejected: '已拒绝',
+    pending: t('trading.pending'),
+    filled: t('trading.filled'),
+    cancelled: t('trading.cancelled'),
+    rejected: t('trading.rejected'),
   };
 
   const statusColor: Record<string, string> = {
@@ -35,7 +37,7 @@ function OrderCard({ order, onCancel }: Props) {
     ? fmt(order.filled_price)
     : order.price
       ? fmt(order.price)
-      : '市价';
+      : t('trading.marketOrder');
 
   const dateStr = (() => {
     try {
@@ -54,7 +56,7 @@ function OrderCard({ order, onCancel }: Props) {
           </View>
           <Text style={st.symbol}>{order.symbol}</Text>
           <View style={st.typeBadge}>
-            <Text style={st.typeText}>{order.order_type === 'limit' ? '限价' : '市价'}</Text>
+            <Text style={st.typeText}>{order.order_type === 'limit' ? t('trading.limit') : t('trading.marketOrder')}</Text>
           </View>
           <Text style={st.leverageText}>{order.leverage ?? '--'}x</Text>
         </View>
@@ -64,7 +66,7 @@ function OrderCard({ order, onCancel }: Props) {
           </Text>
           {isPending && onCancel && (
             <TouchableOpacity style={st.cancelBtn} onPress={() => onCancel(order.id)} activeOpacity={0.7}>
-              <Text style={st.cancelBtnText}>撤单</Text>
+              <Text style={st.cancelBtnText}>{t('trading.cancelOrder')}</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -72,19 +74,19 @@ function OrderCard({ order, onCancel }: Props) {
 
       <View style={st.detailRow}>
         <View style={st.detailCell}>
-          <Text style={st.detailLabel}>价格</Text>
+          <Text style={st.detailLabel}>{t('trading.price')}</Text>
           <Text style={st.detailValue}>{priceDisplay}</Text>
         </View>
         <View style={st.detailCell}>
-          <Text style={st.detailLabel}>数量</Text>
+          <Text style={st.detailLabel}>{t('trading.quantity')}</Text>
           <Text style={st.detailValue}>{order.qty ?? '--'}</Text>
         </View>
         <View style={st.detailCell}>
-          <Text style={st.detailLabel}>保证金</Text>
+          <Text style={st.detailLabel}>{t('trading.margin')}</Text>
           <Text style={st.detailValue}>{fmt(order.margin_amount)}</Text>
         </View>
         <View style={st.detailCell}>
-          <Text style={st.detailLabel}>时间</Text>
+          <Text style={st.detailLabel}>{t('trading.time')}</Text>
           <Text style={st.detailValue}>{dateStr}</Text>
         </View>
       </View>

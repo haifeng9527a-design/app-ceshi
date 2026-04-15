@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/mail"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -110,6 +112,110 @@ func (s *UserService) UpdateProfile(ctx context.Context, uid string, req *model.
 	return s.repo.GetByUID(ctx, uid)
 }
 
+func (s *UserService) ChangePassword(ctx context.Context, uid, currentPassword, newPassword string) error {
+	if len(newPassword) < 6 {
+		return errors.New("new password must be at least 6 characters")
+	}
+	_, hash, err := s.repo.GetPasswordHashByUID(ctx, uid)
+	if err != nil {
+		return errors.New("user not found")
+	}
+	if hash == "" {
+		return errors.New("password login is not available for this account")
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(currentPassword)); err != nil {
+		return errors.New("current password is incorrect")
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(newPassword)); err == nil {
+		return errors.New("new password cannot match current password")
+	}
+	newHash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	return s.repo.UpdatePasswordHash(ctx, uid, string(newHash))
+}
+
+func (s *UserService) ChangeEmail(ctx context.Context, uid, newEmail, currentPassword string) (*model.User, error) {
+	if _, err := mail.ParseAddress(newEmail); err != nil {
+		return nil, errors.New("invalid email address")
+	}
+
+	user, err := s.repo.GetByUID(ctx, uid)
+	if err != nil {
+		return nil, errors.New("user not found")
+	}
+	if user.Status != "active" {
+		return nil, errors.New("account is not active")
+	}
+	if user.Email == newEmail {
+		return nil, errors.New("new email must be different")
+	}
+
+	_, hash, err := s.repo.GetPasswordHashByUID(ctx, uid)
+	if err != nil {
+		return nil, errors.New("user not found")
+	}
+	if hash == "" {
+		return nil, errors.New("password login is not available for this account")
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(currentPassword)); err != nil {
+		return nil, errors.New("current password is incorrect")
+	}
+
+	if _, err := s.repo.GetByEmail(ctx, newEmail); err == nil {
+		return nil, errors.New("email already registered")
+	}
+
+	if err := s.repo.UpdateEmail(ctx, uid, newEmail); err != nil {
+		return nil, err
+	}
+	return s.repo.GetByUID(ctx, uid)
+}
+
+func (s *UserService) CheckDeleteAccount(ctx context.Context, uid string) (*model.DeleteAccountCheckResponse, error) {
+	reasons, err := s.repo.GetDeleteAccountReasons(ctx, uid)
+	if err != nil {
+		return nil, err
+	}
+	return &model.DeleteAccountCheckResponse{
+		CanDelete: len(reasons) == 0,
+		Reasons:   reasons,
+	}, nil
+}
+
+func (s *UserService) DeleteAccount(ctx context.Context, uid, currentPassword string) error {
+	user, err := s.repo.GetByUID(ctx, uid)
+	if err != nil {
+		return errors.New("user not found")
+	}
+	if user.Status != "active" {
+		return errors.New("account is not active")
+	}
+
+	_, hash, err := s.repo.GetPasswordHashByUID(ctx, uid)
+	if err != nil {
+		return errors.New("user not found")
+	}
+	if hash == "" {
+		return errors.New("password login is not available for this account")
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(currentPassword)); err != nil {
+		return errors.New("current password is incorrect")
+	}
+
+	check, err := s.CheckDeleteAccount(ctx, uid)
+	if err != nil {
+		return err
+	}
+	if !check.CanDelete {
+		return fmt.Errorf("account cannot be deleted: %v", check.Reasons)
+	}
+
+	archivedEmail := fmt.Sprintf("deleted+%s+%d@deleted.local", uid, time.Now().Unix())
+	return s.repo.SoftDeleteAccount(ctx, uid, archivedEmail)
+}
+
 func (s *UserService) Search(ctx context.Context, query string, limit int) ([]model.FriendProfile, error) {
 	return s.repo.Search(ctx, query, limit)
 }
@@ -128,6 +234,41 @@ func (s *UserService) UpdateRole(ctx context.Context, uid, role string) error {
 
 func (s *UserService) UpdateStatus(ctx context.Context, uid, status string) error {
 	return s.repo.UpdateStatus(ctx, uid, status)
+}
+
+// ResetPassword hashes the given plaintext and writes it to the user.
+// Used by admins to reset a user's password.
+func (s *UserService) ResetPassword(ctx context.Context, uid, password string) error {
+	if len(password) < 4 {
+		return errors.New("password must be at least 4 characters")
+	}
+	if len(password) > 72 {
+		// bcrypt's hard limit is 72 bytes; reject early so the user gets a clear message.
+		return errors.New("password must be at most 72 characters")
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	return s.repo.UpdatePasswordHash(ctx, uid, string(hash))
+}
+
+func (s *UserService) SetSupportAgent(ctx context.Context, uid string, enabled bool) (*model.User, error) {
+	user, err := s.repo.GetByUID(ctx, uid)
+	if err != nil {
+		return nil, errors.New("user not found")
+	}
+	if user.Status != "active" {
+		return nil, errors.New("only active users can be support agents")
+	}
+	if err := s.repo.SetSupportAgent(ctx, uid, enabled); err != nil {
+		return nil, err
+	}
+	return s.repo.GetByUID(ctx, uid)
+}
+
+func (s *UserService) ListSupportAgents(ctx context.Context) ([]model.User, error) {
+	return s.repo.ListSupportAgents(ctx)
 }
 
 func (s *UserService) GetAdminStats(ctx context.Context) (map[string]int, error) {

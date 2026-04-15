@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import {
   fetchConversations,
+  ensureMySupportAssignment,
   fetchMessages,
   sendMessageHttp,
   markAsRead,
@@ -14,6 +15,7 @@ import {
   type ApiFriendRequest,
   type PeerProfile,
   type FriendProfile,
+  type SupportAssignmentDetail,
 } from '../api/messagesApi';
 import { chatWs, type ChatConnectionStatus } from '../websocket/chatWs';
 import { useAuthStore } from './authStore';
@@ -44,6 +46,9 @@ interface MessagesState {
   // Friends list
   friends: FriendProfile[];
   friendsError: string | null;
+
+  // System support conversation
+  supportAssignment: SupportAssignmentDetail | null;
 
   /** 待处理的好友申请（收到的） */
   incomingFriendRequests: ApiFriendRequest[];
@@ -79,6 +84,7 @@ interface MessagesState {
   /** 当前会话静默拉取（给接收方兜底：WS 未推送时仍能看见新消息） */
   refreshActiveMessages: () => Promise<void>;
   flushQueuedMessages: () => Promise<void>;
+  mergePeerProfiles: (profiles: Record<string, PeerProfile>) => void;
 }
 
 export const useMessagesStore = create<MessagesState>((set, get) => {
@@ -123,17 +129,48 @@ export const useMessagesStore = create<MessagesState>((set, get) => {
     peerProfiles: {},
     friends: [],
     friendsError: null,
+    supportAssignment: null,
     incomingFriendRequests: [],
     outgoingFriendRequests: [],
     totalUnread: 0,
     wsConnected: false,
     wsStatus: 'disconnected',
 
+    mergePeerProfiles: (profiles) => {
+      if (!profiles || Object.keys(profiles).length === 0) return;
+      set((state) => ({
+        peerProfiles: { ...state.peerProfiles, ...profiles },
+      }));
+    },
+
     loadConversations: async () => {
       set({ conversationsLoading: true });
       try {
+        let supportAssignment: SupportAssignmentDetail | null = null;
+        const currentUser = useAuthStore.getState().user;
+        if (!currentUser?.isSupportAgent) {
+          try {
+            supportAssignment = await ensureMySupportAssignment();
+          } catch (supportErr: any) {
+            const status = supportErr?.response?.status;
+            if (status && status !== 404) {
+              console.warn('[MessagesStore] ensure support assignment failed:', supportErr);
+            }
+          }
+        }
+        if (
+          supportAssignment?.assignment &&
+          currentUser?.uid &&
+          (
+            supportAssignment.assignment.customer_uid === supportAssignment.assignment.agent_uid ||
+            supportAssignment.assignment.agent_uid === currentUser.uid
+          )
+        ) {
+          supportAssignment = null;
+        }
+
         const conversations = await fetchConversations();
-        set({ conversations, conversationsLoading: false });
+        set({ conversations, conversationsLoading: false, supportAssignment });
 
         // Fetch peer profiles for direct conversations
         const peerIds = conversations

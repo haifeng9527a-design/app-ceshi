@@ -1,5 +1,6 @@
 import { memo } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import type { PositionResponse } from '../../services/api/tradingApi';
 
 interface Props {
@@ -20,6 +21,7 @@ function formatTime(iso?: string) {
 }
 
 function ClosedPositionCard({ position }: Props) {
+  const { t } = useTranslation();
   const isLong = position.side === 'long';
   const grossPnl = position.realized_pnl ?? 0;
   const openFee = position.open_fee ?? 0;
@@ -28,7 +30,7 @@ function ClosedPositionCard({ position }: Props) {
   const netPnl = grossPnl - totalFee;
   const pnlColor = netPnl >= 0 ? '#0ECB81' : '#F6465D';
   const sideColor = isLong ? '#0ECB81' : '#F6465D';
-  const sideLabel = isLong ? '多' : '空';
+  const sideLabel = isLong ? t('trading.longSide') : t('trading.shortSide');
   const marginAmt = position.margin_amount || 1;
   const roe = marginAmt > 0 ? (netPnl / marginAmt) * 100 : 0;
   const roeStr = roe >= 0 ? `+${fmt(roe)}%` : `${fmt(roe)}%`;
@@ -50,7 +52,7 @@ function ClosedPositionCard({ position }: Props) {
         </View>
         <View style={[st.statusBadge, isLiquidated && st.statusLiquidated]}>
           <Text style={[st.statusText, isLiquidated && st.statusTextLiquidated]}>
-            {isLiquidated ? '已爆仓' : '已平仓'}
+            {isLiquidated ? t('trading.liquidated') : t('trading.closed')}
           </Text>
         </View>
       </View>
@@ -58,11 +60,11 @@ function ClosedPositionCard({ position }: Props) {
       {/* PnL */}
       <View style={st.pnlRow}>
         <View style={{ flex: 1 }}>
-          <Text style={st.pnlLabel}>已实现盈亏(USDT)</Text>
+          <Text style={st.pnlLabel}>{t('trading.realizedPnl')}(USDT)</Text>
           <Text style={[st.pnlValue, { color: pnlColor }]}>{pnlStr}</Text>
         </View>
         <View style={{ alignItems: 'flex-end' }}>
-          <Text style={st.pnlLabel}>收益率</Text>
+          <Text style={st.pnlLabel}>{t('trading.returnRate')}</Text>
           <Text style={[st.roeValue, { color: pnlColor }]}>{roeStr}</Text>
         </View>
       </View>
@@ -72,15 +74,15 @@ function ClosedPositionCard({ position }: Props) {
 
       {/* Details */}
       <View style={st.detailGrid}>
-        <DetailItem label="数量" value={String(position.qty ?? '--')} />
-        <DetailItem label="保证金" value={fmt(position.margin_amount)} />
-        <DetailItem label="开仓均价" value={fmt(position.entry_price)} />
-        <DetailItem label="平仓均价" value={position.close_price ? fmt(position.close_price) : '--'} />
-        <DetailItem label="开仓时间" value={formatTime(position.created_at)} />
-        <DetailItem label="平仓时间" value={formatTime(position.closed_at)} />
-        <DetailItem label="开仓手续费" value={fmt(openFee)} />
-        <DetailItem label="平仓手续费" value={fmt(closeFee)} />
-        <DetailItem label="净盈亏" value={pnlStr} color={pnlColor} />
+        <DetailItem label={t('trading.quantity')} value={String(position.qty ?? '--')} />
+        <DetailItem label={t('trading.margin')} value={fmt(position.margin_amount)} />
+        <DetailItem label={t('trading.openAvgPrice')} value={fmt(position.entry_price)} />
+        <DetailItem label={t('trading.closeAvgPrice')} value={position.close_price ? fmt(position.close_price) : '--'} />
+        <DetailItem label={t('trading.openTime')} value={formatTime(position.created_at)} />
+        <DetailItem label={t('trading.closeTime')} value={formatTime(position.closed_at)} />
+        <DetailItem label={t('trading.openFee')} value={fmt(openFee)} />
+        <DetailItem label={t('trading.closeFee')} value={fmt(closeFee)} />
+        <DetailItem label={t('trading.netPnl')} value={pnlStr} color={pnlColor} />
       </View>
     </View>
   );

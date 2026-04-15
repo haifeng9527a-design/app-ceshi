@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"math/big"
 	mathRand "math/rand"
@@ -35,17 +36,31 @@ func (r *UserRepo) Create(ctx context.Context, u *model.User, passwordHash strin
 	u.UpdatedAt = now
 
 	_, err := r.pool.Exec(ctx, `
-		INSERT INTO users (uid, email, display_name, avatar_url, role, status, short_id, phone, bio, password_hash, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		INSERT INTO users (uid, email, display_name, avatar_url, role, status, short_id, phone, bio, is_support_agent, password_hash, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		ON CONFLICT (uid) DO NOTHING
-	`, u.UID, u.Email, u.DisplayName, u.AvatarURL, u.Role, u.Status, u.ShortID, u.Phone, u.Bio, passwordHash, u.CreatedAt, u.UpdatedAt)
+	`, u.UID, u.Email, u.DisplayName, u.AvatarURL, u.Role, u.Status, u.ShortID, u.Phone, u.Bio, u.IsSupportAgent, passwordHash, u.CreatedAt, u.UpdatedAt)
 	return err
 }
 
 func (r *UserRepo) GetPasswordHash(ctx context.Context, email string) (string, string, error) {
 	var uid, hash string
-	err := r.pool.QueryRow(ctx, `SELECT uid, COALESCE(password_hash,'') FROM users WHERE email = $1`, email).Scan(&uid, &hash)
+	err := r.pool.QueryRow(ctx, `
+		SELECT uid, COALESCE(password_hash,'')
+		FROM users
+		WHERE email = $1 AND COALESCE(status,'active') = 'active'
+	`, email).Scan(&uid, &hash)
 	return uid, hash, err
+}
+
+func (r *UserRepo) GetPasswordHashByUID(ctx context.Context, uid string) (string, string, error) {
+	var email, hash string
+	err := r.pool.QueryRow(ctx, `
+		SELECT email, COALESCE(password_hash,'')
+		FROM users
+		WHERE uid = $1
+	`, uid).Scan(&email, &hash)
+	return email, hash, err
 }
 
 func (r *UserRepo) GetByUID(ctx context.Context, uid string) (*model.User, error) {
@@ -53,12 +68,12 @@ func (r *UserRepo) GetByUID(ctx context.Context, uid string) (*model.User, error
 	err := r.pool.QueryRow(ctx, `
 		SELECT uid, email, display_name, COALESCE(avatar_url,''), COALESCE(role,'user'),
 		       COALESCE(status,'active'), COALESCE(short_id,''), COALESCE(phone,''),
-		       COALESCE(bio,''), COALESCE(is_trader, false), COALESCE(allow_copy_trading, false),
+		       COALESCE(bio,''), COALESCE(is_trader, false), COALESCE(is_support_agent, false), COALESCE(allow_copy_trading, false),
 		       trader_approved_at, COALESCE(vip_level, 0), created_at, updated_at
 		FROM users WHERE uid = $1
 	`, uid).Scan(
 		&u.UID, &u.Email, &u.DisplayName, &u.AvatarURL, &u.Role,
-		&u.Status, &u.ShortID, &u.Phone, &u.Bio, &u.IsTrader, &u.AllowCopyTrading,
+		&u.Status, &u.ShortID, &u.Phone, &u.Bio, &u.IsTrader, &u.IsSupportAgent, &u.AllowCopyTrading,
 		&u.TraderApprovedAt, &u.VipLevel, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
@@ -72,12 +87,12 @@ func (r *UserRepo) GetByEmail(ctx context.Context, email string) (*model.User, e
 	err := r.pool.QueryRow(ctx, `
 		SELECT uid, email, display_name, COALESCE(avatar_url,''), COALESCE(role,'user'),
 		       COALESCE(status,'active'), COALESCE(short_id,''), COALESCE(phone,''),
-		       COALESCE(bio,''), COALESCE(is_trader, false), COALESCE(allow_copy_trading, false),
+		       COALESCE(bio,''), COALESCE(is_trader, false), COALESCE(is_support_agent, false), COALESCE(allow_copy_trading, false),
 		       trader_approved_at, COALESCE(vip_level, 0), created_at, updated_at
 		FROM users WHERE email = $1
 	`, email).Scan(
 		&u.UID, &u.Email, &u.DisplayName, &u.AvatarURL, &u.Role,
-		&u.Status, &u.ShortID, &u.Phone, &u.Bio, &u.IsTrader, &u.AllowCopyTrading,
+		&u.Status, &u.ShortID, &u.Phone, &u.Bio, &u.IsTrader, &u.IsSupportAgent, &u.AllowCopyTrading,
 		&u.TraderApprovedAt, &u.VipLevel, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
@@ -107,6 +122,165 @@ func (r *UserRepo) UpdateRole(ctx context.Context, uid, role string) error {
 func (r *UserRepo) UpdateStatus(ctx context.Context, uid, status string) error {
 	_, err := r.pool.Exec(ctx, `UPDATE users SET status = $2, updated_at = NOW() WHERE uid = $1`, uid, status)
 	return err
+}
+
+func (r *UserRepo) UpdatePasswordHash(ctx context.Context, uid, hash string) error {
+	tag, err := r.pool.Exec(ctx, `UPDATE users SET password_hash = $2, updated_at = NOW() WHERE uid = $1`, uid, hash)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return errors.New("user not found")
+	}
+	return nil
+}
+
+func (r *UserRepo) UpdateEmail(ctx context.Context, uid, email string) error {
+	tag, err := r.pool.Exec(ctx, `UPDATE users SET email = $2, updated_at = NOW() WHERE uid = $1`, uid, email)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return errors.New("user not found")
+	}
+	return nil
+}
+
+func (r *UserRepo) SetSupportAgent(ctx context.Context, uid string, enabled bool) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	if enabled {
+		if _, err := tx.Exec(ctx, `UPDATE users SET is_support_agent = false, updated_at = NOW() WHERE is_support_agent = true`); err != nil {
+			return err
+		}
+	}
+
+	if _, err := tx.Exec(ctx, `UPDATE users SET is_support_agent = $2, updated_at = NOW() WHERE uid = $1`, uid, enabled); err != nil {
+		return err
+	}
+
+	if enabled {
+		if _, err := tx.Exec(ctx, `
+			UPDATE support_assignments
+			SET status = 'transferred', updated_at = NOW()
+			WHERE customer_uid = $1 AND status = 'active'
+		`, uid); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit(ctx)
+}
+
+func (r *UserRepo) GetDeleteAccountReasons(ctx context.Context, uid string) ([]string, error) {
+	reasons := make([]string, 0, 6)
+
+	var walletTotal float64
+	if err := r.pool.QueryRow(ctx, `
+		SELECT COALESCE(balance, 0) + COALESCE(frozen, 0)
+		FROM wallets
+		WHERE user_id = $1
+	`, uid).Scan(&walletTotal); err == nil && walletTotal > 0 {
+		reasons = append(reasons, "HAS_WALLET_BALANCE")
+	}
+
+	var openPositions int
+	if err := r.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM positions WHERE user_id = $1 AND status = 'open'
+	`, uid).Scan(&openPositions); err != nil {
+		return nil, err
+	}
+	if openPositions > 0 {
+		reasons = append(reasons, "HAS_OPEN_POSITIONS")
+	}
+
+	var pendingOrders int
+	if err := r.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM orders WHERE user_id = $1 AND status = 'pending'
+	`, uid).Scan(&pendingOrders); err != nil {
+		return nil, err
+	}
+	if pendingOrders > 0 {
+		reasons = append(reasons, "HAS_PENDING_ORDERS")
+	}
+
+	var ownsGroups int
+	if err := r.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM conversations WHERE type = 'group' AND created_by = $1
+	`, uid).Scan(&ownsGroups); err != nil {
+		return nil, err
+	}
+	if ownsGroups > 0 {
+		reasons = append(reasons, "OWNS_GROUPS")
+	}
+
+	var activeCopyTrading int
+	if err := r.pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM copy_trading
+		WHERE (follower_id = $1 OR trader_id = $1)
+		  AND status IN ('active', 'paused')
+	`, uid).Scan(&activeCopyTrading); err != nil {
+		return nil, err
+	}
+	if activeCopyTrading > 0 {
+		reasons = append(reasons, "HAS_ACTIVE_COPY_TRADING")
+	}
+
+	user, err := r.GetByUID(ctx, uid)
+	if err != nil {
+		return nil, err
+	}
+	if user.IsSupportAgent {
+		reasons = append(reasons, "IS_SUPPORT_AGENT")
+	}
+	if user.Role == "admin" {
+		reasons = append(reasons, "IS_ADMIN")
+	}
+
+	return reasons, nil
+}
+
+func (r *UserRepo) SoftDeleteAccount(ctx context.Context, uid, archivedEmail string) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE support_assignments
+		SET status = 'closed', updated_at = NOW()
+		WHERE (customer_uid = $1 OR agent_uid = $1) AND status = 'active'
+	`, uid); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE users
+		SET
+			email = $2,
+			display_name = 'Deleted User',
+			avatar_url = '',
+			phone = '',
+			bio = '',
+			role = 'user',
+			status = 'deleted',
+			is_trader = false,
+			is_support_agent = false,
+			allow_copy_trading = false,
+			password_hash = '',
+			updated_at = NOW()
+		WHERE uid = $1
+	`, uid, archivedEmail); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
 }
 
 func (r *UserRepo) Search(ctx context.Context, query string, limit int) ([]model.FriendProfile, error) {
@@ -169,7 +343,7 @@ func (r *UserRepo) ListAll(ctx context.Context, limit, offset int) ([]model.User
 	rows, err := r.pool.Query(ctx, `
 		SELECT uid, email, display_name, COALESCE(avatar_url,''), COALESCE(role,'user'),
 		       COALESCE(status,'active'), COALESCE(short_id,''), COALESCE(phone,''),
-		       COALESCE(bio,''), COALESCE(is_trader, false), COALESCE(allow_copy_trading, false),
+		       COALESCE(bio,''), COALESCE(is_trader, false), COALESCE(is_support_agent, false), COALESCE(allow_copy_trading, false),
 		       trader_approved_at, COALESCE(vip_level, 0), created_at, updated_at
 		FROM users ORDER BY created_at DESC LIMIT $1 OFFSET $2
 	`, limit, offset)
@@ -182,7 +356,7 @@ func (r *UserRepo) ListAll(ctx context.Context, limit, offset int) ([]model.User
 	for rows.Next() {
 		var u model.User
 		if err := rows.Scan(&u.UID, &u.Email, &u.DisplayName, &u.AvatarURL, &u.Role,
-			&u.Status, &u.ShortID, &u.Phone, &u.Bio, &u.IsTrader, &u.AllowCopyTrading,
+			&u.Status, &u.ShortID, &u.Phone, &u.Bio, &u.IsTrader, &u.IsSupportAgent, &u.AllowCopyTrading,
 			&u.TraderApprovedAt, &u.VipLevel, &u.CreatedAt, &u.UpdatedAt); err != nil {
 			return nil, 0, err
 		}
@@ -207,7 +381,7 @@ func (r *UserRepo) ListByRole(ctx context.Context, role string) ([]model.User, e
 	rows, err := r.pool.Query(ctx, `
 		SELECT uid, email, display_name, COALESCE(avatar_url,''), COALESCE(role,'user'),
 		       COALESCE(status,'active'), COALESCE(short_id,''), COALESCE(phone,''),
-		       COALESCE(bio,''), COALESCE(is_trader, false), COALESCE(allow_copy_trading, false),
+		       COALESCE(bio,''), COALESCE(is_trader, false), COALESCE(is_support_agent, false), COALESCE(allow_copy_trading, false),
 		       trader_approved_at, COALESCE(vip_level, 0), created_at, updated_at
 		From users WHERE role = $1 ORDER BY created_at DESC
 	`, role)
@@ -220,7 +394,35 @@ func (r *UserRepo) ListByRole(ctx context.Context, role string) ([]model.User, e
 	for rows.Next() {
 		var u model.User
 		if err := rows.Scan(&u.UID, &u.Email, &u.DisplayName, &u.AvatarURL, &u.Role,
-			&u.Status, &u.ShortID, &u.Phone, &u.Bio, &u.IsTrader, &u.AllowCopyTrading,
+			&u.Status, &u.ShortID, &u.Phone, &u.Bio, &u.IsTrader, &u.IsSupportAgent, &u.AllowCopyTrading,
+			&u.TraderApprovedAt, &u.VipLevel, &u.CreatedAt, &u.UpdatedAt); err != nil {
+			return nil, err
+		}
+		users = append(users, u)
+	}
+	return users, nil
+}
+
+func (r *UserRepo) ListSupportAgents(ctx context.Context) ([]model.User, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT uid, email, display_name, COALESCE(avatar_url,''), COALESCE(role,'user'),
+		       COALESCE(status,'active'), COALESCE(short_id,''), COALESCE(phone,''),
+		       COALESCE(bio,''), COALESCE(is_trader, false), COALESCE(is_support_agent, false), COALESCE(allow_copy_trading, false),
+		       trader_approved_at, COALESCE(vip_level, 0), created_at, updated_at
+		FROM users
+		WHERE is_support_agent = true
+		ORDER BY updated_at DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []model.User
+	for rows.Next() {
+		var u model.User
+		if err := rows.Scan(&u.UID, &u.Email, &u.DisplayName, &u.AvatarURL, &u.Role,
+			&u.Status, &u.ShortID, &u.Phone, &u.Bio, &u.IsTrader, &u.IsSupportAgent, &u.AllowCopyTrading,
 			&u.TraderApprovedAt, &u.VipLevel, &u.CreatedAt, &u.UpdatedAt); err != nil {
 			return nil, err
 		}
@@ -236,7 +438,7 @@ func (r *UserRepo) SearchAll(ctx context.Context, query string, limit int) ([]mo
 	rows, err := r.pool.Query(ctx, `
 		SELECT uid, email, display_name, COALESCE(avatar_url,''), COALESCE(role,'user'),
 		       COALESCE(status,'active'), COALESCE(short_id,''), COALESCE(phone,''),
-		       COALESCE(bio,''), COALESCE(is_trader, false), COALESCE(allow_copy_trading, false),
+		       COALESCE(bio,''), COALESCE(is_trader, false), COALESCE(is_support_agent, false), COALESCE(allow_copy_trading, false),
 		       trader_approved_at, COALESCE(vip_level, 0), created_at, updated_at
 		FROM users
 		WHERE display_name ILIKE $1 OR email ILIKE $1 OR short_id ILIKE $1
@@ -252,7 +454,7 @@ func (r *UserRepo) SearchAll(ctx context.Context, query string, limit int) ([]mo
 	for rows.Next() {
 		var u model.User
 		if err := rows.Scan(&u.UID, &u.Email, &u.DisplayName, &u.AvatarURL, &u.Role,
-			&u.Status, &u.ShortID, &u.Phone, &u.Bio, &u.IsTrader, &u.AllowCopyTrading,
+			&u.Status, &u.ShortID, &u.Phone, &u.Bio, &u.IsTrader, &u.IsSupportAgent, &u.AllowCopyTrading,
 			&u.TraderApprovedAt, &u.VipLevel, &u.CreatedAt, &u.UpdatedAt); err != nil {
 			return nil, err
 		}

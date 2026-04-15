@@ -39,6 +39,10 @@ func (s *FriendService) ListFriends(ctx context.Context, uid string) ([]model.Fr
 	return s.repo.ListFriends(ctx, uid)
 }
 
+func (s *FriendService) GetRelationshipStatus(ctx context.Context, viewerUID, targetUID string) (model.ChatRelationshipStatus, string, error) {
+	return s.repo.GetRelationship(ctx, viewerUID, targetUID)
+}
+
 func (s *FriendService) DeleteFriend(ctx context.Context, uid, friendID string) error {
 	return s.repo.DeleteFriend(ctx, uid, friendID)
 }

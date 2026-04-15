@@ -280,7 +280,7 @@ export default function ContactsScreen() {
           <Text style={styles.sectionLabel}>{t('contacts.myFriends')}</Text>
           {friendsError ? (
             <Text style={[styles.emptyHint, { color: Colors.down }]}>
-              好友列表加载失败: {friendsError}
+              {t('contacts.friendsLoadFailed')}: {friendsError}
             </Text>
           ) : null}
           {sortedFriends.length === 0 ? (

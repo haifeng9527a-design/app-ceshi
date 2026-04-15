@@ -18,6 +18,7 @@ import Svg, { Circle, Line, Path, Polyline, Rect } from 'react-native-svg';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { SkeletonConversation } from '../../components/Skeleton';
 import EquityCurve from '../../components/chart/EquityCurve';
+import ChatUserProfileCard from '../../components/messages/ChatUserProfileCard';
 import { useTranslation } from 'react-i18next';
 import { Colors, Sizes, Shadows } from '../../theme/colors';
 import { useAuthStore } from '../../services/store/authStore';
@@ -39,6 +40,7 @@ import {
   type PeerProfile,
   type FriendProfile,
   type GroupInfo,
+  type SupportAssignmentDetail,
   uploadMessageAsset,
 } from '../../services/api/messagesApi';
 import {
@@ -76,6 +78,7 @@ interface Conversation {
   isGroup?: boolean;
   members?: number;
   isSupport?: boolean;
+  useSupportAvatar?: boolean;
   peerUserId?: string;
   isTraderPeer?: boolean;
   avatarUrl?: string;
@@ -102,12 +105,12 @@ interface StrategyCardPayload {
 }
 
 const STRATEGY_CATEGORY_LABELS: Record<string, string> = {
-  technical: '技术分析',
-  fundamental: '基本面',
-  macro: '宏观',
-  news: '资讯',
-  education: '教学',
-  other: '其他',
+  technical: 'strategy.categoryTechnical',
+  fundamental: 'strategy.categoryFundamental',
+  macro: 'strategy.categoryMacro',
+  news: 'strategy.categoryNews',
+  education: 'strategy.categoryEducation',
+  other: 'strategy.categoryOther',
 };
 
 type AppIconName =
@@ -411,26 +414,40 @@ type CopyRiskPreset = {
 };
 
 const COPY_RISK_PRESETS: CopyRiskPreset[] = [
-  { key: 'steady', label: '稳健', ratio: '0.5', maxPosition: '250', note: '更轻仓，适合先观察交易员风格。' },
-  { key: 'balanced', label: '均衡', ratio: '1.0', maxPosition: '500', note: '默认建议档，兼顾参与度和风险。' },
-  { key: 'aggressive', label: '进取', ratio: '2.0', maxPosition: '1000', note: '高杠杆跟随，波动和回撤都会更大。' },
+  { key: 'steady', label: 'messages.riskPresetSteady', ratio: '0.5', maxPosition: '250', note: 'messages.riskPresetSteadyNote' },
+  { key: 'balanced', label: 'messages.riskPresetBalanced', ratio: '1.0', maxPosition: '500', note: 'messages.riskPresetBalancedNote' },
+  { key: 'aggressive', label: 'messages.riskPresetAggressive', ratio: '2.0', maxPosition: '1000', note: 'messages.riskPresetAggressiveNote' },
 ];
 
 function mapConversation(
   c: ApiConversation,
   peerProfiles: Record<string, PeerProfile>,
   friendsByUserId: Record<string, FriendProfile>,
+  supportAssignment: SupportAssignmentDetail | null,
+  t: (key: string) => string,
 ): Conversation {
   const isGroup = c.type === 'group';
+  const isSupport = !!supportAssignment?.assignment?.conversation_id &&
+    String(supportAssignment.assignment.conversation_id) === String(c.id);
   const peer = c.peer_id ? peerProfiles[c.peer_id] : undefined;
   const friend = c.peer_id ? friendsByUserId[c.peer_id] : undefined;
-  const name = isGroup ? (c.title || 'Group') : (peer?.display_name || 'User');
+  const supportAgent = isSupport ? supportAssignment?.agent : null;
+  const name = isSupport
+    ? t('messages.officialSupport')
+    : isGroup
+      ? (c.title || 'Group')
+      : (peer?.display_name || 'User');
   const role = friend?.role?.toLowerCase() ?? '';
   const fromFriendRole =
     role === 'trader' || role === 'teacher' || role === 'approved' || role === 'certified';
   const isTraderPeer = c.peer_is_trader === true || fromFriendRole;
   const peerLo = friend?.last_online_at;
-  const online = peerLo ? isRecentlyOnline(peerLo, PRESENCE_ACTIVE_MS) : false;
+  const online = isSupport
+    ? !!supportAssignment?.agent_online
+    : peerLo
+      ? isRecentlyOnline(peerLo, PRESENCE_ACTIVE_MS)
+      : false;
+  const peerLastOnlineAt = isSupport ? undefined : (peerLo || undefined);
 
   return {
     id: c.id,
@@ -439,13 +456,24 @@ function mapConversation(
     time: formatRelativeTime(c.last_time),
     unread: c.unread_count || 0,
     isGroup,
+    isSupport,
+    pinned: isSupport,
     peerUserId: c.peer_id,
     isTraderPeer,
-    verified: isTraderPeer,
-    badge: isTraderPeer ? 'trader' : undefined,
+    verified: isSupport ? false : isTraderPeer,
+    badge: isSupport ? t('messages.supportBadge') : isTraderPeer ? 'trader' : undefined,
     online,
-    peerLastOnlineAt: peerLo || undefined,
-    avatarUrl: isGroup ? undefined : (c.avatar_url || peer?.avatar_url || friend?.avatar_url || undefined),
+    peerLastOnlineAt,
+    useSupportAvatar: isSupport,
+    avatarUrl: isGroup
+      ? undefined
+      : (
+        (isSupport ? undefined : supportAgent?.avatar_url) ||
+        c.avatar_url ||
+        peer?.avatar_url ||
+        friend?.avatar_url ||
+        undefined
+      ),
   };
 }
 
@@ -520,12 +548,14 @@ function AvatarCircle({
   online,
   badge,
   imageUrl,
+  support,
 }: {
   name: string;
   size?: number;
   online?: boolean;
   badge?: string;
   imageUrl?: string | null;
+  support?: boolean;
 }) {
   const letter = (name || '?').charAt(0).toUpperCase();
   const hue = name.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % 360;
@@ -536,7 +566,117 @@ function AvatarCircle({
 
   return (
     <View style={{ position: 'relative' }}>
-      {resolvedUrl ? (
+      {support ? (
+        <View
+          style={[
+            styles.supportAvatar,
+            {
+              width: size,
+              height: size,
+              borderRadius: size / 2,
+            },
+          ]}
+        >
+          <View
+            style={[
+              styles.supportAvatarHeadsetBand,
+              {
+                width: size * 0.78,
+                height: size * 0.42,
+                borderTopLeftRadius: size * 0.4,
+                borderTopRightRadius: size * 0.4,
+                top: size * 0.12,
+              },
+            ]}
+          />
+          <View
+            style={[
+              styles.supportAvatarEar,
+              {
+                width: size * 0.2,
+                height: size * 0.28,
+                borderRadius: size * 0.1,
+                left: size * 0.1,
+                top: size * 0.34,
+              },
+            ]}
+          />
+          <View
+            style={[
+              styles.supportAvatarEar,
+              {
+                width: size * 0.2,
+                height: size * 0.28,
+                borderRadius: size * 0.1,
+                right: size * 0.1,
+                top: size * 0.34,
+              },
+            ]}
+          />
+          <View
+            style={[
+              styles.supportAvatarFace,
+              {
+                width: size * 0.5,
+                height: size * 0.5,
+                borderRadius: size * 0.25,
+                top: size * 0.24,
+              },
+            ]}
+          >
+            <View style={[styles.supportAvatarEye, { left: size * 0.11, top: size * 0.16 }]} />
+            <View style={[styles.supportAvatarEye, { right: size * 0.11, top: size * 0.16 }]} />
+            <View
+              style={[
+                styles.supportAvatarSmile,
+                {
+                  width: size * 0.16,
+                  height: size * 0.08,
+                  borderBottomLeftRadius: size * 0.08,
+                  borderBottomRightRadius: size * 0.08,
+                  bottom: size * 0.1,
+                },
+              ]}
+            />
+          </View>
+          <View
+            style={[
+              styles.supportAvatarMic,
+              {
+                width: size * 0.2,
+                height: size * 0.08,
+                borderRadius: size * 0.04,
+                right: size * 0.12,
+                top: size * 0.58,
+              },
+            ]}
+          />
+          <View
+            style={[
+              styles.supportAvatarMicTip,
+              {
+                width: size * 0.08,
+                height: size * 0.08,
+                borderRadius: size * 0.04,
+                right: size * 0.09,
+                top: size * 0.58,
+              },
+            ]}
+          />
+          <View
+            style={[
+              styles.supportAvatarShoulder,
+              {
+                width: size * 0.62,
+                height: size * 0.28,
+                borderTopLeftRadius: size * 0.26,
+                borderTopRightRadius: size * 0.26,
+                bottom: size * 0.08,
+              },
+            ]}
+          />
+        </View>
+      ) : resolvedUrl ? (
         <Image
           source={{ uri: resolvedUrl }}
           style={{
@@ -598,7 +738,7 @@ function StrategyCardBubble({
   const pctColor =
     pct == null ? Colors.textSecondary : pct >= 0 ? Colors.up : Colors.down;
   const categoryLabel = card.category ? (STRATEGY_CATEGORY_LABELS[card.category] || card.category) : null;
-  const footerMeta = [card.author_name, typeof card.views === 'number' ? `${compactNumber(card.views)} 浏览` : null]
+  const footerMeta = [card.author_name, typeof card.views === 'number' ? `${compactNumber(card.views)} ${t('messages.views')}` : null]
     .filter(Boolean)
     .join(' · ');
   const title =
@@ -679,7 +819,7 @@ function StrategyCardBubble({
           )}
           {typeof card.likes === 'number' ? (
             <Text style={styles.strategyFooterSub}>
-              {compactNumber(card.likes)} 喜欢
+              {compactNumber(card.likes)} {t('traderCenter.likesUnit')}
             </Text>
           ) : (
             <View style={styles.strategyCardBar}>
@@ -696,7 +836,7 @@ function StrategyCardBubble({
           )}
         </View>
         <View style={styles.strategyCardCta}>
-          <Text style={styles.strategyCardCtaText}>查看策略</Text>
+          <Text style={styles.strategyCardCtaText}>{t('strategy.viewStrategy')}</Text>
         </View>
       </View>
     </TouchableOpacity>
@@ -718,6 +858,7 @@ function CreateGroupModal({
   onGroupCreated: (conversationId: string) => void;
   friends: FriendProfile[];
 }) {
+  const { t } = useTranslation();
   const [groupName, setGroupName] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [creating, setCreating] = useState(false);
@@ -741,12 +882,12 @@ function CreateGroupModal({
 
   const suggestedName = useMemo(() => {
     if (groupName.trim()) return groupName.trim();
-    if (selectedFriends.length === 0) return '新群聊';
+    if (selectedFriends.length === 0) return t('messages.newGroupChat');
     if (selectedFriends.length <= 3) {
       return selectedFriends.map((f) => f.display_name).join('、');
     }
-    return `${selectedFriends[0].display_name} 等 ${selectedFriends.length} 人`;
-  }, [groupName, selectedFriends]);
+    return t('messages.groupNameAuto', { first: selectedFriends[0].display_name, count: selectedFriends.length });
+  }, [groupName, selectedFriends, t]);
 
   const toggleSelect = (userId: string) => {
     setSelectedIds((prev) => {
@@ -790,7 +931,7 @@ function CreateGroupModal({
         <View style={modalStyles.container}>
           {/* Header */}
           <View style={modalStyles.header}>
-            <Text style={modalStyles.title}>创建群聊</Text>
+            <Text style={modalStyles.title}>{t('messages.createGroupTitle')}</Text>
             <TouchableOpacity onPress={resetAndClose} activeOpacity={0.7}>
               <AppIcon name="close" size={18} color={Colors.textMuted} />
             </TouchableOpacity>
@@ -802,27 +943,25 @@ function CreateGroupModal({
               <Text style={modalStyles.groupHeroTitle} numberOfLines={1}>
                 {suggestedName}
               </Text>
-              <Text style={modalStyles.groupHeroSub}>
-                创建后共 {selectedIds.size + 1} 人，包含你自己
-              </Text>
+              <Text style={modalStyles.groupHeroSub}>{t('messages.groupMembersCountWithYou', { count: selectedIds.size + 1 })}</Text>
             </View>
           </View>
 
           {/* Group Name */}
           <View style={modalStyles.fieldGroup}>
             <View style={modalStyles.fieldLabelRow}>
-              <Text style={modalStyles.fieldLabel}>群名称</Text>
+              <Text style={modalStyles.fieldLabel}>{t('messages.groupName')}</Text>
               <Text style={modalStyles.fieldCounter}>{groupName.trim().length}/24</Text>
             </View>
             <TextInput
               style={modalStyles.fieldInput}
-              placeholder="输入群聊名称"
+              placeholder={t('messages.groupNamePlaceholder')}
               placeholderTextColor={Colors.textMuted}
               value={groupName}
               onChangeText={(text) => setGroupName(text.slice(0, 24))}
             />
             <Text style={modalStyles.helperText}>
-              留空将自动使用默认群名。建议使用清晰、易识别的名称。
+              {t('messages.groupNameHint')}
             </Text>
           </View>
 
@@ -833,7 +972,7 @@ function CreateGroupModal({
             </View>
             <TextInput
               style={modalStyles.searchInput}
-              placeholder="搜索好友..."
+              placeholder={t('messages.searchFriends')}
               placeholderTextColor={Colors.textMuted}
               value={searchQuery}
               onChangeText={setSearchQuery}
@@ -843,7 +982,7 @@ function CreateGroupModal({
 
           {selectedFriends.length > 0 && (
             <View style={modalStyles.selectedSection}>
-              <Text style={modalStyles.sectionLabel}>已选成员</Text>
+              <Text style={modalStyles.sectionLabel}>{t('messages.selectedMembers')}</Text>
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
@@ -870,7 +1009,7 @@ function CreateGroupModal({
 
           {/* Selected count */}
           <Text style={[modalStyles.sectionLabel, { marginTop: 4 }]}>
-            选择成员 {selectedIds.size >= 2 ? `(${selectedIds.size} 已选)` : '(至少选择 2 位好友)'}
+            {selectedIds.size >= 2 ? t('messages.chooseMembersCount', { count: selectedIds.size }) : t('messages.chooseMembersMin')}
           </Text>
 
           {/* Friends list with checkboxes */}
@@ -905,7 +1044,7 @@ function CreateGroupModal({
 
             {filteredFriends.length === 0 && (
               <View style={{ padding: 40, alignItems: 'center' }}>
-                <Text style={{ color: Colors.textMuted, fontSize: 14 }}>暂无好友</Text>
+                <Text style={{ color: Colors.textMuted, fontSize: 14 }}>{t('messages.noFriends')}</Text>
               </View>
             )}
           </ScrollView>
@@ -925,7 +1064,7 @@ function CreateGroupModal({
                 <ActivityIndicator size="small" color={Colors.background} />
               ) : (
                 <Text style={modalStyles.createBtnText}>
-                  创建 {selectedIds.size + 1} 人群聊
+                  {t('messages.createGroupAction', { count: selectedIds.size + 1 })}
                 </Text>
               )}
             </TouchableOpacity>
@@ -1123,12 +1262,19 @@ function ConvoRow({
         styles.convoRow,
         active && styles.convoRowActive,
         convo.pinned && styles.convoRowPinned,
+        convo.isSupport && styles.convoRowSupport,
       ]}
       activeOpacity={0.7}
       onPress={onPress}
     >
       {convo.pinned && <View style={styles.pinnedBorder} />}
-      <AvatarCircle name={convo.name} size={44} online={convo.online} imageUrl={convo.avatarUrl} />
+      <AvatarCircle
+        name={convo.name}
+        size={44}
+        online={convo.online}
+        imageUrl={convo.avatarUrl}
+        support={convo.useSupportAvatar}
+      />
       <View style={styles.convoInfo}>
         <View style={styles.convoNameRow}>
           {convo.isGroup && <AppIcon name="users-plus" size={14} color={Colors.textMuted} />}
@@ -1143,7 +1289,7 @@ function ConvoRow({
           )}
         </View>
         <Text style={styles.convoLastMsg} numberOfLines={1}>
-          {convo.lastMessage}
+          {convo.lastMessage || (convo.isSupport ? t('messages.supportListFallback') : '')}
         </Text>
         {convo.isGroup && convo.members != null && (
           <Text style={styles.memberCount}>{convo.members} members</Text>
@@ -1190,6 +1336,8 @@ function ChatPanel({
   compactComposer,
   showDetailsButton,
   onOpenDetails,
+  senderProfiles,
+  onOpenUserProfile,
 }: {
   conversation: Conversation;
   conversationId: string;
@@ -1215,6 +1363,8 @@ function ChatPanel({
   compactComposer: boolean;
   showDetailsButton?: boolean;
   onOpenDetails?: () => void;
+  senderProfiles?: Record<string, PeerProfile>;
+  onOpenUserProfile?: (uid: string, seed?: PeerProfile | null) => void;
 }) {
   const { t } = useTranslation();
   const router = useRouter();
@@ -1245,7 +1395,7 @@ function ChatPanel({
   const handlePickImage = useCallback(async () => {
     if (!onSendImage) return;
     if (Platform.OS !== 'web') {
-      Alert.alert('', '移动端图片发送将在下一轮补上，当前可先使用网页端。');
+      Alert.alert('', t('messages.mobileImageLater'));
       return;
     }
 
@@ -1259,7 +1409,7 @@ function ChatPanel({
       try {
         await onSendImage(file);
       } catch (e: any) {
-        Alert.alert('发送失败', e?.response?.data?.error || e?.message || '图片发送失败');
+        Alert.alert(t('messages.sendFailedShort'), e?.response?.data?.error || e?.message || t('messages.imageSendFailed'));
       } finally {
         setComposerBusy(false);
       }
@@ -1288,7 +1438,7 @@ function ChatPanel({
       await onSendStrategy(strategy);
       setShowStrategyPicker(false);
     } catch (e: any) {
-      Alert.alert('发送失败', e?.response?.data?.error || e?.message || '策略发送失败');
+      Alert.alert(t('messages.sendFailedShort'), e?.response?.data?.error || e?.message || t('messages.strategySendFailed'));
     } finally {
       setComposerBusy(false);
     }
@@ -1338,6 +1488,9 @@ function ChatPanel({
     if (conversation.isGroup) {
       return null;
     }
+    if (conversation.isSupport) {
+      return conversation.online ? t('messages.online') : t('messages.supportOfflineHint');
+    }
     const lo = conversation.peerLastOnlineAt;
     if (!lo) {
       return null;
@@ -1352,11 +1505,11 @@ function ChatPanel({
     !!peerUserId && !!conversation.isTraderPeer && !conversation.isGroup;
   const connectionBanner =
     wsStatus === 'reconnecting'
-      ? '聊天连接恢复中，排队消息会在恢复后自动补发。'
+      ? t('messages.connectionRecovering')
       : wsStatus === 'connecting'
-        ? '正在建立聊天连接…'
+        ? t('messages.connectionConnecting')
         : wsStatus === 'disconnected'
-          ? '聊天连接已断开，发送失败的消息会先排队，恢复后自动重试。'
+          ? t('messages.connectionDisconnected')
           : null;
 
   return (
@@ -1412,22 +1565,22 @@ function ChatPanel({
         <View style={modalStyles.overlay}>
           <View style={[modalStyles.container, { maxHeight: '76%', maxWidth: 640 }]}>
             <View style={modalStyles.header}>
-              <Text style={modalStyles.title}>发送交易策略</Text>
+              <Text style={modalStyles.title}>{t('messages.sendingStrategy')}</Text>
               <TouchableOpacity onPress={() => setShowStrategyPicker(false)} activeOpacity={0.7}>
                 <AppIcon name="close" size={18} color={Colors.textMuted} />
               </TouchableOpacity>
             </View>
             <View style={styles.strategyPickerHero}>
-              <Text style={styles.strategyPickerHeroTitle}>把一条值得看的策略分享进聊天</Text>
+              <Text style={styles.strategyPickerHeroTitle}>{t('messages.strategyHeroTitle')}</Text>
               <Text style={styles.strategyPickerHeroSub}>
-                对方会看到策略封面、分类、摘要和基础热度，不用点开也能先判断这条内容值不值得看。
+                {t('messages.strategyHeroSub')}
               </Text>
             </View>
             <ScrollView style={{ flexGrow: 0 }} showsVerticalScrollIndicator={false}>
               {strategyLoading ? (
                 <ActivityIndicator color={Colors.primary} style={{ marginVertical: 20 }} />
               ) : strategyOptions.length === 0 ? (
-                <Text style={{ color: Colors.textMuted, padding: 20 }}>暂无已发布策略</Text>
+                <Text style={{ color: Colors.textMuted, padding: 20 }}>{t('messages.noPublishedStrategies')}</Text>
               ) : (
                 strategyOptions.map((strategy) => (
                   <TouchableOpacity
@@ -1459,9 +1612,9 @@ function ChatPanel({
                       <Text style={styles.strategyPickerTitle} numberOfLines={2}>{strategy.title}</Text>
                       <Text style={styles.strategyPickerSummary} numberOfLines={2}>{strategy.summary}</Text>
                       <View style={styles.strategyPickerMetaRow}>
-                        <Text style={styles.strategyPickerMetaText}>{compactNumber(strategy.views || 0)} 浏览</Text>
+                        <Text style={styles.strategyPickerMetaText}>{compactNumber(strategy.views || 0)} {t('messages.views')}</Text>
                         <Text style={styles.strategyPickerMetaDot}>·</Text>
-                        <Text style={styles.strategyPickerMetaText}>{compactNumber(strategy.likes || 0)} 喜欢</Text>
+                        <Text style={styles.strategyPickerMetaText}>{compactNumber(strategy.likes || 0)} {t('messages.likes')}</Text>
                         {strategy.tags?.[0] ? (
                           <>
                             <Text style={styles.strategyPickerMetaDot}>·</Text>
@@ -1471,7 +1624,7 @@ function ChatPanel({
                       </View>
                     </View>
                     <View style={styles.strategyPickerSendBtn}>
-                      <Text style={styles.strategyPickerAction}>发送</Text>
+                      <Text style={styles.strategyPickerAction}>{t('messages.sendNow')}</Text>
                     </View>
                   </TouchableOpacity>
                 ))
@@ -1497,18 +1650,39 @@ function ChatPanel({
             <AppIcon name="back" size={20} color={Colors.textActive} />
           </TouchableOpacity>
         )}
-        <AvatarCircle name={conversation.name} size={36} online={conversation.online} imageUrl={conversation.avatarUrl} />
-        <View style={styles.chatHeaderInfo}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <Text style={styles.chatHeaderName}>{conversation.name}</Text>
-            {conversation.verified && <AppIcon name="verified" size={14} color={Colors.primary} strokeWidth={2.1} />}
+        <TouchableOpacity
+          style={styles.chatHeaderIdentity}
+          activeOpacity={conversation.isGroup || conversation.isSupport || !peerUserId || !onOpenUserProfile ? 1 : 0.8}
+          disabled={conversation.isGroup || conversation.isSupport || !peerUserId || !onOpenUserProfile}
+          onPress={() => {
+            if (!peerUserId || !onOpenUserProfile) return;
+            onOpenUserProfile(peerUserId, {
+              display_name: conversation.name,
+              avatar_url: conversation.avatarUrl ?? null,
+              email: null,
+              short_id: null,
+            });
+          }}
+        >
+          <AvatarCircle
+            name={conversation.name}
+            size={36}
+            online={conversation.online}
+            imageUrl={conversation.avatarUrl}
+            support={conversation.useSupportAvatar}
+          />
+          <View style={styles.chatHeaderInfo}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={styles.chatHeaderName}>{conversation.name}</Text>
+              {conversation.verified && <AppIcon name="verified" size={14} color={Colors.primary} strokeWidth={2.1} />}
+            </View>
+            {statusLabel ? (
+              <Text style={[styles.chatHeaderStatus, conversation.online && { color: Colors.up }]}>
+                {statusLabel}
+              </Text>
+            ) : null}
           </View>
-          {statusLabel ? (
-            <Text style={[styles.chatHeaderStatus, conversation.online && { color: Colors.up }]}>
-              {statusLabel}
-            </Text>
-          ) : null}
-        </View>
+        </TouchableOpacity>
         <View style={styles.chatHeaderSpacer} />
         <View style={[styles.chatHeaderActions, compactHeader && styles.chatHeaderActionsCompact]}>
           {!compactHeader && (
@@ -1561,10 +1735,10 @@ function ChatPanel({
               {!compactHeader && (
                 <Text style={styles.chatActionBtnText}>
                   {activeCallStatus === 'active'
-                    ? '进入通话'
+                    ? t('messages.enterCall')
                     : activeCallStatus === 'ringing'
-                      ? '查看呼叫'
-                      : '语音电话'}
+                      ? t('messages.viewCall')
+                      : t('messages.voiceCall')}
                 </Text>
               )}
             </View>
@@ -1598,7 +1772,11 @@ function ChatPanel({
               <AppIcon name="settings" size={14} color={Colors.textSecondary} />
               {!compactHeader && (
                 <Text style={styles.chatActionBtnText}>
-                  {conversation.isGroup ? '群设置' : '设置'}
+                  {conversation.isSupport
+                    ? t('messages.officialSupport')
+                    : conversation.isGroup
+                      ? t('messages.groupSettings')
+                      : t('messages.settingsTitle')}
                 </Text>
               )}
             </View>
@@ -1639,6 +1817,25 @@ function ChatPanel({
           }
 
           const isMe = msg.senderId === 'me';
+          const targetUid = conversation.isGroup ? msg.senderId : (peerUserId ?? null);
+          const senderProfile =
+            targetUid && targetUid !== 'me' && targetUid !== 'system'
+              ? senderProfiles?.[targetUid] ?? null
+              : null;
+          const avatarName =
+            conversation.isGroup
+              ? (senderProfile?.display_name || msg.senderName || conversation.name)
+              : conversation.name;
+          const avatarImage =
+            conversation.isGroup
+              ? (senderProfile?.avatar_url ?? null)
+              : conversation.avatarUrl;
+          const canOpenSenderProfile =
+            !conversation.isSupport &&
+            !!targetUid &&
+            targetUid !== 'me' &&
+            targetUid !== 'system' &&
+            !!onOpenUserProfile;
 
           return (
             <View
@@ -1650,7 +1847,21 @@ function ChatPanel({
               ]}
             >
               {!isMe && (
-                <AvatarCircle name={msg.senderName || conversation.name} size={28} />
+                <TouchableOpacity
+                  activeOpacity={canOpenSenderProfile ? 0.8 : 1}
+                  disabled={!canOpenSenderProfile}
+                  onPress={() => {
+                    if (!canOpenSenderProfile || !targetUid || !onOpenUserProfile) return;
+                    onOpenUserProfile(targetUid, senderProfile || {
+                      display_name: msg.senderName || conversation.name,
+                      avatar_url: avatarImage ?? null,
+                      email: null,
+                      short_id: null,
+                    });
+                  }}
+                >
+                  <AvatarCircle name={avatarName} size={28} imageUrl={avatarImage} />
+                </TouchableOpacity>
               )}
               <View
                 style={[
@@ -1683,16 +1894,16 @@ function ChatPanel({
                 )}
                 <Text style={styles.messageTime}>{msg.time}</Text>
                 {isMe && msg.localStatus === 'sending' && (
-                  <Text style={styles.messageStatusText}>发送中…</Text>
+                  <Text style={styles.messageStatusText}>{t('messages.sending')}</Text>
                 )}
                 {isMe && msg.localStatus === 'queued' && (
-                  <Text style={styles.messageStatusText}>已排队，连接恢复后自动重发</Text>
+                  <Text style={styles.messageStatusText}>{t('messages.queuedRetry')}</Text>
                 )}
                 {isMe && msg.localStatus === 'failed' && (
                   <View style={styles.messageRetryRow}>
-                    <Text style={styles.messageFailedText}>发送失败</Text>
+                    <Text style={styles.messageFailedText}>{t('messages.sendFailedShort')}</Text>
                     <TouchableOpacity activeOpacity={0.8} onPress={() => void onRetryMessage(msg.id)}>
-                      <Text style={styles.messageRetryText}>重试</Text>
+                      <Text style={styles.messageRetryText}>{t('messages.retryShort')}</Text>
                     </TouchableOpacity>
                   </View>
                 )}
@@ -1889,18 +2100,18 @@ function PeerSidebar({
           ) : trader?.is_trader ? (
             <>
               <View style={styles.traderBadgeRow}>
-                <Text style={styles.traderBadge}>认证交易员</Text>
+                <Text style={styles.traderBadge}>{t('messages.badgeTrader')}</Text>
               </View>
               <View style={styles.traderMetaPills}>
                 <View style={styles.traderMetaPill}>
                   <Text style={styles.traderMetaPillText}>
-                    {copyEnabled ? '可跟单' : '已关闭跟单'}
+                    {copyEnabled ? t('messages.enabledCopy') : t('messages.disabledCopy')}
                   </Text>
                 </View>
                 {following && (
                   <View style={[styles.traderMetaPill, styles.traderMetaPillActive]}>
                     <Text style={[styles.traderMetaPillText, styles.traderMetaPillActiveText]}>
-                      已跟单
+                      {t('messages.unfollowCopy')}
                     </Text>
                   </View>
                 )}
@@ -1931,28 +2142,28 @@ function PeerSidebar({
                 >
                   {formatPnl(totalPnl)}
                 </Text>
-                <Text style={styles.traderStatLabel}>总收益</Text>
+                <Text style={styles.traderStatLabel}>{t('messages.totalReturn')}</Text>
               </View>
               <View style={styles.traderStatCell}>
                 <Text style={[styles.traderStatValue, { color: Colors.down }]}>
                   {maxDrawdown != null ? `${Number(maxDrawdown).toFixed(1)}%` : '--'}
                 </Text>
-                <Text style={styles.traderStatLabel}>最大回撤</Text>
+                <Text style={styles.traderStatLabel}>{t('traderCenter.maxDrawdownLabel')}</Text>
               </View>
             </View>
 
             <View style={[styles.traderSection, styles.traderSectionCard]}>
-              <Text style={styles.traderSectionTitle}>交易员概览</Text>
+              <Text style={styles.traderSectionTitle}>{t('messages.traderOverview')}</Text>
               <View style={styles.traderDetailRow}>
-                <Text style={styles.traderDetailLabel}>开放跟单</Text>
-                <Text style={styles.traderDetailValue}>{copyEnabled ? '已开启' : '未开启'}</Text>
+                <Text style={styles.traderDetailLabel}>{t('traderCenter.copyTradingToggle')}</Text>
+                <Text style={styles.traderDetailValue}>{copyEnabled ? t('traderCenter.copyTradingOn') : t('traderCenter.copyTradingOff')}</Text>
               </View>
               <View style={styles.traderDetailRow}>
-                <Text style={styles.traderDetailLabel}>总交易数</Text>
+                <Text style={styles.traderDetailLabel}>{t('messages.totalTradesLabel')}</Text>
                 <Text style={styles.traderDetailValue}>{compactNumber(totalTrades)}</Text>
               </View>
               <View style={styles.traderDetailRow}>
-                <Text style={styles.traderDetailLabel}>平均盈亏</Text>
+                <Text style={styles.traderDetailLabel}>{t('messages.averagePnlLabel')}</Text>
                 <Text
                   style={[
                     styles.traderDetailValue,
@@ -1969,9 +2180,9 @@ function PeerSidebar({
             </View>
 
             <View style={[styles.traderSection, styles.traderSectionCard]}>
-              <Text style={styles.traderSectionTitle}>当前持仓</Text>
+              <Text style={styles.traderSectionTitle}>{t('messages.currentPositionsTitle')}</Text>
               {visiblePositions.length === 0 ? (
-                <Text style={styles.traderAbout}>暂无公开持仓摘要</Text>
+                <Text style={styles.traderAbout}>{t('messages.publicPositionsEmpty')}</Text>
               ) : (
                 visiblePositions.map((pos) => {
                   const pnl = Number(pos.unrealized_pnl ?? 0);
@@ -2014,7 +2225,7 @@ function PeerSidebar({
                   {actionLoading ? (
                     <ActivityIndicator color={Colors.background} size="small" />
                   ) : (
-                    <Text style={[styles.viewProfileText, styles.followSidebarBtnText]}>调整跟单设置</Text>
+                    <Text style={[styles.viewProfileText, styles.followSidebarBtnText]}>{t('messages.adjustCopySettings')}</Text>
                   )}
                 </TouchableOpacity>
               ) : (
@@ -2024,12 +2235,12 @@ function PeerSidebar({
                   onPress={openFollowModal}
                   disabled={actionLoading}
                 >
-                  <Text style={[styles.viewProfileText, styles.followSidebarBtnText]}>一键跟单</Text>
+                  <Text style={[styles.viewProfileText, styles.followSidebarBtnText]}>{t('messages.copyNow')}</Text>
                 </TouchableOpacity>
               )
             ) : (
               <View style={[styles.viewProfileBtn, styles.disabledSidebarBtn, styles.traderFooterBtn]}>
-                <Text style={[styles.viewProfileText, styles.disabledSidebarBtnText]}>暂未开放跟单</Text>
+                <Text style={[styles.viewProfileText, styles.disabledSidebarBtnText]}>{t('messages.copyUnavailable')}</Text>
               </View>
             )}
             {following && (
@@ -2042,7 +2253,7 @@ function PeerSidebar({
                 {actionLoading ? (
                   <ActivityIndicator color={Colors.down} size="small" />
                 ) : (
-                  <Text style={[styles.viewProfileText, styles.unfollowSidebarBtnText]}>取消跟单</Text>
+                  <Text style={[styles.viewProfileText, styles.unfollowSidebarBtnText]}>{t('messages.unfollowCopy')}</Text>
                 )}
               </TouchableOpacity>
             )}
@@ -2062,13 +2273,13 @@ function PeerSidebar({
         <View style={modalStyles.overlay}>
           <View style={[modalStyles.container, { maxWidth: 360 }]}>
             <View style={modalStyles.header}>
-              <Text style={modalStyles.title}>跟单设置</Text>
+              <Text style={modalStyles.title}>{t('messages.copySettings')}</Text>
               <TouchableOpacity onPress={() => setShowFollowModal(false)}>
                 <AppIcon name="close" size={18} color={Colors.textMuted} />
               </TouchableOpacity>
             </View>
             <View style={modalStyles.fieldGroup}>
-              <Text style={modalStyles.fieldLabel}>风险档位 Risk Preset</Text>
+              <Text style={modalStyles.fieldLabel}>{t('messages.riskPreset')}</Text>
               <View style={modalStyles.presetGrid}>
                 {COPY_RISK_PRESETS.map((preset) => {
                   const active = copyRatio === preset.ratio && maxPosition === preset.maxPosition;
@@ -2080,17 +2291,17 @@ function PeerSidebar({
                       onPress={() => applyRiskPreset(preset)}
                     >
                       <Text style={[modalStyles.presetTitle, active && modalStyles.presetTitleActive]}>
-                        {preset.label}
+                        {t(preset.label)}
                       </Text>
                       <Text style={modalStyles.presetMeta}>{preset.ratio}x · ≤ ${preset.maxPosition}</Text>
-                      <Text style={modalStyles.presetNote}>{preset.note}</Text>
+                      <Text style={modalStyles.presetNote}>{t(preset.note)}</Text>
                     </TouchableOpacity>
                   );
                 })}
               </View>
             </View>
             <View style={modalStyles.fieldGroup}>
-              <Text style={modalStyles.fieldLabel}>跟单比例 Copy Ratio</Text>
+              <Text style={modalStyles.fieldLabel}>{t('messages.copyRatio')}</Text>
               <TextInput
                 style={modalStyles.fieldInput}
                 value={copyRatio}
@@ -2116,13 +2327,13 @@ function PeerSidebar({
               </View>
             </View>
             <View style={modalStyles.fieldGroup}>
-              <Text style={modalStyles.fieldLabel}>最大仓位 Max Position</Text>
+              <Text style={modalStyles.fieldLabel}>{t('messages.maxPosition')}</Text>
               <TextInput
                 style={modalStyles.fieldInput}
                 value={maxPosition}
                 onChangeText={setMaxPosition}
                 keyboardType="decimal-pad"
-                placeholder="可选"
+                placeholder={t('messages.optionalField')}
                 placeholderTextColor={Colors.textMuted}
               />
               <View style={modalStyles.chipRow}>
@@ -2142,26 +2353,26 @@ function PeerSidebar({
               </View>
             </View>
             <View style={modalStyles.fieldGroup}>
-              <Text style={modalStyles.fieldLabel}>设置摘要</Text>
+              <Text style={modalStyles.fieldLabel}>{t('messages.copySettings')}</Text>
               <View style={modalStyles.summaryCard}>
                 <View style={modalStyles.summaryRow}>
-                  <Text style={modalStyles.summaryLabel}>跟单比例</Text>
+                  <Text style={modalStyles.summaryLabel}>{t('messages.copyRatio')}</Text>
                   <Text style={modalStyles.summaryValue}>{normalizedRatio.toFixed(2)}x</Text>
                 </View>
                 <View style={modalStyles.summaryRow}>
-                  <Text style={modalStyles.summaryLabel}>单笔最大仓位</Text>
+                  <Text style={modalStyles.summaryLabel}>{t('messages.maxPosition')}</Text>
                   <Text style={modalStyles.summaryValue}>
-                    {normalizedMaxPosition != null ? `$${compactNumber(normalizedMaxPosition)}` : '未限制'}
+                    {normalizedMaxPosition != null ? `$${compactNumber(normalizedMaxPosition)}` : '--'}
                   </Text>
                 </View>
                 <View style={modalStyles.summaryRow}>
-                  <Text style={modalStyles.summaryLabel}>估算最大敞口</Text>
+                  <Text style={modalStyles.summaryLabel}>{t('messages.saveExposureEstimate')}</Text>
                   <Text style={modalStyles.summaryValue}>
-                    {estimatedExposure != null ? `$${compactNumber(estimatedExposure)}` : '随交易员仓位变化'}
+                    {estimatedExposure != null ? `$${compactNumber(estimatedExposure)}` : '--'}
                   </Text>
                 </View>
                 <Text style={modalStyles.summaryHint}>
-                  建议先从 0.5x 或 1.0x 开始，确认交易员风格与你的风险承受能力匹配后再放大仓位。
+                  {t('messages.copySummaryHint')}
                 </Text>
               </View>
             </View>
@@ -2174,7 +2385,7 @@ function PeerSidebar({
                 {actionLoading ? (
                   <ActivityIndicator color={Colors.background} size="small" />
                 ) : (
-                  <Text style={modalStyles.createBtnText}>确认跟单</Text>
+                  <Text style={modalStyles.createBtnText}>{t('messages.copyNow')}</Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -2189,12 +2400,15 @@ function GroupSidebar({
   conversationId,
   fallbackTitle,
   embedded,
+  onOpenUserProfile,
 }: {
   conversationId: string;
   fallbackTitle: string;
   embedded?: boolean;
+  onOpenUserProfile?: (uid: string, seed?: PeerProfile | null) => void;
 }) {
   const router = useRouter();
+  const { t } = useTranslation();
   const { user } = useAuthStore();
   const friends = useMessagesStore((s) => s.friends);
   const loadConversations = useMessagesStore((s) => s.loadConversations);
@@ -2241,7 +2455,7 @@ function GroupSidebar({
     };
   }, [conversationId]);
 
-  const title = groupInfo?.title || fallbackTitle || '群聊';
+  const title = groupInfo?.title || fallbackTitle || t('messages.groupChatFallback');
   const members = groupInfo?.members ?? [];
   const myRole = members.find((m) => m.user_id === user?.uid)?.role ?? '';
   const canManage = myRole === 'admin';
@@ -2350,17 +2564,17 @@ function GroupSidebar({
             <ActivityIndicator size="small" color={Colors.primary} style={{ marginTop: 12 }} />
           ) : (
             <>
-              <Text style={styles.traderHandle}>成员数: {groupInfo?.member_count ?? members.length}</Text>
+              <Text style={styles.traderHandle}>{t('messages.groupMembersLabel', { count: groupInfo?.member_count ?? members.length })}</Text>
               {groupInfo?.announcement ? (
                 <Text style={[styles.traderHandle, styles.groupAnnouncement]} numberOfLines={3}>
                   {groupInfo.announcement}
                 </Text>
               ) : (
-                <Text style={styles.traderHandle}>暂无群公告</Text>
+                <Text style={styles.traderHandle}>{t('messages.noGroupAnnouncement')}</Text>
               )}
               {canManage && (
                 <View style={styles.groupAdminPills}>
-                  <Text style={styles.traderBadge}>{isOwner ? '群主' : '群管理员'}</Text>
+                  <Text style={styles.traderBadge}>{isOwner ? t('messages.groupOwner') : t('messages.groupAdmin')}</Text>
                 </View>
               )}
             </>
@@ -2378,7 +2592,7 @@ function GroupSidebar({
                 setShowEditModal(true);
               }}
             >
-              <Text style={styles.groupActionBtnText}>编辑群信息</Text>
+              <Text style={styles.groupActionBtnText}>{t('messages.editGroupInfo')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.groupActionBtn, saving && styles.groupActionBtnDisabled]}
@@ -2386,32 +2600,41 @@ function GroupSidebar({
               disabled={saving}
               onPress={() => setShowAddModal(true)}
             >
-              <Text style={styles.groupActionBtnText}>添加成员</Text>
+              <Text style={styles.groupActionBtnText}>{t('messages.addGroupMembers')}</Text>
             </TouchableOpacity>
           </View>
         )}
 
         <View style={styles.traderSection}>
-          <Text style={styles.traderSectionTitle}>群成员</Text>
+          <Text style={styles.traderSectionTitle}>{t('messages.groupMembersTitle')}</Text>
           {canManage && (
             <Text style={styles.groupManageHint}>
-              {isOwner ? '右键、长按或点 ⋯ 管理成员与管理员权限' : '右键、长按或点 ⋯ 管理成员'}
+              {isOwner ? t('messages.groupManageHintOwner') : t('messages.groupManageHintAdmin')}
             </Text>
           )}
           {members.length === 0 ? (
-            <Text style={styles.traderAbout}>暂无成员信息</Text>
+            <Text style={styles.traderAbout}>{t('messages.noMemberInfo')}</Text>
           ) : (
             members.map((member) => {
               const profile = memberProfiles[member.user_id];
               const name = member.display_name || profile?.display_name || member.user_id;
               const isMemberOwner = normId(member.user_id) === normId(groupInfo?.created_by);
-              const roleLabel = isMemberOwner ? '群主' : member.role === 'admin' ? '管理员' : '成员';
+              const roleLabel = isMemberOwner ? t('messages.groupOwner') : member.role === 'admin' ? t('messages.groupAdmin') : t('messages.groupMember');
               const sub = `UID: ${member.user_id}`;
               const canOpenActions = canManage && member.user_id !== user?.uid;
               return (
-                <View
+                <TouchableOpacity
                   key={member.user_id}
                   style={styles.groupMemberRow}
+                  activeOpacity={0.82}
+                  onPress={() =>
+                    onOpenUserProfile?.(member.user_id, {
+                      display_name: name,
+                      avatar_url: member.avatar_url || profile?.avatar_url || null,
+                      email: profile?.email ?? null,
+                      short_id: profile?.short_id ?? null,
+                    })
+                  }
                   {...(Platform.OS === 'web'
                     ? {
                         onContextMenu: (event: any) => {
@@ -2441,7 +2664,7 @@ function GroupSidebar({
                       </TouchableOpacity>
                     )}
                   </View>
-                </View>
+                </TouchableOpacity>
               );
             })
           )}
@@ -2454,7 +2677,7 @@ function GroupSidebar({
             disabled={saving}
             onPress={handleDissolve}
           >
-            <Text style={[styles.viewProfileText, styles.unfollowSidebarBtnText]}>解散群</Text>
+            <Text style={[styles.viewProfileText, styles.unfollowSidebarBtnText]}>{t('messages.dissolveGroup')}</Text>
           </TouchableOpacity>
         )}
       </ScrollView>
@@ -2463,18 +2686,18 @@ function GroupSidebar({
         <View style={modalStyles.overlay}>
           <View style={[modalStyles.container, { maxWidth: 360 }]}>
             <View style={modalStyles.header}>
-              <Text style={modalStyles.title}>编辑群信息</Text>
+              <Text style={modalStyles.title}>{t('messages.editGroupTitle')}</Text>
               <TouchableOpacity onPress={() => setShowEditModal(false)}>
                 <AppIcon name="close" size={18} color={Colors.textMuted} />
               </TouchableOpacity>
             </View>
             <View style={modalStyles.fieldGroup}>
-              <Text style={modalStyles.fieldLabel}>群名称</Text>
+              <Text style={modalStyles.fieldLabel}>{t('messages.groupName')}</Text>
               <TextInput
                 style={modalStyles.fieldInput}
                 value={editTitle}
                 onChangeText={setEditTitle}
-                placeholder="输入群名称"
+                placeholder={t('messages.inputGroupName')}
                 placeholderTextColor={Colors.textMuted}
               />
             </View>
@@ -2485,7 +2708,7 @@ function GroupSidebar({
                 disabled={saving || !editTitle.trim()}
                 onPress={handleSaveGroupInfo}
               >
-                <Text style={modalStyles.createBtnText}>保存</Text>
+                <Text style={modalStyles.createBtnText}>{t('messages.saveGroup')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -2496,7 +2719,7 @@ function GroupSidebar({
         <View style={modalStyles.overlay}>
           <View style={[modalStyles.container, { maxWidth: 420 }]}>
             <View style={modalStyles.header}>
-              <Text style={modalStyles.title}>添加群成员</Text>
+              <Text style={modalStyles.title}>{t('messages.addGroupMembersTitle')}</Text>
               <TouchableOpacity onPress={() => setShowAddModal(false)}>
                 <AppIcon name="close" size={18} color={Colors.textMuted} />
               </TouchableOpacity>
@@ -2507,7 +2730,7 @@ function GroupSidebar({
               </View>
               <TextInput
                 style={modalStyles.searchInput}
-                placeholder="搜索好友..."
+                placeholder={t('messages.searchFriends')}
                 placeholderTextColor={Colors.textMuted}
                 value={memberSearch}
                 onChangeText={setMemberSearch}
@@ -2549,7 +2772,7 @@ function GroupSidebar({
                 disabled={saving || addingIds.size === 0}
                 onPress={handleAddMembers}
               >
-                <Text style={modalStyles.createBtnText}>添加成员 ({addingIds.size})</Text>
+                <Text style={modalStyles.createBtnText}>{t('messages.addMembersCount', { count: addingIds.size })}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -2565,13 +2788,13 @@ function GroupSidebar({
         <View style={modalStyles.overlay}>
           <View style={[modalStyles.container, { maxWidth: 360 }]}>
             <View style={modalStyles.header}>
-              <Text style={modalStyles.title}>成员管理</Text>
+              <Text style={modalStyles.title}>{t('messages.memberManagement')}</Text>
               <TouchableOpacity onPress={() => setMemberActionTarget(null)}>
                 <AppIcon name="close" size={18} color={Colors.textMuted} />
               </TouchableOpacity>
             </View>
             <View style={modalStyles.fieldGroup}>
-              <Text style={modalStyles.fieldLabel}>成员</Text>
+              <Text style={modalStyles.fieldLabel}>{t('messages.memberLabel')}</Text>
               <Text style={styles.memberManageName}>
                 {memberActionTarget
                   ? (memberActionTarget.display_name || memberProfiles[memberActionTarget.user_id]?.display_name || memberActionTarget.user_id)
@@ -2580,7 +2803,7 @@ function GroupSidebar({
               <Text style={styles.memberManageSub}>
                 {memberActionTarget
                   ? ((`UID: ${memberActionTarget.user_id}`) +
-                    `${memberActionTarget.role ? ` · ${memberActionTarget.role === 'admin' ? '管理员' : '成员'}` : ''}`)
+                    `${memberActionTarget.role ? ` · ${memberActionTarget.role === 'admin' ? t('messages.groupAdmin') : t('messages.groupMember')}` : ''}`)
                   : ''}
               </Text>
             </View>
@@ -2599,7 +2822,7 @@ function GroupSidebar({
                   }}
                 >
                   <Text style={styles.memberActionBtnText}>
-                    {memberActionTarget.role === 'admin' ? '取消管理员' : '设为管理员'}
+                    {memberActionTarget.role === 'admin' ? t('messages.removeAdmin') : t('messages.setAdmin')}
                   </Text>
                 </TouchableOpacity>
               )}
@@ -2613,7 +2836,7 @@ function GroupSidebar({
                     setMemberActionTarget(null);
                   }}
                 >
-                  <Text style={[styles.memberActionBtnText, styles.memberDangerBtnText]}>移除成员</Text>
+                  <Text style={[styles.memberActionBtnText, styles.memberDangerBtnText]}>{t('messages.removeMember')}</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -2662,6 +2885,7 @@ export default function MessagesScreen() {
     hasMoreMessages,
     peerProfiles,
     friends,
+    supportAssignment,
     loadConversations,
     setActiveConversation,
     sendMessage,
@@ -2673,12 +2897,15 @@ export default function MessagesScreen() {
     retryMessage,
     wsConnected: chatWsConnected,
     wsStatus,
+    mergePeerProfiles,
   } = useMessagesStore();
 
   const [filter, setFilter] = useState<ConvoFilter>('all');
   const [mobileShowChat, setMobileShowChat] = useState(false);
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [showDetailsPanel, setShowDetailsPanel] = useState(false);
+  const [selectedProfileUserId, setSelectedProfileUserId] = useState<string | null>(null);
+  const [selectedProfileSeed, setSelectedProfileSeed] = useState<PeerProfile | null>(null);
 
   const showCallFeedback = useCallback((title: string, message: string) => {
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
@@ -2723,8 +2950,14 @@ export default function MessagesScreen() {
 
   // Map API conversations to UI conversations
   const uiConversations = useMemo(
-    () => apiConversations.map((c) => mapConversation(c, peerProfiles, friendsById)),
-    [apiConversations, peerProfiles, friendsById],
+    () =>
+      apiConversations
+        .map((c) => mapConversation(c, peerProfiles, friendsById, supportAssignment, t))
+        .sort((a, b) => {
+          if (a.pinned === b.pinned) return 0;
+          return a.pinned ? -1 : 1;
+        }),
+    [apiConversations, peerProfiles, friendsById, supportAssignment, t],
   );
 
   // 从通讯录/加好友等带 conversationId 进入时打开对应会话
@@ -2749,6 +2982,8 @@ export default function MessagesScreen() {
 
   useEffect(() => {
     setShowDetailsPanel(false);
+    setSelectedProfileUserId(null);
+    setSelectedProfileSeed(null);
   }, [activeConversationId]);
 
   // Map API messages to UI messages
@@ -2756,6 +2991,29 @@ export default function MessagesScreen() {
     () => (user ? mapMessages(apiMessages, user.uid) : []),
     [apiMessages, user?.uid],
   );
+
+  useEffect(() => {
+    const missingIds = Array.from(
+      new Set(
+        apiMessages
+          .map((msg) => String(msg.sender_id || '').trim())
+          .filter((id) => id && id !== user?.uid && !peerProfiles[id]),
+      ),
+    );
+    if (missingIds.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const profiles = await fetchUserProfilesBatch(missingIds);
+        if (!cancelled) mergePeerProfiles(profiles);
+      } catch (error) {
+        console.warn('[Messages] preload sender profiles failed:', error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiMessages, user?.uid, peerProfiles, mergePeerProfiles]);
 
   // Active conversation UI object（优先 ui 列表；否则从原始 api 映射，避免 activeConvo 为空导致聊天页不渲染）
   const activeConvo = useMemo(() => {
@@ -2765,8 +3023,8 @@ export default function MessagesScreen() {
     if (fromUi) return fromUi;
     const raw = apiConversations.find((c) => sameConvoId(c.id, aid));
     if (!raw) return null;
-    return mapConversation(raw, peerProfiles, friendsById);
-  }, [activeConversationId, uiConversations, apiConversations, peerProfiles, friendsById]);
+    return mapConversation(raw, peerProfiles, friendsById, supportAssignment, t);
+  }, [activeConversationId, uiConversations, apiConversations, peerProfiles, friendsById, supportAssignment, t]);
 
   // Active conversation's peer profile (for sidebar)
   const activePeerProfile = useMemo(() => {
@@ -2779,6 +3037,20 @@ export default function MessagesScreen() {
     const c = apiConversations.find((x) => sameConvoId(x.id, activeConversationId));
     return c?.peer_id ?? null;
   }, [apiConversations, activeConversationId]);
+
+  const openUserProfile = useCallback((uid: string | null | undefined, seed?: PeerProfile | null) => {
+    const normalized = String(uid ?? '').trim();
+    if (!normalized || normalized === 'me' || normalized === 'system') return;
+    setSelectedProfileUserId(normalized);
+    setSelectedProfileSeed(seed ?? null);
+    setShowDetailsPanel(true);
+  }, []);
+
+  const closeDetailsPanel = useCallback(() => {
+    setShowDetailsPanel(false);
+    setSelectedProfileUserId(null);
+    setSelectedProfileSeed(null);
+  }, []);
 
   const handleSelectConversation = (c: Conversation) => {
     setActiveConversation(c.id);
@@ -2800,7 +3072,7 @@ export default function MessagesScreen() {
       ? uploaded.url
       : `${Config.MESSAGES_API_BASE_URL}${uploaded.url}`;
     await sendMessage({
-      content: file.name || '图片',
+      content: file.name || t('messages.imageFallback'),
       messageType: 'image',
       mediaUrl: absoluteUrl,
       metadata: {
@@ -2834,7 +3106,7 @@ export default function MessagesScreen() {
 
   const handleStartVoiceCall = useCallback(async () => {
     if (!activeConversationId || !activeConvo) {
-      showCallFeedback('无法发起语音', '请先打开一个私聊会话。');
+      showCallFeedback(t('messages.voiceCallUnavailableTitle'), t('messages.voiceCallUnavailableBody'));
       return;
     }
 
@@ -2860,9 +3132,9 @@ export default function MessagesScreen() {
         router.push(`/call/${latestCallId}` as any);
         return;
       }
-      showCallFeedback('语音未打开', '请求已发起，但本地没有拿到通话状态，请再点一次试试。');
+      showCallFeedback(t('messages.voiceCallPendingTitle'), t('messages.voiceCallPendingBody'));
     } catch (e: any) {
-      showCallFeedback('发起失败', e?.response?.data?.error || e?.message || '语音呼叫发起失败');
+      showCallFeedback(t('messages.voiceCallStartFailedTitle'), e?.response?.data?.error || e?.message || t('messages.voiceCallStartFailedBody'));
     }
   }, [activeConversationId, activeConvo, startVoiceCall, router, showCallFeedback]);
 
@@ -2899,9 +3171,9 @@ export default function MessagesScreen() {
       <Modal visible={!!incomingCall} transparent animationType="fade" onRequestClose={() => void rejectIncomingCall()}>
         <View style={styles.callOverlay}>
           <View style={styles.callCard}>
-            <Text style={styles.callCardEyebrow}>来电</Text>
-            <Text style={styles.callCardTitle}>语音通话邀请</Text>
-            <Text style={styles.callCardSub}>会话 ID: {incomingCall?.conversation_id || '--'}</Text>
+            <Text style={styles.callCardEyebrow}>{t('messages.incomingCall')}</Text>
+            <Text style={styles.callCardTitle}>{t('messages.incomingCallInvite')}</Text>
+            <Text style={styles.callCardSub}>{t('messages.callConversationId', { id: incomingCall?.conversation_id || '--' })}</Text>
             <View style={styles.callActionRow}>
               <TouchableOpacity
                 style={[styles.callBtn, styles.callRejectBtn, callPending && styles.groupActionBtnDisabled]}
@@ -2909,7 +3181,7 @@ export default function MessagesScreen() {
                 disabled={callPending}
                 onPress={() => void rejectIncomingCall()}
               >
-                <Text style={styles.callRejectText}>拒绝</Text>
+                <Text style={styles.callRejectText}>{t('messages.rejectCall')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.callBtn, styles.callAcceptBtn, callPending && styles.groupActionBtnDisabled]}
@@ -2922,14 +3194,14 @@ export default function MessagesScreen() {
                     if (latestCallId) {
                       router.push(`/call/${latestCallId}` as any);
                     } else {
-                      showCallFeedback('接听失败', '本地没有拿到通话状态，请稍后重试。');
+                      showCallFeedback(t('messages.acceptCallFailedTitle'), t('messages.acceptCallFailedBody'));
                     }
                   } catch (e: any) {
-                    showCallFeedback('接听失败', e?.response?.data?.error || e?.message || '接听语音失败');
+                    showCallFeedback(t('messages.acceptCallFailedTitle'), e?.response?.data?.error || e?.message || t('messages.acceptVoiceCallFailed'));
                   }
                 }}
               >
-                <Text style={styles.callAcceptText}>接听</Text>
+                <Text style={styles.callAcceptText}>{t('messages.acceptCall')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -2940,15 +3212,15 @@ export default function MessagesScreen() {
         <View style={styles.callBanner}>
           <View>
             <Text style={styles.callBannerTitle}>
-              {currentCall.status === 'active' ? '语音通话中' : '语音呼叫中'}
+              {currentCall.status === 'active' ? t('messages.callActive') : t('messages.callRinging')}
             </Text>
             <Text style={styles.callBannerSub}>
-              房间: {currentCall.room_name}
+              {t('messages.callRoom', { room: currentCall.room_name })}
             </Text>
           </View>
           <View style={styles.callBannerActions}>
             <TouchableOpacity style={styles.callBannerOpenBtn} activeOpacity={0.85} onPress={() => router.push(`/call/${currentCall.id}` as any)}>
-              <Text style={styles.callBannerOpenText}>进入通话</Text>
+              <Text style={styles.callBannerOpenText}>{t('messages.openCall')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.callBannerEndBtn}
@@ -2957,11 +3229,11 @@ export default function MessagesScreen() {
                 try {
                   await endCurrentCall();
                 } catch (e: any) {
-                  showCallFeedback('挂断失败', e?.response?.data?.error || e?.message || '挂断失败');
+                  showCallFeedback(t('messages.endCallFailedTitle'), e?.response?.data?.error || e?.message || t('messages.endCallFailedBody'));
                 }
               }}
             >
-              <Text style={styles.callBannerEndText}>挂断</Text>
+              <Text style={styles.callBannerEndText}>{t('messages.endCall')}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -2995,29 +3267,77 @@ export default function MessagesScreen() {
         friends={friends}
       />
 
-      <Modal visible={showDetailsPanel} transparent animationType="fade" onRequestClose={() => setShowDetailsPanel(false)}>
+      <Modal visible={showDetailsPanel} transparent animationType="fade" onRequestClose={closeDetailsPanel}>
         <View style={styles.detailsDrawerOverlay}>
-          <TouchableOpacity style={styles.detailsDrawerBackdrop} activeOpacity={1} onPress={() => setShowDetailsPanel(false)} />
+          <TouchableOpacity style={styles.detailsDrawerBackdrop} activeOpacity={1} onPress={closeDetailsPanel} />
           <View style={[styles.detailsDrawer, isPhone && styles.detailsDrawerMobile]}>
             <View style={styles.detailsDrawerHeader}>
               <View>
                 <Text style={styles.detailsDrawerTitle}>
-                  {activeConvo?.isGroup ? '群设置' : '资料与设置'}
+                  {selectedProfileUserId
+                    ? t('messages.userProfileTitle')
+                    : activeConvo?.isSupport
+                    ? t('messages.officialSupport')
+                    : activeConvo?.isGroup
+                      ? t('messages.groupSettings')
+                      : t('messages.settingsTitle')}
                 </Text>
                 <Text style={styles.detailsDrawerSub} numberOfLines={1}>
-                  {activeConvo?.name || '当前会话'}
+                  {selectedProfileSeed?.display_name || activeConvo?.name || t('messages.currentConversation')}
                 </Text>
               </View>
-              <TouchableOpacity style={styles.detailsDrawerClose} activeOpacity={0.8} onPress={() => setShowDetailsPanel(false)}>
+              <TouchableOpacity style={styles.detailsDrawerClose} activeOpacity={0.8} onPress={closeDetailsPanel}>
                 <AppIcon name="close" size={18} color={Colors.textMuted} />
               </TouchableOpacity>
             </View>
             <View style={styles.detailsDrawerBody}>
-              {activeConvo?.isGroup && activeConversationId ? (
+              {selectedProfileUserId ? (
+                <ChatUserProfileCard
+                  userId={selectedProfileUserId}
+                  initialProfile={selectedProfileSeed}
+                  embedded
+                  onViewPublicProfile={(uid) => {
+                    closeDetailsPanel();
+                    router.push(`/trader/${uid}` as any);
+                  }}
+                />
+              ) : activeConvo?.isSupport ? (
+                <View style={styles.supportDetailsCard}>
+                  <AvatarCircle
+                    name={supportAssignment?.agent?.display_name || t('messages.officialSupport')}
+                    size={74}
+                    imageUrl={supportAssignment?.agent?.avatar_url}
+                    support
+                  />
+                  <Text style={styles.supportDetailsTitle}>{t('messages.officialSupport')}</Text>
+                  <Text style={styles.supportDetailsSub}>
+                    {supportAssignment?.agent?.display_name || t('messages.supportAssignedAgentFallback')}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.chatHeaderStatus,
+                      { marginTop: 8 },
+                      supportAssignment?.agent_online ? { color: Colors.up } : null,
+                    ]}
+                  >
+                    {supportAssignment?.agent_online ? t('messages.online') : t('messages.supportOfflineHint')}
+                  </Text>
+                  {!!supportAssignment?.agent?.email && (
+                    <Text style={styles.supportDetailsMeta}>{supportAssignment.agent.email}</Text>
+                  )}
+                  <View style={styles.supportBadgePill}>
+                    <Text style={styles.supportBadgePillText}>{t('messages.supportBadge')}</Text>
+                  </View>
+                  <Text style={styles.supportDetailsBody}>
+                    {t('messages.supportDetailsDescription')}
+                  </Text>
+                </View>
+              ) : activeConvo?.isGroup && activeConversationId ? (
                 <GroupSidebar
                   conversationId={activeConversationId}
                   fallbackTitle={activeConvo.name}
                   embedded
+                  onOpenUserProfile={openUserProfile}
                 />
               ) : activePeerProfile && activePeerId ? (
                 <PeerSidebar
@@ -3031,7 +3351,7 @@ export default function MessagesScreen() {
                 />
               ) : (
                 <View style={styles.detailsDrawerEmpty}>
-                  <Text style={styles.traderAbout}>当前会话没有更多可配置项。</Text>
+                  <Text style={styles.traderAbout}>{t('messages.noConversationSettings')}</Text>
                 </View>
               )}
             </View>
@@ -3080,6 +3400,8 @@ export default function MessagesScreen() {
           compactComposer={compactComposer}
           showDetailsButton={!isXL && !!activeConvo}
           onOpenDetails={() => setShowDetailsPanel(true)}
+          senderProfiles={peerProfiles}
+          onOpenUserProfile={openUserProfile}
         />
       )}
 
@@ -3099,11 +3421,46 @@ export default function MessagesScreen() {
         <GroupSidebar
           conversationId={activeConversationId}
           fallbackTitle={activeConvo.name}
+          onOpenUserProfile={openUserProfile}
         />
       )}
 
       {/* Peer Sidebar (XL desktop, direct conversations) */}
-      {isXL && !activeConvo?.isGroup && activePeerProfile && activePeerId && (
+      {isXL && activeConvo?.isSupport && (
+        <View style={styles.peerSidebar}>
+          <View style={styles.supportDetailsCard}>
+            <AvatarCircle
+              name={supportAssignment?.agent?.display_name || t('messages.officialSupport')}
+              size={84}
+              imageUrl={supportAssignment?.agent?.avatar_url}
+              support
+            />
+            <Text style={styles.supportDetailsTitle}>{t('messages.officialSupport')}</Text>
+            <Text style={styles.supportDetailsSub}>
+              {supportAssignment?.agent?.display_name || t('messages.supportAssignedAgentFallback')}
+            </Text>
+            <Text
+              style={[
+                styles.chatHeaderStatus,
+                { marginTop: 8 },
+                supportAssignment?.agent_online ? { color: Colors.up } : null,
+              ]}
+            >
+              {supportAssignment?.agent_online ? t('messages.online') : t('messages.supportOfflineHint')}
+            </Text>
+            {!!supportAssignment?.agent?.email && (
+              <Text style={styles.supportDetailsMeta}>{supportAssignment.agent.email}</Text>
+            )}
+            <View style={styles.supportBadgePill}>
+              <Text style={styles.supportBadgePillText}>{t('messages.supportBadge')}</Text>
+            </View>
+            <Text style={styles.supportDetailsBody}>{t('messages.supportDetailsDescription')}</Text>
+          </View>
+        </View>
+      )}
+
+      {/* Peer Sidebar (XL desktop, direct conversations) */}
+      {isXL && !activeConvo?.isGroup && !activeConvo?.isSupport && activePeerProfile && activePeerId && (
         <PeerSidebar
           profile={activePeerProfile}
           peerUserId={activePeerId}
@@ -3306,6 +3663,9 @@ const styles = StyleSheet.create({
     borderLeftWidth: 3,
     borderLeftColor: Colors.primary,
   },
+  convoRowSupport: {
+    backgroundColor: 'rgba(215, 185, 71, 0.08)',
+  },
   pinnedBorder: {
     position: 'absolute',
     left: 0,
@@ -3381,6 +3741,55 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  supportAvatar: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#251f12',
+    borderWidth: 1,
+    borderColor: '#6f5a1f',
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  supportAvatarHeadsetBand: {
+    position: 'absolute',
+    borderWidth: 2,
+    borderBottomWidth: 0,
+    borderColor: '#d9ba4d',
+  },
+  supportAvatarEar: {
+    position: 'absolute',
+    backgroundColor: '#caa53b',
+  },
+  supportAvatarFace: {
+    position: 'absolute',
+    backgroundColor: '#f3d79c',
+    alignItems: 'center',
+  },
+  supportAvatarEye: {
+    position: 'absolute',
+    width: 3,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: '#4b3820',
+  },
+  supportAvatarSmile: {
+    position: 'absolute',
+    borderBottomWidth: 2,
+    borderColor: '#7a5c2d',
+  },
+  supportAvatarMic: {
+    position: 'absolute',
+    backgroundColor: '#d9ba4d',
+    transform: [{ rotate: '24deg' }],
+  },
+  supportAvatarMicTip: {
+    position: 'absolute',
+    backgroundColor: '#f3d79c',
+  },
+  supportAvatarShoulder: {
+    position: 'absolute',
+    backgroundColor: '#384b5e',
+  },
   avatarText: {
     fontWeight: '700',
   },
@@ -3427,6 +3836,13 @@ const styles = StyleSheet.create({
   },
   backBtn: {
     marginRight: 4,
+  },
+  chatHeaderIdentity: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flexShrink: 1,
+    minWidth: 0,
   },
   chatHeaderInfo: {
     gap: 2,
@@ -4211,11 +4627,67 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 0,
   },
+  peerSidebar: {
+    width: 360,
+    borderLeftWidth: 1,
+    borderLeftColor: Colors.border,
+    backgroundColor: Colors.surface,
+  },
   detailsDrawerEmpty: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
+  },
+  supportDetailsCard: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    paddingHorizontal: 24,
+    paddingVertical: 28,
+    backgroundColor: Colors.surface,
+  },
+  supportDetailsTitle: {
+    marginTop: 16,
+    color: Colors.textActive,
+    fontSize: 24,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  supportDetailsSub: {
+    marginTop: 8,
+    color: Colors.textSecondary,
+    fontSize: 14,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  supportDetailsMeta: {
+    marginTop: 6,
+    color: Colors.textMuted,
+    fontSize: 12,
+    textAlign: 'center',
+  },
+  supportBadgePill: {
+    marginTop: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: Colors.primaryDim,
+    borderWidth: 1,
+    borderColor: Colors.primaryBorder,
+  },
+  supportBadgePillText: {
+    color: Colors.primary,
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  supportDetailsBody: {
+    marginTop: 18,
+    color: Colors.textMuted,
+    fontSize: 13,
+    lineHeight: 20,
+    textAlign: 'center',
+    maxWidth: 280,
   },
   traderHeader: {
     alignItems: 'center',

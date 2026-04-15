@@ -294,11 +294,11 @@ export default function TraderCenterScreen() {
     score += Math.max(-10, (20 - maxDD) * 0.5);
     return Math.max(-100, Math.min(100, Math.round(score)));
   })();
-  const sentimentText = sentimentScore >= 60 ? '强力看涨 Strong Bullish'
-    : sentimentScore >= 25 ? '偏多看涨 Bullish'
-    : sentimentScore >= -25 ? '谨慎观望 Neutral'
-    : sentimentScore >= -60 ? '偏空看跌 Bearish'
-    : '强力看跌 Strong Bearish';
+  const sentimentText = sentimentScore >= 60 ? t('traderCenter.strongBullish')
+    : sentimentScore >= 25 ? t('traderCenter.bullish')
+    : sentimentScore >= -25 ? t('traderCenter.neutral')
+    : sentimentScore >= -60 ? t('traderCenter.bearish')
+    : t('traderCenter.strongBearish');
   const sentimentIcon = sentimentScore >= 25 ? 'trend-up' : sentimentScore >= -25 ? 'market' : 'trend-down';
 
   return (
@@ -333,18 +333,18 @@ export default function TraderCenterScreen() {
                 <Text style={styles.profileName}>{user?.displayName}</Text>
                 <Text style={styles.verifiedIcon}>✓</Text>
               </View>
-              <Text style={styles.selfLabel}>我的交易员主页</Text>
+              <Text style={styles.selfLabel}>{t('traderCenter.myTraderPage')}</Text>
               <View style={styles.tagsRow}>
                 {user?.allowCopyTrading && (
                   <View style={styles.tag}>
-                    <Text style={styles.tagText}>COPY TRADING</Text>
+                    <Text style={styles.tagText}>{t('traderCenter.copyTradingTag')}</Text>
                   </View>
                 )}
                 <View style={styles.tag}>
-                  <Text style={styles.tagText}>SWING</Text>
+                  <Text style={styles.tagText}>{t('traderCenter.swingTag')}</Text>
                 </View>
                 <View style={styles.tag}>
-                  <Text style={styles.tagText}>LOW RISK</Text>
+                  <Text style={styles.tagText}>{t('traderCenter.lowRiskTag')}</Text>
                 </View>
               </View>
             </View>
@@ -353,7 +353,7 @@ export default function TraderCenterScreen() {
           {/* Settings badge */}
           <View style={styles.headerActions}>
             <View style={styles.certBadge}>
-              <Text style={styles.certBadgeText}>✓ Certified</Text>
+              <Text style={styles.certBadgeText}>✓ {t('traderCenter.certified')}</Text>
             </View>
           </View>
         </View>
@@ -362,28 +362,28 @@ export default function TraderCenterScreen() {
       {/* Metrics Grid */}
       <View style={[styles.metricsGrid, isDesktop && styles.metricsGridDesktop]}>
         <MetricCard
-          label="总盈亏 Total PnL"
+          label={t('traderCenter.totalPnlLabel')}
           value={`${pnl >= 0 ? '+' : ''}$${formatMoney(pnl)}`}
           color={pnl >= 0 ? Colors.up : Colors.down}
           glow={pnl > 0}
         />
         <MetricCard
-          label="平均盈亏 Avg PnL"
+          label={t('traderCenter.avgPnlLabel')}
           value={`${avgPnl >= 0 ? '+' : ''}$${formatMoney(avgPnl)}`}
           color={avgPnl >= 0 ? Colors.up : Colors.down}
         />
         <MetricCard
-          label="胜率 Win Rate"
+          label={t('traderCenter.winRateLabel')}
           value={`${winRate.toFixed(1)}%`}
           color={winRate >= 50 ? Colors.textActive : Colors.down}
         />
         <MetricCard
-          label="最大回撤 Max DD"
+          label={t('traderCenter.maxDrawdownLabel')}
           value={`${maxDD.toFixed(1)}%`}
           color={Colors.down}
         />
         <MetricCard
-          label="跟随人数 Followers"
+          label={t('traderCenter.followersLabel')}
           value={formatNumber(followersCount)}
         />
       </View>
@@ -396,7 +396,7 @@ export default function TraderCenterScreen() {
 
         <View style={[{ gap: 12 }, isDesktop && { width: 340, flexShrink: 0 }]}>
           <View style={[styles.glassCard, { marginBottom: 0, flex: 1 }]}>
-            <Text style={styles.sectionTitle}>风险指数 Risk Matrix</Text>
+            <Text style={styles.sectionTitle}>{t('traderCenter.riskMatrix')}</Text>
             <View style={styles.riskHeader}>
               <View>
                 <Text style={styles.riskScore}>
@@ -404,20 +404,20 @@ export default function TraderCenterScreen() {
                   <Text style={styles.riskScoreUnit}>/100</Text>
                 </Text>
                 <Text style={styles.riskLabel}>
-                  {riskLevel} PROFILE
+                  {riskLevel} {t('traderCenter.profileSuffix')}
                 </Text>
               </View>
               <AppIcon name="shield" size={22} color={Colors.primary} />
             </View>
             <View style={styles.riskMetrics}>
-              <RiskBar label="夏普比率 Sharpe Ratio" value={sharpeRatio} pct={sharpePct} />
-              <RiskBar label="波动率 Volatility" value={volLevel} pct={volPct} />
+              <RiskBar label={t('traderCenter.sharpeRatio')} value={sharpeRatio} pct={sharpePct} />
+              <RiskBar label={t('traderCenter.volatility')} value={volLevel} pct={volPct} />
             </View>
             <View style={[styles.riskNote, { flex: 1, justifyContent: 'flex-end' }]}>
               <Text style={styles.riskNoteText}>
                 {maxDD <= 15
-                  ? '资金管理严格，近30日无大笔异常回撤。适合稳健型投资者。'
-                  : '交易风格较为激进，适合风险承受能力较强的投资者。'}
+                  ? t('traderCenter.riskNoteLow')
+                  : t('traderCenter.riskNoteHigh')}
               </Text>
             </View>
           </View>
@@ -428,7 +428,7 @@ export default function TraderCenterScreen() {
                 <AppIcon name={sentimentIcon} size={22} color={sentimentScore >= -25 && sentimentScore < 25 ? Colors.primary : sentimentScore >= 25 ? Colors.up : Colors.down} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.sentimentLabel}>当前情绪 MARKET SENTIMENT ({sentimentScore > 0 ? '+' : ''}{sentimentScore})</Text>
+                <Text style={styles.sentimentLabel}>{t('traderCenter.marketSentiment')} ({sentimentScore > 0 ? '+' : ''}{sentimentScore})</Text>
                 <Text style={styles.sentimentValue}>
                   {sentimentText}
                 </Text>
@@ -443,7 +443,7 @@ export default function TraderCenterScreen() {
         <View style={styles.sectionHeader}>
           <View style={styles.sectionTitleRow}>
             <AppIcon name="paper" size={16} color={Colors.primary} />
-            <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>我的策略 My Strategies</Text>
+            <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>{t('traderCenter.myStrategiesTitle')}</Text>
           </View>
           <TouchableOpacity
             style={styles.writeBtn}
@@ -451,7 +451,7 @@ export default function TraderCenterScreen() {
           >
             <View style={styles.writeBtnInner}>
               <AppIcon name="paper" size={15} color={Colors.background} />
-              <Text style={styles.writeBtnText}>发布策略</Text>
+              <Text style={styles.writeBtnText}>{t('traderCenter.publishStrategy')}</Text>
             </View>
           </TouchableOpacity>
         </View>
@@ -459,9 +459,9 @@ export default function TraderCenterScreen() {
         {strategies.length === 0 ? (
           <View style={styles.emptyStrategy}>
             <AppIcon name="paper" size={26} color={Colors.textMuted} />
-            <Text style={styles.emptyText}>还没有发布策略</Text>
+            <Text style={styles.emptyText}>{t('traderCenter.noStrategies')}</Text>
             <Text style={[styles.emptyText, { fontSize: 12, marginTop: 4 }]}>
-              分享你的交易见解，建立影响力
+              {t('traderCenter.noStrategiesHint')}
             </Text>
           </View>
         ) : (
@@ -478,7 +478,7 @@ export default function TraderCenterScreen() {
                     <Text style={styles.strategyTitle} numberOfLines={1}>{s.title}</Text>
                     {s.status === 'draft' && (
                       <View style={styles.draftBadge}>
-                        <Text style={styles.draftBadgeText}>草稿</Text>
+                        <Text style={styles.draftBadgeText}>{t('traderCenter.draftTag')}</Text>
                       </View>
                     )}
                   </View>
@@ -487,11 +487,11 @@ export default function TraderCenterScreen() {
                     <Text style={styles.strategyMetaText}>{date}</Text>
                     <View style={styles.strategyMetaInline}>
                       <AppIcon name="eye" size={12} color={Colors.textMuted} />
-                      <Text style={styles.strategyMetaText}>{s.views} 阅读</Text>
+                      <Text style={styles.strategyMetaText}>{s.views} {t('traderCenter.reads')}</Text>
                     </View>
                     <View style={styles.strategyMetaInline}>
                       <AppIcon name="heart" size={12} color={Colors.textMuted} />
-                      <Text style={styles.strategyMetaText}>{s.likes} 赞</Text>
+                      <Text style={styles.strategyMetaText}>{s.likes} {t('traderCenter.likesUnit')}</Text>
                     </View>
                   </View>
                 </View>
@@ -511,23 +511,23 @@ export default function TraderCenterScreen() {
           <View style={styles.sectionHeader}>
             <View style={styles.sectionTitleRow}>
               <AppIcon name="chart" size={16} color={Colors.primary} />
-              <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>当前持仓 Open Positions</Text>
+              <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>{t('traderCenter.openPositionsTitle')}</Text>
             </View>
             {livePositions.length > 0 && (
               <View style={styles.activeBadge}>
-                <Text style={styles.activeBadgeText}>{livePositions.length} ACTIVE</Text>
+                  <Text style={styles.activeBadgeText}>{livePositions.length} {t('traderCenter.activeTag')}</Text>
               </View>
             )}
           </View>
           {livePositions.length === 0 ? (
-            <Text style={styles.emptyText}>暂无持仓</Text>
+            <Text style={styles.emptyText}>{t('traderCenter.noOpenPositions')}</Text>
           ) : (
             <>
               <View style={styles.tableHeader}>
-                <Text style={[styles.tableHeaderText, { flex: 2 }]}>交易对 PAIR</Text>
-                <Text style={[styles.tableHeaderText, { flex: 1.5 }]}>入场 ENTRY</Text>
-                <Text style={[styles.tableHeaderText, { flex: 1.5 }]}>当前 CURRENT</Text>
-                <Text style={[styles.tableHeaderText, { flex: 1, textAlign: 'right' }]}>盈亏 PNL</Text>
+                  <Text style={[styles.tableHeaderText, { flex: 2 }]}>{t('traderCenter.pairLabel')}</Text>
+                  <Text style={[styles.tableHeaderText, { flex: 1.5 }]}>{t('traderCenter.entryLabel')}</Text>
+                  <Text style={[styles.tableHeaderText, { flex: 1.5 }]}>{t('traderCenter.currentLabel')}</Text>
+                <Text style={[styles.tableHeaderText, { flex: 1, textAlign: 'right' }]}>{t('traderCenter.pnlColumn')}</Text>
               </View>
               {livePositions.map((pos) => {
                 const upnl = pos.unrealized_pnl || 0;
@@ -561,20 +561,20 @@ export default function TraderCenterScreen() {
           <View style={styles.sectionHeader}>
             <View style={styles.sectionTitleRow}>
               <AppIcon name="clock" size={16} color={Colors.primary} />
-              <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>最近成交 Recent Trades</Text>
+              <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>{t('traderCenter.recentTradesTitle')}</Text>
             </View>
             <TouchableOpacity>
-              <Text style={styles.viewAllText}>VIEW ALL</Text>
+              <Text style={styles.viewAllText}>{t('traderCenter.viewAll')}</Text>
             </TouchableOpacity>
           </View>
           {trades.length === 0 ? (
-            <Text style={styles.emptyText}>暂无成交记录</Text>
+            <Text style={styles.emptyText}>{t('traderCenter.noRecentTrades')}</Text>
           ) : (
             <>
               <View style={styles.tableHeader}>
-                <Text style={[styles.tableHeaderText, { flex: 2 }]}>操作 ACTION</Text>
-                <Text style={[styles.tableHeaderText, { flex: 2 }]}>时间 TIME</Text>
-                <Text style={[styles.tableHeaderText, { flex: 1, textAlign: 'right' }]}>已实现 PNL</Text>
+                  <Text style={[styles.tableHeaderText, { flex: 2 }]}>{t('traderCenter.actionLabel')}</Text>
+                  <Text style={[styles.tableHeaderText, { flex: 2 }]}>{t('traderCenter.timeLabel')}</Text>
+                  <Text style={[styles.tableHeaderText, { flex: 1, textAlign: 'right' }]}>{t('traderCenter.realizedPnlLabel')}</Text>
               </View>
               {trades.map((trade) => {
                 const rpnl = trade.realized_pnl || 0;
@@ -608,14 +608,14 @@ export default function TraderCenterScreen() {
           <View style={styles.sectionHeader}>
             <View style={styles.sectionTitleRow}>
               <AppIcon name="settings" size={16} color={Colors.primary} />
-              <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>跟单管理 Copy Trading</Text>
+              <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>{t('traderCenter.copyManagementTitle')}</Text>
             </View>
           </View>
           <View style={styles.settingRow}>
             <View>
-              <Text style={styles.settingLabel}>开放跟单</Text>
+              <Text style={styles.settingLabel}>{t('traderCenter.copyTradingToggle')}</Text>
               <Text style={styles.settingHint}>
-                {copyEnabled ? '已开启 — 其他用户可以跟随你的交易' : '已关闭'}
+                {copyEnabled ? t('traderCenter.copyEnabledHint') : t('traderCenter.copyDisabledHint')}
               </Text>
             </View>
             <Switch
@@ -632,14 +632,14 @@ export default function TraderCenterScreen() {
           <View style={styles.sectionHeader}>
             <View style={styles.sectionTitleRow}>
               <AppIcon name="users" size={16} color={Colors.primary} />
-              <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>我的跟单者 Followers</Text>
+              <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>{t('traderCenter.followersTitle')}</Text>
             </View>
             <View style={styles.activeBadge}>
               <Text style={styles.activeBadgeText}>{followers.length}</Text>
             </View>
           </View>
           {followers.length === 0 ? (
-            <Text style={styles.emptyText}>暂无跟单者</Text>
+            <Text style={styles.emptyText}>{t('traderCenter.noFollowers')}</Text>
           ) : (
             followers.map((f) => (
               <View key={f.id} style={styles.followerRow}>

@@ -3,16 +3,17 @@ package model
 import "time"
 
 type User struct {
-	UID         string    `json:"uid"`
-	Email       string    `json:"email"`
-	DisplayName string    `json:"display_name"`
-	AvatarURL   string    `json:"avatar_url,omitempty"`
-	Role        string    `json:"role,omitempty"`
-	Status      string    `json:"status,omitempty"`
-	ShortID     string    `json:"short_id,omitempty"`
-	Phone       string    `json:"phone,omitempty"`
+	UID              string     `json:"uid"`
+	Email            string     `json:"email"`
+	DisplayName      string     `json:"display_name"`
+	AvatarURL        string     `json:"avatar_url,omitempty"`
+	Role             string     `json:"role,omitempty"`
+	Status           string     `json:"status,omitempty"`
+	ShortID          string     `json:"short_id,omitempty"`
+	Phone            string     `json:"phone,omitempty"`
 	Bio              string     `json:"bio,omitempty"`
 	IsTrader         bool       `json:"is_trader"`
+	IsSupportAgent   bool       `json:"is_support_agent"`
 	AllowCopyTrading bool       `json:"allow_copy_trading"`
 	TraderApprovedAt *time.Time `json:"trader_approved_at,omitempty"`
 	VipLevel         int        `json:"vip_level"`
@@ -41,4 +42,23 @@ type UpdateProfileRequest struct {
 	AvatarURL   string `json:"avatar_url,omitempty"`
 	Bio         string `json:"bio,omitempty"`
 	Phone       string `json:"phone,omitempty"`
+}
+
+type ChangePasswordRequest struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
+}
+
+type ChangeEmailRequest struct {
+	NewEmail        string `json:"new_email"`
+	CurrentPassword string `json:"current_password"`
+}
+
+type DeleteAccountCheckResponse struct {
+	CanDelete bool     `json:"can_delete"`
+	Reasons   []string `json:"reasons"`
+}
+
+type DeleteAccountRequest struct {
+	CurrentPassword string `json:"current_password"`
 }

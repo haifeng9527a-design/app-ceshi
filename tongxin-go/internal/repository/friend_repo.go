@@ -150,6 +150,54 @@ func (r *FriendRepo) ListFriends(ctx context.Context, uid string) ([]model.Frien
 	return friends, nil
 }
 
+func (r *FriendRepo) GetRelationship(ctx context.Context, viewerUID, targetUID string) (status model.ChatRelationshipStatus, requestID string, err error) {
+	if viewerUID == targetUID {
+		return model.ChatRelationshipSelf, "", nil
+	}
+
+	var (
+		isFriend        bool
+		hasOutgoing     bool
+		hasIncoming     bool
+		incomingRequest string
+	)
+	err = r.pool.QueryRow(ctx, `
+		SELECT
+			EXISTS(
+				SELECT 1 FROM friends
+				WHERE user_id = $1 AND friend_id = $2 AND status = 'accepted'
+			),
+			EXISTS(
+				SELECT 1 FROM friend_requests
+				WHERE from_user_id = $1 AND to_user_id = $2 AND status = 'pending'
+			),
+			EXISTS(
+				SELECT 1 FROM friend_requests
+				WHERE from_user_id = $2 AND to_user_id = $1 AND status = 'pending'
+			),
+			COALESCE((
+				SELECT id::text FROM friend_requests
+				WHERE from_user_id = $2 AND to_user_id = $1 AND status = 'pending'
+				ORDER BY created_at DESC
+				LIMIT 1
+			), '')
+	`, viewerUID, targetUID).Scan(&isFriend, &hasOutgoing, &hasIncoming, &incomingRequest)
+	if err != nil {
+		return "", "", err
+	}
+
+	switch {
+	case isFriend:
+		return model.ChatRelationshipFriend, "", nil
+	case hasOutgoing:
+		return model.ChatRelationshipPendingOutgoing, "", nil
+	case hasIncoming:
+		return model.ChatRelationshipPendingIncoming, incomingRequest, nil
+	default:
+		return model.ChatRelationshipNotFriend, "", nil
+	}
+}
+
 func (r *FriendRepo) DeleteFriend(ctx context.Context, uid, friendID string) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {

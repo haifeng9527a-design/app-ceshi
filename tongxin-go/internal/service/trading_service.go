@@ -1569,7 +1569,9 @@ func (s *TradingService) triggerCopyOpen(ctx context.Context, traderID string, o
 		}
 
 		// Check follower balance, shrink margin if needed (wallet already fetched above)
-		available := wallet.Balance - wallet.Frozen
+		// wallet.Balance is already the available portion (FreezeMargin moves funds
+		// from balance → frozen), so don't subtract frozen again.
+		available := wallet.Balance
 		// Reserve 1% for open fee
 		maxAffordable := available / 1.01
 		log.Printf("[copy-trading] follower=%s balance=%.2f frozen=%.2f available=%.2f needed_margin=%.2f",
@@ -1754,6 +1756,12 @@ func (s *TradingService) placeCopyOrder(
 		log.Printf("[copy-trade] position creation failed, unfroze margin=%.4f for follower=%s: %v", margin, followerID, err)
 		return nil, nil, fmt.Errorf("create position: %w", err)
 	}
+
+	// Recalculate liq_price against the merged position so adds get a correct
+	// liquidation price (CreateCopyPosition leaves liq_price untouched on merge).
+	newLiq := calcLiqPrice(pos.EntryPrice, pos.Side, pos.Qty, pos.MarginAmount, pos.MarginMode, 0)
+	pos.LiqPrice = &newLiq
+	s.positionRepo.UpdateLiqPrice(ctx, pos.ID, newLiq)
 
 	// Add to cache
 	s.addPositionToCache(pos)

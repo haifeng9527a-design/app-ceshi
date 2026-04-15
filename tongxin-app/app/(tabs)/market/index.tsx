@@ -521,7 +521,7 @@ export default function MarketScreen() {
                 <TouchableOpacity
                   key={item.symbol}
                   style={styles.glRow}
-                  onPress={() => router.push({ pathname: '/chart/[symbol]', params: { symbol: item.symbol } })}
+                  onPress={() => router.push({ pathname: '/(tabs)/trading', params: { symbol: item.symbol } })}
                 >
                   <Text style={styles.glRank}>#{i + 1}</Text>
                   <Text style={styles.glSymbol}>{item.symbol}</Text>
@@ -555,7 +555,7 @@ export default function MarketScreen() {
                 <TouchableOpacity
                   key={item.symbol}
                   style={styles.glRow}
-                  onPress={() => router.push({ pathname: '/chart/[symbol]', params: { symbol: item.symbol } })}
+                  onPress={() => router.push({ pathname: '/(tabs)/trading', params: { symbol: item.symbol } })}
                 >
                   <Text style={styles.glRank}>#{i + 1}</Text>
                   <Text style={styles.glSymbol}>{item.symbol}</Text>
@@ -594,7 +594,7 @@ const FullListRow = memo(function FullListRow({ item, showStar }: { item: Market
     <TouchableOpacity
       style={styles.fullRow}
       activeOpacity={0.6}
-      onPress={() => router.push({ pathname: '/chart/[symbol]', params: { symbol: item.symbol } })}
+      onPress={() => router.push({ pathname: '/(tabs)/trading', params: { symbol: item.symbol } })}
     >
       <View style={styles.fullRowLeft}>
         <Text style={styles.fullSymbol}>{item.symbol}</Text>
