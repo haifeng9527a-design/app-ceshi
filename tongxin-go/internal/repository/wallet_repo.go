@@ -206,10 +206,14 @@ func (r *WalletRepo) AllocateToCopyBucket(ctx context.Context, userID, copyTradi
 	}
 
 	// 2. 加子账户（必须存在且 status='active'，且 follower_id 必须匹配，防越权）
+	//    分润 HWM 同步（migration 027）：追加本金 → cumulative_net_deposit & high_water_mark 同步抬高，
+	//    保证 HWM 永远 >= 真实净入金，新注入的资金不会被立刻当成"创新高"抽分润。
 	tag, err := tx.Exec(ctx,
 		`UPDATE copy_trading
-		 SET allocated_capital = allocated_capital + $3,
-		     available_capital = available_capital + $3,
+		 SET allocated_capital      = allocated_capital + $3,
+		     available_capital      = available_capital + $3,
+		     cumulative_net_deposit = cumulative_net_deposit + $3,
+		     high_water_mark        = high_water_mark + $3,
 		     updated_at = NOW()
 		 WHERE id = $1 AND follower_id = $2 AND status = 'active'`,
 		copyTradingID, userID, amount)
@@ -257,10 +261,14 @@ func (r *WalletRepo) WithdrawFromCopyBucket(ctx context.Context, userID, copyTra
 	// 1. 扣子账户（先扣再加，防止并发拿空）。
 	//    守卫只检查 available — 允许提取盈利让 allocated < 实际投入，
 	//    GREATEST 把 allocated 钳到 0（chk_capital_nonneg 约束要求非负）。
+	//    分润 HWM 同步（migration 027）：赎回 → cumulative_net_deposit & high_water_mark
+	//    同步降低（钳到 0），保证后续创新高判定不会因为 HWM 没动而失效。
 	tag, err := tx.Exec(ctx,
 		`UPDATE copy_trading
-		 SET allocated_capital = GREATEST(0, allocated_capital - $3),
-		     available_capital = available_capital - $3,
+		 SET allocated_capital       = GREATEST(0, allocated_capital - $3),
+		     available_capital       = available_capital - $3,
+		     cumulative_net_deposit  = GREATEST(0, cumulative_net_deposit - $3),
+		     high_water_mark         = GREATEST(0, high_water_mark - $3),
 		     updated_at = NOW()
 		 WHERE id = $1 AND follower_id = $2
 		   AND available_capital >= $3`,

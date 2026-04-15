@@ -17,6 +17,11 @@ type User struct {
 	AllowCopyTrading bool       `json:"allow_copy_trading"`
 	TraderApprovedAt *time.Time `json:"trader_approved_at,omitempty"`
 	VipLevel         int        `json:"vip_level"`
+	// 跟单分润（trader 视角）
+	// default_profit_share_rate：trader 设置的默认分润比例，新 follower 跟单时 snapshot 到 copy_trading 行
+	// lifetime_profit_shared_in：trader 累计已收的分润总额（dashboard 直接读）
+	DefaultProfitShareRate float64    `json:"default_profit_share_rate"`
+	LifetimeProfitSharedIn float64    `json:"lifetime_profit_shared_in"`
 	CreatedAt        time.Time  `json:"created_at"`
 	UpdatedAt        time.Time  `json:"updated_at"`
 }

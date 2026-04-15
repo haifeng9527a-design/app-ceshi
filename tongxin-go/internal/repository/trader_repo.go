@@ -267,7 +267,8 @@ func (r *TraderRepo) ListTraderRankings(ctx context.Context, sortBy string, limi
 			COALESCE(ts.total_trades, 0), COALESCE(ts.win_rate, 0),
 			COALESCE(ts.total_pnl, 0), COALESCE(ts.avg_pnl, 0),
 			COALESCE(ts.max_drawdown, 0), COALESCE(ts.followers_count, 0),
-			COALESCE(u.allow_copy_trading, false)
+			COALESCE(u.allow_copy_trading, false),
+			COALESCE(u.default_profit_share_rate, 0)
 		FROM users u
 		LEFT JOIN trader_stats ts ON ts.user_id = u.uid
 		WHERE u.is_trader = true
@@ -286,6 +287,7 @@ func (r *TraderRepo) ListTraderRankings(ctx context.Context, sortBy string, limi
 			&item.UID, &item.DisplayName, &item.AvatarURL,
 			&item.TotalTrades, &item.WinRate, &item.TotalPnl, &item.AvgPnl,
 			&item.MaxDrawdown, &item.FollowersCount, &item.AllowCopyTrading,
+			&item.DefaultProfitShareRate,
 		); err != nil {
 			return nil, 0, err
 		}
@@ -332,6 +334,7 @@ func (r *TraderRepo) CreateCopyTrading(ctx context.Context, followerID, traderID
 			max_position, max_single_margin, follow_symbols, leverage_mode, custom_leverage,
 			tp_sl_mode, custom_tp_ratio, custom_sl_ratio, follow_direction,
 			allocated_capital, available_capital, frozen_capital,
+			profit_share_rate, high_water_mark, cumulative_net_deposit, cumulative_profit_shared,
 			created_at, updated_at
 	`, followerID, traderID, copyMode, req.CopyRatio, req.FixedAmount,
 		req.MaxPosition, req.MaxSingleMargin, req.FollowSymbols,
@@ -343,6 +346,7 @@ func (r *TraderRepo) CreateCopyTrading(ctx context.Context, followerID, traderID
 		&ct.LeverageMode, &ct.CustomLeverage, &ct.TpSlMode,
 		&ct.CustomTpRatio, &ct.CustomSlRatio, &ct.FollowDirection,
 		&ct.AllocatedCapital, &ct.AvailableCapital, &ct.FrozenCapital,
+		&ct.ProfitShareRate, &ct.HighWaterMark, &ct.CumulativeNetDeposit, &ct.CumulativeProfitShared,
 		&ct.CreatedAt, &ct.UpdatedAt,
 	)
 	if err != nil {
@@ -366,6 +370,7 @@ func (r *TraderRepo) GetCopyRelation(ctx context.Context, followerID, traderID s
 			max_position, max_single_margin, follow_symbols, leverage_mode, custom_leverage,
 			tp_sl_mode, custom_tp_ratio, custom_sl_ratio, follow_direction,
 			allocated_capital, available_capital, frozen_capital,
+			profit_share_rate, high_water_mark, cumulative_net_deposit, cumulative_profit_shared,
 			created_at, updated_at
 		FROM copy_trading
 		WHERE follower_id = $1 AND trader_id = $2
@@ -376,6 +381,7 @@ func (r *TraderRepo) GetCopyRelation(ctx context.Context, followerID, traderID s
 		&ct.LeverageMode, &ct.CustomLeverage, &ct.TpSlMode,
 		&ct.CustomTpRatio, &ct.CustomSlRatio, &ct.FollowDirection,
 		&ct.AllocatedCapital, &ct.AvailableCapital, &ct.FrozenCapital,
+		&ct.ProfitShareRate, &ct.HighWaterMark, &ct.CumulativeNetDeposit, &ct.CumulativeProfitShared,
 		&ct.CreatedAt, &ct.UpdatedAt,
 	)
 	if err != nil {
@@ -391,6 +397,7 @@ func (r *TraderRepo) ListFollowers(ctx context.Context, traderID string) ([]mode
 			ct.follow_symbols, ct.leverage_mode, ct.custom_leverage,
 			ct.tp_sl_mode, ct.custom_tp_ratio, ct.custom_sl_ratio, ct.follow_direction,
 			ct.allocated_capital, ct.available_capital, ct.frozen_capital,
+			ct.profit_share_rate, ct.high_water_mark, ct.cumulative_net_deposit, ct.cumulative_profit_shared,
 			ct.created_at, ct.updated_at, COALESCE(u.display_name,''), COALESCE(u.avatar_url,'')
 		FROM copy_trading ct
 		JOIN users u ON u.uid = ct.follower_id
@@ -411,6 +418,7 @@ func (r *TraderRepo) ListFollowing(ctx context.Context, followerID string) ([]mo
 			ct.follow_symbols, ct.leverage_mode, ct.custom_leverage,
 			ct.tp_sl_mode, ct.custom_tp_ratio, ct.custom_sl_ratio, ct.follow_direction,
 			ct.allocated_capital, ct.available_capital, ct.frozen_capital,
+			ct.profit_share_rate, ct.high_water_mark, ct.cumulative_net_deposit, ct.cumulative_profit_shared,
 			ct.created_at, ct.updated_at, COALESCE(u.display_name,''), COALESCE(u.avatar_url,'')
 		FROM copy_trading ct
 		JOIN users u ON u.uid = ct.trader_id
@@ -440,6 +448,7 @@ func scanCopyTradingRows(rows interface {
 			&ct.LeverageMode, &ct.CustomLeverage, &ct.TpSlMode,
 			&ct.CustomTpRatio, &ct.CustomSlRatio, &ct.FollowDirection,
 			&ct.AllocatedCapital, &ct.AvailableCapital, &ct.FrozenCapital,
+			&ct.ProfitShareRate, &ct.HighWaterMark, &ct.CumulativeNetDeposit, &ct.CumulativeProfitShared,
 			&ct.CreatedAt, &ct.UpdatedAt, &ct.TraderName, &ct.TraderAvatar,
 		); err != nil {
 			return nil, err
@@ -456,6 +465,7 @@ func (r *TraderRepo) ListActiveFollowersByTraderID(ctx context.Context, traderID
 			ct.follow_symbols, ct.leverage_mode, ct.custom_leverage,
 			ct.tp_sl_mode, ct.custom_tp_ratio, ct.custom_sl_ratio, ct.follow_direction,
 			ct.allocated_capital, ct.available_capital, ct.frozen_capital,
+			ct.profit_share_rate, ct.high_water_mark, ct.cumulative_net_deposit, ct.cumulative_profit_shared,
 			ct.created_at, ct.updated_at, COALESCE(u.display_name,''), COALESCE(u.avatar_url,'')
 		FROM copy_trading ct
 		JOIN users u ON u.uid = ct.follower_id
@@ -498,6 +508,7 @@ func (r *TraderRepo) UpdateCopyTradingSettings(ctx context.Context, followerID, 
 			max_position, max_single_margin, follow_symbols, leverage_mode, custom_leverage,
 			tp_sl_mode, custom_tp_ratio, custom_sl_ratio, follow_direction,
 			allocated_capital, available_capital, frozen_capital,
+			profit_share_rate, high_water_mark, cumulative_net_deposit, cumulative_profit_shared,
 			created_at, updated_at
 	`, followerID, traderID, copyMode, req.CopyRatio, req.FixedAmount,
 		req.MaxPosition, req.MaxSingleMargin, req.FollowSymbols,
@@ -509,6 +520,7 @@ func (r *TraderRepo) UpdateCopyTradingSettings(ctx context.Context, followerID, 
 		&ct.LeverageMode, &ct.CustomLeverage, &ct.TpSlMode,
 		&ct.CustomTpRatio, &ct.CustomSlRatio, &ct.FollowDirection,
 		&ct.AllocatedCapital, &ct.AvailableCapital, &ct.FrozenCapital,
+		&ct.ProfitShareRate, &ct.HighWaterMark, &ct.CumulativeNetDeposit, &ct.CumulativeProfitShared,
 		&ct.CreatedAt, &ct.UpdatedAt,
 	)
 	if err != nil {
@@ -625,16 +637,24 @@ func (r *TraderRepo) SettleToBucket(ctx context.Context, copyTradingID string, r
 // AdjustAllocatedCapital 用户主动追加 / 赎回本金。delta>0 追加，<0 赎回。
 // 调用方负责钱包侧（balance ± |delta|）和 wallet_transactions 流水的写入；
 // 此方法只动子账户 allocated/available。
+//
+// 分润 HWM 同步（migration 027 引入）：
+//   追加 +delta：cumulative_net_deposit += delta；high_water_mark += delta
+//                （新注入的资金不算"赚的"，HWM 同步抬高才能正确判定后续创新高）
+//   赎回 -|delta|：cumulative_net_deposit -= |delta|（GREATEST 钳到 0）；
+//                  high_water_mark -= |delta|（GREATEST 钳到 0）
 func (r *TraderRepo) AdjustAllocatedCapital(ctx context.Context, copyTradingID string, delta float64) error {
 	if delta == 0 {
 		return nil
 	}
 	if delta > 0 {
-		// 追加：available + allocated 同时 += delta
+		// 追加：available + allocated + cumulative_net_deposit + high_water_mark 同时 += delta
 		tag, err := r.pool.Exec(ctx, `
 			UPDATE copy_trading
-			SET allocated_capital = allocated_capital + $2,
-			    available_capital = available_capital + $2,
+			SET allocated_capital       = allocated_capital + $2,
+			    available_capital       = available_capital + $2,
+			    cumulative_net_deposit  = cumulative_net_deposit + $2,
+			    high_water_mark         = high_water_mark + $2,
 			    updated_at = NOW()
 			WHERE id = $1 AND status = 'active'
 		`, copyTradingID, delta)
@@ -647,13 +667,15 @@ func (r *TraderRepo) AdjustAllocatedCapital(ctx context.Context, copyTradingID s
 		return nil
 	}
 	// 赎回：|delta| 上限 = available（含已实现盈亏，允许把盈利提走）。
-	// allocated 同步减但用 GREATEST 钳到 0 —— 保持 chk_capital_nonneg 约束，
-	// 提走盈利后 allocated 归零属于预期行为（再开仓得先追加本金）。
+	// allocated / cumulative_net_deposit / high_water_mark 同步减，
+	// 用 GREATEST 钳到 0 —— 保持 chk_capital_nonneg 与 chk_copy_trading_profit_share 约束。
 	withdraw := -delta
 	tag, err := r.pool.Exec(ctx, `
 		UPDATE copy_trading
-		SET allocated_capital = GREATEST(0, allocated_capital - $2),
-		    available_capital = available_capital - $2,
+		SET allocated_capital       = GREATEST(0, allocated_capital - $2),
+		    available_capital       = available_capital - $2,
+		    cumulative_net_deposit  = GREATEST(0, cumulative_net_deposit - $2),
+		    high_water_mark         = GREATEST(0, high_water_mark - $2),
 		    updated_at = NOW()
 		WHERE id = $1 AND status = 'active' AND available_capital >= $2
 	`, copyTradingID, withdraw)
@@ -674,6 +696,7 @@ func (r *TraderRepo) GetCopyTradingByID(ctx context.Context, id string) (*model.
 			max_position, max_single_margin, follow_symbols, leverage_mode, custom_leverage,
 			tp_sl_mode, custom_tp_ratio, custom_sl_ratio, follow_direction,
 			allocated_capital, available_capital, frozen_capital,
+			profit_share_rate, high_water_mark, cumulative_net_deposit, cumulative_profit_shared,
 			created_at, updated_at
 		FROM copy_trading WHERE id = $1
 	`, id).Scan(
@@ -683,6 +706,7 @@ func (r *TraderRepo) GetCopyTradingByID(ctx context.Context, id string) (*model.
 		&ct.LeverageMode, &ct.CustomLeverage, &ct.TpSlMode,
 		&ct.CustomTpRatio, &ct.CustomSlRatio, &ct.FollowDirection,
 		&ct.AllocatedCapital, &ct.AvailableCapital, &ct.FrozenCapital,
+		&ct.ProfitShareRate, &ct.HighWaterMark, &ct.CumulativeNetDeposit, &ct.CumulativeProfitShared,
 		&ct.CreatedAt, &ct.UpdatedAt,
 	)
 	if err != nil {
@@ -749,9 +773,10 @@ func (r *TraderRepo) ListCopyTradeLogsByFollower(ctx context.Context, followerID
 func (r *TraderRepo) GetTraderProfile(ctx context.Context, uid string, viewerID string) (*model.TraderProfile, error) {
 	p := &model.TraderProfile{}
 	err := r.pool.QueryRow(ctx, `
-		SELECT uid, display_name, COALESCE(avatar_url,''), COALESCE(is_trader, false), COALESCE(allow_copy_trading, false)
+		SELECT uid, display_name, COALESCE(avatar_url,''), COALESCE(is_trader, false), COALESCE(allow_copy_trading, false),
+			COALESCE(default_profit_share_rate, 0)
 		FROM users WHERE uid = $1
-	`, uid).Scan(&p.UID, &p.DisplayName, &p.AvatarURL, &p.IsTrader, &p.AllowCopyTrading)
+	`, uid).Scan(&p.UID, &p.DisplayName, &p.AvatarURL, &p.IsTrader, &p.AllowCopyTrading, &p.DefaultProfitShareRate)
 	if err != nil {
 		return nil, err
 	}
@@ -887,4 +912,350 @@ func (r *TraderRepo) GetEquityHistory(ctx context.Context, uid string, period st
 		points = append(points, p)
 	}
 	return points, nil
+}
+
+// ═══════════════════════════════════════════════════════════
+// Profit Share (跟单分润) — 详见 migrations/027
+// ═══════════════════════════════════════════════════════════
+
+// ProfitShareResult SettleToBucketWithCommission 的返回值，service 层用来组装 WS 事件。
+type ProfitShareResult struct {
+	Settled        bool    // true = 实际抽了分润；false = skipped
+	ShareAmount    float64 // 抽走的分润额（>=0）
+	HwmBefore      float64
+	HwmAfter       float64
+	EquityBefore   float64
+	EquityAfter    float64
+	RateApplied    float64
+	NetPnl         float64
+	Status         string // settled / skipped_below_hwm / skipped_loss / skipped_zero_rate
+	BucketBalance  float64 // 结算后 follower 池子 available_capital
+	NewLifetimeIn  float64 // 结算后 trader.lifetime_profit_shared_in（仅 settled 时有意义）
+}
+
+// SettleToBucketWithCommission 跟单平仓结算 + HWM 分润抽成（单事务）。
+//
+// 步骤（同一 DB 事务内原子完成，任一失败整体回滚）：
+//  1. SELECT copy_trading FOR UPDATE，拿当前 available/frozen/hwm/rate/cumulative_profit_shared
+//  2. 计算 equity_before = available + frozen
+//     equity_after  = (available + releasedMargin + pnl - closeFee) + (frozen - releasedMargin)
+//                   = equity_before + pnl - closeFee
+//     net_pnl       = pnl - closeFee
+//  3. 分润判定：
+//       rate == 0                     → skipped_zero_rate
+//       net_pnl <= 0                  → skipped_loss
+//       equity_after <= hwm           → skipped_below_hwm
+//       否则 chargeable = min(equity_after - hwm, net_pnl)
+//            share     = chargeable * rate
+//            hwm_after = equity_after - share
+//  4. UPDATE copy_trading 一次写入：available, frozen, hwm, cumulative_profit_shared
+//     （share=0 时 hwm 不动，cumulative_profit_shared 不动，仅做结算）
+//  5. 若 share > 0：
+//       UPDATE wallets SET balance += share WHERE user_id = trader
+//       INSERT wallet_transactions(follower, copy_profit_share_out, -share)
+//       INSERT wallet_transactions(trader,   copy_profit_share_in,  +share)
+//       UPDATE users SET lifetime_profit_shared_in += share WHERE uid = trader
+//  6. INSERT copy_profit_share_records（无论 settled / skipped 都记一条审计）
+//
+// 关键不变量：share <= net_pnl * rate <= net_pnl，所以扣完 available 仍非负，
+// 不会触发 chk_copy_trading_capital_nonneg。
+func (r *TraderRepo) SettleToBucketWithCommission(
+	ctx context.Context,
+	copyTradingID, traderUserID, positionID string,
+	releasedMargin, pnl, closeFee float64,
+) (*ProfitShareResult, error) {
+	if releasedMargin < 0 {
+		return nil, fmt.Errorf("releasedMargin must be >= 0: %v", releasedMargin)
+	}
+	if closeFee < 0 {
+		return nil, fmt.Errorf("closeFee must be >= 0: %v", closeFee)
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("settle commission begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// 1. 锁行
+	var (
+		followerUserID         string
+		availableBefore        float64
+		frozenBefore           float64
+		hwmBefore              float64
+		rate                   float64
+		cumulativeNetDeposit   float64
+		cumulativeProfitShared float64
+	)
+	err = tx.QueryRow(ctx, `
+		SELECT follower_id, available_capital, frozen_capital, high_water_mark,
+		       profit_share_rate, cumulative_net_deposit, cumulative_profit_shared
+		FROM copy_trading
+		WHERE id = $1
+		FOR UPDATE
+	`, copyTradingID).Scan(
+		&followerUserID, &availableBefore, &frozenBefore, &hwmBefore,
+		&rate, &cumulativeNetDeposit, &cumulativeProfitShared,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("settle commission lock row: %w", err)
+	}
+	if frozenBefore < releasedMargin {
+		return nil, fmt.Errorf("insufficient frozen capital: have %v, need %v", frozenBefore, releasedMargin)
+	}
+
+	// 2. 计算
+	netPnl := pnl - closeFee
+	equityBefore := availableBefore + frozenBefore
+	availableAfterSettle := availableBefore + releasedMargin + pnl - closeFee
+	frozenAfter := frozenBefore - releasedMargin
+	equityAfter := availableAfterSettle + frozenAfter // == equityBefore + netPnl
+
+	// 3. 分润判定
+	var (
+		share     float64
+		status    string
+		hwmAfter  = hwmBefore
+	)
+	switch {
+	case rate <= 0:
+		status = "skipped_zero_rate"
+	case netPnl <= 0:
+		status = "skipped_loss"
+	case equityAfter <= hwmBefore:
+		status = "skipped_below_hwm"
+	default:
+		chargeable := equityAfter - hwmBefore
+		if chargeable > netPnl {
+			chargeable = netPnl
+		}
+		share = chargeable * rate
+		if share < 0 {
+			share = 0 // 防御性：理论上不可能负
+		}
+		hwmAfter = equityAfter - share
+		status = "settled"
+	}
+
+	availableAfterShare := availableAfterSettle - share
+
+	// 4. UPDATE copy_trading
+	_, err = tx.Exec(ctx, `
+		UPDATE copy_trading
+		SET available_capital        = $2,
+		    frozen_capital           = $3,
+		    high_water_mark          = $4,
+		    cumulative_profit_shared = cumulative_profit_shared + $5,
+		    updated_at = NOW()
+		WHERE id = $1
+	`, copyTradingID, availableAfterShare, frozenAfter, hwmAfter, share)
+	if err != nil {
+		return nil, fmt.Errorf("settle commission update copy_trading: %w", err)
+	}
+
+	var newLifetimeIn float64
+	// 5. 若 share > 0 → 钱包 + 流水 + 累计
+	if share > 0 {
+		// follower 流水：amount<0、balance_after 用池子 available（不是钱包）
+		_, err = tx.Exec(ctx, `
+			INSERT INTO wallet_transactions (user_id, type, amount, balance_after, ref_id, note)
+			VALUES ($1, 'copy_profit_share_out', $2, $3, $4, 'Profit share paid to trader')
+		`, followerUserID, -share, availableAfterShare, copyTradingID)
+		if err != nil {
+			return nil, fmt.Errorf("settle commission record follower tx: %w", err)
+		}
+
+		// trader 钱包：balance += share
+		var traderBalanceAfter float64
+		err = tx.QueryRow(ctx, `
+			INSERT INTO wallets (user_id, balance) VALUES ($1, $2)
+			ON CONFLICT (user_id) DO UPDATE SET
+				balance = wallets.balance + $2,
+				updated_at = NOW()
+			RETURNING balance
+		`, traderUserID, share).Scan(&traderBalanceAfter)
+		if err != nil {
+			return nil, fmt.Errorf("settle commission credit trader wallet: %w", err)
+		}
+
+		// trader 流水：amount>0
+		_, err = tx.Exec(ctx, `
+			INSERT INTO wallet_transactions (user_id, type, amount, balance_after, ref_id, note)
+			VALUES ($1, 'copy_profit_share_in', $2, $3, $4, 'Profit share received from follower')
+		`, traderUserID, share, traderBalanceAfter, copyTradingID)
+		if err != nil {
+			return nil, fmt.Errorf("settle commission record trader tx: %w", err)
+		}
+
+		// trader 累计
+		err = tx.QueryRow(ctx, `
+			UPDATE users SET lifetime_profit_shared_in = lifetime_profit_shared_in + $2,
+			                 updated_at = NOW()
+			WHERE uid = $1
+			RETURNING lifetime_profit_shared_in
+		`, traderUserID, share).Scan(&newLifetimeIn)
+		if err != nil {
+			return nil, fmt.Errorf("settle commission update trader lifetime: %w", err)
+		}
+	}
+
+	// 6. 审计（无论 settled/skipped）
+	_, err = tx.Exec(ctx, `
+		INSERT INTO copy_profit_share_records (
+			copy_trading_id, follower_user_id, trader_user_id, position_id,
+			gross_pnl, close_fee, net_pnl,
+			equity_before, equity_after, hwm_before, hwm_after,
+			rate_applied, share_amount, status
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+	`, copyTradingID, followerUserID, traderUserID, positionID,
+		pnl, closeFee, netPnl,
+		equityBefore, equityAfter, hwmBefore, hwmAfter,
+		rate, share, status)
+	if err != nil {
+		return nil, fmt.Errorf("settle commission insert audit: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("settle commission commit: %w", err)
+	}
+
+	return &ProfitShareResult{
+		Settled:       share > 0,
+		ShareAmount:   share,
+		HwmBefore:     hwmBefore,
+		HwmAfter:      hwmAfter,
+		EquityBefore:  equityBefore,
+		EquityAfter:   equityAfter,
+		RateApplied:   rate,
+		NetPnl:        netPnl,
+		Status:        status,
+		BucketBalance: availableAfterShare,
+		NewLifetimeIn: newLifetimeIn,
+	}, nil
+}
+
+// UpdateDefaultShareRate 修改 trader 的默认分润比例。
+// rate ∈ [0, 0.2]；不影响存量 follower 的 copy_trading.profit_share_rate（snapshot 锁定）。
+func (r *TraderRepo) UpdateDefaultShareRate(ctx context.Context, traderUserID string, rate float64) error {
+	if rate < 0 || rate > 0.2 {
+		return fmt.Errorf("rate out of range [0, 0.2]: %v", rate)
+	}
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE users SET default_profit_share_rate = $2, updated_at = NOW()
+		WHERE uid = $1 AND COALESCE(is_trader, false) = true
+	`, traderUserID, rate)
+	if err != nil {
+		return fmt.Errorf("update default share rate: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("trader not found or not approved: %s", traderUserID)
+	}
+	return nil
+}
+
+// GetDefaultShareRate 读 trader 当前默认分润比例（snapshot 时用）。
+// 不存在 / 非 trader 一律返回 0（绝不让分润误开启）。
+func (r *TraderRepo) GetDefaultShareRate(ctx context.Context, traderUserID string) (float64, error) {
+	var rate float64
+	err := r.pool.QueryRow(ctx, `
+		SELECT COALESCE(default_profit_share_rate, 0)
+		FROM users WHERE uid = $1 AND COALESCE(is_trader, false) = true
+	`, traderUserID).Scan(&rate)
+	if err != nil {
+		return 0, nil // 安全回退：失败 → 0 比例
+	}
+	return rate, nil
+}
+
+// GetProfitShareSummary 交易员 dashboard 顶部三卡片 + 当前默认比例。
+func (r *TraderRepo) GetProfitShareSummary(ctx context.Context, traderUserID string) (*model.ProfitShareSummary, error) {
+	s := &model.ProfitShareSummary{}
+	// lifetime + default_rate 直接从 users 读
+	err := r.pool.QueryRow(ctx, `
+		SELECT COALESCE(lifetime_profit_shared_in, 0),
+		       COALESCE(default_profit_share_rate, 0)
+		FROM users WHERE uid = $1
+	`, traderUserID).Scan(&s.Lifetime, &s.DefaultShareRate)
+	if err != nil {
+		return nil, fmt.Errorf("summary fetch user: %w", err)
+	}
+	// this_month: 从 audit 表实时聚合
+	err = r.pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM(share_amount), 0)
+		FROM copy_profit_share_records
+		WHERE trader_user_id = $1
+		  AND status = 'settled'
+		  AND created_at >= DATE_TRUNC('month', NOW())
+	`, traderUserID).Scan(&s.ThisMonth)
+	if err != nil {
+		return nil, fmt.Errorf("summary fetch this_month: %w", err)
+	}
+	// active_followers: 从 copy_trading 实时统计
+	err = r.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM copy_trading
+		WHERE trader_id = $1 AND status = 'active'
+	`, traderUserID).Scan(&s.ActiveFollowers)
+	if err != nil {
+		return nil, fmt.Errorf("summary fetch active_followers: %w", err)
+	}
+	return s, nil
+}
+
+// ListProfitShareRecords trader dashboard 明细列表（分页）。
+// 只返回 status='settled' 的记录（前端不需要看 skip 项；如需可单独加 includeSkipped 开关）。
+func (r *TraderRepo) ListProfitShareRecords(
+	ctx context.Context,
+	traderUserID string,
+	limit, offset int,
+) ([]model.ProfitShareRecord, int, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	var total int
+	err := r.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM copy_profit_share_records
+		WHERE trader_user_id = $1 AND status = 'settled'
+	`, traderUserID).Scan(&total)
+	if err != nil {
+		return nil, 0, fmt.Errorf("count records: %w", err)
+	}
+
+	rows, err := r.pool.Query(ctx, `
+		SELECT r.id, r.created_at, r.copy_trading_id, r.follower_user_id, r.trader_user_id, r.position_id,
+		       r.gross_pnl, r.close_fee, r.net_pnl,
+		       r.equity_before, r.equity_after, r.hwm_before, r.hwm_after,
+		       r.rate_applied, r.share_amount, r.status,
+		       COALESCE(u.display_name, ''),
+		       COALESCE(p.symbol || ' ' || p.side, '')
+		FROM copy_profit_share_records r
+		LEFT JOIN users u ON u.uid = r.follower_user_id
+		LEFT JOIN positions p ON p.id = r.position_id
+		WHERE r.trader_user_id = $1 AND r.status = 'settled'
+		ORDER BY r.created_at DESC
+		LIMIT $2 OFFSET $3
+	`, traderUserID, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list records: %w", err)
+	}
+	defer rows.Close()
+
+	var out []model.ProfitShareRecord
+	for rows.Next() {
+		var rec model.ProfitShareRecord
+		if err := rows.Scan(
+			&rec.ID, &rec.CreatedAt, &rec.CopyTradingID, &rec.FollowerUserID, &rec.TraderUserID, &rec.PositionID,
+			&rec.GrossPnl, &rec.CloseFee, &rec.NetPnl,
+			&rec.EquityBefore, &rec.EquityAfter, &rec.HwmBefore, &rec.HwmAfter,
+			&rec.RateApplied, &rec.ShareAmount, &rec.Status,
+			&rec.FollowerName, &rec.PositionInfo,
+		); err != nil {
+			return nil, 0, fmt.Errorf("scan record: %w", err)
+		}
+		out = append(out, rec)
+	}
+	return out, total, nil
 }

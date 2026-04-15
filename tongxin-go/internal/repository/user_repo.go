@@ -69,12 +69,16 @@ func (r *UserRepo) GetByUID(ctx context.Context, uid string) (*model.User, error
 		SELECT uid, email, display_name, COALESCE(avatar_url,''), COALESCE(role,'user'),
 		       COALESCE(status,'active'), COALESCE(short_id,''), COALESCE(phone,''),
 		       COALESCE(bio,''), COALESCE(is_trader, false), COALESCE(is_support_agent, false), COALESCE(allow_copy_trading, false),
-		       trader_approved_at, COALESCE(vip_level, 0), created_at, updated_at
+		       trader_approved_at, COALESCE(vip_level, 0),
+		       COALESCE(default_profit_share_rate, 0), COALESCE(lifetime_profit_shared_in, 0),
+		       created_at, updated_at
 		FROM users WHERE uid = $1
 	`, uid).Scan(
 		&u.UID, &u.Email, &u.DisplayName, &u.AvatarURL, &u.Role,
 		&u.Status, &u.ShortID, &u.Phone, &u.Bio, &u.IsTrader, &u.IsSupportAgent, &u.AllowCopyTrading,
-		&u.TraderApprovedAt, &u.VipLevel, &u.CreatedAt, &u.UpdatedAt,
+		&u.TraderApprovedAt, &u.VipLevel,
+		&u.DefaultProfitShareRate, &u.LifetimeProfitSharedIn,
+		&u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -88,12 +92,16 @@ func (r *UserRepo) GetByEmail(ctx context.Context, email string) (*model.User, e
 		SELECT uid, email, display_name, COALESCE(avatar_url,''), COALESCE(role,'user'),
 		       COALESCE(status,'active'), COALESCE(short_id,''), COALESCE(phone,''),
 		       COALESCE(bio,''), COALESCE(is_trader, false), COALESCE(is_support_agent, false), COALESCE(allow_copy_trading, false),
-		       trader_approved_at, COALESCE(vip_level, 0), created_at, updated_at
+		       trader_approved_at, COALESCE(vip_level, 0),
+		       COALESCE(default_profit_share_rate, 0), COALESCE(lifetime_profit_shared_in, 0),
+		       created_at, updated_at
 		FROM users WHERE email = $1
 	`, email).Scan(
 		&u.UID, &u.Email, &u.DisplayName, &u.AvatarURL, &u.Role,
 		&u.Status, &u.ShortID, &u.Phone, &u.Bio, &u.IsTrader, &u.IsSupportAgent, &u.AllowCopyTrading,
-		&u.TraderApprovedAt, &u.VipLevel, &u.CreatedAt, &u.UpdatedAt,
+		&u.TraderApprovedAt, &u.VipLevel,
+		&u.DefaultProfitShareRate, &u.LifetimeProfitSharedIn,
+		&u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -344,7 +352,9 @@ func (r *UserRepo) ListAll(ctx context.Context, limit, offset int) ([]model.User
 		SELECT uid, email, display_name, COALESCE(avatar_url,''), COALESCE(role,'user'),
 		       COALESCE(status,'active'), COALESCE(short_id,''), COALESCE(phone,''),
 		       COALESCE(bio,''), COALESCE(is_trader, false), COALESCE(is_support_agent, false), COALESCE(allow_copy_trading, false),
-		       trader_approved_at, COALESCE(vip_level, 0), created_at, updated_at
+		       trader_approved_at, COALESCE(vip_level, 0),
+		       COALESCE(default_profit_share_rate, 0), COALESCE(lifetime_profit_shared_in, 0),
+		       created_at, updated_at
 		FROM users ORDER BY created_at DESC LIMIT $1 OFFSET $2
 	`, limit, offset)
 	if err != nil {
@@ -357,7 +367,9 @@ func (r *UserRepo) ListAll(ctx context.Context, limit, offset int) ([]model.User
 		var u model.User
 		if err := rows.Scan(&u.UID, &u.Email, &u.DisplayName, &u.AvatarURL, &u.Role,
 			&u.Status, &u.ShortID, &u.Phone, &u.Bio, &u.IsTrader, &u.IsSupportAgent, &u.AllowCopyTrading,
-			&u.TraderApprovedAt, &u.VipLevel, &u.CreatedAt, &u.UpdatedAt); err != nil {
+			&u.TraderApprovedAt, &u.VipLevel,
+			&u.DefaultProfitShareRate, &u.LifetimeProfitSharedIn,
+			&u.CreatedAt, &u.UpdatedAt); err != nil {
 			return nil, 0, err
 		}
 		users = append(users, u)
@@ -382,7 +394,9 @@ func (r *UserRepo) ListByRole(ctx context.Context, role string) ([]model.User, e
 		SELECT uid, email, display_name, COALESCE(avatar_url,''), COALESCE(role,'user'),
 		       COALESCE(status,'active'), COALESCE(short_id,''), COALESCE(phone,''),
 		       COALESCE(bio,''), COALESCE(is_trader, false), COALESCE(is_support_agent, false), COALESCE(allow_copy_trading, false),
-		       trader_approved_at, COALESCE(vip_level, 0), created_at, updated_at
+		       trader_approved_at, COALESCE(vip_level, 0),
+		       COALESCE(default_profit_share_rate, 0), COALESCE(lifetime_profit_shared_in, 0),
+		       created_at, updated_at
 		From users WHERE role = $1 ORDER BY created_at DESC
 	`, role)
 	if err != nil {
@@ -395,7 +409,9 @@ func (r *UserRepo) ListByRole(ctx context.Context, role string) ([]model.User, e
 		var u model.User
 		if err := rows.Scan(&u.UID, &u.Email, &u.DisplayName, &u.AvatarURL, &u.Role,
 			&u.Status, &u.ShortID, &u.Phone, &u.Bio, &u.IsTrader, &u.IsSupportAgent, &u.AllowCopyTrading,
-			&u.TraderApprovedAt, &u.VipLevel, &u.CreatedAt, &u.UpdatedAt); err != nil {
+			&u.TraderApprovedAt, &u.VipLevel,
+			&u.DefaultProfitShareRate, &u.LifetimeProfitSharedIn,
+			&u.CreatedAt, &u.UpdatedAt); err != nil {
 			return nil, err
 		}
 		users = append(users, u)
@@ -408,7 +424,9 @@ func (r *UserRepo) ListSupportAgents(ctx context.Context) ([]model.User, error) 
 		SELECT uid, email, display_name, COALESCE(avatar_url,''), COALESCE(role,'user'),
 		       COALESCE(status,'active'), COALESCE(short_id,''), COALESCE(phone,''),
 		       COALESCE(bio,''), COALESCE(is_trader, false), COALESCE(is_support_agent, false), COALESCE(allow_copy_trading, false),
-		       trader_approved_at, COALESCE(vip_level, 0), created_at, updated_at
+		       trader_approved_at, COALESCE(vip_level, 0),
+		       COALESCE(default_profit_share_rate, 0), COALESCE(lifetime_profit_shared_in, 0),
+		       created_at, updated_at
 		FROM users
 		WHERE is_support_agent = true
 		ORDER BY updated_at DESC
@@ -423,7 +441,9 @@ func (r *UserRepo) ListSupportAgents(ctx context.Context) ([]model.User, error) 
 		var u model.User
 		if err := rows.Scan(&u.UID, &u.Email, &u.DisplayName, &u.AvatarURL, &u.Role,
 			&u.Status, &u.ShortID, &u.Phone, &u.Bio, &u.IsTrader, &u.IsSupportAgent, &u.AllowCopyTrading,
-			&u.TraderApprovedAt, &u.VipLevel, &u.CreatedAt, &u.UpdatedAt); err != nil {
+			&u.TraderApprovedAt, &u.VipLevel,
+			&u.DefaultProfitShareRate, &u.LifetimeProfitSharedIn,
+			&u.CreatedAt, &u.UpdatedAt); err != nil {
 			return nil, err
 		}
 		users = append(users, u)
@@ -439,7 +459,9 @@ func (r *UserRepo) SearchAll(ctx context.Context, query string, limit int) ([]mo
 		SELECT uid, email, display_name, COALESCE(avatar_url,''), COALESCE(role,'user'),
 		       COALESCE(status,'active'), COALESCE(short_id,''), COALESCE(phone,''),
 		       COALESCE(bio,''), COALESCE(is_trader, false), COALESCE(is_support_agent, false), COALESCE(allow_copy_trading, false),
-		       trader_approved_at, COALESCE(vip_level, 0), created_at, updated_at
+		       trader_approved_at, COALESCE(vip_level, 0),
+		       COALESCE(default_profit_share_rate, 0), COALESCE(lifetime_profit_shared_in, 0),
+		       created_at, updated_at
 		FROM users
 		WHERE display_name ILIKE $1 OR email ILIKE $1 OR short_id ILIKE $1
 		ORDER BY created_at DESC
@@ -455,7 +477,9 @@ func (r *UserRepo) SearchAll(ctx context.Context, query string, limit int) ([]mo
 		var u model.User
 		if err := rows.Scan(&u.UID, &u.Email, &u.DisplayName, &u.AvatarURL, &u.Role,
 			&u.Status, &u.ShortID, &u.Phone, &u.Bio, &u.IsTrader, &u.IsSupportAgent, &u.AllowCopyTrading,
-			&u.TraderApprovedAt, &u.VipLevel, &u.CreatedAt, &u.UpdatedAt); err != nil {
+			&u.TraderApprovedAt, &u.VipLevel,
+			&u.DefaultProfitShareRate, &u.LifetimeProfitSharedIn,
+			&u.CreatedAt, &u.UpdatedAt); err != nil {
 			return nil, err
 		}
 		users = append(users, u)
