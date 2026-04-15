@@ -55,6 +55,7 @@ import {
 } from '../../services/api/traderApi';
 import { getMyStrategies, type TraderStrategy } from '../../services/api/traderStrategyApi';
 import { chatWs } from '../../services/websocket/chatWs';
+import { showAlert, showConfirm } from '../../services/utils/dialog';
 
 /* ════════════════════════════════════════
    UI-layer types (unchanged from design)
@@ -2050,16 +2051,40 @@ function PeerSidebar({
   }, [copyRatio, maxPosition, allocatedCapital, peerUserId, t, user, loadSidebarData]);
 
   const handleUnfollow = useCallback(async () => {
+    const frozen = activeRelation?.frozen_capital ?? 0;
+    const available = activeRelation?.available_capital ?? 0;
+    const hasOpen = frozen > 0;
+    const fmt = (n: number) =>
+      n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    const ok = hasOpen
+      ? await showConfirm(
+          `当前还有冻结本金 ${fmt(frozen)} USDT（即未平仓的跟单仓位）。\n\n` +
+            `继续取消跟单将按市价自动平掉所有跟单仓位，并把池子余额（含已实现盈亏）退回主钱包。\n\n` +
+            `建议：先手动平仓以更好控制成交时机；如果确认接受市价立即平仓，请点确认。`,
+          '确认取消跟单',
+        )
+      : await showConfirm(
+          `将停止跟单并把池子可用 ${fmt(available)} USDT 退回主钱包。`,
+          '确认取消跟单',
+        );
+    if (!ok) return;
+
     setActionLoading(true);
     try {
-      await unfollowTrader(peerUserId);
+      const res = await unfollowTrader(peerUserId, hasOpen);
       await loadSidebarData();
+      if (hasOpen && res?.closed_positions != null) {
+        showAlert(`已自动平掉 ${res.closed_positions} 笔跟单仓位，本金已退回钱包`);
+      }
     } catch (e: any) {
-      Alert.alert('Error', e?.response?.data?.error || e?.message || 'Unfollow failed');
+      const msg = e?.response?.data?.error || e?.message || 'Unfollow failed';
+      console.error('[messages] unfollow failed:', e);
+      showAlert(msg, '错误');
     } finally {
       setActionLoading(false);
     }
-  }, [peerUserId, loadSidebarData]);
+  }, [peerUserId, loadSidebarData, activeRelation]);
 
   const openFollowModal = useCallback(() => {
     setCopyRatio(String(activeRelation?.copy_ratio || 1.0));

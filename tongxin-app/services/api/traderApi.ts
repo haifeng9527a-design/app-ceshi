@@ -210,8 +210,17 @@ export async function followTrader(uid: string, req?: FollowTraderRequest): Prom
   return data;
 }
 
-export async function unfollowTrader(uid: string): Promise<void> {
-  await apiClient.delete(`/api/trader/${uid}/follow`);
+// 取消跟单。force=true 时后端会自动按市价平掉所有该交易员的跟单仓位，
+// 然后把池子余额退回钱包并停止订阅。前端调用 force 之前必须先和用户确认。
+export async function unfollowTrader(
+  uid: string,
+  force = false,
+): Promise<{ status: string; closed_positions?: number }> {
+  const url = force
+    ? `/api/trader/${uid}/follow?force=true`
+    : `/api/trader/${uid}/follow`;
+  const { data } = await apiClient.delete(url);
+  return data ?? { status: 'unfollowed' };
 }
 
 export async function updateCopySettings(uid: string, req: FollowTraderRequest): Promise<CopyTrading> {

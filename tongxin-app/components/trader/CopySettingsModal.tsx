@@ -8,7 +8,6 @@ import {
   TextInput,
   StyleSheet,
   ActivityIndicator,
-  Alert,
 } from 'react-native';
 import { Colors, Sizes } from '../../theme/colors';
 import {
@@ -18,6 +17,7 @@ import {
   type CopyTrading,
 } from '../../services/api/traderApi';
 import { useTradingStore } from '../../services/store/tradingStore';
+import { showAlert } from '../../services/utils/dialog';
 
 interface Props {
   visible: boolean;
@@ -143,21 +143,27 @@ export default function CopySettingsModal({
   const walletAvailable = wallet ? wallet.balance : 0;
 
   const handleAdjustCapital = async () => {
-    if (!traderUid) return;
-    const amt = parseFloat(adjustAmount);
-    if (!amt || amt <= 0) {
-      Alert.alert('', '请输入有效金额');
+    if (!traderUid) {
+      showAlert('Trader ID 缺失，请关闭弹窗重试');
       return;
     }
-    const delta = adjustMode === 'topup' ? amt : -amt;
-    if (adjustMode === 'topup' && amt > walletAvailable) {
-      Alert.alert('', `钱包可用余额不足（${formatUsd(walletAvailable)} USDT）`);
+    const amt = parseFloat(adjustAmount);
+    if (!Number.isFinite(amt) || amt <= 0) {
+      showAlert('请输入有效金额');
+      return;
+    }
+    // Frontend pre-checks. Backend re-validates with authoritative numbers,
+    // so we only flag the cases we know for sure (skip the wallet check when
+    // the wallet hasn't loaded yet — let the server speak).
+    if (adjustMode === 'topup' && wallet && amt > walletAvailable) {
+      showAlert(`钱包可用余额不足（${formatUsd(walletAvailable)} USDT）`);
       return;
     }
     if (adjustMode === 'withdraw' && bucket && amt > bucket.available_capital) {
-      Alert.alert('', `池子可用不足（${formatUsd(bucket.available_capital)} USDT）`);
+      showAlert(`池子可用不足（${formatUsd(bucket.available_capital)} USDT）`);
       return;
     }
+    const delta = adjustMode === 'topup' ? amt : -amt;
     setAdjusting(true);
     try {
       const updated = await adjustAllocatedCapital(traderUid, delta);
@@ -166,8 +172,11 @@ export default function CopySettingsModal({
       setAdjustMode(null);
       fetchWallet(); // wallet changed too
       onBucketUpdated?.(updated);
+      showAlert(adjustMode === 'topup' ? '追加本金成功' : '赎回本金成功');
     } catch (e: any) {
-      Alert.alert('Error', e.response?.data?.error || e.message);
+      const msg = e?.response?.data?.error || e?.message || '操作失败';
+      console.error('[CopySettingsModal] adjustAllocatedCapital failed:', e);
+      showAlert(msg, '错误');
     } finally {
       setAdjusting(false);
     }
@@ -178,11 +187,11 @@ export default function CopySettingsModal({
     if (!isEdit) {
       const alloc = parseFloat(allocatedCapital);
       if (!alloc || alloc < 100) {
-        Alert.alert('', '分配本金最少 100 USDT');
+        showAlert('分配本金最少 100 USDT');
         return;
       }
-      if (alloc > walletAvailable) {
-        Alert.alert('', `钱包可用余额不足（${formatUsd(walletAvailable)} USDT）`);
+      if (wallet && alloc > walletAvailable) {
+        showAlert(`钱包可用余额不足（${formatUsd(walletAvailable)} USDT）`);
         return;
       }
     }

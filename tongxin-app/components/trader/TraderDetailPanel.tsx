@@ -41,6 +41,7 @@ import {
   getTraderStrategies,
   TraderStrategy,
 } from '../../services/api/traderStrategyApi';
+import { showAlert, showConfirm } from '../../services/utils/dialog';
 
 interface Props {
   uid: string;
@@ -149,13 +150,44 @@ export default function TraderDetailPanel({ uid, onClose, embedded }: Props) {
   };
 
   const handleUnfollow = async () => {
+    // Branch on whether the bucket has any frozen capital — i.e. open copy
+    // positions. We always confirm; on the "has open positions" branch we
+    // warn that auto-close will happen, and recommend manual close first.
+    const hasOpenPositions =
+      !!copySettings && (copySettings.frozen_capital ?? 0) > 0;
+    const available = copySettings?.available_capital ?? 0;
+    const frozen = copySettings?.frozen_capital ?? 0;
+    const fmt = (n: number) =>
+      n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    let ok: boolean;
+    if (hasOpenPositions) {
+      ok = await showConfirm(
+        `当前还有冻结本金 ${fmt(frozen)} USDT（即未平仓的跟单仓位）。\n\n` +
+          `继续取消跟单将按市价自动平掉所有跟单仓位，并把池子余额（含已实现盈亏）退回主钱包。\n\n` +
+          `建议：先手动平仓以更好控制成交时机；如果确认接受市价立即平仓，请点确认。`,
+        '确认取消跟单',
+      );
+    } else {
+      ok = await showConfirm(
+        `将停止跟单并把池子可用 ${fmt(available)} USDT 退回主钱包。`,
+        '确认取消跟单',
+      );
+    }
+    if (!ok) return;
+
     setActionLoading(true);
     try {
-      await unfollowTrader(uid);
+      const res = await unfollowTrader(uid, hasOpenPositions);
       setFollowing(false);
       setCopySettings(undefined);
+      if (hasOpenPositions && res?.closed_positions != null) {
+        showAlert(`已自动平掉 ${res.closed_positions} 笔跟单仓位，本金已退回钱包`);
+      }
     } catch (e: any) {
-      Alert.alert('Error', e.response?.data?.error || e.message);
+      const msg = e?.response?.data?.error || e?.message || '取消跟单失败';
+      console.error('[TraderDetailPanel] unfollow failed:', e);
+      showAlert(msg, '错误');
     } finally { setActionLoading(false); }
   };
 
