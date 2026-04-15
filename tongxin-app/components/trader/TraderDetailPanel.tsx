@@ -381,7 +381,7 @@ export default function TraderDetailPanel({ uid, onClose, embedded }: Props) {
                           <ActivityIndicator color={Colors.textSecondary} size="small" />
                         ) : (
                           <Text style={[styles.copyActionBtnText, copySettings?.status === 'paused' && styles.copyActionBtnTextActive]}>
-                            {copySettings?.status === 'paused' ? t('traderCenter.copyTradingOn') : t('traderCenter.copyTradingOff')}
+                            {copySettings?.status === 'paused' ? t('traderCenter.resumeCopyTrading') : t('traderCenter.pauseCopyTrading')}
                           </Text>
                         )}
                       </TouchableOpacity>
@@ -414,7 +414,7 @@ export default function TraderDetailPanel({ uid, onClose, embedded }: Props) {
               <Text style={styles.bucketTitle}>{t('traderCenter.copyBucketTitle')}</Text>
               {copySettings.status === 'paused' && (
                 <View style={styles.bucketPausedBadge}>
-                  <Text style={styles.bucketPausedText}>{t('traderCenter.copyTradingOff')}</Text>
+                  <Text style={styles.bucketPausedText}>{t('traderCenter.bucketPaused')}</Text>
                 </View>
               )}
             </View>
