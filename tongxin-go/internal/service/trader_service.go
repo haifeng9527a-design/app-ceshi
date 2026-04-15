@@ -168,7 +168,9 @@ func (s *TraderService) FollowTrader(ctx context.Context, followerID, traderID s
 }
 
 // UnfollowTrader 取消跟单：先检查无未平仓位 → 子账户余额回主钱包 → status=stopped
-// 错误信息「has open positions」会被前端用来弹「请先平仓」提示
+// 错误信息「has open positions」会被前端用来弹「请先平仓」提示。
+// 仓位非空时调用方应改走「先 force-close 再 UnfollowTrader」的路径
+// （cmd/api/handler 那一层负责协调 TradingService.CloseAllByCopyTrading）。
 func (s *TraderService) UnfollowTrader(ctx context.Context, followerID, traderID string) error {
 	ct, err := s.repo.GetCopyRelation(ctx, followerID, traderID)
 	if err != nil {
@@ -188,6 +190,12 @@ func (s *TraderService) UnfollowTrader(ctx context.Context, followerID, traderID
 		}
 	}
 	return s.repo.StopCopyTrading(ctx, followerID, traderID)
+}
+
+// GetCopyRelation 暴露 repo 的同名方法，handler 在 force-unfollow 时需要先
+// 拿到 copy_trading_id 才能调用 TradingService.CloseAllByCopyTrading。
+func (s *TraderService) GetCopyRelation(ctx context.Context, followerID, traderID string) (*model.CopyTrading, error) {
+	return s.repo.GetCopyRelation(ctx, followerID, traderID)
 }
 
 // AdjustAllocatedCapital 用户主动追加 / 赎回某个跟单池子的本金。

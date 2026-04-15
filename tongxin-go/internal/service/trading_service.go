@@ -877,6 +877,39 @@ func (s *TradingService) ClosePosition(ctx context.Context, userID, positionID s
 	return pos, nil
 }
 
+// CloseAllByCopyTrading market-closes every open follower position belonging
+// to a single copy_trading subscription. Used by the force-unfollow flow so
+// the user can drain the bucket and stop following in one click.
+//
+// Each close runs through the normal `ClosePosition` path, which means PnL
+// settles to the bucket (not the wallet) — by the time this returns, the
+// subscription's frozen_capital is back to 0 and available_capital reflects
+// the realized PnL. We don't abort on individual close errors: we collect the
+// count of successes/failures so the caller can report partial progress.
+func (s *TradingService) CloseAllByCopyTrading(ctx context.Context, userID, copyTradingID string) (closed int, failed int, lastErr error) {
+	positions, err := s.positionRepo.ListOpenByCopyTrading(ctx, copyTradingID)
+	if err != nil {
+		return 0, 0, fmt.Errorf("list open positions: %w", err)
+	}
+	for _, p := range positions {
+		// Defensive: only close positions that belong to this user. The repo
+		// query already filters by copy_trading_id, but copy_trading_id is
+		// per-subscription so user_id should match — re-checking keeps a stray
+		// row from being closed under the wrong identity.
+		if p.UserID != userID {
+			continue
+		}
+		if _, cerr := s.ClosePosition(ctx, userID, p.ID); cerr != nil {
+			failed++
+			lastErr = cerr
+			log.Printf("[copy-trading] CloseAllByCopyTrading: position %s close failed: %v", p.ID, cerr)
+			continue
+		}
+		closed++
+	}
+	return closed, failed, lastErr
+}
+
 // PartialClosePosition closes a portion of an open position.
 func (s *TradingService) PartialClosePosition(ctx context.Context, userID, positionID string, closeQty float64) (*model.Position, error) {
 	pos, err := s.positionRepo.GetByID(ctx, positionID)

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -207,7 +208,14 @@ func (h *TraderHandler) FollowTrader(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, ct)
 }
 
-// DELETE /api/trader/{uid}/follow
+// DELETE /api/trader/{uid}/follow[?force=true]
+//
+// Default flow:        bucket → wallet, status → stopped (rejects if any
+//                      copy position is still open).
+// `?force=true` flow:  market-close every open follower position belonging to
+//                      this subscription, then run the default flow. Lets the
+//                      user "drain & exit" in a single call after the
+//                      front-end has confirmed they accept auto-close.
 func (h *TraderHandler) UnfollowTrader(w http.ResponseWriter, r *http.Request) {
 	uid := middleware.GetUserUID(r.Context())
 	if uid == "" {
@@ -221,13 +229,39 @@ func (h *TraderHandler) UnfollowTrader(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	force := r.URL.Query().Get("force") == "true"
+
+	closed, failed := 0, 0
+	if force && h.tradingSvc != nil {
+		// Resolve copy_trading_id, then market-close everything before we try
+		// to drain the bucket. We deliberately use the service-level helper so
+		// each close goes through the normal settle-to-bucket path.
+		ct, gerr := h.svc.GetCopyRelation(r.Context(), uid, traderUID)
+		if gerr == nil && ct != nil && ct.FrozenCapital > 0 {
+			c, f, _ := h.tradingSvc.CloseAllByCopyTrading(r.Context(), uid, ct.ID)
+			closed, failed = c, f
+			if failed > 0 {
+				// Some closes failed — bail out instead of leaving the bucket
+				// in an inconsistent state. User can retry, or close the
+				// stragglers manually.
+				writeError(w, http.StatusBadRequest,
+					fmt.Sprintf("force-close partial: %d closed, %d failed; please retry", closed, failed))
+				return
+			}
+		}
+	}
+
 	if err := h.svc.UnfollowTrader(r.Context(), uid, traderUID); err != nil {
 		// 暴露原始错误（前端用 "has open positions" 来弹「请先平仓」提示）
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "unfollowed"})
+	resp := map[string]any{"status": "unfollowed"}
+	if force {
+		resp["closed_positions"] = closed
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // PATCH /api/trader/{uid}/follow/capital — 追加 / 赎回跟单池子本金

@@ -349,3 +349,23 @@ func (r *PositionRepo) ListBySourcePosition(ctx context.Context, sourcePositionI
 	defer rows.Close()
 	return scanPositions(rows)
 }
+
+// ListOpenByCopyTrading returns all open follower positions belonging to a
+// specific copy_trading subscription. Used when force-unfollowing — we walk
+// this list and close each position back to the subscription's bucket.
+func (r *PositionRepo) ListOpenByCopyTrading(ctx context.Context, copyTradingID string) ([]model.Position, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, user_id, symbol, side, qty, entry_price, leverage,
+		 margin_mode, margin_amount, liq_price, tp_price, sl_price,
+		 status, realized_pnl, open_fee, close_fee,
+		 is_copy_trade, source_position_id, source_trader_id, copy_trading_id,
+		 created_at, updated_at
+		 FROM positions
+		 WHERE copy_trading_id = $1 AND status = 'open'`,
+		copyTradingID)
+	if err != nil {
+		return nil, fmt.Errorf("list open by copy_trading_id: %w", err)
+	}
+	defer rows.Close()
+	return scanPositions(rows)
+}
