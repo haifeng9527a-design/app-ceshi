@@ -88,47 +88,52 @@ export default function CopySettingsModal({
   );
   const [submitting, setSubmitting] = useState(false);
 
-  // Reset form when modal opens with new settings
+  // Reset form when modal opens. We intentionally depend ONLY on `visible`:
+  // the async bucket-refresh below calls `onBucketUpdated`, which makes the
+  // parent push a new `initialSettings` reference back in. If that prop were
+  // in this deps array, we'd reset the form (clearing `adjustMode`) on every
+  // refresh — making the top-up / withdraw input "flash and disappear".
+  // Closure values are captured at open time, which is what we want here.
   useEffect(() => {
-    if (visible) {
-      setAllocatedCapital(String(initialSettings?.allocated_capital ?? 1000));
-      setBucket(initialSettings);
-      setAdjustMode(null);
-      setAdjustAmount('');
-      setCopyMode(initialSettings?.copy_mode || 'fixed');
-      setFixedAmount(String(initialSettings?.fixed_amount ?? 100));
-      setCopyRatio(String(initialSettings?.copy_ratio ?? 1.0));
-      setMaxPosition(String(initialSettings?.max_position ?? 1000));
-      setMaxSingleMargin(String(initialSettings?.max_single_margin ?? 500));
-      setLeverageMode(initialSettings?.leverage_mode || 'trader');
-      setCustomLeverage(String(initialSettings?.custom_leverage ?? 10));
-      setTpSlMode(initialSettings?.tp_sl_mode || 'trader');
-      setCustomTpRatio(String(initialSettings?.custom_tp_ratio ?? 50));
-      setCustomSlRatio(String(initialSettings?.custom_sl_ratio ?? 20));
-      setFollowDirection(initialSettings?.follow_direction || 'both');
-      // Refresh wallet + bucket so the user sees the current numbers
-      fetchWallet();
-      // Re-fetch the latest bucket state (PnL / frozen may have changed since
-      // the parent component last loaded its data — close, fees, etc.)
-      if (isEdit && traderUid) {
-        getMyFollowing()
-          .then((list) => {
-            const fresh = list.find(
-              (x) =>
-                x.trader_id === traderUid &&
-                (x.status === 'active' || x.status === 'paused'),
-            );
-            if (fresh) {
-              setBucket(fresh);
-              onBucketUpdated?.(fresh);
-            }
-          })
-          .catch(() => {
-            // Silent — keep stale initialSettings if refresh fails
-          });
-      }
+    if (!visible) return;
+    setAllocatedCapital(String(initialSettings?.allocated_capital ?? 1000));
+    setBucket(initialSettings);
+    setAdjustMode(null);
+    setAdjustAmount('');
+    setCopyMode(initialSettings?.copy_mode || 'fixed');
+    setFixedAmount(String(initialSettings?.fixed_amount ?? 100));
+    setCopyRatio(String(initialSettings?.copy_ratio ?? 1.0));
+    setMaxPosition(String(initialSettings?.max_position ?? 1000));
+    setMaxSingleMargin(String(initialSettings?.max_single_margin ?? 500));
+    setLeverageMode(initialSettings?.leverage_mode || 'trader');
+    setCustomLeverage(String(initialSettings?.custom_leverage ?? 10));
+    setTpSlMode(initialSettings?.tp_sl_mode || 'trader');
+    setCustomTpRatio(String(initialSettings?.custom_tp_ratio ?? 50));
+    setCustomSlRatio(String(initialSettings?.custom_sl_ratio ?? 20));
+    setFollowDirection(initialSettings?.follow_direction || 'both');
+    fetchWallet();
+
+    // Re-fetch the latest bucket so PnL / frozen reflect any closes since
+    // the parent last loaded its data.
+    if (initialSettings && traderUid) {
+      getMyFollowing()
+        .then((list) => {
+          const fresh = list.find(
+            (x) =>
+              x.trader_id === traderUid &&
+              (x.status === 'active' || x.status === 'paused'),
+          );
+          if (fresh) {
+            setBucket(fresh);
+            onBucketUpdated?.(fresh);
+          }
+        })
+        .catch(() => {
+          // Silent — keep stale initialSettings if refresh fails
+        });
     }
-  }, [visible, initialSettings, fetchWallet, isEdit, traderUid, onBucketUpdated]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
 
   const formatUsd = (n?: number) =>
     typeof n === 'number'
