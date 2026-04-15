@@ -578,12 +578,19 @@ func (r *TraderRepo) FreezeFromBucket(ctx context.Context, copyTradingID string,
 	if fee < 0 {
 		return fmt.Errorf("fee must be >= 0: %v", fee)
 	}
+	// NOTE: `$2::numeric + $3::numeric` 是必要的显式类型转换。
+	// pgx 绑定 float64 参数时不会固定 parameter 类型，若写成 `$2 + $3`，
+	// PostgreSQL 在没有列上下文（比如 WHERE 里的 `>= $2 + $3`）的情况下
+	// 会把两个参数都当 unknown，报 `operator is not unique: unknown + unknown
+	// (SQLSTATE 42725)`。SET 子句里虽然 `available_capital - $2 - $3` 能借
+	// 列类型推断，但为了统一和防御，一律加 ::numeric。
 	tag, err := r.pool.Exec(ctx, `
 		UPDATE copy_trading
-		SET available_capital = available_capital - $2 - $3,
-		    frozen_capital    = frozen_capital + $2,
+		SET available_capital = available_capital - $2::numeric - $3::numeric,
+		    frozen_capital    = frozen_capital + $2::numeric,
 		    updated_at = NOW()
-		WHERE id = $1 AND status = 'active' AND available_capital >= $2 + $3
+		WHERE id = $1 AND status = 'active'
+		  AND available_capital >= $2::numeric + $3::numeric
 	`, copyTradingID, margin, fee)
 	if err != nil {
 		return fmt.Errorf("freeze from bucket: %w", err)
@@ -601,12 +608,14 @@ func (r *TraderRepo) UnfreezeBucket(ctx context.Context, copyTradingID string, m
 	if margin <= 0 {
 		return nil
 	}
+	// 见 FreezeFromBucket 的说明：$2 / $3 必须加 ::numeric 显式类型，
+	// 否则 `$2 + $3` 在无列上下文时会被 pgx 当 unknown 类型报错。
 	tag, err := r.pool.Exec(ctx, `
 		UPDATE copy_trading
-		SET frozen_capital    = frozen_capital - $2,
-		    available_capital = available_capital + $2 + $3,
+		SET frozen_capital    = frozen_capital - $2::numeric,
+		    available_capital = available_capital + $2::numeric + $3::numeric,
 		    updated_at = NOW()
-		WHERE id = $1 AND frozen_capital >= $2
+		WHERE id = $1 AND frozen_capital >= $2::numeric
 	`, copyTradingID, margin, fee)
 	if err != nil {
 		return fmt.Errorf("unfreeze bucket: %w", err)
