@@ -44,14 +44,30 @@ export async function listMyFeedbacks(limit = 20, offset = 0): Promise<{ feedbac
  */
 export async function uploadImage(uri: string): Promise<string> {
   const formData = new FormData();
-  const filename = uri.split('/').pop()?.split('?')[0] || 'photo.jpg';
+  const rawName = uri.split('/').pop()?.split('?')[0] || '';
+  // 如果 URI 里本来就带扩展名（原生端常见），直接用；否则等下用 MIME 推断。
+  const hasExt = /\.[a-z0-9]+$/i.test(rawName);
 
   if (Platform.OS === 'web') {
     // 浏览器的 FormData 不认 { uri, name, type }（会被序列化成 "[object Object]"），必须用 Blob。
+    // 而且 ImagePicker 在 web 返回的常是 blob:xxx/<uuid>（无扩展名），
+    // 必须根据 blob.type 回推扩展名，后端 /api/upload 按扩展名白名单做校验。
     const res = await fetch(uri);
     const blob = await res.blob();
+    const mimeToExt: Record<string, string> = {
+      'image/jpeg': 'jpg',
+      'image/jpg': 'jpg',
+      'image/png': 'png',
+      'image/gif': 'gif',
+      'image/webp': 'webp',
+    };
+    const ext = hasExt
+      ? rawName.split('.').pop()!.toLowerCase()
+      : (mimeToExt[blob.type] || 'jpg');
+    const filename = hasExt ? rawName : `photo.${ext}`;
     formData.append('file', blob, filename);
   } else {
+    const filename = rawName || 'photo.jpg';
     const ext = filename.split('.').pop()?.toLowerCase() || 'jpg';
     const mimeType = ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : 'image/jpeg';
     formData.append('file', {

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { useRouter, usePathname } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { Colors, Sizes, Shadows } from '../../theme/colors';
@@ -47,7 +47,7 @@ export default function Sidebar() {
   const navItems: NavItem[] = [
     { key: 'market', label: t('nav.market'), icon: 'market', route: '/(tabs)/market' },
     { key: 'watchlist', label: t('nav.watchlist'), icon: 'watchlist', route: '/(tabs)/watchlist' },
-    { key: 'following', label: '关注', icon: 'eye', route: '/(tabs)/following' },
+    { key: 'following', label: t('nav.following'), icon: 'eye', route: '/(tabs)/following' },
     { key: 'trading', label: t('nav.trading'), icon: 'trading', route: '/(tabs)/trading' },
     { key: 'trader-center', label: t('nav.traderCenter'), icon: 'badge', route: '/(tabs)/trader-center' },
     { key: 'rankings', label: t('nav.rankings'), icon: 'trophy', route: '/(tabs)/rankings' },
@@ -56,6 +56,21 @@ export default function Sidebar() {
   ];
 
   const isActive = (route: string) => pathname.includes(route.replace('/(tabs)', ''));
+
+  // 收起状态下图标没有文字，桌面端希望 hover 时显示功能名。
+  // React Native Web 会吃掉 title prop（只保留 aria-label），而浏览器原生 tooltip 只认 title 属性。
+  // 所以用 ref 回调拿到底层 DOM 节点后直接 setAttribute('title', ...) 才能真正显示 tooltip。
+  const tooltip = (label: string) =>
+    Platform.OS === 'web'
+      ? ({
+          ref: (el: any) => {
+            if (el && typeof el.setAttribute === 'function') {
+              el.setAttribute('title', label);
+            }
+          },
+          accessibilityLabel: label,
+        } as any)
+      : {};
 
   return (
     <View style={[styles.container, { width: collapsed ? COLLAPSED_WIDTH : EXPANDED_WIDTH }]}>
@@ -87,6 +102,7 @@ export default function Sidebar() {
         style={[styles.collapseBtn, collapsed && styles.collapseBtnCollapsed]}
         onPress={() => setCollapsed((c) => !c)}
         activeOpacity={0.7}
+        {...tooltip(collapsed ? t('common.expand') : t('common.collapse'))}
       >
         <Text style={styles.collapseIcon}>{collapsed ? '»' : '«'}</Text>
       </TouchableOpacity>
@@ -105,6 +121,7 @@ export default function Sidebar() {
               ]}
               activeOpacity={0.7}
               onPress={() => router.push(item.route as any)}
+              {...tooltip(item.label)}
             >
               <View style={{ position: 'relative' }}>
                 <View style={[styles.navIcon, collapsed && styles.navIconCollapsed]}>
@@ -148,6 +165,7 @@ export default function Sidebar() {
               style={[styles.userInfo, collapsed && styles.userInfoCollapsed]}
               onPress={() => router.push('/(tabs)/profile' as any)}
               activeOpacity={0.7}
+              {...tooltip(user.displayName || user.email || t('nav.profile'))}
             >
               <View style={styles.userAvatar}>
                 <Text style={styles.userAvatarText}>
@@ -157,7 +175,7 @@ export default function Sidebar() {
               {!collapsed && (
                 <View style={{ flex: 1 }}>
                   <Text style={styles.userName} numberOfLines={1}>
-                    {user.displayName || 'User'}
+                    {user.displayName || t('auth.notLoggedIn')}
                   </Text>
                   <Text style={styles.userEmail} numberOfLines={1}>{user.email}</Text>
                 </View>
@@ -169,6 +187,7 @@ export default function Sidebar() {
               style={[styles.settingsItem, collapsed && styles.settingsItemCollapsed]}
               activeOpacity={0.7}
               onPress={async () => { await signOut(); router.replace('/'); }}
+              {...tooltip(t('auth.logout'))}
             >
               <View style={[styles.navIcon, collapsed && styles.navIconCollapsed]}>
                 <AppIcon name="logout" size={18} color={Colors.down} />
@@ -183,6 +202,7 @@ export default function Sidebar() {
             style={[styles.walletBtn, collapsed && styles.walletBtnCollapsed]}
             activeOpacity={0.8}
             onPress={() => router.push('/(auth)/login' as any)}
+            {...tooltip(t('auth.loginOrRegister'))}
           >
             <AppIcon name="lock" size={18} color={Colors.background} />
             {!collapsed && <Text style={styles.walletText}>{t('auth.loginOrRegister')}</Text>}
@@ -193,6 +213,7 @@ export default function Sidebar() {
         <TouchableOpacity
           style={[styles.settingsItem, collapsed && styles.settingsItemCollapsed]}
           activeOpacity={0.7}
+          {...tooltip(t('nav.settings'))}
         >
           <View style={[styles.navIcon, collapsed && styles.navIconCollapsed]}>
             <AppIcon name="settings" size={18} color={Colors.textSecondary} />
@@ -205,7 +226,7 @@ export default function Sidebar() {
           <View style={[styles.netDot, { backgroundColor: !netConnected ? '#F6465D' : netLatency < 100 ? '#0ECB81' : netLatency < 300 ? '#F0B90B' : '#F6465D' }]} />
           {!collapsed && (
             <Text style={[styles.netText, { color: !netConnected ? '#F6465D' : netLatency < 100 ? '#0ECB81' : netLatency < 300 ? '#F0B90B' : '#F6465D' }]}>
-              {!netConnected ? '网络断开' : netLatency >= 0 ? `${netLatency}ms` : '连接中...'}
+              {!netConnected ? t('market.networkOffline') : netLatency >= 0 ? `${netLatency}ms` : t('common.loading')}
             </Text>
           )}
         </View>

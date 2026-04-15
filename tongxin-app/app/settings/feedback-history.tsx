@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -9,7 +9,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { Colors } from '../../theme/colors';
 import AppIcon, { type AppIconName } from '../../components/ui/AppIcon';
@@ -49,9 +49,13 @@ export default function FeedbackHistoryScreen() {
   const markRead = useFeedbackStore((s) => s.markRead);
   const [expanded, setExpanded] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchList();
-  }, [fetchList]);
+  // 用 useFocusEffect：每次页面获得焦点（首次进入、从其他页 replace 回来、tab 切回）都重新拉一次，
+  // 避免 zustand store 里的旧列表盖住刚提交的新记录。
+  useFocusEffect(
+    useCallback(() => {
+      fetchList();
+    }, [fetchList])
+  );
 
   const onToggle = (fb: Feedback) => {
     const willOpen = expanded !== fb.id;
@@ -152,7 +156,19 @@ export default function FeedbackHistoryScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.7}>
+        <TouchableOpacity
+          onPress={() => {
+            // 提交页走的是 router.replace 进来，有可能堆栈为空（直接访问/replace 后），
+            // router.back() 会静默失败。canGoBack 判一下，不行就兜到 Profile。
+            if (router.canGoBack()) {
+              router.back();
+            } else {
+              router.replace('/(tabs)/profile');
+            }
+          }}
+          style={styles.backBtn}
+          activeOpacity={0.7}
+        >
           <AppIcon name="back" size={18} color={Colors.textSecondary} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>

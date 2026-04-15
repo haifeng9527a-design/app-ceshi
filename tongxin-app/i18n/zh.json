@@ -29,7 +29,9 @@
     "delete": "删除",
     "edit": "编辑",
     "done": "完成",
-    "noResults": "未找到结果"
+    "noResults": "未找到结果",
+    "expand": "展开侧栏",
+    "collapse": "收起侧栏"
   },
   "auth": {
     "login": "登录",
@@ -814,6 +816,7 @@
     "submitSuccessBody": "感谢您的反馈，我们会尽快处理！",
     "submitFailedTitle": "提交失败",
     "submitFailedBody": "请检查网络后重试",
+    "sessionExpired": "登录已过期，请重新登录后再试",
     "viewHistory": "查看我的反馈",
     "historyTitle": "我的反馈",
     "historySubtitle": "查看您提交的反馈和管理员回复",

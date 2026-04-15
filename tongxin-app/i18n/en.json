@@ -29,7 +29,9 @@
     "delete": "Delete",
     "edit": "Edit",
     "done": "Done",
-    "noResults": "No results"
+    "noResults": "No results",
+    "expand": "Expand sidebar",
+    "collapse": "Collapse sidebar"
   },
   "auth": {
     "login": "Login",
@@ -814,6 +816,7 @@
     "submitSuccessBody": "Thanks for your feedback. We'll review it soon.",
     "submitFailedTitle": "Submit failed",
     "submitFailedBody": "Please check your network and try again",
+    "sessionExpired": "Your session has expired. Please sign in again.",
     "viewHistory": "My feedbacks",
     "historyTitle": "My Feedbacks",
     "historySubtitle": "See your submissions and admin replies",

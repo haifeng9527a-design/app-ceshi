@@ -37,7 +37,8 @@ func (r *FeedbackRepo) ListByUser(ctx context.Context, userID string, limit, off
 
 	rows, err := r.pool.Query(ctx,
 		`SELECT id, user_id, content, image_urls, category, status,
-		        admin_reply, replied_by, replied_at, user_unread, created_at, updated_at
+		        COALESCE(admin_reply, ''), COALESCE(replied_by, ''),
+		        replied_at, user_unread, created_at, updated_at
 		 FROM feedbacks WHERE user_id = $1
 		 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
 		userID, limit, offset,
@@ -67,7 +68,8 @@ func (r *FeedbackRepo) GetByIDForUser(ctx context.Context, id, userID string) (*
 	var fb model.Feedback
 	err := r.pool.QueryRow(ctx,
 		`SELECT id, user_id, content, image_urls, category, status,
-		        admin_reply, replied_by, replied_at, user_unread, created_at, updated_at
+		        COALESCE(admin_reply, ''), COALESCE(replied_by, ''),
+		        replied_at, user_unread, created_at, updated_at
 		 FROM feedbacks WHERE id = $1 AND user_id = $2`,
 		id, userID,
 	).Scan(
@@ -103,8 +105,9 @@ func (r *FeedbackRepo) CountUserUnread(ctx context.Context, userID string) (int,
 
 func (r *FeedbackRepo) ListAll(ctx context.Context, status string, limit, offset int) ([]model.Feedback, int, error) {
 	countQ := `SELECT COUNT(*) FROM feedbacks`
-	dataQ := `SELECT f.id, f.user_id, u.display_name, f.content, f.image_urls, f.category, f.status,
-	                  f.admin_reply, f.replied_by, f.replied_at, f.user_unread, f.created_at, f.updated_at
+	dataQ := `SELECT f.id, f.user_id, COALESCE(u.display_name, ''), f.content, f.image_urls, f.category, f.status,
+	                  COALESCE(f.admin_reply, ''), COALESCE(f.replied_by, ''),
+	                  f.replied_at, f.user_unread, f.created_at, f.updated_at
 	           FROM feedbacks f LEFT JOIN users u ON f.user_id = u.uid`
 
 	args := []any{}

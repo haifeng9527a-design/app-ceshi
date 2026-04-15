@@ -97,9 +97,22 @@ export default function FeedbackScreen() {
       notify(t('feedback.submitSuccessTitle'), t('feedback.submitSuccessBody'), () => {
         router.replace('/settings/feedback-history');
       });
-    } catch (e) {
+    } catch (e: any) {
       console.error('[feedback] submit failed:', e);
-      notify(t('feedback.submitFailedTitle'), t('feedback.submitFailedBody'));
+      const status = e?.response?.status;
+      const backendMsg = e?.response?.data?.error || e?.response?.data?.message;
+      if (status === 401) {
+        // 会话过期：提示并跳登录页
+        notify(t('feedback.submitFailedTitle'), t('feedback.sessionExpired'), () => {
+          router.replace('/(auth)/login' as any);
+        });
+      } else if (backendMsg) {
+        // 后端有明确错误信息（业务错误），优先展示给用户
+        notify(t('feedback.submitFailedTitle'), backendMsg);
+      } else {
+        // 真正无响应（断网/超时等），才提示检查网络
+        notify(t('feedback.submitFailedTitle'), t('feedback.submitFailedBody'));
+      }
     } finally {
       setSubmitting(false);
     }
@@ -107,6 +120,10 @@ export default function FeedbackScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <TouchableOpacity style={styles.backBtn} activeOpacity={0.8} onPress={() => router.back()}>
+        <AppIcon name="back" size={16} color={Colors.primary} />
+        <Text style={styles.backBtnText}>{t('common.back')}</Text>
+      </TouchableOpacity>
       <View style={styles.headerRow}>
         <View style={{ flex: 1 }}>
           <Text style={styles.title}>{t('feedback.title')}</Text>
@@ -207,6 +224,18 @@ const styles = StyleSheet.create({
     padding: 20,
     gap: 18,
     paddingBottom: 40,
+  },
+  backBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    alignSelf: 'flex-start',
+    paddingVertical: 4,
+  },
+  backBtnText: {
+    color: Colors.primary,
+    fontSize: 13,
+    fontWeight: '700',
   },
   headerRow: {
     flexDirection: 'row',
