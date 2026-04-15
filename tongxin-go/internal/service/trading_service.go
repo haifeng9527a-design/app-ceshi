@@ -22,22 +22,23 @@ type TradingPusher interface {
 
 // cachedPosition holds minimal position data for real-time PnL calculation.
 type cachedPosition struct {
-	UserID       string
-	PositionID   string
-	Symbol       string
-	Side         string
-	Qty          float64
-	EntryPrice   float64
-	Leverage     int
-	MarginAmount float64
-	MarginMode   string
-	LiqPrice     *float64
-	TpPrice      *float64
-	SlPrice      *float64
-	IsCopyTrade  bool
-	OpenFee      float64
-	CloseFee     float64
-	RealizedPnl  float64
+	UserID        string
+	PositionID    string
+	Symbol        string
+	Side          string
+	Qty           float64
+	EntryPrice    float64
+	Leverage      int
+	MarginAmount  float64
+	MarginMode    string
+	LiqPrice      *float64
+	TpPrice       *float64
+	SlPrice       *float64
+	IsCopyTrade   bool
+	CopyTradingID *string // 跟单仓位对应的 copy_trading 订阅 id，结算走 bucket 需要
+	OpenFee       float64
+	CloseFee      float64
+	RealizedPnl   float64
 }
 
 type TradingService struct {
@@ -219,18 +220,23 @@ func (s *TradingService) LoadOpenPositions(ctx context.Context) {
 		// For cross margin, liq_price is calculated in real-time (not stored)
 
 		cp := cachedPosition{
-			UserID:       p.UserID,
-			PositionID:   p.ID,
-			Symbol:       p.Symbol,
-			Side:         p.Side,
-			Qty:          p.Qty,
-			EntryPrice:   p.EntryPrice,
-			Leverage:     p.Leverage,
-			MarginAmount: p.MarginAmount,
-			MarginMode:   p.MarginMode,
-			LiqPrice:     p.LiqPrice,
-			TpPrice:      p.TpPrice,
-			SlPrice:      p.SlPrice,
+			UserID:        p.UserID,
+			PositionID:    p.ID,
+			Symbol:        p.Symbol,
+			Side:          p.Side,
+			Qty:           p.Qty,
+			EntryPrice:    p.EntryPrice,
+			Leverage:      p.Leverage,
+			MarginAmount:  p.MarginAmount,
+			MarginMode:    p.MarginMode,
+			LiqPrice:      p.LiqPrice,
+			TpPrice:       p.TpPrice,
+			SlPrice:       p.SlPrice,
+			IsCopyTrade:   p.IsCopyTrade,
+			CopyTradingID: p.CopyTradingID,
+			OpenFee:       p.OpenFee,
+			CloseFee:      p.CloseFee,
+			RealizedPnl:   p.RealizedPnl,
 		}
 		s.openBySymbol[p.Symbol] = append(s.openBySymbol[p.Symbol], cp)
 	}
@@ -240,22 +246,23 @@ func (s *TradingService) LoadOpenPositions(ctx context.Context) {
 // addPositionToCache adds or updates a position in the in-memory cache.
 func (s *TradingService) addPositionToCache(p *model.Position) {
 	cp := cachedPosition{
-		UserID:       p.UserID,
-		PositionID:   p.ID,
-		Symbol:       p.Symbol,
-		Side:         p.Side,
-		Qty:          p.Qty,
-		EntryPrice:   p.EntryPrice,
-		Leverage:     p.Leverage,
-		MarginAmount: p.MarginAmount,
-		MarginMode:   p.MarginMode,
-		LiqPrice:     p.LiqPrice,
-		TpPrice:      p.TpPrice,
-		SlPrice:      p.SlPrice,
-		IsCopyTrade:  p.IsCopyTrade,
-		OpenFee:      p.OpenFee,
-		CloseFee:     p.CloseFee,
-		RealizedPnl:  p.RealizedPnl,
+		UserID:        p.UserID,
+		PositionID:    p.ID,
+		Symbol:        p.Symbol,
+		Side:          p.Side,
+		Qty:           p.Qty,
+		EntryPrice:    p.EntryPrice,
+		Leverage:      p.Leverage,
+		MarginAmount:  p.MarginAmount,
+		MarginMode:    p.MarginMode,
+		LiqPrice:      p.LiqPrice,
+		TpPrice:       p.TpPrice,
+		SlPrice:       p.SlPrice,
+		IsCopyTrade:   p.IsCopyTrade,
+		CopyTradingID: p.CopyTradingID,
+		OpenFee:       p.OpenFee,
+		CloseFee:      p.CloseFee,
+		RealizedPnl:   p.RealizedPnl,
 	}
 	s.posMu.Lock()
 	defer s.posMu.Unlock()
@@ -1080,30 +1087,43 @@ func (s *TradingService) liquidatePosition(ctx context.Context, cp cachedPositio
 		return
 	}
 
-	// Settle: unfreeze margin, apply PnL (safe: position already marked liquidated)
-	if err := s.walletRepo.SettleTrade(ctx, cp.UserID, cp.MarginAmount, pnl, 0); err != nil {
-		log.Printf("[trading] CRITICAL: position %s liquidated but settle failed: %v", cp.PositionID, err)
-		return
+	// 跟单仓位 vs 普通仓位的结算分流（与 ClosePosition 保持一致）：
+	//   普通仓位 → wallet.SettleTrade
+	//   跟单仓位 → bucket.SettleToBucket（margin/pnl 都在 copy_trading 子账户里结算，
+	//             钱永远不动主钱包，避免误伤其它仓位的 wallet.frozen）
+	// 强平 pnl=-margin，无盈利，因此不需要走分润路径（share 只在 equity 创新高时才 > 0）。
+	if cp.IsCopyTrade && cp.CopyTradingID != nil && s.traderRepo != nil {
+		if err := s.traderRepo.SettleToBucket(ctx, *cp.CopyTradingID, cp.MarginAmount, pnl, 0); err != nil {
+			log.Printf("[trading] CRITICAL: copy position %s liquidated but bucket settle failed: %v", cp.PositionID, err)
+			return
+		}
+	} else {
+		if err := s.walletRepo.SettleTrade(ctx, cp.UserID, cp.MarginAmount, pnl, 0); err != nil {
+			log.Printf("[trading] CRITICAL: position %s liquidated but settle failed: %v", cp.PositionID, err)
+			return
+		}
 	}
 
 	// Remove from cache
 	s.removePositionFromCache(cp.Symbol, cp.PositionID)
 
 	pos := &model.Position{
-		ID:           cp.PositionID,
-		UserID:       cp.UserID,
-		Symbol:       cp.Symbol,
-		Side:         cp.Side,
-		Qty:          cp.Qty,
-		EntryPrice:   cp.EntryPrice,
-		ClosePrice:   currentPrice,
-		Leverage:     cp.Leverage,
-		MarginMode:   cp.MarginMode,
-		MarginAmount: cp.MarginAmount,
-		LiqPrice:     cp.LiqPrice,
-		Status:       "liquidated",
-		RealizedPnl:  pnl,
-		CurrentPrice: currentPrice,
+		ID:            cp.PositionID,
+		UserID:        cp.UserID,
+		Symbol:        cp.Symbol,
+		Side:          cp.Side,
+		Qty:           cp.Qty,
+		EntryPrice:    cp.EntryPrice,
+		ClosePrice:    currentPrice,
+		Leverage:      cp.Leverage,
+		MarginMode:    cp.MarginMode,
+		MarginAmount:  cp.MarginAmount,
+		LiqPrice:      cp.LiqPrice,
+		Status:        "liquidated",
+		RealizedPnl:   pnl,
+		CurrentPrice:  currentPrice,
+		IsCopyTrade:   cp.IsCopyTrade,
+		CopyTradingID: cp.CopyTradingID,
 	}
 
 	// Push liquidation event to user
@@ -1112,9 +1132,12 @@ func (s *TradingService) liquidatePosition(ctx context.Context, cp cachedPositio
 		"data": pos,
 	})
 
-	wallet, _ := s.walletRepo.GetWallet(ctx, cp.UserID)
-	if wallet != nil {
-		s.pushBalanceUpdate(cp.UserID, wallet)
+	// 跟单仓位主钱包没动，不必刷 balance；普通仓位才推
+	if !cp.IsCopyTrade {
+		wallet, _ := s.walletRepo.GetWallet(ctx, cp.UserID)
+		if wallet != nil {
+			s.pushBalanceUpdate(cp.UserID, wallet)
+		}
 	}
 
 	log.Printf("[trading] LIQUIDATED: user=%s pos=%s %s %s, margin=%.2f lost",
@@ -1146,37 +1169,74 @@ func (s *TradingService) closePositionByTPSL(ctx context.Context, cp cachedPosit
 		return
 	}
 
-	// Settle: unfreeze margin + apply PnL - fee (safe: position already marked closed)
-	if err := s.walletRepo.SettleTrade(ctx, cp.UserID, cp.MarginAmount, pnl, closeFee); err != nil {
-		log.Printf("[trading] CRITICAL: position %s TP/SL closed but settle failed: %v", cp.PositionID, err)
-		return
+	// 跟单仓位 vs 普通仓位的结算分流（与 ClosePosition 完全一致，TP 可能盈利所以要走分润）：
+	//   普通仓位 → wallet.SettleTrade
+	//   跟单仓位 → bucket.SettleToBucket[WithCommission]（钱不出主钱包）
+	var psResult *repository.ProfitShareResult
+	if cp.IsCopyTrade && cp.CopyTradingID != nil && s.traderRepo != nil {
+		if s.ProfitShareEnabled {
+			ct, ctErr := s.traderRepo.GetCopyTradingByID(ctx, *cp.CopyTradingID)
+			if ctErr != nil {
+				log.Printf("[trading] CRITICAL: copy position %s TP/SL closed but copy_trading lookup failed: %v", cp.PositionID, ctErr)
+				return
+			}
+			res, sErr := s.traderRepo.SettleToBucketWithCommission(
+				ctx, *cp.CopyTradingID, ct.TraderID, cp.PositionID,
+				cp.MarginAmount, pnl, closeFee,
+			)
+			if sErr != nil {
+				log.Printf("[trading] CRITICAL: copy position %s TP/SL closed but bucket settle (commission) failed: %v", cp.PositionID, sErr)
+				return
+			}
+			psResult = res
+		} else {
+			if err := s.traderRepo.SettleToBucket(ctx, *cp.CopyTradingID, cp.MarginAmount, pnl, closeFee); err != nil {
+				log.Printf("[trading] CRITICAL: copy position %s TP/SL closed but bucket settle failed: %v", cp.PositionID, err)
+				return
+			}
+		}
+	} else {
+		if err := s.walletRepo.SettleTrade(ctx, cp.UserID, cp.MarginAmount, pnl, closeFee); err != nil {
+			log.Printf("[trading] CRITICAL: position %s TP/SL closed but settle failed: %v", cp.PositionID, err)
+			return
+		}
 	}
 
 	s.removePositionFromCache(cp.Symbol, cp.PositionID)
 
 	pos := &model.Position{
-		ID:           cp.PositionID,
-		UserID:       cp.UserID,
-		Symbol:       cp.Symbol,
-		Side:         cp.Side,
-		Qty:          cp.Qty,
-		EntryPrice:   cp.EntryPrice,
-		ClosePrice:   currentPrice,
-		Leverage:     cp.Leverage,
-		MarginMode:   cp.MarginMode,
-		MarginAmount: cp.MarginAmount,
-		LiqPrice:     cp.LiqPrice,
-		TpPrice:      cp.TpPrice,
-		SlPrice:      cp.SlPrice,
-		Status:       "closed",
-		RealizedPnl:  pnl,
-		CurrentPrice: currentPrice,
+		ID:            cp.PositionID,
+		UserID:        cp.UserID,
+		Symbol:        cp.Symbol,
+		Side:          cp.Side,
+		Qty:           cp.Qty,
+		EntryPrice:    cp.EntryPrice,
+		ClosePrice:    currentPrice,
+		Leverage:      cp.Leverage,
+		MarginMode:    cp.MarginMode,
+		MarginAmount:  cp.MarginAmount,
+		LiqPrice:      cp.LiqPrice,
+		TpPrice:       cp.TpPrice,
+		SlPrice:       cp.SlPrice,
+		Status:        "closed",
+		RealizedPnl:   pnl,
+		CurrentPrice:  currentPrice,
+		IsCopyTrade:   cp.IsCopyTrade,
+		CopyTradingID: cp.CopyTradingID,
 	}
 
 	s.pushPositionClosed(cp.UserID, pos)
-	wallet, _ := s.walletRepo.GetWallet(ctx, cp.UserID)
-	if wallet != nil {
-		s.pushBalanceUpdate(cp.UserID, wallet)
+	// 跟单仓位主钱包没动，不必刷 balance；普通仓位才推
+	if !cp.IsCopyTrade {
+		wallet, _ := s.walletRepo.GetWallet(ctx, cp.UserID)
+		if wallet != nil {
+			s.pushBalanceUpdate(cp.UserID, wallet)
+		}
+	}
+
+	// 分润 WS 推送（TP 盈利时可能有 share > 0）
+	if psResult != nil {
+		s.pushProfitShareEvents(ctx, pos, psResult)
 	}
 
 	log.Printf("[trading] TP/SL CLOSED: user=%s pos=%s %s %s @ %.4f, pnl=%.2f",
