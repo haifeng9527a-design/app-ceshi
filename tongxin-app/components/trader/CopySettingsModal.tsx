@@ -11,7 +11,12 @@ import {
   Alert,
 } from 'react-native';
 import { Colors, Sizes } from '../../theme/colors';
-import { adjustAllocatedCapital, type FollowTraderRequest, type CopyTrading } from '../../services/api/traderApi';
+import {
+  adjustAllocatedCapital,
+  getMyFollowing,
+  type FollowTraderRequest,
+  type CopyTrading,
+} from '../../services/api/traderApi';
 import { useTradingStore } from '../../services/store/tradingStore';
 
 interface Props {
@@ -101,10 +106,29 @@ export default function CopySettingsModal({
       setCustomTpRatio(String(initialSettings?.custom_tp_ratio ?? 50));
       setCustomSlRatio(String(initialSettings?.custom_sl_ratio ?? 20));
       setFollowDirection(initialSettings?.follow_direction || 'both');
-      // Refresh wallet so the user sees current available balance
+      // Refresh wallet + bucket so the user sees the current numbers
       fetchWallet();
+      // Re-fetch the latest bucket state (PnL / frozen may have changed since
+      // the parent component last loaded its data — close, fees, etc.)
+      if (isEdit && traderUid) {
+        getMyFollowing()
+          .then((list) => {
+            const fresh = list.find(
+              (x) =>
+                x.trader_id === traderUid &&
+                (x.status === 'active' || x.status === 'paused'),
+            );
+            if (fresh) {
+              setBucket(fresh);
+              onBucketUpdated?.(fresh);
+            }
+          })
+          .catch(() => {
+            // Silent — keep stale initialSettings if refresh fails
+          });
+      }
     }
-  }, [visible, initialSettings, fetchWallet]);
+  }, [visible, initialSettings, fetchWallet, isEdit, traderUid, onBucketUpdated]);
 
   const formatUsd = (n?: number) =>
     typeof n === 'number'
@@ -318,14 +342,31 @@ export default function CopySettingsModal({
                       {adjustMode === 'topup' ? '追加金额 (USDT)' : '赎回金额 (USDT)'}
                     </Text>
                     <View style={s.adjustInputRow}>
-                      <TextInput
-                        style={[s.input, { flex: 1, marginBottom: 0 }]}
-                        value={adjustAmount}
-                        onChangeText={setAdjustAmount}
-                        keyboardType="numeric"
-                        placeholder="0"
-                        placeholderTextColor={Colors.textMuted}
-                      />
+                      <View style={s.adjustInputWrap}>
+                        <TextInput
+                          style={[s.input, { flex: 1, marginBottom: 0, paddingRight: 56 }]}
+                          value={adjustAmount}
+                          onChangeText={setAdjustAmount}
+                          keyboardType="numeric"
+                          placeholder="0"
+                          placeholderTextColor={Colors.textMuted}
+                        />
+                        <TouchableOpacity
+                          style={s.maxBtn}
+                          onPress={() => {
+                            // Top-up max = wallet balance; Withdraw max = bucket available.
+                            // Floor to 2 decimals so the input value is always submittable.
+                            const cap =
+                              adjustMode === 'topup'
+                                ? walletAvailable
+                                : bucket?.available_capital ?? 0;
+                            setAdjustAmount((Math.floor(cap * 100) / 100).toString());
+                          }}
+                          hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                        >
+                          <Text style={s.maxBtnText}>MAX</Text>
+                        </TouchableOpacity>
+                      </View>
                       <TouchableOpacity
                         style={s.adjustConfirmBtn}
                         onPress={handleAdjustCapital}
@@ -706,6 +747,26 @@ const s = StyleSheet.create({
     gap: 8,
     alignItems: 'center',
     marginBottom: 4,
+  },
+  adjustInputWrap: {
+    flex: 1,
+    position: 'relative',
+    justifyContent: 'center',
+  },
+  maxBtn: {
+    position: 'absolute',
+    right: 8,
+    top: 0,
+    bottom: 0,
+    paddingHorizontal: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  maxBtnText: {
+    color: '#C9A84C',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.8,
   },
   adjustConfirmBtn: {
     backgroundColor: '#C9A84C',
