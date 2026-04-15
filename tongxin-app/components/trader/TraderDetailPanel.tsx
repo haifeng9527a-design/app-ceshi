@@ -375,6 +375,64 @@ export default function TraderDetailPanel({ uid, onClose, embedded }: Props) {
           </View>
         </View>
 
+        {/* Allocated Capital Bucket — only when user is following this trader */}
+        {!isSelf && following && copySettings && (
+          <View style={styles.bucketCard}>
+            <View style={styles.bucketHeaderRow}>
+              <Text style={styles.bucketTitle}>{t('traderCenter.copyBucketTitle')}</Text>
+              {copySettings.status === 'paused' && (
+                <View style={styles.bucketPausedBadge}>
+                  <Text style={styles.bucketPausedText}>{t('traderCenter.copyTradingOff')}</Text>
+                </View>
+              )}
+            </View>
+            <View style={styles.bucketStatsRow}>
+              <View style={styles.bucketStat}>
+                <Text style={styles.bucketStatLabel}>{t('traderCenter.bucketAllocated')}</Text>
+                <Text style={styles.bucketStatValue}>
+                  ${formatMoney(copySettings.allocated_capital || 0)}
+                </Text>
+              </View>
+              <View style={styles.bucketStat}>
+                <Text style={styles.bucketStatLabel}>{t('traderCenter.bucketAvailable')}</Text>
+                <Text style={[styles.bucketStatValue, { color: Colors.up }]}>
+                  ${formatMoney(copySettings.available_capital || 0)}
+                </Text>
+              </View>
+              <View style={styles.bucketStat}>
+                <Text style={styles.bucketStatLabel}>{t('traderCenter.bucketFrozen')}</Text>
+                <Text style={styles.bucketStatValue}>
+                  ${formatMoney(copySettings.frozen_capital || 0)}
+                </Text>
+              </View>
+              <View style={styles.bucketStat}>
+                <Text style={styles.bucketStatLabel}>{t('traderCenter.bucketCumulativePnl')}</Text>
+                {(() => {
+                  const cumPnl =
+                    (copySettings.available_capital || 0) +
+                    (copySettings.frozen_capital || 0) -
+                    (copySettings.allocated_capital || 0);
+                  const pct =
+                    copySettings.allocated_capital > 0
+                      ? (cumPnl / copySettings.allocated_capital) * 100
+                      : 0;
+                  return (
+                    <Text
+                      style={[
+                        styles.bucketStatValue,
+                        { color: cumPnl >= 0 ? Colors.up : Colors.down },
+                      ]}
+                    >
+                      {cumPnl >= 0 ? '+' : ''}${formatMoney(cumPnl)} ({pct >= 0 ? '+' : ''}
+                      {pct.toFixed(2)}%)
+                    </Text>
+                  );
+                })()}
+              </View>
+            </View>
+          </View>
+        )}
+
         {/* Metrics Grid */}
         <View style={[styles.metricsGrid, isDesktop && styles.metricsGridDesktop]}>
           <MetricCard
@@ -623,6 +681,8 @@ export default function TraderDetailPanel({ uid, onClose, embedded }: Props) {
           onSubmit={handleCopySubmit}
           initialSettings={editMode ? copySettings : undefined}
           traderName={profile.display_name}
+          traderUid={uid}
+          onBucketUpdated={(updated) => setCopySettings(updated)}
         />
       </ScrollView>
     </View>
@@ -701,6 +761,65 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     ...Shadows.card,
   },
+
+  // ── Allocated Capital Bucket Card ──
+  bucketCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(201, 168, 76, 0.35)',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 16,
+    ...Shadows.card,
+  },
+  bucketHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  bucketTitle: {
+    color: Colors.textActive,
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  bucketPausedBadge: {
+    backgroundColor: 'rgba(255, 165, 0, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 165, 0, 0.4)',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  bucketPausedText: {
+    color: '#FFA500',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  bucketStatsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  bucketStat: {
+    flex: 1,
+    minWidth: 120,
+  },
+  bucketStatLabel: {
+    color: Colors.textMuted,
+    fontSize: 11,
+    marginBottom: 4,
+  },
+  bucketStatValue: {
+    color: Colors.textActive,
+    fontSize: 14,
+    fontWeight: '700',
+    fontFamily: 'monospace',
+  },
+
   headerContent: {},
   headerContentDesktop: {
     flexDirection: 'row',

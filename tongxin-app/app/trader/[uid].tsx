@@ -45,6 +45,7 @@ export default function TraderDetailScreen() {
   const [following, setFollowing] = useState(false);
   const [showFollowModal, setShowFollowModal] = useState(false);
   const [copyRatio, setCopyRatio] = useState('1.0');
+  const [allocatedCapital, setAllocatedCapital] = useState('1000');
   const [actionLoading, setActionLoading] = useState(false);
   const [positions, setPositions] = useState<TraderPosition[]>([]);
   const [trades, setTrades] = useState<TraderPosition[]>([]);
@@ -112,7 +113,15 @@ export default function TraderDetailScreen() {
     }
     setActionLoading(true);
     try {
-      await followTrader(uid!, { copy_ratio: parseFloat(copyRatio) || 1.0 });
+      const alloc = parseFloat(allocatedCapital) || 0;
+      if (alloc < 100) {
+        Alert.alert('', t('traderCenter.minAllocation'));
+        return;
+      }
+      await followTrader(uid!, {
+        allocated_capital: alloc,
+        copy_ratio: parseFloat(copyRatio) || 1.0,
+      });
       setFollowing(true);
       setShowFollowModal(false);
     } catch (e: any) {
@@ -476,6 +485,15 @@ export default function TraderDetailScreen() {
           <View style={styles.followModalOverlay}>
             <View style={styles.followModal}>
               <Text style={styles.followModalTitle}>{t('messages.copySettings')}</Text>
+              <Text style={styles.followModalSubtitle}>{t('traderCenter.allocatedCapital')} (USDT)</Text>
+              <TextInput
+                style={styles.ratioInput}
+                value={allocatedCapital}
+                onChangeText={setAllocatedCapital}
+                keyboardType="numeric"
+                placeholder="1000"
+                placeholderTextColor={Colors.textMuted}
+              />
               <Text style={styles.followModalSubtitle}>{t('messages.copyRatio')}</Text>
               <TextInput
                 style={styles.ratioInput}

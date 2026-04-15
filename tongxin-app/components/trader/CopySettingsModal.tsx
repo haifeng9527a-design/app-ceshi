@@ -8,9 +8,11 @@ import {
   TextInput,
   StyleSheet,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { Colors, Sizes } from '../../theme/colors';
-import type { FollowTraderRequest, CopyTrading } from '../../services/api/traderApi';
+import { adjustAllocatedCapital, type FollowTraderRequest, type CopyTrading } from '../../services/api/traderApi';
+import { useTradingStore } from '../../services/store/tradingStore';
 
 interface Props {
   visible: boolean;
@@ -18,6 +20,8 @@ interface Props {
   onSubmit: (settings: FollowTraderRequest) => void;
   initialSettings?: CopyTrading;
   traderName?: string;
+  traderUid?: string;
+  onBucketUpdated?: (ct: CopyTrading) => void;
 }
 
 export default function CopySettingsModal({
@@ -26,8 +30,23 @@ export default function CopySettingsModal({
   onSubmit,
   initialSettings,
   traderName,
+  traderUid,
+  onBucketUpdated,
 }: Props) {
   const isEdit = !!initialSettings;
+  const wallet = useTradingStore((s) => s.wallet);
+  const fetchWallet = useTradingStore((s) => s.fetchWallet);
+
+  // Allocated capital for new follow (required, min 100 USDT)
+  const [allocatedCapital, setAllocatedCapital] = useState(
+    String(initialSettings?.allocated_capital ?? 1000)
+  );
+  // Top up / withdraw inputs (only relevant in edit mode)
+  const [adjustMode, setAdjustMode] = useState<null | 'topup' | 'withdraw'>(null);
+  const [adjustAmount, setAdjustAmount] = useState('');
+  const [adjusting, setAdjusting] = useState(false);
+  // Local copy of the current bucket (refreshed after top-up / withdraw)
+  const [bucket, setBucket] = useState<CopyTrading | undefined>(initialSettings);
 
   const [copyMode, setCopyMode] = useState<'fixed' | 'ratio'>(
     initialSettings?.copy_mode || 'fixed'
@@ -67,6 +86,10 @@ export default function CopySettingsModal({
   // Reset form when modal opens with new settings
   useEffect(() => {
     if (visible) {
+      setAllocatedCapital(String(initialSettings?.allocated_capital ?? 1000));
+      setBucket(initialSettings);
+      setAdjustMode(null);
+      setAdjustAmount('');
       setCopyMode(initialSettings?.copy_mode || 'fixed');
       setFixedAmount(String(initialSettings?.fixed_amount ?? 100));
       setCopyRatio(String(initialSettings?.copy_ratio ?? 1.0));
@@ -78,12 +101,70 @@ export default function CopySettingsModal({
       setCustomTpRatio(String(initialSettings?.custom_tp_ratio ?? 50));
       setCustomSlRatio(String(initialSettings?.custom_sl_ratio ?? 20));
       setFollowDirection(initialSettings?.follow_direction || 'both');
+      // Refresh wallet so the user sees current available balance
+      fetchWallet();
     }
-  }, [visible, initialSettings]);
+  }, [visible, initialSettings, fetchWallet]);
+
+  const formatUsd = (n?: number) =>
+    typeof n === 'number'
+      ? n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : '0.00';
+
+  const walletAvailable = wallet ? wallet.balance : 0;
+
+  const handleAdjustCapital = async () => {
+    if (!traderUid) return;
+    const amt = parseFloat(adjustAmount);
+    if (!amt || amt <= 0) {
+      Alert.alert('', '请输入有效金额');
+      return;
+    }
+    const delta = adjustMode === 'topup' ? amt : -amt;
+    if (adjustMode === 'topup' && amt > walletAvailable) {
+      Alert.alert('', `钱包可用余额不足（${formatUsd(walletAvailable)} USDT）`);
+      return;
+    }
+    if (adjustMode === 'withdraw' && bucket && amt > bucket.available_capital) {
+      Alert.alert('', `池子可用不足（${formatUsd(bucket.available_capital)} USDT）`);
+      return;
+    }
+    setAdjusting(true);
+    try {
+      const updated = await adjustAllocatedCapital(traderUid, delta);
+      setBucket(updated);
+      setAdjustAmount('');
+      setAdjustMode(null);
+      fetchWallet(); // wallet changed too
+      onBucketUpdated?.(updated);
+    } catch (e: any) {
+      Alert.alert('Error', e.response?.data?.error || e.message);
+    } finally {
+      setAdjusting(false);
+    }
+  };
 
   const handleSubmit = () => {
+    // For NEW follow: validate allocated capital
+    if (!isEdit) {
+      const alloc = parseFloat(allocatedCapital);
+      if (!alloc || alloc < 100) {
+        Alert.alert('', '分配本金最少 100 USDT');
+        return;
+      }
+      if (alloc > walletAvailable) {
+        Alert.alert('', `钱包可用余额不足（${formatUsd(walletAvailable)} USDT）`);
+        return;
+      }
+    }
+
     setSubmitting(true);
     const settings: FollowTraderRequest = {
+      // For new follow this is required; for edit the backend ignores it
+      // (capital changes go via PATCH /follow/capital)
+      allocated_capital: isEdit
+        ? (initialSettings?.allocated_capital ?? 0)
+        : parseFloat(allocatedCapital) || 0,
       copy_mode: copyMode,
       max_position: parseFloat(maxPosition) || 1000,
       max_single_margin: parseFloat(maxSingleMargin) || 500,
@@ -137,6 +218,136 @@ export default function CopySettingsModal({
             contentContainerStyle={s.scrollContent}
             showsVerticalScrollIndicator={false}
           >
+            {/* ── Allocated Capital ── */}
+            {!isEdit ? (
+              <>
+                <Text style={[s.sectionLabel, { marginTop: 0 }]}>跟单分配本金 (USDT)</Text>
+                <TextInput
+                  style={s.input}
+                  value={allocatedCapital}
+                  onChangeText={setAllocatedCapital}
+                  keyboardType="numeric"
+                  placeholder="1000"
+                  placeholderTextColor={Colors.textMuted}
+                />
+                <Text style={s.fieldHint}>钱包可用：{formatUsd(walletAvailable)} USDT</Text>
+                <View style={s.bucketHintBox}>
+                  <Text style={s.bucketHintText}>
+                    ⓘ 这笔资金会划转到该交易员的"跟单池"。仓位按池子大小计算，盈亏直接进出池子，与主钱包独立。最少 100 USDT。
+                  </Text>
+                </View>
+              </>
+            ) : (
+              <>
+                <Text style={[s.sectionLabel, { marginTop: 0 }]}>跟单本金池</Text>
+                <View style={s.bucketCard}>
+                  <View style={s.bucketRow}>
+                    <Text style={s.bucketLabel}>分配本金</Text>
+                    <Text style={s.bucketValue}>{formatUsd(bucket?.allocated_capital)} USDT</Text>
+                  </View>
+                  <View style={s.bucketRow}>
+                    <Text style={s.bucketLabel}>可用</Text>
+                    <Text style={[s.bucketValue, { color: Colors.up }]}>
+                      {formatUsd(bucket?.available_capital)} USDT
+                    </Text>
+                  </View>
+                  <View style={s.bucketRow}>
+                    <Text style={s.bucketLabel}>冻结</Text>
+                    <Text style={s.bucketValue}>{formatUsd(bucket?.frozen_capital)} USDT</Text>
+                  </View>
+                  {bucket && (
+                    <View style={[s.bucketRow, s.bucketRowDivider]}>
+                      <Text style={s.bucketLabel}>累计盈亏</Text>
+                      <Text
+                        style={[
+                          s.bucketValue,
+                          {
+                            color:
+                              (bucket.available_capital + bucket.frozen_capital - bucket.allocated_capital) >= 0
+                                ? Colors.up
+                                : Colors.down,
+                          },
+                        ]}
+                      >
+                        {(() => {
+                          const pnl =
+                            bucket.available_capital + bucket.frozen_capital - bucket.allocated_capital;
+                          return `${pnl >= 0 ? '+' : ''}${formatUsd(pnl)} USDT`;
+                        })()}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+
+                {/* Top Up / Withdraw toggle */}
+                <View style={s.adjustRow}>
+                  <TouchableOpacity
+                    style={[s.adjustToggle, adjustMode === 'topup' && s.adjustToggleActive]}
+                    onPress={() => {
+                      setAdjustMode(adjustMode === 'topup' ? null : 'topup');
+                      setAdjustAmount('');
+                    }}
+                  >
+                    <Text
+                      style={[s.adjustToggleText, adjustMode === 'topup' && s.adjustToggleTextActive]}
+                    >
+                      ＋ 追加本金
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[s.adjustToggle, adjustMode === 'withdraw' && s.adjustToggleActive]}
+                    onPress={() => {
+                      setAdjustMode(adjustMode === 'withdraw' ? null : 'withdraw');
+                      setAdjustAmount('');
+                    }}
+                  >
+                    <Text
+                      style={[
+                        s.adjustToggleText,
+                        adjustMode === 'withdraw' && s.adjustToggleTextActive,
+                      ]}
+                    >
+                      － 赎回本金
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                {adjustMode && (
+                  <>
+                    <Text style={s.fieldLabel}>
+                      {adjustMode === 'topup' ? '追加金额 (USDT)' : '赎回金额 (USDT)'}
+                    </Text>
+                    <View style={s.adjustInputRow}>
+                      <TextInput
+                        style={[s.input, { flex: 1, marginBottom: 0 }]}
+                        value={adjustAmount}
+                        onChangeText={setAdjustAmount}
+                        keyboardType="numeric"
+                        placeholder="0"
+                        placeholderTextColor={Colors.textMuted}
+                      />
+                      <TouchableOpacity
+                        style={s.adjustConfirmBtn}
+                        onPress={handleAdjustCapital}
+                        disabled={adjusting}
+                      >
+                        {adjusting ? (
+                          <ActivityIndicator color={Colors.textOnPrimary} size="small" />
+                        ) : (
+                          <Text style={s.adjustConfirmText}>确认</Text>
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                    <Text style={s.fieldHint}>
+                      {adjustMode === 'topup'
+                        ? `钱包可用：${formatUsd(walletAvailable)} USDT`
+                        : `池子可用：${formatUsd(bucket?.available_capital)} USDT`}
+                    </Text>
+                  </>
+                )}
+              </>
+            )}
+
             {/* Copy Mode */}
             <Text style={s.sectionLabel}>跟单模式</Text>
             <View style={s.toggleRow}>
@@ -412,6 +623,103 @@ const s = StyleSheet.create({
     fontSize: 12,
     marginBottom: 6,
     marginTop: 12,
+  },
+  fieldHint: {
+    color: Colors.textMuted,
+    fontSize: 11,
+    marginTop: 4,
+    marginBottom: 4,
+  },
+
+  // Allocated capital bucket display (edit mode)
+  bucketCard: {
+    backgroundColor: Colors.background,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: Sizes.borderRadiusSm,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 8,
+  },
+  bucketRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  bucketRowDivider: {
+    marginTop: 6,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+  },
+  bucketLabel: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+  },
+  bucketValue: {
+    color: Colors.textActive,
+    fontSize: 13,
+    fontWeight: '600',
+    fontFamily: 'monospace',
+  },
+  bucketHintBox: {
+    backgroundColor: 'rgba(201, 168, 76, 0.08)',
+    borderRadius: Sizes.borderRadiusSm,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginTop: 6,
+  },
+  bucketHintText: {
+    color: Colors.textSecondary,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  adjustRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 8,
+  },
+  adjustToggle: {
+    flex: 1,
+    paddingVertical: 9,
+    borderRadius: Sizes.borderRadiusSm,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    alignItems: 'center',
+    backgroundColor: Colors.background,
+  },
+  adjustToggleActive: {
+    borderColor: '#C9A84C',
+    backgroundColor: 'rgba(201, 168, 76, 0.12)',
+  },
+  adjustToggleText: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  adjustToggleTextActive: {
+    color: '#C9A84C',
+  },
+  adjustInputRow: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  adjustConfirmBtn: {
+    backgroundColor: '#C9A84C',
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: Sizes.borderRadiusSm,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 70,
+  },
+  adjustConfirmText: {
+    color: Colors.textOnPrimary,
+    fontSize: 13,
+    fontWeight: '700',
   },
 
   // Input

@@ -1970,6 +1970,7 @@ function PeerSidebar({
   const [showFollowModal, setShowFollowModal] = useState(false);
   const [copyRatio, setCopyRatio] = useState('1.0');
   const [maxPosition, setMaxPosition] = useState('');
+  const [allocatedCapital, setAllocatedCapital] = useState('1000');
   const [actionLoading, setActionLoading] = useState(false);
   const isSelf = user?.uid === peerUserId;
 
@@ -2028,7 +2029,14 @@ function PeerSidebar({
     try {
       const ratio = parseFloat(copyRatio) || 1.0;
       const parsedMax = maxPosition.trim() ? parseFloat(maxPosition) : undefined;
+      const alloc = parseFloat(allocatedCapital) || 0;
+      if (alloc < 100) {
+        Alert.alert('', t('traderCenter.minAllocation'));
+        setActionLoading(false);
+        return;
+      }
       await followTrader(peerUserId, {
+        allocated_capital: alloc,
         copy_ratio: ratio,
         max_position: parsedMax && Number.isFinite(parsedMax) ? parsedMax : undefined,
       });
@@ -2039,7 +2047,7 @@ function PeerSidebar({
     } finally {
       setActionLoading(false);
     }
-  }, [copyRatio, maxPosition, peerUserId, t, user, loadSidebarData]);
+  }, [copyRatio, maxPosition, allocatedCapital, peerUserId, t, user, loadSidebarData]);
 
   const handleUnfollow = useCallback(async () => {
     setActionLoading(true);
@@ -2295,6 +2303,32 @@ function PeerSidebar({
                       </Text>
                       <Text style={modalStyles.presetMeta}>{preset.ratio}x · ≤ ${preset.maxPosition}</Text>
                       <Text style={modalStyles.presetNote}>{t(preset.note)}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+            <View style={modalStyles.fieldGroup}>
+              <Text style={modalStyles.fieldLabel}>{t('traderCenter.allocatedCapital')} (USDT)</Text>
+              <TextInput
+                style={modalStyles.fieldInput}
+                value={allocatedCapital}
+                onChangeText={setAllocatedCapital}
+                keyboardType="decimal-pad"
+                placeholder="1000"
+                placeholderTextColor={Colors.textMuted}
+              />
+              <View style={modalStyles.chipRow}>
+                {['500', '1000', '2000', '5000'].map((value) => {
+                  const active = allocatedCapital === value;
+                  return (
+                    <TouchableOpacity
+                      key={value}
+                      style={[modalStyles.chip, active && modalStyles.chipActive]}
+                      activeOpacity={0.75}
+                      onPress={() => setAllocatedCapital(value)}
+                    >
+                      <Text style={[modalStyles.chipText, active && modalStyles.chipTextActive]}>${value}</Text>
                     </TouchableOpacity>
                   );
                 })}

@@ -106,6 +106,10 @@ export interface CopyTrading {
   custom_tp_ratio?: number;
   custom_sl_ratio?: number;
   follow_direction: 'both' | 'long' | 'short';
+  // 跟单分配本金（虚拟子账户）
+  allocated_capital: number;
+  available_capital: number;
+  frozen_capital: number;
   created_at: string;
   updated_at: string;
   trader_name?: string;
@@ -113,6 +117,7 @@ export interface CopyTrading {
 }
 
 export interface FollowTraderRequest {
+  allocated_capital: number; // 必填，跟单分配本金（USDT）
   copy_mode?: 'fixed' | 'ratio';
   copy_ratio?: number;
   fixed_amount?: number;
@@ -211,6 +216,12 @@ export async function unfollowTrader(uid: string): Promise<void> {
 
 export async function updateCopySettings(uid: string, req: FollowTraderRequest): Promise<CopyTrading> {
   const { data } = await apiClient.put(`/api/trader/${uid}/follow/settings`, req);
+  return data;
+}
+
+// 追加 / 赎回跟单本金。delta>0 追加（钱包→池子），<0 赎回（池子→钱包）
+export async function adjustAllocatedCapital(uid: string, delta: number): Promise<CopyTrading> {
+  const { data } = await apiClient.patch(`/api/trader/${uid}/follow/capital`, { delta });
   return data;
 }
 
