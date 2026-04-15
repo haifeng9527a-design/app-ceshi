@@ -118,6 +118,12 @@ type CopyTrading struct {
 	CustomTpRatio   *float64  `json:"custom_tp_ratio,omitempty"`
 	CustomSlRatio   *float64  `json:"custom_sl_ratio,omitempty"`
 	FollowDirection string    `json:"follow_direction"`    // "both", "long", "short"
+	// 跟单分配本金（虚拟子账户）
+	// allocated = available + frozen - 累计 realized_pnl + 累计 fee
+	// 详见 migrations/025_copy_trading_allocated_capital.sql
+	AllocatedCapital float64 `json:"allocated_capital" db:"allocated_capital"`
+	AvailableCapital float64 `json:"available_capital" db:"available_capital"`
+	FrozenCapital    float64 `json:"frozen_capital"    db:"frozen_capital"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
 	// JOIN fields
@@ -126,6 +132,7 @@ type CopyTrading struct {
 }
 
 type FollowTraderRequest struct {
+	AllocatedCapital float64  `json:"allocated_capital"` // 必填，跟单分配本金（USDT）
 	CopyMode        string   `json:"copy_mode"`
 	CopyRatio       float64  `json:"copy_ratio"`
 	FixedAmount     *float64 `json:"fixed_amount,omitempty"`
@@ -138,6 +145,11 @@ type FollowTraderRequest struct {
 	CustomTpRatio   *float64 `json:"custom_tp_ratio,omitempty"`
 	CustomSlRatio   *float64 `json:"custom_sl_ratio,omitempty"`
 	FollowDirection string   `json:"follow_direction,omitempty"`
+}
+
+// AdjustAllocatedCapitalRequest 用户追加 / 赎回跟单本金（delta>0 为追加，<0 为赎回）
+type AdjustAllocatedCapitalRequest struct {
+	Delta float64 `json:"delta"`
 }
 
 type CopyTradeLog struct {

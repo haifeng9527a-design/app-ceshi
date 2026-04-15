@@ -317,27 +317,33 @@ func (r *TraderRepo) CreateCopyTrading(ctx context.Context, followerID, traderID
 	err := r.pool.QueryRow(ctx, `
 		INSERT INTO copy_trading (follower_id, trader_id, copy_mode, copy_ratio, fixed_amount,
 			max_position, max_single_margin, follow_symbols, leverage_mode, custom_leverage,
-			tp_sl_mode, custom_tp_ratio, custom_sl_ratio, follow_direction)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+			tp_sl_mode, custom_tp_ratio, custom_sl_ratio, follow_direction,
+			allocated_capital, available_capital, frozen_capital)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15, 0)
 		ON CONFLICT (follower_id, trader_id) DO UPDATE SET
 			status = 'active', copy_mode = $3, copy_ratio = $4, fixed_amount = $5,
 			max_position = $6, max_single_margin = $7, follow_symbols = $8,
 			leverage_mode = $9, custom_leverage = $10, tp_sl_mode = $11,
 			custom_tp_ratio = $12, custom_sl_ratio = $13, follow_direction = $14,
+			allocated_capital = copy_trading.allocated_capital + $15,
+			available_capital = copy_trading.available_capital + $15,
 			updated_at = NOW()
 		RETURNING id, follower_id, trader_id, status, copy_mode, copy_ratio, fixed_amount,
 			max_position, max_single_margin, follow_symbols, leverage_mode, custom_leverage,
 			tp_sl_mode, custom_tp_ratio, custom_sl_ratio, follow_direction,
+			allocated_capital, available_capital, frozen_capital,
 			created_at, updated_at
 	`, followerID, traderID, copyMode, req.CopyRatio, req.FixedAmount,
 		req.MaxPosition, req.MaxSingleMargin, req.FollowSymbols,
 		leverageMode, req.CustomLeverage, tpSlMode,
-		req.CustomTpRatio, req.CustomSlRatio, followDir).Scan(
+		req.CustomTpRatio, req.CustomSlRatio, followDir,
+		req.AllocatedCapital).Scan(
 		&ct.ID, &ct.FollowerID, &ct.TraderID, &ct.Status,
 		&ct.CopyMode, &ct.CopyRatio, &ct.FixedAmount,
 		&ct.MaxPosition, &ct.MaxSingleMargin, &ct.FollowSymbols,
 		&ct.LeverageMode, &ct.CustomLeverage, &ct.TpSlMode,
 		&ct.CustomTpRatio, &ct.CustomSlRatio, &ct.FollowDirection,
+		&ct.AllocatedCapital, &ct.AvailableCapital, &ct.FrozenCapital,
 		&ct.CreatedAt, &ct.UpdatedAt,
 	)
 	if err != nil {
@@ -360,6 +366,7 @@ func (r *TraderRepo) GetCopyRelation(ctx context.Context, followerID, traderID s
 		SELECT id, follower_id, trader_id, status, copy_mode, copy_ratio, fixed_amount,
 			max_position, max_single_margin, follow_symbols, leverage_mode, custom_leverage,
 			tp_sl_mode, custom_tp_ratio, custom_sl_ratio, follow_direction,
+			allocated_capital, available_capital, frozen_capital,
 			created_at, updated_at
 		FROM copy_trading
 		WHERE follower_id = $1 AND trader_id = $2
@@ -369,6 +376,7 @@ func (r *TraderRepo) GetCopyRelation(ctx context.Context, followerID, traderID s
 		&ct.MaxPosition, &ct.MaxSingleMargin, &ct.FollowSymbols,
 		&ct.LeverageMode, &ct.CustomLeverage, &ct.TpSlMode,
 		&ct.CustomTpRatio, &ct.CustomSlRatio, &ct.FollowDirection,
+		&ct.AllocatedCapital, &ct.AvailableCapital, &ct.FrozenCapital,
 		&ct.CreatedAt, &ct.UpdatedAt,
 	)
 	if err != nil {
@@ -383,6 +391,7 @@ func (r *TraderRepo) ListFollowers(ctx context.Context, traderID string) ([]mode
 			ct.copy_mode, ct.copy_ratio, ct.fixed_amount, ct.max_position, ct.max_single_margin,
 			ct.follow_symbols, ct.leverage_mode, ct.custom_leverage,
 			ct.tp_sl_mode, ct.custom_tp_ratio, ct.custom_sl_ratio, ct.follow_direction,
+			ct.allocated_capital, ct.available_capital, ct.frozen_capital,
 			ct.created_at, ct.updated_at, COALESCE(u.display_name,''), COALESCE(u.avatar_url,'')
 		FROM copy_trading ct
 		JOIN users u ON u.uid = ct.follower_id
@@ -402,6 +411,7 @@ func (r *TraderRepo) ListFollowing(ctx context.Context, followerID string) ([]mo
 			ct.copy_mode, ct.copy_ratio, ct.fixed_amount, ct.max_position, ct.max_single_margin,
 			ct.follow_symbols, ct.leverage_mode, ct.custom_leverage,
 			ct.tp_sl_mode, ct.custom_tp_ratio, ct.custom_sl_ratio, ct.follow_direction,
+			ct.allocated_capital, ct.available_capital, ct.frozen_capital,
 			ct.created_at, ct.updated_at, COALESCE(u.display_name,''), COALESCE(u.avatar_url,'')
 		FROM copy_trading ct
 		JOIN users u ON u.uid = ct.trader_id
@@ -430,6 +440,7 @@ func scanCopyTradingRows(rows interface {
 			&ct.MaxPosition, &ct.MaxSingleMargin, &ct.FollowSymbols,
 			&ct.LeverageMode, &ct.CustomLeverage, &ct.TpSlMode,
 			&ct.CustomTpRatio, &ct.CustomSlRatio, &ct.FollowDirection,
+			&ct.AllocatedCapital, &ct.AvailableCapital, &ct.FrozenCapital,
 			&ct.CreatedAt, &ct.UpdatedAt, &ct.TraderName, &ct.TraderAvatar,
 		); err != nil {
 			return nil, err
@@ -445,6 +456,7 @@ func (r *TraderRepo) ListActiveFollowersByTraderID(ctx context.Context, traderID
 			ct.copy_mode, ct.copy_ratio, ct.fixed_amount, ct.max_position, ct.max_single_margin,
 			ct.follow_symbols, ct.leverage_mode, ct.custom_leverage,
 			ct.tp_sl_mode, ct.custom_tp_ratio, ct.custom_sl_ratio, ct.follow_direction,
+			ct.allocated_capital, ct.available_capital, ct.frozen_capital,
 			ct.created_at, ct.updated_at, COALESCE(u.display_name,''), COALESCE(u.avatar_url,'')
 		FROM copy_trading ct
 		JOIN users u ON u.uid = ct.follower_id
@@ -486,6 +498,7 @@ func (r *TraderRepo) UpdateCopyTradingSettings(ctx context.Context, followerID, 
 		RETURNING id, follower_id, trader_id, status, copy_mode, copy_ratio, fixed_amount,
 			max_position, max_single_margin, follow_symbols, leverage_mode, custom_leverage,
 			tp_sl_mode, custom_tp_ratio, custom_sl_ratio, follow_direction,
+			allocated_capital, available_capital, frozen_capital,
 			created_at, updated_at
 	`, followerID, traderID, copyMode, req.CopyRatio, req.FixedAmount,
 		req.MaxPosition, req.MaxSingleMargin, req.FollowSymbols,
@@ -496,6 +509,7 @@ func (r *TraderRepo) UpdateCopyTradingSettings(ctx context.Context, followerID, 
 		&ct.MaxPosition, &ct.MaxSingleMargin, &ct.FollowSymbols,
 		&ct.LeverageMode, &ct.CustomLeverage, &ct.TpSlMode,
 		&ct.CustomTpRatio, &ct.CustomSlRatio, &ct.FollowDirection,
+		&ct.AllocatedCapital, &ct.AvailableCapital, &ct.FrozenCapital,
 		&ct.CreatedAt, &ct.UpdatedAt,
 	)
 	if err != nil {
@@ -527,6 +541,125 @@ func (r *TraderRepo) GetTotalCopyMarginByTrader(ctx context.Context, followerID,
 		WHERE user_id = $1 AND source_trader_id = $2 AND is_copy_trade = true AND status = 'open'
 	`, followerID, traderID).Scan(&total)
 	return total, err
+}
+
+// ── Copy Trading: Allocated Capital (虚拟子账户) ──
+
+// FreezeFromBucket 跟单开仓时，从子账户 available 扣保证金，转入 frozen。
+// 受影响行 = 0 表示余额不足或 ID 不存在，应在调用方报错并跳过。
+func (r *TraderRepo) FreezeFromBucket(ctx context.Context, copyTradingID string, amount float64) error {
+	if amount <= 0 {
+		return fmt.Errorf("freeze amount must be positive: %v", amount)
+	}
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE copy_trading
+		SET available_capital = available_capital - $2,
+		    frozen_capital    = frozen_capital + $2,
+		    updated_at = NOW()
+		WHERE id = $1 AND status = 'active' AND available_capital >= $2
+	`, copyTradingID, amount)
+	if err != nil {
+		return fmt.Errorf("freeze from bucket: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("insufficient bucket capital or copy_trading not active: %s", copyTradingID)
+	}
+	return nil
+}
+
+// SettleToBucket 跟单平仓结算：释放冻结保证金 + 入账 PnL - 扣手续费。
+// releasedMargin 必须 > 0；pnl 可正可负；fee 必须 >= 0。
+// available 一定不会被本函数推到负值（约束保证），若 frozen 不足以释放则报错。
+func (r *TraderRepo) SettleToBucket(ctx context.Context, copyTradingID string, releasedMargin, pnl, fee float64) error {
+	if releasedMargin < 0 {
+		return fmt.Errorf("releasedMargin must be >= 0: %v", releasedMargin)
+	}
+	if fee < 0 {
+		return fmt.Errorf("fee must be >= 0: %v", fee)
+	}
+	// available += releasedMargin + pnl - fee；frozen -= releasedMargin
+	// 若 pnl 大幅亏损导致 available 变负 → 触发 chk_copy_trading_capital_nonneg 约束 → 报错
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE copy_trading
+		SET frozen_capital    = frozen_capital - $2,
+		    available_capital = available_capital + $2 + $3 - $4,
+		    updated_at = NOW()
+		WHERE id = $1 AND frozen_capital >= $2
+	`, copyTradingID, releasedMargin, pnl, fee)
+	if err != nil {
+		return fmt.Errorf("settle to bucket: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("insufficient frozen capital or copy_trading not found: %s", copyTradingID)
+	}
+	return nil
+}
+
+// AdjustAllocatedCapital 用户主动追加 / 赎回本金。delta>0 追加，<0 赎回。
+// 调用方负责钱包侧（balance ± |delta|）和 wallet_transactions 流水的写入；
+// 此方法只动子账户 allocated/available。
+func (r *TraderRepo) AdjustAllocatedCapital(ctx context.Context, copyTradingID string, delta float64) error {
+	if delta == 0 {
+		return nil
+	}
+	if delta > 0 {
+		// 追加：available + allocated 同时 += delta
+		tag, err := r.pool.Exec(ctx, `
+			UPDATE copy_trading
+			SET allocated_capital = allocated_capital + $2,
+			    available_capital = available_capital + $2,
+			    updated_at = NOW()
+			WHERE id = $1 AND status = 'active'
+		`, copyTradingID, delta)
+		if err != nil {
+			return fmt.Errorf("top up bucket: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return fmt.Errorf("copy_trading not active: %s", copyTradingID)
+		}
+		return nil
+	}
+	// 赎回：|delta| 必须 ≤ available；allocated 同步减
+	withdraw := -delta
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE copy_trading
+		SET allocated_capital = allocated_capital - $2,
+		    available_capital = available_capital - $2,
+		    updated_at = NOW()
+		WHERE id = $1 AND status = 'active' AND available_capital >= $2 AND allocated_capital >= $2
+	`, copyTradingID, withdraw)
+	if err != nil {
+		return fmt.Errorf("withdraw from bucket: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("withdraw exceeds bucket available or allocated: %s", copyTradingID)
+	}
+	return nil
+}
+
+// GetCopyTradingByID 按 ID 取（service 层取最新池子余额给前端用）。
+func (r *TraderRepo) GetCopyTradingByID(ctx context.Context, id string) (*model.CopyTrading, error) {
+	ct := &model.CopyTrading{}
+	err := r.pool.QueryRow(ctx, `
+		SELECT id, follower_id, trader_id, status, copy_mode, copy_ratio, fixed_amount,
+			max_position, max_single_margin, follow_symbols, leverage_mode, custom_leverage,
+			tp_sl_mode, custom_tp_ratio, custom_sl_ratio, follow_direction,
+			allocated_capital, available_capital, frozen_capital,
+			created_at, updated_at
+		FROM copy_trading WHERE id = $1
+	`, id).Scan(
+		&ct.ID, &ct.FollowerID, &ct.TraderID, &ct.Status,
+		&ct.CopyMode, &ct.CopyRatio, &ct.FixedAmount,
+		&ct.MaxPosition, &ct.MaxSingleMargin, &ct.FollowSymbols,
+		&ct.LeverageMode, &ct.CustomLeverage, &ct.TpSlMode,
+		&ct.CustomTpRatio, &ct.CustomSlRatio, &ct.FollowDirection,
+		&ct.AllocatedCapital, &ct.AvailableCapital, &ct.FrozenCapital,
+		&ct.CreatedAt, &ct.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return ct, nil
 }
 
 // ── Copy Trade Logs ──
