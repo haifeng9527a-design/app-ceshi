@@ -90,20 +90,66 @@ func (s *SpotService) LoadPendingOrders(ctx context.Context) error {
 	return nil
 }
 
-// OnPriceUpdate 价格 tick 回调（与 trading_service.OnPriceUpdate 并存，由 MarketHub 派发）。
-func (s *SpotService) OnPriceUpdate(symbol string, price float64) {
-	s.priceMu.Lock()
-	s.priceCache[symbol] = price
-	s.priceMu.Unlock()
+// OnPriceUpdate 价格 tick 回调（由 MarketHub 派发）。
+//
+// MarketHub 推来的 symbol 与 SpotService 内部 key（DB 原值）格式不同：
+//   - 加密币：Binance → "BTC/USD"     （MarketHub 做了 USDT→USD 的 display 归一化）
+//   - 股票  ：Polygon  → "AAPL"       （原始 ticker，无斜杠）
+//   - 外汇  ：Polygon  → "EUR/USD"    （display 格式）
+//
+// 而 pendingBySymbol / priceCache / symbolMeta 都按 DB 原值 ("BTC/USDT", "AAPL/USDT") 做 key。
+// 不做映射会导致：
+//   1) priceCache 永远命不中 getPrice(db_sym)
+//   2) pending 限价单永远撮合不上
+func (s *SpotService) OnPriceUpdate(incomingSym string, price float64) {
+	for _, dbSym := range s.mapIncomingSymbol(incomingSym) {
+		s.priceMu.Lock()
+		s.priceCache[dbSym] = price
+		s.priceMu.Unlock()
+		s.checkPendingFor(dbSym, price)
+	}
+}
 
+// mapIncomingSymbol 把 MarketHub 推来的 symbol 反查成 DB key 列表。
+//   - 直接命中 symbolMeta：原样返回（例如股票 seed 若还没跑 migration 033，DB 仍是 "AAPL/USD"）
+//   - 否则按 base_asset 匹配所有同基础资产的支持交易对
+func (s *SpotService) mapIncomingSymbol(incoming string) []string {
+	incoming = strings.ToUpper(strings.TrimSpace(incoming))
+	if incoming == "" {
+		return nil
+	}
+
+	s.symbolMu.RLock()
+	defer s.symbolMu.RUnlock()
+
+	if _, ok := s.symbolMeta[incoming]; ok {
+		return []string{incoming}
+	}
+
+	base := incoming
+	if idx := strings.Index(incoming, "/"); idx >= 0 {
+		base = incoming[:idx]
+	}
+
+	var out []string
+	for dbKey, meta := range s.symbolMeta {
+		if strings.EqualFold(meta.BaseAsset, base) {
+			out = append(out, dbKey)
+		}
+	}
+	return out
+}
+
+// checkPendingFor 对指定 DB symbol 的 pending 限价单做一次撮合检查。
+// 可由两条路径触发：OnPriceUpdate 的 WS tick，或 placeLimit 下单后的主动 snap。
+func (s *SpotService) checkPendingFor(dbSym string, price float64) {
 	s.pendingMu.RLock()
-	pending, ok := s.pendingBySymbol[symbol]
+	pending, ok := s.pendingBySymbol[dbSym]
 	s.pendingMu.RUnlock()
 	if !ok || len(pending) == 0 {
 		return
 	}
 
-	// 找出可成交的订单
 	var toFill []*model.SpotOrder
 	s.pendingMu.Lock()
 	remaining := pending[:0]
@@ -123,7 +169,7 @@ func (s *SpotService) OnPriceUpdate(symbol string, price float64) {
 			remaining = append(remaining, o)
 		}
 	}
-	s.pendingBySymbol[symbol] = remaining
+	s.pendingBySymbol[dbSym] = remaining
 	s.pendingMu.Unlock()
 
 	ctx := context.Background()
@@ -133,7 +179,7 @@ func (s *SpotService) OnPriceUpdate(symbol string, price float64) {
 			log.Printf("[spot] fill failed order=%s err=%v", o.ID, err)
 			// 失败放回队列，等待下次价格触发
 			s.pendingMu.Lock()
-			s.pendingBySymbol[symbol] = append(s.pendingBySymbol[symbol], o)
+			s.pendingBySymbol[dbSym] = append(s.pendingBySymbol[dbSym], o)
 			s.pendingMu.Unlock()
 		}
 	}
@@ -283,6 +329,12 @@ func (s *SpotService) placeLimit(ctx context.Context, userID string, meta *model
 			"price":    order.Price,
 			"time":     time.Now().Unix(),
 		})
+	}
+
+	// 主动撮合一次：股票市场 tick 稀疏（尤其非交易时段），若不 snap 一次，
+	// 即使 limitPrice 已被当前价穿越也会一直挂着。
+	if px, err := s.getPrice(meta.Symbol); err == nil && px > 0 {
+		s.checkPendingFor(meta.Symbol, px)
 	}
 
 	return order, nil
