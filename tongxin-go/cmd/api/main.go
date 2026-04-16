@@ -470,6 +470,12 @@ func main() {
 		referralRepo := repository.NewReferralRepo(pool)
 		referralSvc = service.NewReferralService(cfg, referralRepo)
 
+		// Sprint 4: commission_event 实时广播。chatHub 可能为 nil（无 Redis 环境），
+		// 此时 referralSvc 只写 DB 不广播，不影响结算正确性。
+		if chatHub != nil {
+			referralSvc.SetBroadcaster(chatHub)
+		}
+
 		commissionScheduler = scheduler.NewScheduler(cfg, referralSvc)
 		commissionScheduler.Start()
 	}

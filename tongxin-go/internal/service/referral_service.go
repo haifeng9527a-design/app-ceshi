@@ -13,6 +13,14 @@ import (
 	"tongxin-go/internal/repository"
 )
 
+// EventBroadcaster 推 commission_event 的抽象依赖。签名与
+// NotificationBroadcaster 一致，但单独取个名让调用面更清晰；任何实现了
+// BroadcastToUser(string, any) 的类型都满足（例：*ws.ChatHub）。
+// 为 nil 时（单测 / 降级场景）插入 event 后不广播。
+type EventBroadcaster interface {
+	BroadcastToUser(userID string, payload any)
+}
+
 // ReferralService 邀请返佣 + 代理体系的业务逻辑层。
 //
 // 设计约束（来自 PRD v2）：
@@ -22,12 +30,66 @@ import (
 //   - 级联 cascade max 10 层，防御性深度限制
 //   - 循环邀请检测：BindReferrer 调 GetInviterChain(10) 一次 SQL 跑完
 type ReferralService struct {
-	cfg  *config.Config
-	repo *repository.ReferralRepo
+	cfg         *config.Config
+	repo        *repository.ReferralRepo
+	broadcaster EventBroadcaster // 可为 nil；main.go 注入 *ws.ChatHub
 }
 
 func NewReferralService(cfg *config.Config, repo *repository.ReferralRepo) *ReferralService {
 	return &ReferralService{cfg: cfg, repo: repo}
+}
+
+// SetBroadcaster 在 main.go 创建完 ChatHub 之后注入，用于 InsertCommissionEvents
+// 成功后把每条 pending event 实时推给对应 inviter。
+func (s *ReferralService) SetBroadcaster(b EventBroadcaster) {
+	s.broadcaster = b
+}
+
+// insertAndBroadcastEvents 持久化 + 广播。
+//
+// 设计要点：
+//   - DB 是 source of truth，广播失败（用户离线 / WS 断开）不回滚 DB
+//   - 只推 pending 状态；skipped_risk（冻结代理） / skipped_zero 不推，避免
+//     给冻结代理的管理员账号显示"收到一条永远结不了算"的幽灵事件
+//   - 每条 event 独立一个 frame：self 广播给 invitee 自己，direct/override
+//     广播给对应 inviter（override 链路里每一级代理都拿到自己这一层的 frame）
+//   - frame.data 的字段与 agent-web/src/lib/api.ts::CommissionEventPush 对齐
+func (s *ReferralService) insertAndBroadcastEvents(
+	ctx context.Context, events []repository.InsertableEvent,
+) error {
+	if len(events) == 0 {
+		return nil
+	}
+	if err := s.repo.InsertCommissionEvents(ctx, events); err != nil {
+		return err
+	}
+	if s.broadcaster == nil {
+		return nil
+	}
+	for _, e := range events {
+		if e.Status != model.CommissionEventStatusPending {
+			continue
+		}
+		var sourceInviter any
+		if e.SourceInviterUID != nil {
+			sourceInviter = *e.SourceInviterUID
+		}
+		s.broadcaster.BroadcastToUser(e.InviterUID, map[string]any{
+			"type": "commission_event",
+			"data": map[string]any{
+				"invitee_uid":       e.InviteeUID,
+				"inviter_uid":       e.InviterUID,
+				"source_inviter":    sourceInviter,
+				"kind":              e.Kind,
+				"product_type":      e.ProductType,
+				"fee_base":          e.FeeBase,
+				"rate_snapshot":     e.RateSnapshot,
+				"commission_amount": e.CommissionAmount,
+				"status":            e.Status,
+			},
+		})
+	}
+	return nil
 }
 
 // maxCascadeDepth: 向上追溯级差时的最大层数。理论上代理链不会超过 4-5 层，
@@ -104,7 +166,7 @@ func (s *ReferralService) RecordCommissionEvent(
 	// Step 2: 没有 inviter（根用户）→ 只写 self（如有），跳过 direct/override
 	if invitee.InviterUID == nil || *invitee.InviterUID == "" {
 		if len(selfEvents) > 0 {
-			if err := s.repo.InsertCommissionEvents(ctx, selfEvents); err != nil {
+			if err := s.insertAndBroadcastEvents(ctx, selfEvents); err != nil {
 				return fmt.Errorf("record: insert self event: %w", err)
 			}
 		}
@@ -120,7 +182,7 @@ func (s *ReferralService) RecordCommissionEvent(
 	if len(chain) == 0 {
 		// 理论不会发生（inviter_uid 非 nil → 至少有 1 层）；保险起见仍写 self
 		if len(selfEvents) > 0 {
-			if err := s.repo.InsertCommissionEvents(ctx, selfEvents); err != nil {
+			if err := s.insertAndBroadcastEvents(ctx, selfEvents); err != nil {
 				return fmt.Errorf("record: insert self event: %w", err)
 			}
 		}
@@ -133,7 +195,7 @@ func (s *ReferralService) RecordCommissionEvent(
 	all := make([]repository.InsertableEvent, 0, len(selfEvents)+len(cascadeEvents))
 	all = append(all, selfEvents...)
 	all = append(all, cascadeEvents...)
-	if err := s.repo.InsertCommissionEvents(ctx, all); err != nil {
+	if err := s.insertAndBroadcastEvents(ctx, all); err != nil {
 		return fmt.Errorf("record: insert events: %w", err)
 	}
 	return nil

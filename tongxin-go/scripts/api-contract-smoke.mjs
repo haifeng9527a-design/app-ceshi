@@ -96,6 +96,48 @@ function parseBackendRoutes(files) {
   return { set, origin };
 }
 
+// ── WS types ───────────────────────────────────────────────────────
+// 前端：ws.on<T>('type', cb) / ws.on('type', cb)
+function parseFrontendWsTypes(dir) {
+  const re = /\bws\.on\b[^(]*\(\s*['"`]([^'"`]+)['"`]/g;
+  const out = new Set();
+  // api.ts 很少用 ws.on —— 绝大多数用法在 components / page.tsx 里
+  const tsFiles = [];
+  (function walk(d) {
+    for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
+      const full = path.join(d, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
+        walk(full);
+      } else if (/\.(ts|tsx)$/.test(entry.name)) {
+        tsFiles.push(full);
+      }
+    }
+  })(dir);
+  for (const f of tsFiles) {
+    const src = fs.readFileSync(f, 'utf8');
+    let m;
+    while ((m = re.exec(src)) !== null) out.add(m[1]);
+  }
+  return out;
+}
+
+// 后端：扫所有包含 BroadcastToUser 调用的 .go 文件，从中抓 "type": "<xxx>"。
+// 这是宽松策略：只要某文件用了 Broadcast + 里面有 type 字面量就算候选，会包含
+// 少量误阳性（例如 handler 响应体里恰好也有 "type" key），但对 smoke 来说「多承认
+// 几个 type」只会宽松不会漏检，可接受。
+function parseBackendWsTypes(files) {
+  const typeRe = /"type"\s*:\s*"([^"]+)"/g;
+  const out = new Set();
+  for (const f of files) {
+    const src = fs.readFileSync(f, 'utf8');
+    if (!src.includes('BroadcastToUser')) continue;
+    let m;
+    while ((m = typeRe.exec(src)) !== null) out.add(m[1]);
+  }
+  return out;
+}
+
 // ── run ────────────────────────────────────────────────────────────
 if (!fs.existsSync(FRONTEND_FILE)) {
   console.log(`[contract] skipping — no frontend file at ${FRONTEND_FILE}`);
@@ -112,27 +154,51 @@ const feCalls = parseFrontendCalls(feSrc);
 const goFiles = walkGoFiles(BACKEND_DIR);
 const { set: beRoutes } = parseBackendRoutes(goFiles);
 
+const FRONTEND_SRC_DIR = path.join(path.dirname(FRONTEND_FILE), '..'); // tongxin-agent-web/src
+const feWsTypes = parseFrontendWsTypes(FRONTEND_SRC_DIR);
+const beWsTypes = parseBackendWsTypes(goFiles);
+
 console.log(`[contract] frontend calls (api.ts): ${feCalls.length}`);
 console.log(`[contract] backend routes (tongxin-go/**): ${beRoutes.size}`);
+console.log(`[contract] frontend ws.on types: ${feWsTypes.size} (${[...feWsTypes].join(', ') || 'none'})`);
+console.log(`[contract] backend broadcaster types: ${beWsTypes.size}`);
 
-const missing = [];
+// HTTP check
+const missingRoutes = [];
 for (const c of feCalls) {
   const key = c.method + ' ' + c.path;
-  if (!beRoutes.has(key)) missing.push(c);
+  if (!beRoutes.has(key)) missingRoutes.push(c);
 }
 
-if (missing.length === 0) {
-  console.log(`[contract] ✅ all ${feCalls.length} frontend calls have matching backend routes`);
-  process.exit(0);
+// WS check
+const missingWsTypes = [];
+for (const t of feWsTypes) {
+  if (!beWsTypes.has(t)) missingWsTypes.push(t);
 }
 
-console.error('[contract] ❌ frontend calls missing in backend routes:');
-for (const c of missing) {
-  console.error(`  ${c.method.padEnd(6)} ${c.path.padEnd(50)}  (api.ts raw: ${c.rawPath})`);
+let failed = false;
+
+if (missingRoutes.length > 0) {
+  failed = true;
+  console.error('');
+  console.error('[contract] ❌ frontend HTTP calls missing in backend routes:');
+  for (const c of missingRoutes) {
+    console.error(`  ${c.method.padEnd(6)} ${c.path.padEnd(50)}  (api.ts raw: ${c.rawPath})`);
+  }
+  console.error('  修法：后端 main.go 加 mux.Handle("METHOD /path", handler)，或加 alias，或前端改成已注册路径');
 }
-console.error('');
-console.error('[contract] how to fix:');
-console.error('  - 后端漏注册：在 tongxin-go/cmd/api/main.go 加 mux.Handle("METHOD /path", handler)');
-console.error('  - 两边命名不一致：推荐后端加 alias 路由，前端不动（参考 time-series / touch / thresholds 的修法）');
-console.error('  - 前端写错：修 tongxin-agent-web/src/lib/api.ts');
-process.exit(1);
+
+if (missingWsTypes.length > 0) {
+  failed = true;
+  console.error('');
+  console.error('[contract] ❌ frontend ws.on(type) with no matching backend BroadcastToUser:');
+  for (const t of missingWsTypes) console.error(`  "${t}"`);
+  console.error('  历史教训：commission_event 订阅写了很久没人发，只有页面不工作才发现。');
+  console.error('  修法：在对应 service 里 BroadcastToUser(uid, map[string]any{"type":"<type>", ...})');
+}
+
+if (failed) process.exit(1);
+
+console.log('');
+console.log(`[contract] ✅ http ${feCalls.length}/${feCalls.length} · ws ${feWsTypes.size}/${feWsTypes.size}`);
+process.exit(0);
