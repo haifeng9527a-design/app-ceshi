@@ -32,7 +32,6 @@ import {
   useWindowDimensions,
   Alert,
   Platform,
-  Modal,
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
@@ -40,6 +39,10 @@ import TradingViewChart from '../../components/chart/TradingViewChart';
 import TransferModal, {
   type TransferDirection,
 } from '../../components/assets/TransferModal';
+import SymbolDropdown, {
+  type SymbolTab,
+  type SymbolMeta,
+} from '../../components/trading/SymbolDropdown';
 import { useMarketStore } from '../../services/store/marketStore';
 import {
   spotApi,
@@ -51,7 +54,7 @@ import {
 import { useAuthStore } from '../../services/store/authStore';
 import { fetchCryptoDepth } from '../../services/api/client';
 import { tradingWs } from '../../services/websocket/tradingWs';
-import { Colors } from '../../theme/colors';
+import { Colors, Shadows } from '../../theme/colors';
 
 /* ════════════════════════════════════════════
    Helpers
@@ -189,8 +192,6 @@ export default function SpotPage() {
   const [symbols, setSymbols] = useState<SpotSupportedSymbol[]>([]);
   const [selectedSymbol, setSelectedSymbol] = useState<string>('BTC/USDT');
   const [showSymbolDropdown, setShowSymbolDropdown] = useState(false);
-  const [dropdownTab, setDropdownTab] = useState<SpotCategory>('crypto');
-  const [dropdownFilter, setDropdownFilter] = useState('');
 
   const selectedMeta = useMemo(
     () => symbols.find((s) => s.symbol === selectedSymbol),
@@ -201,6 +202,52 @@ export default function SpotPage() {
     () => toMarketSymbol(selectedSymbol, selectedMeta?.category || 'crypto'),
     [selectedSymbol, selectedMeta],
   );
+
+  /* ── Shared SymbolDropdown props (spot: crypto + stocks only, no forex/futures) ── */
+  const symbolDropdownTabs = useMemo<SymbolTab[]>(
+    () => [
+      { key: 'crypto', label: t('trading.crypto') },
+      { key: 'stocks', label: t('trading.stock') },
+    ],
+    [t],
+  );
+  const symbolsByTab = useMemo<Record<string, string[]>>(() => {
+    const byTab: Record<string, string[]> = { crypto: [], stocks: [] };
+    for (const s of symbols) {
+      if (s.category === 'crypto' || s.category === 'stocks') {
+        byTab[s.category].push(s.symbol);
+      }
+    }
+    return byTab;
+  }, [symbols]);
+  // Lookup map keyed by raw symbol so `getSymbolMeta` is O(1)
+  const symbolMetaMap = useMemo(() => {
+    const m = new Map<string, SpotSupportedSymbol>();
+    for (const s of symbols) m.set(s.symbol, s);
+    return m;
+  }, [symbols]);
+  const getSymbolMeta = useCallback(
+    (sym: string): SymbolMeta | undefined => {
+      const meta = symbolMetaMap.get(sym);
+      if (!meta) return undefined;
+      return {
+        subLabel: meta.display_name || undefined,
+        displaySymbol: toDisplaySymbol(meta.symbol),
+        quoteSymbol: toMarketSymbol(meta.symbol, meta.category),
+        pricePrecision: meta.price_precision,
+      };
+    },
+    [symbolMetaMap],
+  );
+  const initialDropdownTab: string = selectedMeta?.category === 'stocks' ? 'stocks' : 'crypto';
+  const handleSymbolSelect = useCallback((sym: string) => {
+    setSelectedSymbol(sym);
+    setShowSymbolDropdown(false);
+    setPriceInput('');
+    setQtyInput('');
+    setAmountInput('');
+    setSliderPct(0);
+  }, []);
 
   /* ── Market data ── */
   const klines = useMarketStore((s) => s.klines);
@@ -607,46 +654,277 @@ export default function SpotPage() {
      Render sub-sections
      ═════════════════════════════════════════ */
 
-  /* ── Top bar: symbol + 24h stats ── */
-  const render24hStats = () => {
+  /* ── Hero Bar: symbol chip + 大号价格 + 24h 卡片组 ── */
+  const renderHeroBar = () => {
     const isCrypto = selectedMeta?.category === 'crypto';
     const turnover = currentQuote?.volume && currentPrice
       ? currentQuote.volume * currentPrice
       : undefined;
+    const up = percentChange >= 0;
+    const changeColor = up ? Colors.up : Colors.down;
+    const changeBg = up ? Colors.upDim : Colors.downDim;
+    // 币种 / 股票徽标：用 base 首字母（简洁、零依赖）
+    const badge = (baseAsset || displaySymbol.charAt(0)).slice(0, 3).toUpperCase();
+
+    const stats: { label: string; value: string; accent?: string }[] = [
+      {
+        label: t('trading.high24h'),
+        value: formatPrice(currentQuote?.high, pricePrecision),
+      },
+      {
+        label: t('trading.low24h'),
+        value: formatPrice(currentQuote?.low, pricePrecision),
+      },
+    ];
+    if (isCrypto) {
+      stats.push(
+        {
+          label: `${t('trading.volume24h')}(${baseAsset || '--'})`,
+          value: formatCompact(currentQuote?.volume),
+        },
+        {
+          label: `${t('trading.turnover24h')}(${quoteAsset})`,
+          value: formatCompact(turnover),
+        },
+      );
+    }
+
     return (
-      <View style={styles.stats24Row}>
-        <View style={styles.statItem}>
-          <Text style={styles.statLabel}>{t('trading.changePercent') || '涨跌幅'}</Text>
-          <Text style={[styles.statValue, { color: percentChange >= 0 ? Colors.up : Colors.down }]}>
-            {percentChange >= 0 ? '+' : ''}
-            {percentChange.toFixed(2)}%
-          </Text>
-        </View>
-        <View style={styles.statDivider} />
-        <View style={styles.statItem}>
-          <Text style={styles.statLabel}>{t('trading.high24h')}</Text>
-          <Text style={styles.statValue}>{formatPrice(currentQuote?.high, pricePrecision)}</Text>
-        </View>
-        <View style={styles.statDivider} />
-        <View style={styles.statItem}>
-          <Text style={styles.statLabel}>{t('trading.low24h')}</Text>
-          <Text style={styles.statValue}>{formatPrice(currentQuote?.low, pricePrecision)}</Text>
-        </View>
-        {isCrypto && (
-          <>
-            <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Text style={styles.statLabel}>
-                {t('trading.volume24h')}({baseAsset || '--'})
-              </Text>
-              <Text style={styles.statValue}>{formatCompact(currentQuote?.volume)}</Text>
+      <View style={styles.heroBar}>
+        {/* ── Left: symbol identity + big price ── */}
+        <View style={styles.heroLeft}>
+          <TouchableOpacity
+            style={styles.heroSymbolChip}
+            activeOpacity={0.7}
+            onPress={() => setShowSymbolDropdown(true)}
+          >
+            <View style={[styles.heroBadge, { backgroundColor: Colors.primaryDim }]}>
+              <Text style={styles.heroBadgeText}>{badge}</Text>
             </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Text style={styles.statLabel}>
-                {t('trading.turnover24h')}({quoteAsset})
+            <View style={{ gap: 2 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={styles.heroSymbol}>{displaySymbol}</Text>
+                <Text style={styles.heroChevron}>▾</Text>
+              </View>
+              {!!selectedMeta?.display_name && (
+                <Text style={styles.heroSymbolSub} numberOfLines={1}>
+                  {selectedMeta.display_name}
+                </Text>
+              )}
+            </View>
+          </TouchableOpacity>
+
+          <View style={styles.heroPriceBlock}>
+            <Text style={[styles.heroPrice, { color: changeColor }]}>
+              {formatPrice(currentPrice, pricePrecision)}
+            </Text>
+            <View style={[styles.heroChangePill, { backgroundColor: changeBg, borderColor: changeColor + '55' }]}>
+              <Text style={[styles.heroChangePillText, { color: changeColor }]}>
+                {up ? '▲' : '▼'} {up ? '+' : ''}{percentChange.toFixed(2)}%
               </Text>
-              <Text style={styles.statValue}>{formatCompact(turnover)}</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* ── Right: 24h stat cards ── */}
+        <View style={styles.heroStatGrid}>
+          {stats.map((s) => (
+            <View key={s.label} style={styles.heroStatCard}>
+              <Text style={styles.heroStatLabel} numberOfLines={1}>{s.label}</Text>
+              <Text style={styles.heroStatValue} numberOfLines={1}>{s.value}</Text>
+            </View>
+          ))}
+        </View>
+      </View>
+    );
+  };
+
+  /* ── Chart ── */
+  const renderChart = () => {
+    const tfLabel: Record<string, string> = {
+      '1min': '1m',
+      '5min': '5m',
+      '15min': '15m',
+      '1h': '1H',
+      '4h': '4H',
+      '1day': '1D',
+    };
+    return (
+      <View style={styles.chartCard}>
+        <View style={styles.chartHeader}>
+          <View style={styles.chartTitleWrap}>
+            <Text style={styles.chartTitle}>{marketSymbol}</Text>
+            <View style={styles.chartLiveDot} />
+            <Text style={styles.chartTitleSub}>
+              {klinesLoading ? t('common.loading') : 'Live'}
+            </Text>
+          </View>
+          <View style={styles.tfRow}>
+            {['1min', '5min', '15min', '1h', '4h', '1day'].map((tf) => (
+              <TouchableOpacity
+                key={tf}
+                onPress={() => setTimeframe(tf)}
+                style={[styles.tfBtn, tf === timeframe && styles.tfBtnActive]}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.tfText, tf === timeframe && styles.tfTextActive]}>
+                  {tfLabel[tf] || tf}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+        <View style={styles.chartBox}>
+          {Platform.OS === 'web' ? (
+            <TradingViewChart
+              klines={klines}
+              symbol={marketSymbol}
+              realtimePrice={currentPrice || undefined}
+            />
+          ) : (
+            <View style={styles.chartPlaceholder}>
+              <Text style={styles.placeholderText}>
+                {klinesLoading ? t('common.loading') : `${marketSymbol} ${tfLabel[timeframe] || timeframe}`}
+              </Text>
+            </View>
+          )}
+        </View>
+      </View>
+    );
+  };
+
+  /* ── Order book panel ── */
+  const renderOrderBookPanel = () => {
+    // Spread: 最优 ask - 最优 bid（asks 已倒序，最优是最后一个；bids 最优是第一个）
+    const bestAsk = orderBook.asks.length ? orderBook.asks[orderBook.asks.length - 1].price : 0;
+    const bestBid = orderBook.bids.length ? orderBook.bids[0].price : 0;
+    const spread = bestAsk && bestBid ? bestAsk - bestBid : 0;
+    const spreadPct = bestAsk && bestBid ? (spread / bestAsk) * 100 : 0;
+
+    return (
+      <View style={styles.obCard}>
+        <View style={styles.obTabRow}>
+          <TouchableOpacity
+            onPress={() => setObTab('orderbook')}
+            style={[styles.obTabPill, obTab === 'orderbook' && styles.obTabPillActive]}
+            activeOpacity={0.7}
+          >
+            <Text
+              style={[styles.obTabPillText, obTab === 'orderbook' && styles.obTabPillTextActive]}
+            >
+              {t('spot.orderBook') || '订单簿'}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => setObTab('trades')}
+            style={[styles.obTabPill, obTab === 'trades' && styles.obTabPillActive]}
+            activeOpacity={0.7}
+          >
+            <Text
+              style={[styles.obTabPillText, obTab === 'trades' && styles.obTabPillTextActive]}
+            >
+              {t('spot.recentTrades') || '最近成交'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {obTab === 'orderbook' ? (
+          <>
+            <View style={styles.obColHeader}>
+              <Text style={styles.obColLabel}>
+                {t('spot.price') || '价格'}({quoteAsset})
+              </Text>
+              <Text style={[styles.obColLabel, { textAlign: 'right' }]}>
+                {t('spot.qty') || '数量'}({baseAsset || '--'})
+              </Text>
+            </View>
+            <View style={styles.obContent}>
+              {orderBook.asks.slice(0, 10).map((a, i) => (
+                <TouchableOpacity
+                  key={`ask-${i}`}
+                  style={styles.obRow}
+                  onPress={() => {
+                    setOrderType('limit');
+                    setPriceInput(a.price.toFixed(pricePrecision));
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.obBarAsk, { width: `${a.pct * 100}%` }]} />
+                  <Text style={styles.obAskPrice}>{formatPrice(a.price, pricePrecision)}</Text>
+                  <Text style={styles.obQty}>{a.qty.toFixed(qtyPrecision)}</Text>
+                </TouchableOpacity>
+              ))}
+              <View style={styles.obCurrentRow}>
+                <Text
+                  style={[
+                    styles.obCurrentPrice,
+                    { color: percentChange >= 0 ? Colors.up : Colors.down },
+                  ]}
+                >
+                  {formatPrice(currentPrice, pricePrecision)}
+                </Text>
+                <View style={styles.obSpreadBox}>
+                  <Text style={styles.obSpreadLabel}>Spread</Text>
+                  <Text style={styles.obSpreadValue}>
+                    {spread > 0 ? `${spreadPct.toFixed(3)}%` : '--'}
+                  </Text>
+                </View>
+              </View>
+              {orderBook.bids.slice(0, 10).map((b, i) => (
+                <TouchableOpacity
+                  key={`bid-${i}`}
+                  style={styles.obRow}
+                  onPress={() => {
+                    setOrderType('limit');
+                    setPriceInput(b.price.toFixed(pricePrecision));
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.obBarBid, { width: `${b.pct * 100}%` }]} />
+                  <Text style={styles.obBidPrice}>{formatPrice(b.price, pricePrecision)}</Text>
+                  <Text style={styles.obQty}>{b.qty.toFixed(qtyPrecision)}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </>
+        ) : (
+          <>
+            <View style={styles.obColHeader}>
+              <Text style={styles.obColLabel}>
+                {t('spot.price') || '价格'}({quoteAsset})
+              </Text>
+              <Text style={[styles.obColLabel, { textAlign: 'center', flex: 1 }]}>
+                {t('spot.qty') || '数量'}
+              </Text>
+              <Text style={[styles.obColLabel, { textAlign: 'right' }]}>
+                {t('trading.time') || '时间'}
+              </Text>
+            </View>
+            <View style={styles.obContent}>
+              {trades.length === 0 ? (
+                <View style={styles.emptyState}>
+                  <Text style={styles.emptyStateIcon}>⟳</Text>
+                  <Text style={styles.obEmpty}>{t('common.noData')}</Text>
+                </View>
+              ) : (
+                trades.map((tr) => (
+                  <View key={tr.id} style={styles.tradeRow}>
+                    <View style={[styles.tradeDot, { backgroundColor: tr.side === 'buy' ? Colors.up : Colors.down }]} />
+                    <Text
+                      style={[
+                        styles.tradePrice,
+                        { color: tr.side === 'buy' ? Colors.up : Colors.down },
+                      ]}
+                    >
+                      {formatPrice(tr.price, pricePrecision)}
+                    </Text>
+                    <Text style={styles.tradeQty}>{tr.qty.toFixed(qtyPrecision)}</Text>
+                    <Text style={styles.tradeTime}>
+                      {new Date(tr.timestamp).toLocaleTimeString(undefined, { hour12: false })}
+                    </Text>
+                  </View>
+                ))
+              )}
             </View>
           </>
         )}
@@ -654,369 +932,55 @@ export default function SpotPage() {
     );
   };
 
-  // 顶部 Chip：只展示当前 symbol + 价格，点击后打开侧滑下拉
-  const renderSymbolDropdown = () => (
-    <View style={styles.symbolDropdownWrap}>
-      <TouchableOpacity
-        style={styles.symbolChip}
-        activeOpacity={0.7}
-        onPress={() => {
-          setDropdownTab(selectedMeta?.category || 'crypto');
-          setDropdownFilter('');
-          setShowSymbolDropdown(true);
-        }}
-      >
-        <Text style={styles.symbolText}>{displaySymbol}</Text>
-        <Text style={styles.chevron}>▼</Text>
-      </TouchableOpacity>
-      <View style={styles.priceBox}>
-        <Text
-          style={[
-            styles.priceValue,
-            { color: percentChange >= 0 ? Colors.up : Colors.down },
-          ]}
-        >
-          {formatPrice(currentPrice, pricePrecision)}
-        </Text>
-      </View>
-    </View>
-  );
-
-  // 侧滑 SymbolDropdown（与合约页一致：search + tabs + list）
-  const renderSymbolPanel = () => {
-    const tabs: { key: SpotCategory; label: string }[] = [
-      { key: 'crypto', label: t('trading.crypto') },
-      { key: 'stocks', label: t('trading.stock') },
-    ];
-    const filtered = symbols.filter((s) => {
-      if (s.category !== dropdownTab) return false;
-      if (!dropdownFilter.trim()) return true;
-      const q = dropdownFilter.trim().toLowerCase();
-      return (
-        s.symbol.toLowerCase().includes(q) ||
-        s.display_name.toLowerCase().includes(q) ||
-        s.base_asset.toLowerCase().includes(q)
-      );
-    });
-
-    return (
-      <Modal
-        visible={showSymbolDropdown}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowSymbolDropdown(false)}
-      >
-        <View style={styles.sdOverlay}>
-          <TouchableOpacity
-            style={styles.sdBackdrop}
-            activeOpacity={1}
-            onPress={() => setShowSymbolDropdown(false)}
-          />
-          <View style={styles.sdPanel}>
-            {/* Search */}
-            <View style={styles.sdSearchRow}>
-              <Text style={styles.sdSearchIcon}>🔍</Text>
-              <TextInput
-                style={styles.sdSearchInput}
-                placeholder={t('trading.searchPairs')}
-                placeholderTextColor={Colors.textMuted}
-                value={dropdownFilter}
-                onChangeText={setDropdownFilter}
-                autoFocus
-              />
-              <TouchableOpacity onPress={() => setShowSymbolDropdown(false)}>
-                <Text style={styles.sdClose}>✕</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Tabs */}
-            <View style={styles.sdTabRow}>
-              {tabs.map((tab) => (
-                <TouchableOpacity
-                  key={tab.key}
-                  style={[styles.sdTab, dropdownTab === tab.key && styles.sdTabActive]}
-                  activeOpacity={0.7}
-                  onPress={() => {
-                    setDropdownTab(tab.key);
-                    setDropdownFilter('');
-                  }}
-                >
-                  <Text
-                    style={[
-                      styles.sdTabText,
-                      dropdownTab === tab.key && styles.sdTabTextActive,
-                    ]}
-                  >
-                    {tab.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            {/* List header */}
-            <View style={styles.sdListHeader}>
-              <Text style={[styles.sdHeaderText, { flex: 1.4 }]}>{t('trading.pair')}</Text>
-              <Text style={[styles.sdHeaderText, { flex: 1, textAlign: 'right' }]}>
-                {t('spot.price') || '价格'}
-              </Text>
-              <Text style={[styles.sdHeaderText, { flex: 1, textAlign: 'right' }]}>
-                {t('trading.changePercent') || '涨跌幅'}
-              </Text>
-            </View>
-
-            {/* List */}
-            <ScrollView style={styles.sdList} keyboardShouldPersistTaps="handled">
-              {filtered.length === 0 ? (
-                <View style={styles.sdEmpty}>
-                  <Text style={styles.sdEmptyText}>{t('trading.noMatch')}</Text>
-                </View>
-              ) : (
-                filtered.map((s) => {
-                  const isActive = s.symbol === selectedSymbol;
-                  const ms = toMarketSymbol(s.symbol, s.category);
-                  const q = quotes[ms];
-                  const p = q?.price ?? 0;
-                  const pct = q?.percent_change ?? 0;
-                  const color = !q ? Colors.textMuted : pct >= 0 ? Colors.up : Colors.down;
-                  return (
-                    <TouchableOpacity
-                      key={s.symbol}
-                      style={[styles.sdRow, isActive && styles.sdRowActive]}
-                      activeOpacity={0.7}
-                      onPress={() => {
-                        setSelectedSymbol(s.symbol);
-                        setShowSymbolDropdown(false);
-                        setPriceInput('');
-                        setQtyInput('');
-                        setAmountInput('');
-                        setSliderPct(0);
-                      }}
-                    >
-                      <View style={{ flex: 1.4 }}>
-                        <Text style={[styles.sdRowSymbol, isActive && { color: Colors.primary }]}>
-                          {toDisplaySymbol(s.symbol)}
-                        </Text>
-                        {!!s.display_name && (
-                          <Text style={styles.sdRowName}>{s.display_name}</Text>
-                        )}
-                      </View>
-                      <Text style={[styles.sdRowPrice, { flex: 1 }]}>
-                        {p > 0 ? formatPrice(p, s.price_precision) : '--'}
-                      </Text>
-                      <Text style={[styles.sdRowChange, { flex: 1, color }]}>
-                        {q ? `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%` : '--'}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })
-              )}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-    );
-  };
-
-  /* ── Chart ── */
-  const renderChart = () => (
-    <View style={styles.chartCard}>
-      <View style={styles.tfRow}>
-        {['1min', '5min', '15min', '1h', '4h', '1day'].map((tf) => (
-          <TouchableOpacity
-            key={tf}
-            onPress={() => setTimeframe(tf)}
-            style={[styles.tfBtn, tf === timeframe && styles.tfBtnActive]}
-            activeOpacity={0.7}
-          >
-            <Text style={[styles.tfText, tf === timeframe && styles.tfTextActive]}>{tf}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-      <View style={styles.chartBox}>
-        {Platform.OS === 'web' ? (
-          <TradingViewChart
-            klines={klines}
-            symbol={marketSymbol}
-            realtimePrice={currentPrice || undefined}
-          />
-        ) : (
-          <View style={styles.chartPlaceholder}>
-            <Text style={styles.placeholderText}>
-              {klinesLoading ? t('common.loading') : `${marketSymbol} ${timeframe}`}
-            </Text>
-          </View>
-        )}
-      </View>
-    </View>
-  );
-
-  /* ── Order book panel ── */
-  const renderOrderBookPanel = () => (
-    <View style={styles.obCard}>
-      <View style={styles.obTabRow}>
-        <TouchableOpacity
-          onPress={() => setObTab('orderbook')}
-          style={styles.obTabBtn}
-          activeOpacity={0.7}
-        >
-          <Text
-            style={[styles.obTabText, obTab === 'orderbook' && styles.obTabTextActive]}
-          >
-            {t('spot.orderBook') || '订单簿'}
-          </Text>
-          {obTab === 'orderbook' && <View style={styles.obTabUnderline} />}
-        </TouchableOpacity>
-        <TouchableOpacity
-          onPress={() => setObTab('trades')}
-          style={styles.obTabBtn}
-          activeOpacity={0.7}
-        >
-          <Text
-            style={[styles.obTabText, obTab === 'trades' && styles.obTabTextActive]}
-          >
-            {t('spot.recentTrades') || '最近成交'}
-          </Text>
-          {obTab === 'trades' && <View style={styles.obTabUnderline} />}
-        </TouchableOpacity>
-      </View>
-
-      {obTab === 'orderbook' ? (
-        <>
-          <View style={styles.obColHeader}>
-            <Text style={styles.obColLabel}>
-              {t('spot.price') || '价格'}({quoteAsset})
-            </Text>
-            <Text style={[styles.obColLabel, { textAlign: 'right' }]}>
-              {t('spot.qty') || '数量'}({baseAsset || '--'})
-            </Text>
-          </View>
-          <View style={styles.obContent}>
-            {orderBook.asks.slice(0, 10).map((a, i) => (
-              <TouchableOpacity
-                key={`ask-${i}`}
-                style={styles.obRow}
-                onPress={() => {
-                  setOrderType('limit');
-                  setPriceInput(a.price.toFixed(pricePrecision));
-                }}
-                activeOpacity={0.7}
-              >
-                <View style={[styles.obBarAsk, { width: `${a.pct * 100}%` }]} />
-                <Text style={styles.obAskPrice}>{formatPrice(a.price, pricePrecision)}</Text>
-                <Text style={styles.obQty}>{a.qty.toFixed(qtyPrecision)}</Text>
-              </TouchableOpacity>
-            ))}
-            <View style={styles.obCurrentRow}>
-              <Text
-                style={[
-                  styles.obCurrentPrice,
-                  { color: percentChange >= 0 ? Colors.up : Colors.down },
-                ]}
-              >
-                {formatPrice(currentPrice, pricePrecision)}
-              </Text>
-              <Text
-                style={[
-                  styles.obCurrentChange,
-                  { color: percentChange >= 0 ? Colors.up : Colors.down },
-                ]}
-              >
-                {percentChange >= 0 ? '↑' : '↓'} {Math.abs(percentChange).toFixed(2)}%
-              </Text>
-            </View>
-            {orderBook.bids.slice(0, 10).map((b, i) => (
-              <TouchableOpacity
-                key={`bid-${i}`}
-                style={styles.obRow}
-                onPress={() => {
-                  setOrderType('limit');
-                  setPriceInput(b.price.toFixed(pricePrecision));
-                }}
-                activeOpacity={0.7}
-              >
-                <View style={[styles.obBarBid, { width: `${b.pct * 100}%` }]} />
-                <Text style={styles.obBidPrice}>{formatPrice(b.price, pricePrecision)}</Text>
-                <Text style={styles.obQty}>{b.qty.toFixed(qtyPrecision)}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </>
-      ) : (
-        <>
-          <View style={styles.obColHeader}>
-            <Text style={styles.obColLabel}>
-              {t('spot.price') || '价格'}({quoteAsset})
-            </Text>
-            <Text style={[styles.obColLabel, { textAlign: 'center', flex: 1 }]}>
-              {t('spot.qty') || '数量'}
-            </Text>
-            <Text style={[styles.obColLabel, { textAlign: 'right' }]}>
-              {t('trading.time') || '时间'}
-            </Text>
-          </View>
-          <View style={styles.obContent}>
-            {trades.length === 0 ? (
-              <Text style={styles.obEmpty}>{t('common.noData')}</Text>
-            ) : (
-              trades.map((tr) => (
-                <View key={tr.id} style={styles.tradeRow}>
-                  <Text
-                    style={[
-                      styles.tradePrice,
-                      { color: tr.side === 'buy' ? Colors.up : Colors.down },
-                    ]}
-                  >
-                    {formatPrice(tr.price, pricePrecision)}
-                  </Text>
-                  <Text style={styles.tradeQty}>{tr.qty.toFixed(qtyPrecision)}</Text>
-                  <Text style={styles.tradeTime}>
-                    {new Date(tr.timestamp).toLocaleTimeString(undefined, { hour12: false })}
-                  </Text>
-                </View>
-              ))
-            )}
-          </View>
-        </>
-      )}
-    </View>
-  );
-
   /* ── Order panel ── */
   const renderOrderPanel = () => {
     const hintUnit = side === 'buy' ? quoteAsset : baseAsset;
+    // Estimate: 数量 × 有效价格；limit 用输入价，market 用当前价
+    const effectivePrice =
+      orderType === 'market'
+        ? currentPrice
+        : parseFloat(priceInput || '0') || currentPrice;
+    const estQty = parseFloat(qtyInput || '0');
+    const estAmount =
+      parseFloat(amountInput || '0') || (estQty && effectivePrice ? estQty * effectivePrice : 0);
+    const feeRate = 0.001; // 展示性估算：0.1%
+    const estFee = estAmount * feeRate;
+    const receiveQty = side === 'buy' ? estQty : 0;
+    const receiveAmt = side === 'sell' ? estAmount - estFee : 0;
+
     return (
       <View style={styles.orderCard}>
-        {/* Buy/Sell tabs */}
-        <View style={styles.sideRow}>
+        {/* Buy/Sell segmented */}
+        <View style={styles.sideSegment}>
           <TouchableOpacity
-            style={[styles.sideBtn, side === 'buy' && styles.sideBtnBuyActive]}
+            style={[styles.sideSegBtn, side === 'buy' && styles.sideSegBtnBuyActive]}
             onPress={() => {
               setSide('buy');
               setSliderPct(0);
             }}
-            activeOpacity={0.7}
+            activeOpacity={0.85}
           >
             <Text
               style={[
-                styles.sideText,
-                side === 'buy' ? styles.sideTextActiveBuy : styles.sideTextInactive,
+                styles.sideSegText,
+                side === 'buy' ? styles.sideSegTextBuyActive : styles.sideSegTextInactive,
               ]}
             >
               {t('trading.spotBuy')}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.sideBtn, side === 'sell' && styles.sideBtnSellActive]}
+            style={[styles.sideSegBtn, side === 'sell' && styles.sideSegBtnSellActive]}
             onPress={() => {
               setSide('sell');
               setSliderPct(0);
             }}
-            activeOpacity={0.7}
+            activeOpacity={0.85}
           >
             <Text
               style={[
-                styles.sideText,
-                side === 'sell' ? styles.sideTextActiveSell : styles.sideTextInactive,
+                styles.sideSegText,
+                side === 'sell' ? styles.sideSegTextSellActive : styles.sideSegTextInactive,
               ]}
             >
               {t('trading.spotSell')}
@@ -1024,51 +988,48 @@ export default function SpotPage() {
           </TouchableOpacity>
         </View>
 
-        {/* Order type */}
-        <View style={styles.typeRow}>
-          <TouchableOpacity onPress={() => setOrderType('limit')} activeOpacity={0.7}>
-            <Text
-              style={[styles.typeText, orderType === 'limit' && styles.typeTextActive]}
+        {/* Order type pill group */}
+        <View style={styles.typePillRow}>
+          {(['limit', 'market'] as const).map((ot) => (
+            <TouchableOpacity
+              key={ot}
+              style={[styles.typePill, orderType === ot && styles.typePillActive]}
+              onPress={() => setOrderType(ot)}
+              activeOpacity={0.8}
             >
-              {t('trading.limit') || '限价'}
-            </Text>
-            {orderType === 'limit' && <View style={styles.typeUnderline} />}
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => setOrderType('market')} activeOpacity={0.7}>
-            <Text
-              style={[styles.typeText, orderType === 'market' && styles.typeTextActive]}
-            >
-              {t('trading.marketOrder') || '市价'}
-            </Text>
-            {orderType === 'market' && <View style={styles.typeUnderline} />}
-          </TouchableOpacity>
+              <Text style={[styles.typePillText, orderType === ot && styles.typePillTextActive]}>
+                {ot === 'limit' ? t('trading.limit') || '限价' : t('trading.marketOrder') || '市价'}
+              </Text>
+            </TouchableOpacity>
+          ))}
         </View>
 
         {/* Available + Transfer */}
-        <View style={styles.availRow}>
-          <Text style={styles.availLabel}>
-            {t('spot.availableBalance') || '可用'}
-          </Text>
-          <View style={styles.availRight}>
-            <Text style={styles.availValue}>
-              {availableBalance.toFixed(side === 'buy' ? 2 : qtyPrecision)} {hintUnit}
+        <View style={styles.availCard}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.availLabel}>
+              {t('spot.availableBalance') || '可用'}
             </Text>
-            <TouchableOpacity
-              style={styles.transferBtn}
-              activeOpacity={0.7}
-              onPress={() => {
-                if (!user) {
-                  Alert.alert(t('auth.notLoggedIn'));
-                  return;
-                }
-                setShowTransferModal(true);
-              }}
-            >
-              <Text style={styles.transferBtnText}>
-                {t('assets.transferAction') || '划转'}
-              </Text>
-            </TouchableOpacity>
+            <Text style={styles.availValueBig} numberOfLines={1}>
+              {availableBalance.toFixed(side === 'buy' ? 2 : qtyPrecision)}{' '}
+              <Text style={styles.availUnit}>{hintUnit}</Text>
+            </Text>
           </View>
+          <TouchableOpacity
+            style={styles.transferBtn}
+            activeOpacity={0.7}
+            onPress={() => {
+              if (!user) {
+                Alert.alert(t('auth.notLoggedIn'));
+                return;
+              }
+              setShowTransferModal(true);
+            }}
+          >
+            <Text style={styles.transferBtnText}>
+              ⇅ {t('assets.transferAction') || '划转'}
+            </Text>
+          </TouchableOpacity>
         </View>
 
         {/* Price (limit only) */}
@@ -1092,7 +1053,11 @@ export default function SpotPage() {
         ) : (
           <View style={styles.marketPriceHint}>
             <Text style={styles.marketPriceText}>
-              {t('trading.marketOrder') || '市价'} ≈ {formatPrice(currentPrice, pricePrecision)} {quoteAsset}
+              {t('trading.marketOrder') || '市价'} ≈{' '}
+              <Text style={{ color: Colors.textActive, fontWeight: '700' }}>
+                {formatPrice(currentPrice, pricePrecision)}
+              </Text>{' '}
+              {quoteAsset}
             </Text>
           </View>
         )}
@@ -1113,7 +1078,7 @@ export default function SpotPage() {
           </View>
         </View>
 
-        {/* Percent slider (与合约页一致) */}
+        {/* Percent slider */}
         <View style={styles.pctSliderWrap}>
           {Platform.OS === 'web' ? (
             // @ts-ignore: react-native-web 支持原生 input
@@ -1124,31 +1089,23 @@ export default function SpotPage() {
               step={1}
               value={sliderPct}
               onChange={(e: any) => handleSliderChange(Number(e.target.value))}
-              style={{ width: '100%', height: 4, accentColor: '#C9A84C', cursor: 'pointer' }}
+              style={{ width: '100%', height: 4, accentColor: Colors.primary, cursor: 'pointer' }}
             />
-          ) : (
-            <View style={styles.pctChipRow}>
-              {[0, 25, 50, 75, 100].map((p) => (
-                <TouchableOpacity
-                  key={p}
-                  style={[styles.pctChip, sliderPct === p && styles.pctChipActive]}
-                  onPress={() => handleSliderChange(p)}
-                  activeOpacity={0.7}
+          ) : null}
+          <View style={styles.pctChipRow}>
+            {[25, 50, 75, 100].map((p) => (
+              <TouchableOpacity
+                key={p}
+                style={[styles.pctChip, sliderPct === p && styles.pctChipActive]}
+                onPress={() => handleSliderChange(p)}
+                activeOpacity={0.7}
+              >
+                <Text
+                  style={[styles.pctChipText, sliderPct === p && styles.pctChipTextActive]}
                 >
-                  <Text
-                    style={[styles.pctChipText, sliderPct === p && styles.pctChipTextActive]}
-                  >
-                    {p}%
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          )}
-          <View style={styles.pctLabels}>
-            {['0%', '25%', '50%', '75%', '100%'].map((p) => (
-              <Text key={p} style={styles.pctLabelText}>
-                {p}
-              </Text>
+                  {p}%
+                </Text>
+              </TouchableOpacity>
             ))}
           </View>
         </View>
@@ -1168,6 +1125,38 @@ export default function SpotPage() {
             <Text style={styles.inputUnit}>{quoteAsset}</Text>
           </View>
         </View>
+
+        {/* Estimate card */}
+        {estAmount > 0 && (
+          <View style={styles.estimateCard}>
+            <View style={styles.estimateRow}>
+              <Text style={styles.estimateLabel}>
+                {t('trading.totalValue') || '总额'}
+              </Text>
+              <Text style={styles.estimateValue}>
+                ≈ {estAmount.toFixed(2)} {quoteAsset}
+              </Text>
+            </View>
+            <View style={styles.estimateRow}>
+              <Text style={styles.estimateLabel}>
+                {t('trading.fee') || '手续费'} · 0.10%
+              </Text>
+              <Text style={styles.estimateValue}>
+                ≈ {estFee.toFixed(4)} {quoteAsset}
+              </Text>
+            </View>
+            <View style={[styles.estimateRow, styles.estimateRowEmph]}>
+              <Text style={styles.estimateLabel}>
+                {side === 'buy' ? t('trading.receive') || '获得' : t('trading.receive') || '获得'}
+              </Text>
+              <Text style={[styles.estimateValueEmph, { color: side === 'buy' ? Colors.up : Colors.down }]}>
+                {side === 'buy'
+                  ? `${receiveQty.toFixed(qtyPrecision)} ${baseAsset}`
+                  : `${receiveAmt.toFixed(2)} ${quoteAsset}`}
+              </Text>
+            </View>
+          </View>
+        )}
 
         {/* Submit */}
         <TouchableOpacity
@@ -1191,135 +1180,211 @@ export default function SpotPage() {
   };
 
   /* ── Bottom orders table ── */
-  const renderBottomTable = () => (
-    <View style={styles.bottomCard}>
-      <View style={styles.bottomTabRow}>
-        {([
-          { key: 'current', label: t('spot.currentOrders') || '当前委托' },
-          { key: 'history', label: t('spot.orderHistory') || '历史委托' },
-          { key: 'holdings', label: t('spot.holdings') || '资产持仓' },
-        ] as const).map((tab) => (
-          <TouchableOpacity
-            key={tab.key}
-            style={styles.bottomTab}
-            onPress={() => setBottomTab(tab.key as any)}
-            activeOpacity={0.7}
-          >
-            <Text
-              style={[
-                styles.bottomTabText,
-                tab.key === bottomTab && styles.bottomTabTextActive,
-              ]}
-            >
-              {tab.label}
-            </Text>
-            {tab.key === bottomTab && <View style={styles.bottomTabUnderline} />}
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-        <View style={{ minWidth: 720 }}>
-          {bottomTab === 'holdings' ? renderHoldingsTable() : renderOrderTable()}
+  const renderBottomTable = () => {
+    const tabs = [
+      {
+        key: 'current' as const,
+        label: t('spot.currentOrders') || '当前委托',
+        count: pendingOrders.length,
+      },
+      {
+        key: 'history' as const,
+        label: t('spot.orderHistory') || '历史委托',
+        count: historyOrders.length,
+      },
+      {
+        key: 'holdings' as const,
+        label: t('spot.holdings') || '资产持仓',
+        count: account?.holdings.length || 0,
+      },
+    ];
+    return (
+      <View style={styles.bottomCard}>
+        <View style={styles.bottomTabRow}>
+          {tabs.map((tab) => {
+            const active = tab.key === bottomTab;
+            return (
+              <TouchableOpacity
+                key={tab.key}
+                style={[styles.bottomTabPill, active && styles.bottomTabPillActive]}
+                onPress={() => setBottomTab(tab.key)}
+                activeOpacity={0.8}
+              >
+                <Text
+                  style={[
+                    styles.bottomTabPillText,
+                    active && styles.bottomTabPillTextActive,
+                  ]}
+                >
+                  {tab.label}
+                </Text>
+                {tab.count > 0 && (
+                  <View style={[styles.tabCountBadge, active && styles.tabCountBadgeActive]}>
+                    <Text
+                      style={[
+                        styles.tabCountBadgeText,
+                        active && styles.tabCountBadgeTextActive,
+                      ]}
+                    >
+                      {tab.count}
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            );
+          })}
         </View>
-      </ScrollView>
-    </View>
-  );
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <View style={{ minWidth: 780 }}>
+            {bottomTab === 'holdings' ? renderHoldingsTable() : renderOrderTable()}
+          </View>
+        </ScrollView>
+      </View>
+    );
+  };
 
   const renderOrderTable = () => {
     const rows = bottomTab === 'current' ? pendingOrders : historyOrders;
     const isPending = bottomTab === 'current';
+
+    // Status pill color map
+    const statusStyle = (status: string) => {
+      switch (status) {
+        case 'filled':
+          return { bg: Colors.upDim, color: Colors.up, label: t('trading.filled') || '已成交' };
+        case 'pending':
+          return { bg: Colors.primaryDim, color: Colors.primary, label: t('trading.pending') || '待成交' };
+        case 'cancelled':
+          return {
+            bg: 'rgba(107,107,128,0.15)',
+            color: Colors.textMuted,
+            label: t('trading.cancelled') || '已撤销',
+          };
+        case 'rejected':
+          return { bg: Colors.downDim, color: Colors.down, label: t('trading.rejected') || '已拒绝' };
+        default:
+          return { bg: 'rgba(107,107,128,0.15)', color: Colors.textSecondary, label: status };
+      }
+    };
+
+    // Parse display symbol → base/quote for unit labels
+    const splitSymbol = (sym: string): [string, string] => {
+      const parts = toDisplaySymbol(sym).split('/');
+      return [parts[0] || '', parts[1] || ''];
+    };
+
+    // Format time into two lines: date + time
+    const formatTimeLines = (ts: number | string): [string, string] => {
+      const d = new Date(ts);
+      const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+        d.getDate(),
+      ).padStart(2, '0')}`;
+      const time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(
+        2,
+        '0',
+      )}:${String(d.getSeconds()).padStart(2, '0')}`;
+      return [date, time];
+    };
+
     return (
       <>
         <View style={styles.tableHeader}>
-          <Text style={[styles.thCell, { flex: 1.3 }]}>{t('trading.pair') || '交易对'}</Text>
-          <Text style={[styles.thCell, { flex: 0.8 }]}>{t('trading.buy')}/{t('trading.sell')}</Text>
-          <Text style={[styles.thCell, { flex: 0.8 }]}>{t('trading.limit')}/{t('trading.marketOrder')}</Text>
-          <Text style={[styles.thCell, { flex: 1 }]}>{t('spot.price') || '价格'}</Text>
-          <Text style={[styles.thCell, { flex: 1 }]}>{t('spot.qty') || '数量'}</Text>
-          <Text style={[styles.thCell, { flex: 1 }]}>{t('spot.amount') || '金额'}</Text>
-          <Text style={[styles.thCell, { flex: 1.4 }]}>{t('trading.time') || '时间'}</Text>
-          {isPending && (
-            <Text style={[styles.thCell, { flex: 0.7, textAlign: 'right' }]}>
-              {t('common.noData') ? t('spot.cancelOrder') || '操作' : '操作'}
-            </Text>
-          )}
-          {!isPending && (
-            <Text style={[styles.thCell, { flex: 0.8, textAlign: 'right' }]}>
-              {t('trading.pending') && t('trading.filled') ? '状态' : 'Status'}
-            </Text>
-          )}
+          <Text style={[styles.thCell, { flex: 1.7 }]}>{t('trading.pair') || '交易对'}</Text>
+          <Text style={[styles.thCell, { flex: 1.3 }]}>{t('spot.price') || '价格'}</Text>
+          <Text style={[styles.thCell, { flex: 1.2 }]}>{t('spot.qty') || '数量'}</Text>
+          <Text style={[styles.thCell, { flex: 1.2 }]}>{t('spot.amount') || '金额'}</Text>
+          <Text style={[styles.thCell, { flex: 1.3 }]}>{t('trading.time') || '时间'}</Text>
+          <Text style={[styles.thCell, { flex: 1, textAlign: 'right' }]}>
+            {isPending ? t('spot.cancelOrder') || '操作' : '状态'}
+          </Text>
         </View>
         {rows.length === 0 ? (
-          <View style={styles.emptyRow}>
+          <View style={styles.emptyStateFull}>
+            <Text style={styles.emptyStateIconLg}>📋</Text>
             <Text style={styles.emptyText}>{t('spot.noOrders') || t('common.noData')}</Text>
           </View>
         ) : (
-          rows.map((o) => (
-            <View key={o.id} style={styles.tableRow}>
-              <Text style={[styles.tdCell, { flex: 1.3, color: Colors.textActive, fontWeight: '600' }]}>
-                {toDisplaySymbol(o.symbol)}
-              </Text>
-              <Text
-                style={[
-                  styles.tdCell,
-                  { flex: 0.8, color: o.side === 'buy' ? Colors.up : Colors.down, fontWeight: '700' },
-                ]}
-              >
-                {o.side === 'buy' ? t('trading.spotBuy') : t('trading.spotSell')}
-              </Text>
-              <Text style={[styles.tdCell, { flex: 0.8 }]}>
-                {o.order_type === 'market' ? t('trading.marketOrder') : t('trading.limit')}
-              </Text>
-              <Text style={[styles.tdCell, { flex: 1 }]}>
-                {o.order_type === 'market'
-                  ? o.filled_price
-                    ? formatPrice(o.filled_price, pricePrecision)
-                    : '--'
-                  : formatPrice(o.price ?? 0, pricePrecision)}
-              </Text>
-              <Text style={[styles.tdCell, { flex: 1 }]}>
-                {(+o.qty).toFixed(qtyPrecision)}
-              </Text>
-              <Text style={[styles.tdCell, { flex: 1 }]}>
-                {(+o.quote_qty).toFixed(2)} {toDisplayQuote(o.quote_asset)}
-              </Text>
-              <Text style={[styles.tdCell, { flex: 1.4, fontSize: 11 }]}>
-                {new Date(o.created_at).toLocaleString()}
-              </Text>
-              {isPending ? (
-                <View style={{ flex: 0.7, alignItems: 'flex-end' }}>
-                  <TouchableOpacity
-                    onPress={() => handleCancel(o.id)}
-                    style={styles.rowCancelBtn}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.rowCancelText}>
-                      {t('spot.cancelOrder') || t('common.cancel') || '撤单'}
+          rows.map((o) => {
+            const st = statusStyle(o.status);
+            const [base, quote] = splitSymbol(o.symbol);
+            const [dateStr, timeStr] = formatTimeLines(o.created_at);
+            const isBuy = o.side === 'buy';
+            const sideColor = isBuy ? Colors.up : Colors.down;
+            const sideBg = isBuy ? Colors.upDim : Colors.downDim;
+            const typeLabel =
+              o.order_type === 'market' ? t('trading.marketOrder') || '市价' : t('trading.limit') || '限价';
+            const priceText =
+              o.order_type === 'market'
+                ? o.filled_price
+                  ? formatPrice(o.filled_price, pricePrecision)
+                  : '--'
+                : formatPrice(o.price ?? 0, pricePrecision);
+            return (
+              <View key={o.id} style={styles.tableRow}>
+                {/* Left accent stripe — color coded by side */}
+                <View style={[styles.rowAccent, { backgroundColor: sideColor }]} />
+
+                {/* Symbol + side pill (stacked) */}
+                <View style={styles.rowSymbolCol}>
+                  <View style={styles.rowSymbolLine}>
+                    <View style={[styles.tableSymbolDot, { backgroundColor: sideColor }]} />
+                    <Text style={styles.rowSymbolText}>{toDisplaySymbol(o.symbol)}</Text>
+                  </View>
+                  <View style={[styles.sidePill, { backgroundColor: sideBg }]}>
+                    <Text style={[styles.sidePillText, { color: sideColor }]}>
+                      {isBuy ? t('trading.spotBuy') || '买入' : t('trading.spotSell') || '卖出'}
                     </Text>
-                  </TouchableOpacity>
+                  </View>
                 </View>
-              ) : (
-                <Text
-                  style={[
-                    styles.tdCell,
-                    {
-                      flex: 0.8,
-                      textAlign: 'right',
-                      color:
-                        o.status === 'filled'
-                          ? Colors.up
-                          : o.status === 'cancelled' || o.status === 'rejected'
-                          ? Colors.textMuted
-                          : Colors.textActive,
-                    },
-                  ]}
-                >
-                  {t(`trading.${o.status}`) || o.status}
-                </Text>
-              )}
-            </View>
-          ))
+
+                {/* Price + order type (stacked) */}
+                <View style={[styles.rowStackedCol, { flex: 1.3 }]}>
+                  <Text style={styles.rowStackedMain}>{priceText}</Text>
+                  <Text style={styles.rowStackedSub}>{typeLabel}</Text>
+                </View>
+
+                {/* Qty + base asset (stacked) */}
+                <View style={[styles.rowStackedCol, { flex: 1.2 }]}>
+                  <Text style={styles.rowStackedMain}>{(+o.qty).toFixed(qtyPrecision)}</Text>
+                  <Text style={styles.rowStackedSub}>{base}</Text>
+                </View>
+
+                {/* Amount + quote asset (stacked) */}
+                <View style={[styles.rowStackedCol, { flex: 1.2 }]}>
+                  <Text style={styles.rowStackedMain}>{(+o.quote_qty).toFixed(2)}</Text>
+                  <Text style={styles.rowStackedSub}>{toDisplayQuote(o.quote_asset) || quote}</Text>
+                </View>
+
+                {/* Date + time (stacked) */}
+                <View style={[styles.rowStackedCol, { flex: 1.3 }]}>
+                  <Text style={styles.rowStackedTimeMain}>{dateStr}</Text>
+                  <Text style={styles.rowStackedTimeSub}>{timeStr}</Text>
+                </View>
+
+                {/* Action or status */}
+                <View style={styles.rowActionCol}>
+                  {isPending ? (
+                    <TouchableOpacity
+                      onPress={() => handleCancel(o.id)}
+                      style={styles.rowCancelBtn}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={styles.rowCancelText}>
+                        {t('spot.cancelOrder') || t('common.cancel') || '撤单'}
+                      </Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <View style={[styles.statusPill, { backgroundColor: st.bg }]}>
+                      <Text style={[styles.statusPillText, { color: st.color }]}>
+                        {st.label}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+            );
+          })
         )}
       </>
     );
@@ -1328,7 +1393,8 @@ export default function SpotPage() {
   const renderHoldingsTable = () => {
     if (!account || account.holdings.length === 0) {
       return (
-        <View style={styles.emptyRow}>
+        <View style={styles.emptyStateFull}>
+          <Text style={styles.emptyStateIconLg}>💼</Text>
           <Text style={styles.emptyText}>{t('common.noData')}</Text>
         </View>
       );
@@ -1336,50 +1402,89 @@ export default function SpotPage() {
     return (
       <>
         <View style={styles.holdingsSummary}>
-          <Text style={styles.holdingsSummaryLabel}>
-            {t('trading.totalValue') || '总估值'}:
-          </Text>
-          <Text style={styles.holdingsSummaryValue}>
-            {account.total_valuation_usdt.toFixed(2)} USDT
-          </Text>
+          <View>
+            <Text style={styles.holdingsSummaryLabel}>
+              {t('trading.totalValue') || '总估值'}
+            </Text>
+            <Text style={styles.holdingsSummaryValue}>
+              {account.total_valuation_usdt.toFixed(2)}
+              <Text style={styles.holdingsSummaryUnit}> USDT</Text>
+            </Text>
+          </View>
+          <View style={styles.holdingsMeta}>
+            <Text style={styles.holdingsMetaLabel}>
+              {account.holdings.length} {t('spot.assets') || '资产'}
+            </Text>
+          </View>
         </View>
         <View style={styles.tableHeader}>
-          <Text style={[styles.thCell, { flex: 1 }]}>{t('assets.assetTableAsset') || '币种'}</Text>
-          <Text style={[styles.thCell, { flex: 1 }]}>{t('assets.available') || '可用'}</Text>
-          <Text style={[styles.thCell, { flex: 1 }]}>{t('assets.frozen') || '冻结'}</Text>
-          <Text style={[styles.thCell, { flex: 1 }]}>
+          <Text style={[styles.thCell, { flex: 1.5 }]}>{t('assets.assetTableAsset') || '币种'}</Text>
+          <Text style={[styles.thCell, { flex: 1.3 }]}>{t('assets.available') || '可用'}</Text>
+          <Text style={[styles.thCell, { flex: 1.2 }]}>{t('assets.frozen') || '冻结'}</Text>
+          <Text style={[styles.thCell, { flex: 1.3 }]}>
             {t('trading.totalValue') || '估值'}
           </Text>
-          <Text style={[styles.thCell, { flex: 1 }]}>
+          <Text style={[styles.thCell, { flex: 1.2, textAlign: 'right' }]}>
             {t('assets.unrealizedPnl') || '未实现盈亏'}
           </Text>
         </View>
-        {account.holdings.map((h) => (
-          <View key={h.asset} style={styles.tableRow}>
-            <Text style={[styles.tdCell, { flex: 1, color: Colors.textActive, fontWeight: '700' }]}>
-              {h.asset}
-            </Text>
-            <Text style={[styles.tdCell, { flex: 1 }]}>{h.available.toFixed(6)}</Text>
-            <Text style={[styles.tdCell, { flex: 1 }]}>{h.frozen.toFixed(6)}</Text>
-            <Text style={[styles.tdCell, { flex: 1 }]}>
-              {h.valuation_usdt.toFixed(2)} USDT
-            </Text>
-            <Text
-              style={[
-                styles.tdCell,
-                {
-                  flex: 1,
-                  color:
-                    (h.unrealized_pnl ?? 0) >= 0 ? Colors.up : Colors.down,
-                },
-              ]}
-            >
-              {h.unrealized_pnl != null
-                ? `${h.unrealized_pnl >= 0 ? '+' : ''}${h.unrealized_pnl.toFixed(2)}`
-                : '--'}
-            </Text>
-          </View>
-        ))}
+        {account.holdings.map((h) => {
+          const pnl = h.unrealized_pnl ?? null;
+          const pnlUp = pnl != null && pnl >= 0;
+          return (
+            <View key={h.asset} style={styles.tableRow}>
+              {/* Asset + symbol stacked */}
+              <View style={[styles.rowSymbolCol, { flex: 1.5 }]}>
+                <View style={styles.rowSymbolLine}>
+                  <View style={styles.holdingAssetBadge}>
+                    <Text style={styles.holdingAssetBadgeText}>{h.asset.slice(0, 3)}</Text>
+                  </View>
+                  <Text style={styles.rowSymbolText}>{h.asset}</Text>
+                </View>
+              </View>
+              {/* Available */}
+              <View style={[styles.rowStackedCol, { flex: 1.3 }]}>
+                <Text style={styles.rowStackedMain}>{h.available.toFixed(6)}</Text>
+                <Text style={styles.rowStackedSub}>{h.asset}</Text>
+              </View>
+              {/* Frozen */}
+              <View style={[styles.rowStackedCol, { flex: 1.2 }]}>
+                <Text style={[styles.rowStackedMain, { color: Colors.textSecondary }]}>
+                  {h.frozen.toFixed(6)}
+                </Text>
+                <Text style={styles.rowStackedSub}>{h.asset}</Text>
+              </View>
+              {/* Valuation */}
+              <View style={[styles.rowStackedCol, { flex: 1.3 }]}>
+                <Text style={styles.rowStackedMain}>{h.valuation_usdt.toFixed(2)}</Text>
+                <Text style={styles.rowStackedSub}>USDT</Text>
+              </View>
+              {/* PnL */}
+              <View style={[styles.rowActionCol, { flex: 1.2 }]}>
+                {pnl != null ? (
+                  <View
+                    style={[
+                      styles.pnlPill,
+                      { backgroundColor: pnlUp ? Colors.upDim : Colors.downDim },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.pnlPillText,
+                        { color: pnlUp ? Colors.up : Colors.down },
+                      ]}
+                    >
+                      {pnlUp ? '+' : ''}
+                      {pnl.toFixed(2)}
+                    </Text>
+                  </View>
+                ) : (
+                  <Text style={[styles.tdCell, { color: Colors.textMuted }]}>--</Text>
+                )}
+              </View>
+            </View>
+          );
+        })}
       </>
     );
   };
@@ -1405,11 +1510,8 @@ export default function SpotPage() {
           style={styles.container}
           contentContainerStyle={{ padding: 12, gap: 10 }}
         >
-          {/* Top bar: symbol + 24h stats */}
-          <View style={styles.topBar}>
-            <View style={{ zIndex: 20 }}>{renderSymbolDropdown()}</View>
-            <View style={{ flex: 1 }}>{render24hStats()}</View>
-          </View>
+          {/* Hero bar: symbol + price + 24h stat cards */}
+          <View style={{ zIndex: 20 }}>{renderHeroBar()}</View>
 
           {/* 3-col main area (chart + orderbook + order panel) */}
           <View style={styles.mainRow}>
@@ -1422,7 +1524,17 @@ export default function SpotPage() {
           {renderBottomTable()}
         </ScrollView>
         {transferModal}
-        {renderSymbolPanel()}
+        <SymbolDropdown
+          visible={showSymbolDropdown}
+          selectedSymbol={selectedSymbol}
+          tabs={symbolDropdownTabs}
+          symbolsByTab={symbolsByTab}
+          quotes={quotes}
+          initialTab={initialDropdownTab}
+          onSelect={handleSymbolSelect}
+          onClose={() => setShowSymbolDropdown(false)}
+          getMeta={getSymbolMeta}
+        />
       </>
     );
   }
@@ -1434,10 +1546,7 @@ export default function SpotPage() {
         style={styles.container}
         contentContainerStyle={{ padding: 10, gap: 10 }}
       >
-        <View style={{ zIndex: 20 }}>{renderSymbolDropdown()}</View>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          {render24hStats()}
-        </ScrollView>
+        <View style={{ zIndex: 20 }}>{renderHeroBar()}</View>
         {renderChart()}
         <TouchableOpacity
           onPress={() => setObMobileOpen((v) => !v)}
@@ -1454,7 +1563,17 @@ export default function SpotPage() {
         {renderOrderPanel()}
       </ScrollView>
       {transferModal}
-      {renderSymbolPanel()}
+      <SymbolDropdown
+        visible={showSymbolDropdown}
+        selectedSymbol={selectedSymbol}
+        tabs={symbolDropdownTabs}
+        symbolsByTab={symbolsByTab}
+        quotes={quotes}
+        initialTab={initialDropdownTab}
+        onSelect={handleSymbolSelect}
+        onClose={() => setShowSymbolDropdown(false)}
+        getMeta={getSymbolMeta}
+      />
     </>
   );
 }
@@ -1466,172 +1585,123 @@ export default function SpotPage() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
 
-  /* ── Top bar ── */
-  topBar: {
+  /* ══════════════════════════════════════
+     Hero bar (顶部 symbol + 价格 + 24h 卡片)
+     ══════════════════════════════════════ */
+  heroBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 20,
+    gap: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    backgroundColor: Colors.surface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    zIndex: 20,
+    ...Shadows.card,
+  },
+  heroLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    flexShrink: 0,
+  },
+  heroSymbolChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingRight: 6,
+  },
+  heroBadge: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: Colors.primaryBorder,
+  },
+  heroBadgeText: {
+    color: Colors.primary,
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+  },
+  heroSymbol: {
+    color: Colors.textActive,
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  heroChevron: {
+    color: Colors.textMuted,
+    fontSize: 11,
+    marginLeft: 4,
+  },
+  heroSymbolSub: {
+    color: Colors.textMuted,
+    fontSize: 11,
+    marginTop: 2,
+    maxWidth: 180,
+  },
+  heroPriceBlock: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    gap: 4,
+    paddingLeft: 16,
+    borderLeftWidth: 1,
+    borderLeftColor: Colors.border,
+  },
+  heroPrice: {
+    fontSize: 26,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+    lineHeight: 30,
+  },
+  heroChangePill: {
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  heroChangePillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
+  heroStatGrid: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: 10,
+    flexWrap: 'wrap',
+  },
+  heroStatCard: {
+    flex: 1,
+    minWidth: 92,
+    backgroundColor: Colors.surfaceAlt,
+    borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: Colors.surface,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    zIndex: 15,
-  },
-  stats24Row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
     gap: 4,
-  },
-  statItem: { minWidth: 100, paddingHorizontal: 8 },
-  statLabel: { color: Colors.textMuted, fontSize: 10, marginBottom: 2 },
-  statValue: { color: Colors.textActive, fontSize: 13, fontWeight: '600' },
-  statDivider: { width: 1, height: 24, backgroundColor: Colors.border, marginHorizontal: 4 },
-
-  /* ── Symbol dropdown ── */
-  symbolDropdownWrap: {
-    position: 'relative',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  symbolChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    backgroundColor: Colors.topBarBg,
-    borderRadius: 8,
     borderWidth: 1,
     borderColor: Colors.border,
   },
-  symbolText: { color: Colors.textActive, fontSize: 15, fontWeight: '700' },
-  chevron: { color: Colors.textMuted, fontSize: 10 },
-  priceBox: { flexDirection: 'row', alignItems: 'baseline', gap: 8 },
-  priceValue: { fontSize: 18, fontWeight: '700' },
-
-  /* ── Symbol side panel (与合约页 SymbolDropdown 一致) ── */
-  sdOverlay: {
-    flex: 1,
-    flexDirection: 'row',
-    backgroundColor: 'transparent',
-  },
-  sdBackdrop: {
-    position: 'absolute',
-    top: 0, left: 0, right: 0, bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-  },
-  sdPanel: {
-    width: 380,
-    maxWidth: '92%',
-    height: '100%',
-    backgroundColor: '#131313',
-    borderRightWidth: 1,
-    borderRightColor: Colors.border,
-  },
-  sdSearchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-    gap: 8,
-  },
-  sdSearchIcon: { fontSize: 14, opacity: 0.5 },
-  sdSearchInput: {
-    flex: 1,
-    color: Colors.textActive,
-    fontSize: 13,
-    paddingVertical: 4,
-    ...Platform.select({ web: { outlineWidth: 0 } as any }),
-  },
-  sdClose: {
+  heroStatLabel: {
     color: Colors.textMuted,
-    fontSize: 16,
-    padding: 4,
-  },
-  sdTabRow: {
-    flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-    paddingHorizontal: 8,
-  },
-  sdTab: {
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-  },
-  sdTabActive: {
-    borderBottomWidth: 2,
-    borderBottomColor: Colors.primary,
-  },
-  sdTabText: {
-    fontSize: 12,
-    color: Colors.textMuted,
-    fontWeight: '600',
-  },
-  sdTabTextActive: {
-    color: Colors.primary,
-  },
-  sdListHeader: {
-    flexDirection: 'row',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(77,70,53,0.05)',
-  },
-  sdHeaderText: {
     fontSize: 10,
-    color: Colors.textMuted,
-    fontWeight: '500',
-    letterSpacing: 1,
+    letterSpacing: 0.5,
     textTransform: 'uppercase',
   },
-  sdList: {
-    flex: 1,
-  },
-  sdRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  sdRowActive: {
-    backgroundColor: 'rgba(42,42,42,0.3)',
-  },
-  sdRowSymbol: {
+  heroStatValue: {
     color: Colors.textActive,
-    fontSize: 12,
-    fontWeight: '700',
-    fontFamily: 'monospace',
-  },
-  sdRowName: {
-    color: Colors.textMuted,
-    fontSize: 10,
-    marginTop: 2,
-  },
-  sdRowPrice: {
-    color: Colors.textActive,
-    fontSize: 12,
-    textAlign: 'right',
-    fontFamily: 'monospace',
-  },
-  sdRowChange: {
-    fontSize: 12,
-    textAlign: 'right',
-    fontFamily: 'monospace',
-  },
-  sdEmpty: {
-    paddingVertical: 40,
-    alignItems: 'center',
-  },
-  sdEmptyText: {
-    color: Colors.textMuted,
     fontSize: 13,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
   },
+
+  chevron: { color: Colors.textMuted, fontSize: 10 },
 
   /* ── Desktop main row ── */
   mainRow: { flexDirection: 'row', gap: 10 },
@@ -1639,45 +1709,112 @@ const styles = StyleSheet.create({
   obCol: { width: 240 },
   rightCol: { width: 320 },
 
-  /* ── Chart ── */
+  /* ══════════════════════════════════════
+     Chart card
+     ══════════════════════════════════════ */
   chartCard: {
     backgroundColor: Colors.surface,
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: Colors.border,
-    padding: 8,
+    padding: 10,
+    ...Shadows.card,
   },
-  tfRow: { flexDirection: 'row', gap: 4, marginBottom: 8, flexWrap: 'wrap' },
-  tfBtn: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 4 },
+  chartHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 8,
+    flexWrap: 'wrap',
+  },
+  chartTitleWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  chartTitle: {
+    color: Colors.textActive,
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  chartLiveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: Colors.up,
+    ...Platform.select({
+      web: { boxShadow: '0 0 6px rgba(102,228,185,0.6)' as any },
+    }),
+  },
+  chartTitleSub: {
+    color: Colors.textMuted,
+    fontSize: 11,
+  },
+  tfRow: {
+    flexDirection: 'row',
+    gap: 2,
+    flexWrap: 'wrap',
+    backgroundColor: Colors.topBarBg,
+    borderRadius: 8,
+    padding: 3,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  tfBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
   tfBtnActive: { backgroundColor: Colors.primaryDim },
-  tfText: { color: Colors.textMuted, fontSize: 12, fontWeight: '500' },
-  tfTextActive: { color: Colors.primary, fontWeight: '700' },
+  tfText: { color: Colors.textMuted, fontSize: 11, fontWeight: '600' },
+  tfTextActive: { color: Colors.primary, fontWeight: '800' },
   chartBox: { height: 460, ...Platform.select({ web: { overflow: 'hidden' as any } }) },
   chartPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   placeholderText: { color: Colors.textMuted, fontSize: 13 },
 
-  /* ── Order book ── */
+  /* ══════════════════════════════════════
+     Order book + trades
+     ══════════════════════════════════════ */
   obCard: {
     backgroundColor: Colors.surface,
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: Colors.border,
     padding: 0,
     overflow: 'hidden',
+    ...Shadows.card,
   },
   obTabRow: {
     flexDirection: 'row',
-    gap: 18,
+    gap: 6,
     paddingHorizontal: 10,
     paddingTop: 10,
+    paddingBottom: 6,
   },
-  obTabBtn: { paddingBottom: 4 },
-  obTabText: { color: Colors.textMuted, fontSize: 12, fontWeight: '600' },
-  obTabTextActive: { color: Colors.textActive, fontWeight: '700' },
-  obTabUnderline: {
-    height: 2,
-    backgroundColor: Colors.primary,
-    marginTop: 4,
+  obTabPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: Colors.topBarBg,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  obTabPillActive: {
+    backgroundColor: Colors.primaryDim,
+    borderColor: Colors.primaryBorder,
+  },
+  obTabPillText: {
+    color: Colors.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  obTabPillTextActive: {
+    color: Colors.primary,
   },
   obColHeader: {
     flexDirection: 'row',
@@ -1687,7 +1824,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
   },
-  obColLabel: { fontSize: 10, color: Colors.textMuted, flex: 1 },
+  obColLabel: { fontSize: 10, color: Colors.textMuted, flex: 1, letterSpacing: 0.4, textTransform: 'uppercase' },
   obContent: { paddingHorizontal: 8, paddingVertical: 4, gap: 1 },
   obRow: {
     flexDirection: 'row',
@@ -1715,209 +1852,571 @@ const styles = StyleSheet.create({
   obQty: { fontSize: 11, color: Colors.textActive, fontVariant: ['tabular-nums'] },
   obCurrentRow: {
     flexDirection: 'row',
-    alignItems: 'baseline',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 6,
-    paddingHorizontal: 4,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    marginVertical: 3,
+    marginHorizontal: 6,
+    borderRadius: 8,
+    backgroundColor: Colors.topBarBg,
+    borderWidth: 1,
     borderColor: Colors.border,
-    marginVertical: 2,
   },
-  obCurrentPrice: { fontSize: 15, fontWeight: '800' },
-  obCurrentChange: { fontSize: 11, fontWeight: '600' },
-  obEmpty: { color: Colors.textMuted, fontSize: 12, textAlign: 'center', paddingVertical: 30 },
+  obCurrentPrice: { fontSize: 15, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  obSpreadBox: {
+    alignItems: 'flex-end',
+    gap: 1,
+  },
+  obSpreadLabel: {
+    color: Colors.textMuted,
+    fontSize: 9,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  obSpreadValue: {
+    color: Colors.textSecondary,
+    fontSize: 11,
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
+  },
+  obEmpty: { color: Colors.textMuted, fontSize: 12, textAlign: 'center' },
 
   /* ── Trades ── */
   tradeRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     paddingVertical: 3,
     paddingHorizontal: 4,
     gap: 8,
+  },
+  tradeDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
   },
   tradePrice: { fontSize: 11, flex: 1, fontVariant: ['tabular-nums'] },
   tradeQty: { fontSize: 11, color: Colors.textActive, flex: 1, textAlign: 'center', fontVariant: ['tabular-nums'] },
   tradeTime: { fontSize: 11, color: Colors.textMuted, flex: 1, textAlign: 'right' },
 
-  /* ── Order panel ── */
+  /* ── Empty state (compact) ── */
+  emptyState: {
+    paddingVertical: 30,
+    alignItems: 'center',
+    gap: 6,
+  },
+  emptyStateIcon: {
+    fontSize: 20,
+    opacity: 0.35,
+  },
+
+  /* ══════════════════════════════════════
+     Order panel
+     ══════════════════════════════════════ */
   orderCard: {
     backgroundColor: Colors.surface,
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: Colors.border,
     padding: 14,
-    gap: 10,
+    gap: 12,
+    ...Shadows.card,
   },
-  sideRow: { flexDirection: 'row', gap: 6 },
-  sideBtn: {
-    flex: 1,
-    paddingVertical: 9,
-    borderRadius: 6,
+
+  /* Side segmented control (Buy / Sell) */
+  sideSegment: {
+    flexDirection: 'row',
+    height: 44,
     backgroundColor: Colors.topBarBg,
-    alignItems: 'center',
+    borderRadius: 10,
+    padding: 3,
+    gap: 4,
     borderWidth: 1,
     borderColor: Colors.border,
   },
-  sideBtnBuyActive: { backgroundColor: Colors.up, borderColor: Colors.up },
-  sideBtnSellActive: { backgroundColor: Colors.down, borderColor: Colors.down },
-  sideText: { fontSize: 13, fontWeight: '700' },
-  sideTextInactive: { color: Colors.textMuted },
-  sideTextActiveBuy: { color: '#0a2e1f' },
-  sideTextActiveSell: { color: '#3e0a0a' },
-
-  typeRow: { flexDirection: 'row', gap: 18, paddingVertical: 2 },
-  typeText: { color: Colors.textMuted, fontSize: 13, fontWeight: '600' },
-  typeTextActive: { color: Colors.textActive, fontWeight: '700' },
-  typeUnderline: { height: 2, backgroundColor: Colors.primary, marginTop: 3 },
-
-  availRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  sideSegBtn: {
+    flex: 1,
+    borderRadius: 8,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  availLabel: { color: Colors.textMuted, fontSize: 11 },
-  availRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  availValue: {
+  sideSegBtnBuyActive: {
+    backgroundColor: Colors.up,
+  },
+  sideSegBtnSellActive: {
+    backgroundColor: Colors.down,
+  },
+  sideSegText: {
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+  },
+  sideSegTextBuyActive: { color: '#0a2e1f' },
+  sideSegTextSellActive: { color: '#3e0a0a' },
+  sideSegTextInactive: { color: Colors.textMuted },
+
+  /* Order type pills (Limit / Market) */
+  typePillRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  typePill: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: Colors.topBarBg,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  typePillActive: {
+    backgroundColor: Colors.primaryDim,
+    borderColor: Colors.primaryBorder,
+  },
+  typePillText: {
+    color: Colors.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  typePillTextActive: {
+    color: Colors.primary,
+  },
+
+  /* Available balance card */
+  availCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    padding: 10,
+    backgroundColor: Colors.surfaceAlt,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  availLabel: {
+    color: Colors.textMuted,
+    fontSize: 10,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    marginBottom: 3,
+  },
+  availValueBig: {
     color: Colors.textActive,
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 14,
+    fontWeight: '700',
     fontVariant: ['tabular-nums'],
   },
-  transferBtn: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: Colors.primary,
-    backgroundColor: 'rgba(212,175,55,0.08)',
+  availUnit: {
+    color: Colors.textMuted,
+    fontSize: 11,
+    fontWeight: '600',
   },
-  transferBtnText: { color: Colors.primary, fontSize: 11, fontWeight: '700' },
+  transferBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: Colors.primaryBorder,
+    backgroundColor: Colors.primaryDim,
+  },
+  transferBtnText: {
+    color: Colors.primary,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
 
-  inputGroup: { gap: 4 },
-  inputGroupLabel: { color: Colors.textMuted, fontSize: 11 },
+  /* Inputs */
+  inputGroup: { gap: 5 },
+  inputGroupLabel: {
+    color: Colors.textMuted,
+    fontSize: 10,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    fontWeight: '600',
+  },
   inputRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     backgroundColor: Colors.topBarBg,
-    borderRadius: 6,
+    borderRadius: 8,
     paddingHorizontal: 10,
     borderWidth: 1,
     borderColor: Colors.border,
   },
   input: {
     flex: 1,
-    paddingVertical: 9,
+    paddingVertical: 10,
     color: Colors.textActive,
-    fontSize: 13,
-    fontWeight: '600',
+    fontSize: 14,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
     ...Platform.select({ web: { outlineWidth: 0 } as any }),
   },
-  inputUnit: { color: Colors.textMuted, fontSize: 11, fontWeight: '600' },
+  inputUnit: { color: Colors.textMuted, fontSize: 11, fontWeight: '700' },
 
   marketPriceHint: {
     backgroundColor: Colors.topBarBg,
-    borderRadius: 6,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: Colors.border,
-    paddingVertical: 9,
+    borderStyle: 'dashed',
+    paddingVertical: 10,
     paddingHorizontal: 10,
   },
-  marketPriceText: { color: Colors.textMuted, fontSize: 12 },
+  marketPriceText: { color: Colors.textMuted, fontSize: 12, fontStyle: 'italic' },
 
-  /* Slider（与合约页一致） */
-  pctSliderWrap: { gap: 2, paddingVertical: 2 },
-  pctLabels: { flexDirection: 'row', justifyContent: 'space-between' },
-  pctLabelText: { fontSize: 9, color: Colors.textMuted },
-  /* Native fallback chip row */
+  /* Percentage chips */
+  pctSliderWrap: { paddingVertical: 2 },
   pctChipRow: { flexDirection: 'row', gap: 6 },
   pctChip: {
     flex: 1,
-    paddingVertical: 5,
-    borderRadius: 4,
+    paddingVertical: 6,
+    borderRadius: 6,
     backgroundColor: Colors.topBarBg,
     alignItems: 'center',
     borderWidth: 1,
     borderColor: Colors.border,
   },
-  pctChipActive: { backgroundColor: Colors.primaryDim, borderColor: Colors.primary },
-  pctChipText: { color: Colors.textMuted, fontSize: 11, fontWeight: '600' },
-  pctChipTextActive: { color: Colors.primary, fontWeight: '700' },
+  pctChipActive: { backgroundColor: Colors.primaryDim, borderColor: Colors.primaryBorder },
+  pctChipText: { color: Colors.textMuted, fontSize: 11, fontWeight: '700' },
+  pctChipTextActive: { color: Colors.primary, fontWeight: '800' },
 
-  submitBtn: {
-    paddingVertical: 12,
-    borderRadius: 6,
+  /* Estimate card (total / fee / receive) */
+  estimateCard: {
+    backgroundColor: Colors.topBarBg,
+    borderRadius: 10,
+    padding: 12,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: Colors.primaryBorder,
+  },
+  estimateRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 4,
+  },
+  estimateRowEmph: {
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+    paddingTop: 8,
+  },
+  estimateLabel: {
+    color: Colors.textMuted,
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  estimateValue: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
+  },
+  estimateValueEmph: {
+    fontSize: 14,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+  },
+
+  /* Submit button */
+  submitBtn: {
+    paddingVertical: 13,
+    borderRadius: 10,
+    alignItems: 'center',
+    marginTop: 2,
+    ...Shadows.card,
   },
   submitBtnBuy: { backgroundColor: Colors.up },
   submitBtnSell: { backgroundColor: Colors.down },
-  submitBtnText: { color: '#0a2e1f', fontSize: 14, fontWeight: '800' },
+  submitBtnText: {
+    color: '#0a2e1f',
+    fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+  },
 
-  /* ── Bottom card ── */
+  /* ══════════════════════════════════════
+     Bottom card (tabs + table)
+     ══════════════════════════════════════ */
   bottomCard: {
     backgroundColor: Colors.surface,
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: Colors.border,
-    padding: 10,
+    padding: 12,
+    ...Shadows.card,
   },
   bottomTabRow: {
     flexDirection: 'row',
-    gap: 20,
-    paddingHorizontal: 4,
-    marginBottom: 4,
+    gap: 8,
+    paddingHorizontal: 2,
+    marginBottom: 10,
   },
-  bottomTab: { paddingVertical: 6 },
-  bottomTabText: { color: Colors.textMuted, fontSize: 13, fontWeight: '600' },
-  bottomTabTextActive: { color: Colors.textActive, fontWeight: '700' },
-  bottomTabUnderline: {
-    height: 2,
+  bottomTabPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: Colors.topBarBg,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  bottomTabPillActive: {
+    backgroundColor: Colors.primaryDim,
+    borderColor: Colors.primaryBorder,
+  },
+  bottomTabPillText: {
+    color: Colors.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  bottomTabPillTextActive: {
+    color: Colors.primary,
+  },
+  tabCountBadge: {
+    minWidth: 20,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 5,
+    backgroundColor: Colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  tabCountBadgeActive: {
     backgroundColor: Colors.primary,
-    marginTop: 4,
+    borderColor: Colors.primary,
+  },
+  tabCountBadgeText: {
+    color: Colors.textMuted,
+    fontSize: 10,
+    fontWeight: '800',
+    lineHeight: 12,
+  },
+  tabCountBadgeTextActive: {
+    color: Colors.textOnPrimary,
   },
 
+  /* Table */
   tableHeader: {
     flexDirection: 'row',
-    gap: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 6,
+    gap: 8,
+    paddingVertical: 10,
+    paddingLeft: 14,
+    paddingRight: 10,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
     backgroundColor: Colors.topBarBg,
+    borderTopLeftRadius: 8,
+    borderTopRightRadius: 8,
   },
-  thCell: { color: Colors.textMuted, fontSize: 11, fontWeight: '600' },
+  thCell: {
+    color: Colors.textMuted,
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
   tableRow: {
     flexDirection: 'row',
-    gap: 6,
-    paddingVertical: 10,
-    paddingHorizontal: 6,
+    gap: 8,
+    paddingVertical: 14,
+    paddingLeft: 14,
+    paddingRight: 10,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
     alignItems: 'center',
+    position: 'relative',
   },
   tdCell: { color: Colors.textActive, fontSize: 12, fontVariant: ['tabular-nums'] },
-  emptyRow: { paddingVertical: 40, alignItems: 'center' },
+
+  /* Row: colored side accent stripe (absolute left) */
+  rowAccent: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 3,
+    borderTopRightRadius: 2,
+    borderBottomRightRadius: 2,
+  },
+  /* Row: symbol column (dot + bold symbol + side pill stacked) */
+  rowSymbolCol: {
+    flex: 1.7,
+    gap: 6,
+    justifyContent: 'center',
+  },
+  rowSymbolLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  rowSymbolText: {
+    color: Colors.textActive,
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  /* Row: stacked price/qty/amount column */
+  rowStackedCol: {
+    flex: 1.2,
+    gap: 3,
+    justifyContent: 'center',
+  },
+  rowStackedMain: {
+    color: Colors.textActive,
+    fontSize: 13,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
+  rowStackedSub: {
+    color: Colors.textMuted,
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 0.3,
+  },
+  rowStackedTimeMain: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
+  },
+  rowStackedTimeSub: {
+    color: Colors.textMuted,
+    fontSize: 11,
+    fontVariant: ['tabular-nums'],
+  },
+  /* Row: action/status column (right aligned) */
+  rowActionCol: {
+    flex: 1,
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+  },
   emptyText: { color: Colors.textMuted, fontSize: 12 },
+  emptyStateFull: {
+    paddingVertical: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  emptyStateIconLg: {
+    fontSize: 36,
+    opacity: 0.35,
+  },
+
+  /* Row decorations */
+  tableSymbolDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: Colors.primary,
+  },
+  sidePill: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  sidePillText: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  statusPill: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  statusPillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
 
   rowCancelBtn: {
     paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingVertical: 5,
     borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: 4,
+    borderColor: Colors.borderLight,
+    borderRadius: 6,
+    backgroundColor: Colors.topBarBg,
   },
-  rowCancelText: { color: Colors.textMuted, fontSize: 11 },
+  rowCancelText: { color: Colors.textSecondary, fontSize: 11, fontWeight: '700' },
 
+  /* Holdings */
   holdingsSummary: {
     flexDirection: 'row',
-    gap: 8,
-    alignItems: 'baseline',
-    paddingVertical: 8,
-    paddingHorizontal: 6,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    marginBottom: 8,
+    backgroundColor: Colors.surfaceAlt,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
-  holdingsSummaryLabel: { color: Colors.textMuted, fontSize: 12 },
-  holdingsSummaryValue: { color: Colors.textActive, fontSize: 15, fontWeight: '700' },
+  holdingsSummaryLabel: {
+    color: Colors.textMuted,
+    fontSize: 10,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    marginBottom: 2,
+  },
+  holdingsSummaryValue: {
+    color: Colors.textActive,
+    fontSize: 18,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+  },
+  holdingsSummaryUnit: {
+    color: Colors.textMuted,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  holdingsMeta: {
+    alignItems: 'flex-end',
+  },
+  holdingsMetaLabel: {
+    color: Colors.textMuted,
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  holdingAssetBadge: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: Colors.primaryDim,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: Colors.primaryBorder,
+  },
+  holdingAssetBadgeText: {
+    color: Colors.primary,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  pnlPill: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  pnlPillText: {
+    fontSize: 11,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+  },
 
   /* ── Mobile ── */
   mobileFoldBar: {

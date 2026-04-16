@@ -31,6 +31,7 @@ import IndicatorsPanel from '../../components/chart/IndicatorsPanel';
 import ChartTypeDropdown, { getChartTypeIcon } from '../../components/chart/ChartTypeDropdown';
 import DrawingToolsSidebar, { DrawingToolsSettings, DEFAULT_ENABLED_TOOLS, type DrawingTool } from '../../components/chart/DrawingToolsSidebar';
 import type { IndicatorType } from '../../components/chart/indicators';
+import SymbolDropdown, { type SymbolTab } from '../../components/trading/SymbolDropdown';
 
 /* ════════════════════════════════════════
    Constants
@@ -486,241 +487,6 @@ const ohlc = StyleSheet.create({
    Main Component
    ════════════════════════════════════════ */
 
-/* ════════════════════════════════════════
-   Symbol Dropdown Selector
-   ════════════════════════════════════════ */
-
-function SymbolDropdown({
-  visible,
-  selectedSymbol,
-  onSelect,
-  onClose,
-  quotes,
-}: {
-  visible: boolean;
-  selectedSymbol: string;
-  onSelect: (sym: string) => void;
-  onClose: () => void;
-  quotes: Record<string, MarketQuote>;
-}) {
-  const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState<AssetTab>('crypto');
-  const [filter, setFilter] = useState('');
-  const tabs = useMemo(
-    () => [
-      { key: 'crypto' as const, label: t('trading.crypto') },
-      { key: 'stocks' as const, label: t('trading.stock') },
-      { key: 'forex' as const, label: t('trading.forex') },
-      { key: 'futures' as const, label: t('trading.futures') },
-    ],
-    [t],
-  );
-
-  if (!visible) return null;
-
-  const symbols = SYMBOLS_BY_TAB[activeTab];
-  const filtered = filter
-    ? symbols.filter((s) => s.toLowerCase().includes(filter.toLowerCase()))
-    : symbols;
-
-  return (
-    <View style={dd.overlay}>
-      <TouchableOpacity style={dd.backdrop} onPress={onClose} activeOpacity={1} />
-      <View style={dd.panel}>
-        {/* Search */}
-        <View style={dd.searchRow}>
-          <AppIcon name="search" size={15} color={Colors.textMuted} />
-          <TextInput
-            style={dd.searchInput}
-                      placeholder={t('trading.searchPairs')}
-            placeholderTextColor={Colors.textMuted}
-            value={filter}
-            onChangeText={setFilter}
-            autoFocus
-          />
-          <TouchableOpacity onPress={onClose}>
-            <Text style={dd.closeBtn}>✕</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Tabs */}
-        <View style={dd.tabRow}>
-          {tabs.map((tab) => (
-            <TouchableOpacity
-              key={tab.key}
-              style={[dd.tab, activeTab === tab.key && dd.tabActive]}
-              onPress={() => { setActiveTab(tab.key); setFilter(''); }}
-              activeOpacity={0.7}
-            >
-              <Text style={[dd.tabText, activeTab === tab.key && dd.tabTextActive]}>
-                {tab.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* Header */}
-        <View style={dd.listHeader}>
-          <Text style={dd.headerText}>{t('trading.pair')}</Text>
-          <Text style={[dd.headerText, { textAlign: 'right' }]}>{t('trading.price')}</Text>
-          <Text style={[dd.headerText, { textAlign: 'right' }]}>{t('trading.changePercent')}</Text>
-        </View>
-
-        {/* List */}
-        <ScrollView style={dd.list} keyboardShouldPersistTaps="handled">
-          {filtered.map((sym) => {
-            const q = quotes[sym];
-            const isActive = selectedSymbol === sym;
-            const pct = q?.percent_change;
-            return (
-              <TouchableOpacity
-                key={sym}
-                style={[dd.row, isActive && dd.rowActive]}
-                onPress={() => { onSelect(sym); onClose(); }}
-                activeOpacity={0.6}
-              >
-                <Text style={[dd.rowSymbol, isActive && { color: Colors.primary }]}>
-                  {sym}
-                </Text>
-                <Text style={dd.rowPrice}>
-                  {q?.price ? formatPrice(q.price, sym) : '--'}
-                </Text>
-                <Text style={[dd.rowChange, { color: changeColor(pct) }]}>
-                  {formatChange(pct)}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-          {filtered.length === 0 && (
-            <View style={dd.empty}>
-              <Text style={{ color: Colors.textMuted, fontSize: 13 }}>{t('trading.noMatch')}</Text>
-            </View>
-          )}
-        </ScrollView>
-      </View>
-    </View>
-  );
-}
-
-const dd = StyleSheet.create({
-  overlay: {
-    position: 'absolute',
-    top: 0, left: 0, right: 0, bottom: 0,
-    zIndex: 100,
-  },
-  backdrop: {
-    position: 'absolute',
-    top: 0, left: 0, right: 0, bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-  },
-  panel: {
-    position: 'absolute',
-    top: 0, left: 0, bottom: 0,
-    width: 380,
-    backgroundColor: '#131313',
-    borderRightWidth: 1,
-    borderRightColor: Colors.border,
-  },
-  searchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-    gap: 8,
-  },
-  searchIcon: { fontSize: 14, opacity: 0.5 },
-  searchInput: {
-    flex: 1,
-    color: Colors.textActive,
-    fontSize: 13,
-    paddingVertical: 4,
-  },
-  closeBtn: {
-    color: Colors.textMuted,
-    fontSize: 16,
-    padding: 4,
-  },
-  tabRow: {
-    flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-    paddingHorizontal: 8,
-  },
-  tab: {
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-  },
-  tabActive: {
-    borderBottomWidth: 2,
-    borderBottomColor: Colors.primary,
-  },
-  tabText: {
-    fontSize: 12,
-    color: Colors.textMuted,
-    fontWeight: '600',
-  },
-  tabTextActive: {
-    color: Colors.primary,
-  },
-  listHeader: {
-    flexDirection: 'row',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(77,70,53,0.05)',
-  },
-  headerText: {
-    flex: 1,
-    fontSize: 10,
-    color: Colors.textMuted,
-    fontWeight: '500',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-  },
-  list: {
-    flex: 1,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  rowActive: {
-    backgroundColor: 'rgba(42,42,42,0.3)',
-  },
-  rowSymbol: {
-    flex: 1,
-    color: Colors.textActive,
-    fontSize: 12,
-    fontWeight: '700',
-    fontFamily: 'monospace',
-  },
-  rowPrice: {
-    flex: 1,
-    color: Colors.textActive,
-    fontSize: 12,
-    textAlign: 'right',
-    fontFamily: 'monospace',
-  },
-  rowChange: {
-    flex: 1,
-    fontSize: 12,
-    textAlign: 'right',
-    fontFamily: 'monospace',
-  },
-  empty: {
-    paddingVertical: 40,
-    alignItems: 'center',
-  },
-});
-
-/* ════════════════════════════════════════
-   Main Component
-   ════════════════════════════════════════ */
-
 export default function TradingScreen() {
   const { t } = useTranslation();
   const { width } = useWindowDimensions();
@@ -1158,6 +924,14 @@ export default function TradingScreen() {
     setSelectedSymbol(sym);
   }, []);
 
+  /* ═══════ Shared symbol dropdown tab list ═══════ */
+  const symbolDropdownTabs: SymbolTab[] = [
+    { key: 'crypto', label: t('trading.crypto') },
+    { key: 'stocks', label: t('trading.stock') },
+    { key: 'forex', label: t('trading.forex') },
+    { key: 'futures', label: t('trading.futures') },
+  ];
+
   /* ═══════ Desktop Layout ═══════ */
   if (isDesktop) {
     return (
@@ -1166,6 +940,8 @@ export default function TradingScreen() {
         <SymbolDropdown
           visible={showDropdown}
           selectedSymbol={selectedSymbol}
+          tabs={symbolDropdownTabs}
+          symbolsByTab={SYMBOLS_BY_TAB}
           onSelect={handleSelectSymbol}
           onClose={() => setShowDropdown(false)}
           quotes={quotes}
@@ -1914,6 +1690,8 @@ export default function TradingScreen() {
       <SymbolDropdown
         visible={showDropdown}
         selectedSymbol={selectedSymbol}
+        tabs={symbolDropdownTabs}
+        symbolsByTab={SYMBOLS_BY_TAB}
         onSelect={handleSelectSymbol}
         onClose={() => setShowDropdown(false)}
         quotes={quotes}
