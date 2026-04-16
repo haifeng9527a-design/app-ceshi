@@ -1035,3 +1035,119 @@ func (r *ReferralRepo) GetUserBasic(ctx context.Context, uid string) (*UserBasic
 	}
 	return &u, nil
 }
+
+// ══════════════════════════════════════════════════════════════
+// Risk radar / threshold metrics (Sprint 2)
+// ══════════════════════════════════════════════════════════════
+
+// RiskMetrics 把一套风险 / 阈值指标一次性从 DB 取回，避免同一个 scan 对同一 agent
+// 发多条 query（threshold_service 里对每个 metric 都会读 risk.Xxx）。
+//
+// 字段约定：
+//   - TotalInviteeCount       直接下级总数
+//   - InactiveInviteeCount    7 天未登录（last_login_at IS NULL 或 < now()-7d）的直接下级数
+//   - PendingSelfRebateAmount commission_events 中 inviter_uid = 本 agent、
+//                             kind='self'、status='pending' 的金额之和
+//   - ThisMonthCommission     commission_records 当月累计（全 kind 之和）
+//   - LastMonthCommission     commission_records 上月累计（全 kind 之和）
+type RiskMetrics struct {
+	TotalInviteeCount       int
+	InactiveInviteeCount    int
+	PendingSelfRebateAmount float64
+	ThisMonthCommission     float64
+	LastMonthCommission     float64
+}
+
+// GetRiskMetrics 单次 round-trip 聚合一个 agent 的所有风险指标。
+// 一次 CTE 查询即可；所有子 SELECT 都走索引。
+func (r *ReferralRepo) GetRiskMetrics(ctx context.Context, agentUID string) (*RiskMetrics, error) {
+	var m RiskMetrics
+	err := r.pool.QueryRow(ctx, `
+		SELECT
+		  -- 直接下级总数
+		  COALESCE((SELECT COUNT(*) FROM users WHERE inviter_uid = $1), 0)::int AS total_invitees,
+		  -- 7 天未登录直接下级数
+		  COALESCE((
+		    SELECT COUNT(*)
+		    FROM users
+		    WHERE inviter_uid = $1
+		      AND (last_login_at IS NULL OR last_login_at < (NOW() AT TIME ZONE 'UTC') - INTERVAL '7 days')
+		  ), 0)::int AS inactive_invitees,
+		  -- 自返佣 pending 金额
+		  COALESCE((
+		    SELECT SUM(commission_amount)
+		    FROM commission_events
+		    WHERE inviter_uid = $1
+		      AND kind = 'self'
+		      AND status = 'pending'
+		  ), 0)::float8 AS pending_self,
+		  -- 本月全部返佣
+		  COALESCE((
+		    SELECT SUM(commission_amount)
+		    FROM commission_records
+		    WHERE inviter_uid = $1
+		      AND period_date >= date_trunc('month', NOW() AT TIME ZONE 'UTC')::date
+		  ), 0)::float8 AS this_month,
+		  -- 上月全部返佣
+		  COALESCE((
+		    SELECT SUM(commission_amount)
+		    FROM commission_records
+		    WHERE inviter_uid = $1
+		      AND period_date >= (date_trunc('month', NOW() AT TIME ZONE 'UTC') - INTERVAL '1 month')::date
+		      AND period_date <  date_trunc('month', NOW() AT TIME ZONE 'UTC')::date
+		  ), 0)::float8 AS last_month
+	`, agentUID).Scan(
+		&m.TotalInviteeCount,
+		&m.InactiveInviteeCount,
+		&m.PendingSelfRebateAmount,
+		&m.ThisMonthCommission,
+		&m.LastMonthCommission,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get risk metrics: %w", err)
+	}
+	return &m, nil
+}
+
+// GetLifetimeCommissionEarned 读 users.lifetime_commission_earned 原生字段。
+// 单独暴露是因为 threshold "lifetime_commission" metric 不需要完整 RiskMetrics。
+func (r *ReferralRepo) GetLifetimeCommissionEarned(ctx context.Context, uid string) (float64, error) {
+	var v float64
+	err := r.pool.QueryRow(ctx,
+		`SELECT COALESCE(lifetime_commission_earned, 0)::float8 FROM users WHERE uid = $1`,
+		uid,
+	).Scan(&v)
+	if err != nil {
+		return 0, fmt.Errorf("get lifetime commission: %w", err)
+	}
+	return v, nil
+}
+
+// FilterDirectInvitees 从 candidateUIDs 里筛掉 NOT inviter_uid = agentUID 的行。
+// 用于 touch 触达接口防越权：代理只能对自己的直接下级发送触达。
+// 空 candidateUIDs → 返回空 slice，不报错。
+func (r *ReferralRepo) FilterDirectInvitees(
+	ctx context.Context, agentUID string, candidateUIDs []string,
+) ([]string, error) {
+	if len(candidateUIDs) == 0 {
+		return []string{}, nil
+	}
+	rows, err := r.pool.Query(ctx, `
+		SELECT uid FROM users
+		WHERE inviter_uid = $1 AND uid = ANY($2)
+	`, agentUID, candidateUIDs)
+	if err != nil {
+		return nil, fmt.Errorf("filter direct invitees: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]string, 0, len(candidateUIDs))
+	for rows.Next() {
+		var uid string
+		if err := rows.Scan(&uid); err != nil {
+			return nil, fmt.Errorf("scan invitee uid: %w", err)
+		}
+		out = append(out, uid)
+	}
+	return out, rows.Err()
+}

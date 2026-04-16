@@ -204,6 +204,19 @@ func main() {
 		}
 	}
 
+	// ── Notification service (Sprint 1) ──
+	// 必须在 chatHub 后、threshold/touch/weekly_report 之前初始化，
+	// 因为后三者都依赖 notificationSvc；同时绑定 chatHub 作 WS broadcaster。
+	var notificationSvc *service.NotificationService
+	if pool != nil {
+		notificationRepo := repository.NewNotificationRepo(pool)
+		notificationSvc = service.NewNotificationService(notificationRepo)
+		if chatHub != nil {
+			notificationSvc.SetBroadcaster(chatHub)
+		}
+		log.Println("[OK] Notification service initialized")
+	}
+
 	marketHub := ws.NewMarketHub(polygonClient, polygonWS, forexWS, binance)
 	marketHub.StartRealtime()
 	log.Println("[OK] Market WebSocket hub initialized (real-time)")
@@ -498,6 +511,78 @@ func main() {
 		mux.Handle("POST /api/agent/sub-agents/{uid}/promote", authMw.Authenticate(http.HandlerFunc(agentH.PromoteSubAgent)))
 		mux.Handle("PUT /api/agent/sub-agents/{uid}/rate", authMw.Authenticate(http.HandlerFunc(agentH.SetSubAgentRate)))
 		log.Println("[OK] Agent routes registered")
+	}
+
+	// ── Notifications (Sprint 1, all authenticated users) ──
+	if notificationSvc != nil {
+		notificationH := handler.NewNotificationHandler(notificationSvc)
+		mux.Handle("GET /api/notifications", authMw.Authenticate(http.HandlerFunc(notificationH.List)))
+		mux.Handle("PATCH /api/notifications/{id}/read", authMw.Authenticate(http.HandlerFunc(notificationH.MarkRead)))
+		mux.Handle("POST /api/notifications/read-all", authMw.Authenticate(http.HandlerFunc(notificationH.MarkAllRead)))
+		mux.Handle("POST /api/agent/_dev/create-notification", authMw.Authenticate(http.HandlerFunc(notificationH.DevCreate)))
+		log.Println("[OK] Notification routes registered")
+	}
+
+	// ── Agent thresholds (Sprint 2) + touch (Sprint 3) + time-series (Sprint 4) + weekly report (Sprint 5) ──
+	// 所有这些都依赖 referralSvc + notificationSvc；threshold/weekly 还各自挂独立 cron scheduler。
+	var thresholdScanner *scheduler.ThresholdScanner
+	var weeklyReportScheduler *scheduler.WeeklyReportScheduler
+	if pool != nil && referralSvc != nil && notificationSvc != nil {
+		referralRepoForAgent := repository.NewReferralRepo(pool)
+
+		// Sprint 2: thresholds
+		thresholdRepo := repository.NewThresholdRepo(pool)
+		thresholdSvc := service.NewThresholdService(thresholdRepo, referralRepoForAgent, notificationSvc)
+		thresholdH := handler.NewThresholdHandler(thresholdSvc)
+		mux.Handle("GET /api/agent/threshold-metrics", authMw.Authenticate(http.HandlerFunc(thresholdH.ListMetrics)))
+		mux.Handle("GET /api/agent/thresholds", authMw.Authenticate(http.HandlerFunc(thresholdH.List)))
+		mux.Handle("PUT /api/agent/thresholds", authMw.Authenticate(http.HandlerFunc(thresholdH.Upsert)))
+		mux.Handle("DELETE /api/agent/thresholds/{id}", authMw.Authenticate(http.HandlerFunc(thresholdH.Delete)))
+		mux.Handle("POST /api/agent/_dev/scan-thresholds", authMw.Authenticate(http.HandlerFunc(thresholdH.DevScan)))
+		thresholdScanner = scheduler.NewThresholdScanner(thresholdSvc)
+		thresholdScanner.Start()
+
+		// Sprint 3: touch
+		touchRepo := repository.NewTouchRepo(pool)
+		touchSvc := service.NewTouchService(touchRepo, notificationSvc, referralRepoForAgent)
+		touchH := handler.NewTouchHandler(touchSvc)
+		mux.Handle("GET /api/agent/touch-templates", authMw.Authenticate(http.HandlerFunc(touchH.ListTemplates)))
+		mux.Handle("POST /api/agent/touch", authMw.Authenticate(http.HandlerFunc(touchH.Send)))
+		mux.Handle("GET /api/agent/touch-history", authMw.Authenticate(http.HandlerFunc(touchH.History)))
+
+		// Sprint 4: time-series (risk radar / team tree / metrics)
+		tsRepo := repository.NewTimeSeriesRepo(pool)
+		tsSvc := service.NewTimeSeriesService(tsRepo)
+		tsH := handler.NewTimeSeriesHandler(tsSvc)
+		mux.Handle("GET /api/agent/metrics-available", authMw.Authenticate(http.HandlerFunc(tsH.ListMetrics)))
+		mux.Handle("GET /api/agent/metrics-timeseries", authMw.Authenticate(http.HandlerFunc(tsH.Query)))
+
+		// Sprint 5: weekly report (chromedp PNG via scheduled cron)
+		weeklyRepo := repository.NewWeeklyReportRepo(pool)
+		chromedpEnabled := !strings.EqualFold(os.Getenv("WEEKLY_REPORT_CHROMEDP"), "false")
+		weeklyStorageDir := os.Getenv("WEEKLY_REPORT_STORAGE_DIR")
+		if weeklyStorageDir == "" {
+			weeklyStorageDir = cfg.StoragePath + "/weekly-reports"
+		}
+		weeklyStaticURL := os.Getenv("WEEKLY_REPORT_STATIC_URL")
+		weeklyFrontendURL := os.Getenv("WEEKLY_REPORT_FRONTEND_URL")
+		weeklySvc := service.NewWeeklyReportService(
+			weeklyRepo,
+			notificationSvc,
+			[]byte(jwtSecret),
+			weeklyStorageDir,
+			weeklyStaticURL,
+			weeklyFrontendURL,
+			chromedpEnabled,
+		)
+		weeklyH := handler.NewWeeklyReportHandler(weeklySvc)
+		mux.HandleFunc("GET /weekly-report/render-data", weeklyH.RenderData)
+		mux.Handle("POST /api/agent/_dev/run-weekly-report", authMw.Authenticate(http.HandlerFunc(weeklyH.DevRunOne)))
+		mux.Handle("POST /api/agent/_dev/run-weekly-report-all", authMw.Authenticate(http.HandlerFunc(weeklyH.DevRunAll)))
+		weeklyReportScheduler = scheduler.NewWeeklyReportScheduler(weeklySvc)
+		weeklyReportScheduler.Start()
+
+		log.Println("[OK] Agent thresholds / touch / time-series / weekly report registered")
 	}
 
 	// ── Admin referral routes (require auth + admin role) ──
@@ -846,6 +931,12 @@ func main() {
 
 		if commissionScheduler != nil {
 			commissionScheduler.Stop()
+		}
+		if thresholdScanner != nil {
+			thresholdScanner.Stop()
+		}
+		if weeklyReportScheduler != nil {
+			weeklyReportScheduler.Stop()
 		}
 		if chatRedisCancel != nil {
 			chatRedisCancel()
