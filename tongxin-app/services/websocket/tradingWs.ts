@@ -14,7 +14,12 @@ type EventType =
   | 'balance_update'
   | 'account_update'
   | 'copy_trade_opened'
-  | 'copy_trade_closed';
+  | 'copy_trade_closed'
+  // spot events (backend: internal/service/spot_service.go pushSpotOrderEvent)
+  | 'spot_order_placed'
+  | 'spot_order_filled'
+  | 'spot_order_cancelled'
+  | 'spot_balance_update';
 
 /**
  * Trading WebSocket Service
@@ -45,6 +50,10 @@ class TradingWebSocket {
     account_update: new Set(),
     copy_trade_opened: new Set(),
     copy_trade_closed: new Set(),
+    spot_order_placed: new Set(),
+    spot_order_filled: new Set(),
+    spot_order_cancelled: new Set(),
+    spot_balance_update: new Set(),
   };
 
   get connected() {

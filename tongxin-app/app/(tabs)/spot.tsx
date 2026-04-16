@@ -48,6 +48,7 @@ import {
 import { useAuthStore } from '../../services/store/authStore';
 import { fetchCryptoDepth } from '../../services/api/client';
 import { transferAssets } from '../../services/api/assetsApi';
+import { tradingWs } from '../../services/websocket/tradingWs';
 import { Colors } from '../../theme/colors';
 
 /* ════════════════════════════════════════════
@@ -386,6 +387,10 @@ export default function SpotPage() {
     }
   }, [user]);
 
+  /* WS-driven updates.
+     后端在 placeMarket/placeLimit/FillPendingSpotOrder/CancelSpotOrder 会通过 trading hub
+     推 spot_order_placed / _filled / _cancelled / spot_balance_update。
+     相比轮询 5s 一拉，这里是实时；只在断线重连时 fallback 拉全量。 */
   useEffect(() => {
     if (!user) {
       setPendingOrders([]);
@@ -393,18 +398,70 @@ export default function SpotPage() {
       setAccount(null);
       return;
     }
+
+    // 首屏拉一次
     refreshPending();
     refreshHistory();
     refreshAccount();
 
-    const pendingInterval = setInterval(refreshPending, 5000);
-    const historyInterval = setInterval(refreshHistory, 10000);
-    const accountInterval = setInterval(refreshAccount, 15000);
+    // 确保 WS 连接（若别的 tab 已连，singleton 自动复用）
+    tradingWs.connect();
+
+    const mergeOrder = (prev: SpotOrder[], o: SpotOrder): SpotOrder[] => {
+      const idx = prev.findIndex((x) => x.id === o.id);
+      if (idx >= 0) {
+        const next = prev.slice();
+        next[idx] = o;
+        return next;
+      }
+      return [o, ...prev];
+    };
+
+    const onPlaced = (order: SpotOrder) => {
+      if (!order) return;
+      setPendingOrders((prev) => mergeOrder(prev, order));
+    };
+
+    const onFilled = (order: SpotOrder) => {
+      if (!order) return;
+      // 从 pending 拿掉（可能是 limit 成交），推到 history 前面
+      setPendingOrders((prev) => prev.filter((x) => x.id !== order.id));
+      setHistoryOrders((prev) => mergeOrder(prev, order));
+      // 余额变化 → 重拉账户（后面的 balance_update 也会触发一次，幂等）
+      refreshAccount();
+    };
+
+    const onCancelled = (order: SpotOrder) => {
+      if (!order) return;
+      setPendingOrders((prev) => prev.filter((x) => x.id !== order.id));
+      // 可选：把 cancelled 行也塞进 history（看后端 orderHistory 返回规则，这里不硬合并，拉一次兜底）
+      refreshHistory();
+      refreshAccount();
+    };
+
+    const onBalance = (_payload: { balances?: Record<string, number> }) => {
+      // spot account 里还有 valuation_usdt 等聚合字段，直接重拉最简单
+      refreshAccount();
+    };
+
+    const onReconnect = () => {
+      refreshPending();
+      refreshHistory();
+      refreshAccount();
+    };
+
+    tradingWs.on('spot_order_placed', onPlaced);
+    tradingWs.on('spot_order_filled', onFilled);
+    tradingWs.on('spot_order_cancelled', onCancelled);
+    tradingWs.on('spot_balance_update', onBalance);
+    tradingWs.onReconnect(onReconnect);
 
     return () => {
-      clearInterval(pendingInterval);
-      clearInterval(historyInterval);
-      clearInterval(accountInterval);
+      tradingWs.off('spot_order_placed', onPlaced);
+      tradingWs.off('spot_order_filled', onFilled);
+      tradingWs.off('spot_order_cancelled', onCancelled);
+      tradingWs.off('spot_balance_update', onBalance);
+      tradingWs.offReconnect(onReconnect);
     };
   }, [user, refreshPending, refreshHistory, refreshAccount]);
 
