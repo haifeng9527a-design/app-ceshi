@@ -49,6 +49,8 @@ export default function Sidebar() {
     { key: 'watchlist', label: t('nav.watchlist'), icon: 'watchlist', route: '/(tabs)/watchlist' },
     { key: 'following', label: t('nav.following'), icon: 'eye', route: '/(tabs)/following' },
     { key: 'trading', label: t('nav.trading'), icon: 'trading', route: '/(tabs)/trading' },
+    { key: 'spot', label: t('nav.spot'), icon: 'bitcoin', route: '/(tabs)/spot' },
+    { key: 'assets', label: t('nav.assets'), icon: 'wallet', route: '/(tabs)/portfolio' },
     { key: 'trader-center', label: t('nav.traderCenter'), icon: 'badge', route: '/(tabs)/trader-center' },
     { key: 'rankings', label: t('nav.rankings'), icon: 'trophy', route: '/(tabs)/rankings' },
     { key: 'messages', label: t('messages.title'), icon: 'message', route: '/(tabs)/messages' },

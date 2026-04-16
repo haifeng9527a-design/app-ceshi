@@ -193,6 +193,22 @@ export default function TabLayout() {
             }}
           />
           <Tabs.Screen
+            name="portfolio"
+            options={{
+              title: t('assets.title'),
+              href: null,
+              tabBarIcon: ({ color }) => null,
+            }}
+          />
+          <Tabs.Screen
+            name="spot"
+            options={{
+              title: t('nav.spot'),
+              href: null,
+              tabBarIcon: ({ color }) => null,
+            }}
+          />
+          <Tabs.Screen
             name="messages"
             options={{
               title: t('messages.title'),
