@@ -37,6 +37,9 @@ import {
 import { useTranslation } from 'react-i18next';
 
 import TradingViewChart from '../../components/chart/TradingViewChart';
+import TransferModal, {
+  type TransferDirection,
+} from '../../components/assets/TransferModal';
 import { useMarketStore } from '../../services/store/marketStore';
 import {
   spotApi,
@@ -47,7 +50,6 @@ import {
 } from '../../services/api/spotApi';
 import { useAuthStore } from '../../services/store/authStore';
 import { fetchCryptoDepth } from '../../services/api/client';
-import { transferAssets } from '../../services/api/assetsApi';
 import { tradingWs } from '../../services/websocket/tradingWs';
 import { Colors } from '../../theme/colors';
 
@@ -232,12 +234,10 @@ export default function SpotPage() {
   const [placing, setPlacing] = useState(false);
 
   /* ── Transfer modal ── */
+  // spot page defaults to pulling funds from futures → spot; modal owns its
+  // own direction swap after opening.
   const [showTransferModal, setShowTransferModal] = useState(false);
-  const [transferDirection, setTransferDirection] = useState<
-    'spot_to_futures' | 'futures_to_spot'
-  >('futures_to_spot');
-  const [transferAmount, setTransferAmount] = useState('');
-  const [transferring, setTransferring] = useState(false);
+  const transferDefaultDirection: TransferDirection = 'futures_to_spot';
 
   /* ── Orders / account ── */
   const [pendingOrders, setPendingOrders] = useState<SpotOrder[]>([]);
@@ -580,34 +580,18 @@ export default function SpotPage() {
   };
 
   /* ═════════════════════════════════════════
-     Transfer 划转
+     Transfer 划转 (logic lives in components/assets/TransferModal.tsx)
      ═════════════════════════════════════════ */
-  const handleTransfer = async () => {
-    const amt = parseFloat(transferAmount);
-    if (!isFinite(amt) || amt <= 0) {
-      Alert.alert(t('assets.transferFailedTitle'), t('assets.transferInvalidAmount'));
-      return;
-    }
-    setTransferring(true);
-    try {
-      await transferAssets({
-        from_account: transferDirection === 'spot_to_futures' ? 'spot' : 'futures',
-        to_account: transferDirection === 'spot_to_futures' ? 'futures' : 'spot',
-        amount: amt,
-      });
-      setShowTransferModal(false);
-      setTransferAmount('');
+  const handleTransferSuccess = useCallback(
+    (amount: number) => {
       refreshAccount();
-      Alert.alert(t('assets.transferSuccessTitle'), t('assets.transferSuccessBody', { amount: amt.toFixed(2) }));
-    } catch (e: any) {
       Alert.alert(
-        t('assets.transferFailedTitle'),
-        e?.response?.data?.error || e?.message || t('assets.transferFailedBody'),
+        t('assets.transferSuccessTitle'),
+        t('assets.transferSuccessBody', { amount: amount.toFixed(2) }),
       );
-    } finally {
-      setTransferring(false);
-    }
-  };
+    },
+    [refreshAccount, t],
+  );
 
   const handleCancel = async (orderId: string) => {
     try {
@@ -1404,127 +1388,15 @@ export default function SpotPage() {
      Layout
      ═════════════════════════════════════════ */
 
-  /* ── Transfer Modal ── */
-  const renderTransferModal = () => {
-    const amt = parseFloat(transferAmount);
-    const available = account?.holdings.find((h) => h.asset === 'USDT')?.available ?? 0;
-    const fromLabel =
-      transferDirection === 'spot_to_futures'
-        ? t('assets.distributionMain')
-        : t('assets.distributionFutures');
-    const toLabel =
-      transferDirection === 'spot_to_futures'
-        ? t('assets.distributionFutures')
-        : t('assets.distributionMain');
-    const canSubmit =
-      !transferring && isFinite(amt) && amt > 0 && (transferDirection !== 'spot_to_futures' || amt <= available);
-    return (
-      <Modal
-        visible={showTransferModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowTransferModal(false)}
-      >
-        <View style={styles.tfOverlay}>
-          <View style={styles.tfCard}>
-            <View style={styles.tfHeader}>
-              <Text style={styles.tfTitle}>{t('assets.transferModalTitle') || '资金划转'}</Text>
-              <TouchableOpacity
-                onPress={() => setShowTransferModal(false)}
-                activeOpacity={0.7}
-                style={styles.tfClose}
-              >
-                <Text style={styles.tfCloseText}>✕</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Direction pill */}
-            <View style={styles.tfDirectionRow}>
-              <View style={styles.tfDirectionCard}>
-                <Text style={styles.tfDirectionLabel}>
-                  {t('assets.transferFromLabel') || '转出'}
-                </Text>
-                <Text style={styles.tfDirectionValue}>{fromLabel}</Text>
-              </View>
-              <TouchableOpacity
-                style={styles.tfSwap}
-                activeOpacity={0.7}
-                onPress={() =>
-                  setTransferDirection((d) =>
-                    d === 'spot_to_futures' ? 'futures_to_spot' : 'spot_to_futures',
-                  )
-                }
-              >
-                <Text style={styles.tfSwapText}>⇅</Text>
-              </TouchableOpacity>
-              <View style={styles.tfDirectionCard}>
-                <Text style={styles.tfDirectionLabel}>
-                  {t('assets.transferToLabel') || '转入'}
-                </Text>
-                <Text style={styles.tfDirectionValue}>{toLabel}</Text>
-              </View>
-            </View>
-
-            {/* Amount input */}
-            <View style={styles.inputGroup}>
-              <View style={styles.tfAmountHead}>
-                <Text style={styles.inputGroupLabel}>
-                  {t('assets.transferAmountLabel') || '划转金额 (USDT)'}
-                </Text>
-                <TouchableOpacity
-                  onPress={() => setTransferAmount(available > 0 ? available.toFixed(2) : '')}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.tfMaxText}>
-                    {t('assets.transferMaxAction') || '全部划转'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-              <View style={styles.inputRow}>
-                <TextInput
-                  style={styles.input}
-                  value={transferAmount}
-                  onChangeText={setTransferAmount}
-                  placeholder={t('assets.transferAmountPlaceholder') || '输入划转金额'}
-                  keyboardType="decimal-pad"
-                  placeholderTextColor={Colors.textMuted}
-                />
-                <Text style={styles.inputUnit}>USDT</Text>
-              </View>
-              {transferDirection === 'spot_to_futures' && (
-                <Text style={styles.tfHint}>
-                  {t('assets.transferAvailableLabel') || '可用'}: {available.toFixed(2)} USDT
-                </Text>
-              )}
-            </View>
-
-            {/* Actions */}
-            <View style={styles.tfActionsRow}>
-              <TouchableOpacity
-                style={styles.tfCancelBtn}
-                activeOpacity={0.7}
-                onPress={() => setShowTransferModal(false)}
-              >
-                <Text style={styles.tfCancelText}>{t('common.cancel') || '取消'}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.tfConfirmBtn, !canSubmit && styles.tfBtnDisabled]}
-                activeOpacity={0.85}
-                disabled={!canSubmit}
-                onPress={handleTransfer}
-              >
-                <Text style={styles.tfConfirmText}>
-                  {transferring
-                    ? t('assets.transferSubmitting') || '划转中…'
-                    : t('assets.transferConfirmAction') || '确认划转'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-    );
-  };
+  /* ── Transfer Modal: shared component from components/assets/TransferModal.tsx ── */
+  const transferModal = (
+    <TransferModal
+      visible={showTransferModal}
+      onClose={() => setShowTransferModal(false)}
+      onSuccess={handleTransferSuccess}
+      defaultDirection={transferDefaultDirection}
+    />
+  );
 
   if (isDesktop) {
     return (
@@ -1549,7 +1421,7 @@ export default function SpotPage() {
           {/* Bottom orders table */}
           {renderBottomTable()}
         </ScrollView>
-        {renderTransferModal()}
+        {transferModal}
         {renderSymbolPanel()}
       </>
     );
@@ -1581,7 +1453,7 @@ export default function SpotPage() {
         {renderBottomTable()}
         {renderOrderPanel()}
       </ScrollView>
-      {renderTransferModal()}
+      {transferModal}
       {renderSymbolPanel()}
     </>
   );
@@ -2060,85 +1932,4 @@ const styles = StyleSheet.create({
     borderColor: Colors.border,
   },
   mobileFoldText: { color: Colors.textActive, fontSize: 13, fontWeight: '600' },
-
-  /* ── Transfer Modal ── */
-  tfOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 20,
-  },
-  tfCard: {
-    width: '100%',
-    maxWidth: 420,
-    backgroundColor: Colors.surface,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    padding: 20,
-    gap: 14,
-  },
-  tfHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  tfTitle: { color: Colors.textActive, fontSize: 16, fontWeight: '800' },
-  tfClose: { padding: 4 },
-  tfCloseText: { color: Colors.textMuted, fontSize: 16 },
-  tfDirectionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  tfDirectionCard: {
-    flex: 1,
-    backgroundColor: Colors.topBarBg,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    padding: 10,
-    gap: 4,
-  },
-  tfDirectionLabel: { color: Colors.textMuted, fontSize: 10 },
-  tfDirectionValue: { color: Colors.textActive, fontSize: 13, fontWeight: '700' },
-  tfSwap: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.primaryDim,
-    borderWidth: 1,
-    borderColor: Colors.primary,
-  },
-  tfSwapText: { color: Colors.primary, fontSize: 14, fontWeight: '800' },
-  tfAmountHead: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  tfMaxText: { color: Colors.primary, fontSize: 11, fontWeight: '700' },
-  tfHint: { color: Colors.textMuted, fontSize: 11 },
-  tfActionsRow: { flexDirection: 'row', gap: 10 },
-  tfCancelBtn: {
-    flex: 1,
-    paddingVertical: 11,
-    borderRadius: 6,
-    backgroundColor: Colors.topBarBg,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    alignItems: 'center',
-  },
-  tfCancelText: { color: Colors.textMuted, fontSize: 13, fontWeight: '600' },
-  tfConfirmBtn: {
-    flex: 1,
-    paddingVertical: 11,
-    borderRadius: 6,
-    backgroundColor: Colors.primary,
-    alignItems: 'center',
-  },
-  tfConfirmText: { color: Colors.background, fontSize: 13, fontWeight: '800' },
-  tfBtnDisabled: { opacity: 0.5 },
 });
