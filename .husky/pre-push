@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+#
+# pre-push hook — 防"三个 agent 并行，互相污染主干"
+#
+# 策略：
+#   1. 读当前 push 的 refs（husky 把 git pre-push 的 stdin 传给我们）
+#   2. 算出本次 push 比 remote 多出来的改动文件
+#   3. 按目录前缀决定跑哪些检查：
+#        tongxin-go/*   → cd tongxin-go && go build ./...
+#        tongxin-app/*  → cd tongxin-app && npm run smoke:web
+#      没改的子项目就不跑，控制 pre-push 总时长
+#   4. 任一检查失败 → 退出非零，git 会 abort push
+#
+# 跳过方法：git push --no-verify（开发者必须自己负责，agent 不应随手用）
+
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+ZERO_SHA="0000000000000000000000000000000000000000"
+
+collect_changed_files() {
+  # stdin: <local-ref> <local-sha> <remote-ref> <remote-sha>\n
+  local files=""
+  while read -r local_ref local_sha remote_ref remote_sha; do
+    [ -z "${local_sha:-}" ] && continue
+    [ "$local_sha" = "$ZERO_SHA" ] && continue  # 分支删除，跳过
+    # 空 remote_sha 也当新分支处理（手动触发 / 老 git 客户端）
+    remote_sha="${remote_sha:-$ZERO_SHA}"
+    local range
+    if [ "$remote_sha" = "$ZERO_SHA" ]; then
+      # 新分支：挨个试 origin/HEAD → origin/main → origin/master 找 base
+      local default="" base=""
+      for cand in \
+        "$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|^refs/remotes/||')" \
+        "origin/main" "origin/master"; do
+        [ -z "$cand" ] && continue
+        base="$(git merge-base "$local_sha" "$cand" 2>/dev/null || true)"
+        if [ -n "$base" ]; then
+          default="$cand"
+          break
+        fi
+      done
+      if [ -n "$base" ]; then
+        range="$base..$local_sha"
+      else
+        range="$(git rev-list --max-parents=0 "$local_sha" | tail -1)..$local_sha"
+      fi
+    else
+      range="$remote_sha..$local_sha"
+    fi
+    files="$files$(git diff --name-only "$range" 2>/dev/null || true)"$'\n'
+  done
+  printf '%s' "$files" | awk 'NF' | sort -u
+}
+
+CHANGED="$(collect_changed_files)"
+
+if [ -z "$CHANGED" ]; then
+  echo "[pre-push] no file diff detected (empty push?) — skipping checks"
+  exit 0
+fi
+
+echo "[pre-push] changed files:"
+echo "$CHANGED" | head -20 | sed 's/^/  /'
+extra="$(echo "$CHANGED" | wc -l | tr -d ' ')"
+if [ "$extra" -gt 20 ]; then
+  echo "  ... and $((extra - 20)) more"
+fi
+
+need_go=0
+need_app=0
+while IFS= read -r f; do
+  case "$f" in
+    tongxin-go/*) need_go=1 ;;
+    tongxin-app/*) need_app=1 ;;
+  esac
+done <<< "$CHANGED"
+
+if [ "$need_go" = 1 ]; then
+  echo ""
+  echo "[pre-push] tongxin-go changed → go build ./..."
+  (cd tongxin-go && go build ./...)
+  echo "[pre-push] tongxin-go ✓"
+fi
+
+if [ "$need_app" = 1 ]; then
+  echo ""
+  echo "[pre-push] tongxin-app changed → web bundle smoke test"
+  (cd tongxin-app && node scripts/smoke-web.mjs)
+  echo "[pre-push] tongxin-app ✓"
+fi
+
+if [ "$need_go" = 0 ] && [ "$need_app" = 0 ]; then
+  echo "[pre-push] no checks needed for these paths — skipping"
+fi
+
+echo ""
+echo "[pre-push] ✅ all checks passed"

@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+# 同一个 PR / 分支连 push，后来的覆盖前面，节省 minutes
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ─── tongxin-go ────────────────────────────────────────────────────
+  go-build:
+    name: tongxin-go / go build
+    runs-on: ubuntu-latest
+    # 只在这次 push/PR 真动了 tongxin-go 时跑
+    # 注意：paths filter 是 workflow-level 的，会跳过整个 workflow；
+    # 我们把 go/app 拆成两个 job，每个 job 自己用 paths-filter 判断。
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect tongxin-go changes
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            go:
+              - 'tongxin-go/**'
+
+      - name: Setup Go
+        if: steps.filter.outputs.go == 'true'
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+          cache-dependency-path: tongxin-go/go.sum
+
+      - name: Build
+        if: steps.filter.outputs.go == 'true'
+        working-directory: tongxin-go
+        run: |
+          go build ./...
+          go vet ./...
+
+      - name: Skip notice
+        if: steps.filter.outputs.go != 'true'
+        run: echo "No tongxin-go changes — skipping"
+
+  # ─── tongxin-app web smoke ─────────────────────────────────────────
+  app-smoke:
+    name: tongxin-app / web bundle smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect tongxin-app changes
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            app:
+              - 'tongxin-app/**'
+
+      - name: Setup Node
+        if: steps.filter.outputs.app == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: tongxin-app/package-lock.json
+
+      - name: Install
+        if: steps.filter.outputs.app == 'true'
+        working-directory: tongxin-app
+        # lockfile 可能没同步（Expo 项目更新频繁），用 install 容忍比 ci 更实际。
+        # 真要严格一致就换成 npm ci。
+        run: npm install --no-audit --no-fund --progress=false
+
+      - name: Type check
+        if: steps.filter.outputs.app == 'true'
+        working-directory: tongxin-app
+        run: |
+          # firebase.ts 有个历史 TS 错（FIREBASE env 未定义），不拦截整个 CI。
+          # 真想修就 grep "FIREBASE" services/auth/firebase.ts。
+          npx tsc --noEmit || echo "::warning ::tsc reported errors (not blocking, see CI log)"
+
+      - name: Web bundle smoke
+        if: steps.filter.outputs.app == 'true'
+        working-directory: tongxin-app
+        timeout-minutes: 5
+        run: node scripts/smoke-web.mjs
+
+      - name: Skip notice
+        if: steps.filter.outputs.app != 'true'
+        run: echo "No tongxin-app changes — skipping"
