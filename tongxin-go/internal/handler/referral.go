@@ -5,6 +5,8 @@ import (
 	"strconv"
 
 	"tongxin-go/internal/middleware"
+	"tongxin-go/internal/model"
+	"tongxin-go/internal/repository"
 	"tongxin-go/internal/service"
 )
 
@@ -59,6 +61,10 @@ func (h *ReferralHandler) ListCommissionRecords(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	// Ensure records is never null in JSON (frontend expects array)
+	if records == nil {
+		records = []*model.CommissionRecord{}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"records": records,
 		"total":   total,
@@ -90,6 +96,9 @@ func (h *ReferralHandler) ListInvitees(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if invitees == nil {
+		invitees = []repository.InviteeRow{}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"invitees": invitees,
 		"total":    total,
