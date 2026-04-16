@@ -521,7 +521,7 @@ func (r *ReferralRepo) SettleDailyForInviter(
 	if len(eventIDs) == 0 {
 		return nil, fmt.Errorf("no events")
 	}
-	if kind != model.CommissionKindDirect && kind != model.CommissionKindOverride {
+	if kind != model.CommissionKindDirect && kind != model.CommissionKindOverride && kind != model.CommissionKindSelf {
 		return nil, fmt.Errorf("invalid kind: %s", kind)
 	}
 
@@ -537,9 +537,15 @@ func (r *ReferralRepo) SettleDailyForInviter(
 		status = model.CommissionRecordStatusCapped
 	}
 
-	txType := "referral_commission_in"
-	if kind == model.CommissionKindOverride {
+	// kind → wallet_transactions.type 映射
+	var txType string
+	switch kind {
+	case model.CommissionKindDirect:
+		txType = "referral_commission_in"
+	case model.CommissionKindOverride:
 		txType = "agent_override_in"
+	case model.CommissionKindSelf:
+		txType = "agent_self_rebate_in"
 	}
 
 	tx, err := r.pool.Begin(ctx)
@@ -855,7 +861,7 @@ func (r *ReferralRepo) GetOverviewMetrics(ctx context.Context, uid string) (
 	return
 }
 
-// GetAgentDashboard 代理后台首页：本月 direct / override 分拆 + 下级数量等。
+// GetAgentDashboard 代理后台首页：本月 direct / override / self 分拆 + 下级数量等。
 func (r *ReferralRepo) GetAgentDashboard(ctx context.Context, uid string) (*model.AgentDashboardSummary, error) {
 	var s model.AgentDashboardSummary
 	s.UID = uid
@@ -873,13 +879,18 @@ func (r *ReferralRepo) GetAgentDashboard(ctx context.Context, uid string) (*mode
 		    WHERE inviter_uid = u.uid AND kind = 'override'
 		      AND period_date >= date_trunc('month', NOW() AT TIME ZONE 'UTC')::date
 		  ), 0)::float8,
+		  COALESCE((
+		    SELECT SUM(commission_amount) FROM commission_records
+		    WHERE inviter_uid = u.uid AND kind = 'self'
+		      AND period_date >= date_trunc('month', NOW() AT TIME ZONE 'UTC')::date
+		  ), 0)::float8,
 		  COALESCE((SELECT COUNT(*) FROM users WHERE inviter_uid = u.uid), 0)::int,
 		  COALESCE((SELECT COUNT(*) FROM users WHERE inviter_uid = u.uid AND is_agent = true), 0)::int,
 		  u.is_frozen_referral
 		FROM users u WHERE u.uid = $1
 	`, uid).Scan(
 		&s.MyRebateRate, &s.LifetimeCommissionEarned,
-		&s.ThisMonthDirect, &s.ThisMonthOverride,
+		&s.ThisMonthDirect, &s.ThisMonthOverride, &s.ThisMonthSelf,
 		&s.DirectInvitees, &s.SubAgentsCount, &s.IsFrozen,
 	)
 	if err != nil {

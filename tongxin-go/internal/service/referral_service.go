@@ -66,13 +66,49 @@ func (s *ReferralService) RecordCommissionEvent(
 		return nil // 没有 fee 不产生 event
 	}
 
-	// Step 1: 直接 inviter
+	// Step 1: 拿 invitee 的 cascade 信息
 	invitee, err := s.repo.GetUserRebateInfo(ctx, inviteeUID)
 	if err != nil {
 		return fmt.Errorf("record: get invitee: %w", err)
 	}
+
+	var txIDPtr *string
+	if sourceTxID != "" {
+		txIDPtr = &sourceTxID
+	}
+
+	// Step 1.5: self-rebate（仅代理）
+	// 代理自己交易 → 写一条 kind='self' event，invitee = inviter = 自己。
+	// 普通用户 / 根用户都不进这个分支。
+	// 冻结代理同样写但状态 = skipped_risk，留审计但不结算。
+	var selfEvents []repository.InsertableEvent
+	if invitee.IsAgent && invitee.MyRebateRate > 0 {
+		selfStatus := model.CommissionEventStatusPending
+		if invitee.IsFrozenReferral {
+			selfStatus = model.CommissionEventStatusSkippedRisk
+		}
+		selfEvents = append(selfEvents, repository.InsertableEvent{
+			InviteeUID:          inviteeUID,
+			InviterUID:          inviteeUID, // self-rebate 关键：invitee = inviter
+			SourceInviterUID:    nil,
+			Kind:                model.CommissionKindSelf,
+			ProductType:         productType,
+			FeeBase:             feeBase,
+			RateSnapshot:        invitee.MyRebateRate,
+			CommissionAmount:    roundTo8(feeBase * invitee.MyRebateRate),
+			SourceTransactionID: txIDPtr,
+			Status:              selfStatus,
+		})
+	}
+
+	// Step 2: 没有 inviter（根用户）→ 只写 self（如有），跳过 direct/override
 	if invitee.InviterUID == nil || *invitee.InviterUID == "" {
-		return nil // 根用户，无人可分
+		if len(selfEvents) > 0 {
+			if err := s.repo.InsertCommissionEvents(ctx, selfEvents); err != nil {
+				return fmt.Errorf("record: insert self event: %w", err)
+			}
+		}
+		return nil
 	}
 
 	// 一次查询捞完整条链（invitee 的 inviter → inviter 的 inviter → …）
@@ -82,18 +118,22 @@ func (s *ReferralService) RecordCommissionEvent(
 		return fmt.Errorf("record: chain: %w", err)
 	}
 	if len(chain) == 0 {
-		return nil // 理论不会发生（inviter_uid 非 nil → 至少有 1 层）
+		// 理论不会发生（inviter_uid 非 nil → 至少有 1 层）；保险起见仍写 self
+		if len(selfEvents) > 0 {
+			if err := s.repo.InsertCommissionEvents(ctx, selfEvents); err != nil {
+				return fmt.Errorf("record: insert self event: %w", err)
+			}
+		}
+		return nil
 	}
 
-	var txIDPtr *string
-	if sourceTxID != "" {
-		txIDPtr = &sourceTxID
-	}
+	cascadeEvents := ComputeCascadeEvents(inviteeUID, chain, feeBase, productType, txIDPtr, maxCascadeDepth)
 
-	events := ComputeCascadeEvents(inviteeUID, chain, feeBase, productType, txIDPtr, maxCascadeDepth)
-
-	// Step 4: 批量写
-	if err := s.repo.InsertCommissionEvents(ctx, events); err != nil {
+	// Step 4: 批量写（self + direct + override 一次 INSERT）
+	all := make([]repository.InsertableEvent, 0, len(selfEvents)+len(cascadeEvents))
+	all = append(all, selfEvents...)
+	all = append(all, cascadeEvents...)
+	if err := s.repo.InsertCommissionEvents(ctx, all); err != nil {
 		return fmt.Errorf("record: insert events: %w", err)
 	}
 	return nil
@@ -248,6 +288,13 @@ func (s *ReferralService) SettleDailyCommission(ctx context.Context, targetDate 
 
 	var settledCount, cappedCount, errorCount int
 	for _, g := range groups {
+		// 自返佣不封顶（产品决策）：cap = 0 表示无上限。
+		// direct/override 使用 cfg.DailyCommissionCapUSD（默认 $10k/日/inviter）。
+		capForGroup := s.cfg.DailyCommissionCapUSD
+		if g.Kind == model.CommissionKindSelf {
+			capForGroup = 0
+		}
+
 		_, err := s.repo.SettleDailyForInviter(
 			ctx,
 			g.InviterUID,
@@ -256,7 +303,7 @@ func (s *ReferralService) SettleDailyCommission(ctx context.Context, targetDate 
 			g.EventIDs,
 			g.TotalCommission,
 			g.TotalFeeBase,
-			s.cfg.DailyCommissionCapUSD,
+			capForGroup,
 		)
 		if err != nil {
 			if err == repository.ErrAlreadySettled {
@@ -269,7 +316,7 @@ func (s *ReferralService) SettleDailyCommission(ctx context.Context, targetDate 
 			continue
 		}
 		settledCount++
-		if s.cfg.DailyCommissionCapUSD > 0 && g.TotalCommission > s.cfg.DailyCommissionCapUSD {
+		if capForGroup > 0 && g.TotalCommission > capForGroup {
 			cappedCount++
 		}
 	}

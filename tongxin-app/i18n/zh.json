@@ -32,6 +32,7 @@
     "delete": "删除",
     "edit": "编辑",
     "done": "完成",
+    "ok": "知道了",
     "noResults": "未找到结果",
     "expand": "展开侧栏",
     "collapse": "收起侧栏"
@@ -284,7 +285,7 @@
     "time": "时间",
     "totalValue": "总估值"
   },
-  "spot":   {
+  "spot": {
     "orderBook": "订单簿",
     "recentTrades": "最近成交",
     "price": "价格",
@@ -295,7 +296,18 @@
     "orderHistory": "历史委托",
     "holdings": "资产持仓",
     "noOrders": "暂无委托",
-    "cancelOrder": "撤单"
+    "cancelOrder": "撤单",
+    "fillReceiptBuyTitle": "买入成功",
+    "fillReceiptSellTitle": "卖出成功",
+    "fillReceiptSubtitle": "市价单已成交",
+    "fillReceiptReceivedLabel": "到账",
+    "fillReceiptReleasedLabel": "卖出",
+    "fillReceiptSymbol": "交易对",
+    "fillReceiptPrice": "成交价格",
+    "fillReceiptQty": "成交数量",
+    "fillReceiptAmount": "成交金额",
+    "fillReceiptFee": "手续费",
+    "fillReceiptMuteHint": "下次不再提示（可在设置中恢复）"
   },
   "assets": {
     "title": "资产总览",
@@ -501,6 +513,11 @@
     "txCopyAllocate": "分配跟单本金",
     "txCopyWithdraw": "赎回跟单本金",
     "txCopyPnlSettle": "跟单结算",
+    "txCopyProfitShareIn": "带单分润收入",
+    "txCopyProfitShareOut": "支付带单分润",
+    "txSpotBuy": "现货买入",
+    "txSpotSell": "现货卖出",
+    "txSpotFee": "现货手续费",
     "txTransferToFutures": "划转到合约账户",
     "txTransferToMain": "划转到现货账户",
     "txSystemAdjustment": "系统调整",
@@ -515,7 +532,90 @@
     "depositStatusFailed": "失败",
     "depositStatusDetected": "已检测",
     "txReferralCommission": "邀请返佣",
-    "txAgentOverride": "代理级差佣金"
+    "txAgentOverride": "代理级差佣金",
+    "spotAssetsTitle": "现货资产",
+    "spotAssetsHint": "这里优先展示你真正持有的现货类资产。先支持数字货币，后续股票资产会并入同一套列表结构。",
+    "spotAssetsVisibleCount": "当前显示 {{count}} 项资产",
+    "supportedAssetsTitle": "钱包支持币种",
+    "supportedAssetsCount": "已接入 {{count}} 个币种",
+    "supportedAssetsHint": "参考 Bitget 等主流交易所的充值入口，先展示当前钱包已支持的主流币种，再按币种继续选择网络与充值地址。",
+    "assetTableAsset": "币种",
+    "assetTablePriceValue": "价格 / 估值",
+    "assetTablePriceCost": "市价 / 成本价",
+    "assetTablePnl": "浮动盈亏 / 已实现",
+    "assetTableAvailableFrozen": "可用 / 冻结",
+    "assetTableAction": "操作",
+    "assetCategoryAll": "全部",
+    "assetCategoryCrypto": "数字货币",
+    "assetCategoryStock": "股票",
+    "stockActionHint": "股票资产不支持充值和提现",
+    "assetSearchPlaceholder": "搜索币种代码、名称或股票代码",
+    "ownedOnlyToggle": "仅显示已有资产",
+    "hideDustToggle": "隐藏小额资产",
+    "dustBadge": "小额",
+    "assetNoDailyChange": "暂无日内变动",
+    "assetTotalLabel": "总数量",
+    "avgCost": "成本价",
+    "noCostBasis": "暂无成本",
+    "costEstimatedShort": "估算",
+    "lifetimeRealizedPnlShort": "累计已实现",
+    "spotAssetsEmptyTitle": "暂无现货资产",
+    "spotAssetsEmptyBody": "充值或买入资产后，这里会开始显示你的真实持仓。",
+    "stockAssetsEmptyTitle": "暂无股票资产",
+    "stockAssetsEmptyBody": "股票现货接入后，这里会统一展示你的股票持仓与市值。",
+    "copyAccountTitle": "跟单账户",
+    "copyAccountEmptyTitle": "还没有跟单资金池",
+    "copyAccountEmptyBody": "当你开始跟随交易员后，这里会展示跟单账户总览、当前仓位和历史收益。",
+    "copyOverviewTotalEquity": "跟单总权益",
+    "copyOverviewCurrentEquity": "当前权益",
+    "copyOverviewCurrentNet": "当前总收益",
+    "copyOverviewCurrentNetBreakdown": "当前权益 {{equity}} / 分配本金 {{allocated}}",
+    "copyOverviewCurrentPools": "当前 {{count}} 个跟单池",
+    "copyOverviewTodayNet": "今日已实现净收益",
+    "copyOverviewTodayBreakdown": "今日已实现 {{realized}} / 今日分润 {{share}}",
+    "copyOverviewLifetimeNet": "累计净收益",
+    "copyOverviewLifetimeRealizedNet": "累计已实现净收益",
+    "copyOverviewLifetimeBreakdown": "累计已实现 {{realized}} / 累计分润 {{share}}",
+    "copyOverviewCapitalState": "分配本金",
+    "copyOverviewCapitalStateBreakdown": "可用 {{available}} / 冻结 {{frozen}}",
+    "copyOverviewOpenPositions": "{{count}} 个跟单仓位正在运行",
+    "copyOverviewOpenedAt": "开于 {{time}}",
+    "copyPoolsTitle": "正在进行中的跟单池",
+    "copyPoolsHint": "每个交易员都是一条独立资金池，收益、冻结和分润互不影响。",
+    "copyActivityTitle": "跟单活动",
+    "copyActivityHint": "查看 {{name}} 当前正在运行的跟单仓位和历史平仓表现。",
+    "copyOpenPositionsTitle": "当前仓位",
+    "copyHistoryTitle": "历史跟单",
+    "copyOpenPositionsEmptyTitle": "当前没有进行中的跟单仓位",
+    "copyOpenPositionsEmptyBody": "交易员下一次开仓后，这里会自动展示对应的跟单仓位。",
+    "copyHistoryEmptyTitle": "还没有历史跟单记录",
+    "copyHistoryEmptyBody": "平仓后的净收益、手续费和分润明细会在这里出现。",
+    "copyHistoryGrossPnl": "毛收益",
+    "copyHistoryFees": "手续费",
+    "copyHistoryProfitShare": "分润",
+    "copyHistoryClosedAt": "平仓于",
+    "copyHistoryCount": "共 {{count}} 条历史记录",
+    "copyEntryAction": "进入跟单账户",
+    "copyEntryViewing": "当前正在查看",
+    "copyTraderEquity": "当前权益 {{amount}} USDT",
+    "changeRange1d": "1日",
+    "changeRange7d": "7日",
+    "changeRange30d": "30日",
+    "changeRange90d": "90日",
+    "pnlCalendarTitle": "盈亏日历",
+    "pnlCalendarHint": "按自然月查看每天的净盈亏，方便快速定位波动和结算高峰。",
+    "pnlCalendarNet": "本月净盈亏",
+    "pnlCalendarDayNet": "单日净盈亏",
+    "pnlCalendarMonthNet": "月内累计净盈亏",
+    "pnlCalendarPositiveDays": "盈利天数",
+    "pnlCalendarNegativeDays": "亏损天数",
+    "weekdaySun": "日",
+    "weekdayMon": "一",
+    "weekdayTue": "二",
+    "weekdayWed": "三",
+    "weekdayThu": "四",
+    "weekdayFri": "五",
+    "weekdaySat": "六"
   },
   "profile": {
     "title": "我的",
@@ -738,66 +838,66 @@
     "saveExposureEstimate": "预计风险敞口",
     "copySummaryHint": "建议先从 0.5x 或 1.0x 开始，确认交易员风格与你的风险承受能力匹配后再放大仓位。",
     "optionalField": "可选",
-    "imageFallback": "图片"
-    ,"newGroupChat": "新群聊"
-    ,"groupNameAuto": "{{first}} 等 {{count}} 人"
-    ,"createGroupTitle": "创建群聊"
-    ,"groupMembersCountWithYou": "创建后共 {{count}} 人，包含你自己"
-    ,"groupName": "群名称"
-    ,"groupNamePlaceholder": "输入群聊名称"
-    ,"groupNameHint": "留空将自动使用默认群名。建议使用清晰、易识别的名称。"
-    ,"searchFriends": "搜索好友..."
-    ,"selectedMembers": "已选成员"
-    ,"chooseMembersCount": "选择成员 ({{count}} 已选)"
-    ,"chooseMembersMin": "选择成员 (至少选择 2 位好友)"
-    ,"noFriends": "暂无好友"
-    ,"createGroupAction": "创建 {{count}} 人群聊"
-    ,"groupChatFallback": "群聊"
-    ,"groupMembersLabel": "成员数: {{count}}"
-    ,"noGroupAnnouncement": "暂无群公告"
-    ,"groupOwner": "群主"
-    ,"groupAdmin": "群管理员"
-    ,"groupMember": "成员"
-    ,"editGroupInfo": "编辑群信息"
-    ,"addGroupMembers": "添加成员"
-    ,"groupMembersTitle": "群成员"
-    ,"groupManageHintOwner": "右键、长按或点 ⋯ 管理成员与管理员权限"
-    ,"groupManageHintAdmin": "右键、长按或点 ⋯ 管理成员"
-    ,"noMemberInfo": "暂无成员信息"
-    ,"dissolveGroup": "解散群"
-    ,"editGroupTitle": "编辑群信息"
-    ,"inputGroupName": "输入群名称"
-    ,"saveGroup": "保存"
-    ,"addGroupMembersTitle": "添加群成员"
-    ,"addMembersCount": "添加成员 ({{count}})"
-    ,"memberManagement": "成员管理"
-    ,"memberLabel": "成员"
-    ,"removeAdmin": "取消管理员"
-    ,"setAdmin": "设为管理员"
-    ,"removeMember": "移除成员"
-    ,"voiceCallUnavailableTitle": "无法发起语音"
-    ,"voiceCallUnavailableBody": "请先打开一个私聊会话。"
-    ,"voiceCallPendingTitle": "语音未打开"
-    ,"voiceCallPendingBody": "请求已发起，但本地没有拿到通话状态，请再点一次试试。"
-    ,"voiceCallStartFailedTitle": "发起失败"
-    ,"voiceCallStartFailedBody": "语音呼叫发起失败"
-    ,"incomingCall": "来电"
-    ,"incomingCallInvite": "语音通话邀请"
-    ,"callConversationId": "会话 ID: {{id}}"
-    ,"rejectCall": "拒绝"
-    ,"acceptCall": "接听"
-    ,"acceptCallFailedTitle": "接听失败"
-    ,"acceptCallFailedBody": "本地没有拿到通话状态，请稍后重试。"
-    ,"acceptVoiceCallFailed": "接听语音失败"
-    ,"callActive": "语音通话中"
-    ,"callRinging": "语音呼叫中"
-    ,"callRoom": "房间: {{room}}"
-    ,"openCall": "进入通话"
-    ,"endCallFailedTitle": "挂断失败"
-    ,"endCallFailedBody": "挂断失败"
-    ,"endCall": "挂断"
-    ,"currentConversation": "当前会话"
-    ,"noConversationSettings": "当前会话没有更多可配置项。"
+    "imageFallback": "图片",
+    "newGroupChat": "新群聊",
+    "groupNameAuto": "{{first}} 等 {{count}} 人",
+    "createGroupTitle": "创建群聊",
+    "groupMembersCountWithYou": "创建后共 {{count}} 人，包含你自己",
+    "groupName": "群名称",
+    "groupNamePlaceholder": "输入群聊名称",
+    "groupNameHint": "留空将自动使用默认群名。建议使用清晰、易识别的名称。",
+    "searchFriends": "搜索好友...",
+    "selectedMembers": "已选成员",
+    "chooseMembersCount": "选择成员 ({{count}} 已选)",
+    "chooseMembersMin": "选择成员 (至少选择 2 位好友)",
+    "noFriends": "暂无好友",
+    "createGroupAction": "创建 {{count}} 人群聊",
+    "groupChatFallback": "群聊",
+    "groupMembersLabel": "成员数: {{count}}",
+    "noGroupAnnouncement": "暂无群公告",
+    "groupOwner": "群主",
+    "groupAdmin": "群管理员",
+    "groupMember": "成员",
+    "editGroupInfo": "编辑群信息",
+    "addGroupMembers": "添加成员",
+    "groupMembersTitle": "群成员",
+    "groupManageHintOwner": "右键、长按或点 ⋯ 管理成员与管理员权限",
+    "groupManageHintAdmin": "右键、长按或点 ⋯ 管理成员",
+    "noMemberInfo": "暂无成员信息",
+    "dissolveGroup": "解散群",
+    "editGroupTitle": "编辑群信息",
+    "inputGroupName": "输入群名称",
+    "saveGroup": "保存",
+    "addGroupMembersTitle": "添加群成员",
+    "addMembersCount": "添加成员 ({{count}})",
+    "memberManagement": "成员管理",
+    "memberLabel": "成员",
+    "removeAdmin": "取消管理员",
+    "setAdmin": "设为管理员",
+    "removeMember": "移除成员",
+    "voiceCallUnavailableTitle": "无法发起语音",
+    "voiceCallUnavailableBody": "请先打开一个私聊会话。",
+    "voiceCallPendingTitle": "语音未打开",
+    "voiceCallPendingBody": "请求已发起，但本地没有拿到通话状态，请再点一次试试。",
+    "voiceCallStartFailedTitle": "发起失败",
+    "voiceCallStartFailedBody": "语音呼叫发起失败",
+    "incomingCall": "来电",
+    "incomingCallInvite": "语音通话邀请",
+    "callConversationId": "会话 ID: {{id}}",
+    "rejectCall": "拒绝",
+    "acceptCall": "接听",
+    "acceptCallFailedTitle": "接听失败",
+    "acceptCallFailedBody": "本地没有拿到通话状态，请稍后重试。",
+    "acceptVoiceCallFailed": "接听语音失败",
+    "callActive": "语音通话中",
+    "callRinging": "语音呼叫中",
+    "callRoom": "房间: {{room}}",
+    "openCall": "进入通话",
+    "endCallFailedTitle": "挂断失败",
+    "endCallFailedBody": "挂断失败",
+    "endCall": "挂断",
+    "currentConversation": "当前会话",
+    "noConversationSettings": "当前会话没有更多可配置项。"
   },
   "contacts": {
     "title": "通讯录",
@@ -1256,6 +1356,7 @@
     "noInvitees": "还没有邀请好友",
     "direct": "直推返佣",
     "override": "团队级差",
+    "self": "自返佣",
     "settled": "已结算",
     "pending": "待结算",
     "capped": "已封顶",
@@ -1275,6 +1376,7 @@
     "kpiLifetime": "累计收入",
     "kpiDirectThisMonth": "本月直推",
     "kpiOverrideThisMonth": "本月级差",
+    "kpiSelfThisMonth": "本月自返",
     "kpiSubAgents": "下级代理数",
     "kpiSubAgentsUnit": "人",
     "thisMonthDirect": "本月直推",

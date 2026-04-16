@@ -52,12 +52,15 @@ export interface SubAgentRow {
 }
 
 export interface AgentDashboard {
+  uid: string;
   my_rebate_rate: number;
   lifetime_commission_earned: number;
-  this_month_commission: number;
+  this_month_direct: number;
   this_month_override: number;
-  sub_agent_count: number;
-  total_invitees: number;
+  this_month_self: number; // migration 034: 代理本月自返佣
+  direct_invitees: number;
+  sub_agents_count: number;
+  is_frozen: boolean;
 }
 
 export interface AgentApplication {

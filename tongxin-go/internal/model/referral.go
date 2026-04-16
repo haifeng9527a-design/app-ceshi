@@ -11,6 +11,7 @@ import (
 const (
 	CommissionKindDirect   = "direct"   // 直接返佣（invitee 的直接 inviter）
 	CommissionKindOverride = "override" // 级差返佣（代理链上级拿的 delta）
+	CommissionKindSelf     = "self"     // 代理自返佣（仅 is_agent=true，invitee = inviter）
 )
 
 // CommissionEventStatus: commission_events.status
@@ -156,6 +157,7 @@ type AgentDashboardSummary struct {
 	LifetimeCommissionEarned float64 `json:"lifetime_commission_earned"`
 	ThisMonthDirect          float64 `json:"this_month_direct"`
 	ThisMonthOverride        float64 `json:"this_month_override"`
+	ThisMonthSelf            float64 `json:"this_month_self"` // 本月自返佣（migration 034）
 	DirectInvitees           int     `json:"direct_invitees"`
 	SubAgentsCount           int     `json:"sub_agents_count"`
 	IsFrozen                 bool    `json:"is_frozen"`

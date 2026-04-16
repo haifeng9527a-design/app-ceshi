@@ -32,6 +32,7 @@
     "delete": "Delete",
     "edit": "Edit",
     "done": "Done",
+    "ok": "Got it",
     "noResults": "No results",
     "expand": "Expand sidebar",
     "collapse": "Collapse sidebar"
@@ -284,7 +285,7 @@
     "time": "Time",
     "totalValue": "Total Value"
   },
-  "spot":   {
+  "spot": {
     "orderBook": "Order Book",
     "recentTrades": "Recent Trades",
     "price": "Price",
@@ -295,7 +296,18 @@
     "orderHistory": "Order History",
     "holdings": "Holdings",
     "noOrders": "No orders",
-    "cancelOrder": "Cancel"
+    "cancelOrder": "Cancel",
+    "fillReceiptBuyTitle": "Buy filled",
+    "fillReceiptSellTitle": "Sell filled",
+    "fillReceiptSubtitle": "Market order executed",
+    "fillReceiptReceivedLabel": "Received",
+    "fillReceiptReleasedLabel": "Sold",
+    "fillReceiptSymbol": "Pair",
+    "fillReceiptPrice": "Fill Price",
+    "fillReceiptQty": "Fill Qty",
+    "fillReceiptAmount": "Total",
+    "fillReceiptFee": "Fee",
+    "fillReceiptMuteHint": "Don't show again (can be re-enabled in settings)"
   },
   "assets": {
     "title": "Assets Overview",
@@ -501,6 +513,11 @@
     "txCopyAllocate": "Copy Capital Allocation",
     "txCopyWithdraw": "Copy Capital Withdrawal",
     "txCopyPnlSettle": "Copy Capital Settlement",
+    "txCopyProfitShareIn": "Copy Profit Share Income",
+    "txCopyProfitShareOut": "Copy Profit Share Payment",
+    "txSpotBuy": "Spot Buy",
+    "txSpotSell": "Spot Sell",
+    "txSpotFee": "Spot Fee",
     "txTransferToFutures": "Transfer to Futures",
     "txTransferToMain": "Transfer to Spot",
     "txSystemAdjustment": "System Adjustment",
@@ -515,7 +532,90 @@
     "depositStatusFailed": "Failed",
     "depositStatusDetected": "Detected",
     "txReferralCommission": "Referral Commission",
-    "txAgentOverride": "Agent Override Commission"
+    "txAgentOverride": "Agent Override Commission",
+    "spotAssetsTitle": "Spot Assets",
+    "spotAssetsHint": "This section prioritizes the spot-like assets you actually hold. Crypto comes first, and stock assets will plug into the same list later.",
+    "spotAssetsVisibleCount": "{{count}} assets shown",
+    "supportedAssetsTitle": "Wallet-supported assets",
+    "supportedAssetsCount": "{{count}} assets currently available",
+    "supportedAssetsHint": "Following Bitget-style deposit flows, we surface the major assets currently supported by the wallet before the user continues with network and deposit-address selection.",
+    "assetTableAsset": "Asset",
+    "assetTablePriceValue": "Price / Value",
+    "assetTablePriceCost": "Mark / Avg Cost",
+    "assetTablePnl": "Unrealized / Realized",
+    "assetTableAvailableFrozen": "Available / Frozen",
+    "assetTableAction": "Actions",
+    "assetCategoryAll": "All",
+    "assetCategoryCrypto": "Crypto",
+    "assetCategoryStock": "Stocks",
+    "stockActionHint": "Stock holdings do not support deposit or withdrawal",
+    "assetSearchPlaceholder": "Search symbols, asset names, or stock tickers",
+    "ownedOnlyToggle": "Owned assets only",
+    "hideDustToggle": "Hide small balances",
+    "dustBadge": "Dust",
+    "assetNoDailyChange": "No daily change yet",
+    "assetTotalLabel": "Total amount",
+    "avgCost": "Avg Cost",
+    "noCostBasis": "No cost basis",
+    "costEstimatedShort": "Estimated",
+    "lifetimeRealizedPnlShort": "Lifetime realized",
+    "spotAssetsEmptyTitle": "No spot assets yet",
+    "spotAssetsEmptyBody": "Once you deposit or buy an asset, your actual holdings will start showing here.",
+    "stockAssetsEmptyTitle": "No stock assets yet",
+    "stockAssetsEmptyBody": "Once stock spot trading is connected, your stock holdings and market value will appear here.",
+    "copyAccountTitle": "Copy Account",
+    "copyAccountEmptyTitle": "No copy-trading buckets yet",
+    "copyAccountEmptyBody": "Once you follow a trader, this workspace will show your copy account overview, live positions, and historical performance.",
+    "copyOverviewTotalEquity": "Copy Account Equity",
+    "copyOverviewCurrentEquity": "Current Equity",
+    "copyOverviewCurrentNet": "Current Total PnL",
+    "copyOverviewCurrentNetBreakdown": "Current equity {{equity}} / Allocated {{allocated}}",
+    "copyOverviewCurrentPools": "{{count}} active copy buckets",
+    "copyOverviewTodayNet": "Today's Realized Net PnL",
+    "copyOverviewTodayBreakdown": "Realized {{realized}} / Today's profit share {{share}}",
+    "copyOverviewLifetimeNet": "Lifetime Net PnL",
+    "copyOverviewLifetimeRealizedNet": "Lifetime Realized Net PnL",
+    "copyOverviewLifetimeBreakdown": "Lifetime realized {{realized}} / Lifetime profit share {{share}}",
+    "copyOverviewCapitalState": "Allocated Capital",
+    "copyOverviewCapitalStateBreakdown": "Available {{available}} / Frozen {{frozen}}",
+    "copyOverviewOpenPositions": "{{count}} copy positions are live",
+    "copyOverviewOpenedAt": "Opened {{time}}",
+    "copyPoolsTitle": "Active Copy Buckets",
+    "copyPoolsHint": "Each trader runs as an independent bucket. PnL, frozen margin, and profit sharing stay isolated.",
+    "copyActivityTitle": "Copy Activity",
+    "copyActivityHint": "Review {{name}}'s current copy positions and closed trade performance.",
+    "copyOpenPositionsTitle": "Open Positions",
+    "copyHistoryTitle": "History",
+    "copyOpenPositionsEmptyTitle": "No live copy positions",
+    "copyOpenPositionsEmptyBody": "When the trader opens the next position, the mirrored copy position will appear here.",
+    "copyHistoryEmptyTitle": "No copy-trading history yet",
+    "copyHistoryEmptyBody": "Closed trades will show realized PnL, fees, and profit-share details here.",
+    "copyHistoryGrossPnl": "Gross PnL",
+    "copyHistoryFees": "Fees",
+    "copyHistoryProfitShare": "Profit Share",
+    "copyHistoryClosedAt": "Closed",
+    "copyHistoryCount": "{{count}} historical records",
+    "copyEntryAction": "Open Copy Account",
+    "copyEntryViewing": "Viewing now",
+    "copyTraderEquity": "Current equity {{amount}} USDT",
+    "changeRange1d": "1D",
+    "changeRange7d": "7D",
+    "changeRange30d": "30D",
+    "changeRange90d": "90D",
+    "pnlCalendarTitle": "PnL Calendar",
+    "pnlCalendarHint": "Review daily net PnL by month so swings and realized peaks are easy to spot.",
+    "pnlCalendarNet": "Month Net PnL",
+    "pnlCalendarDayNet": "Daily Net PnL",
+    "pnlCalendarMonthNet": "Month-to-date Net PnL",
+    "pnlCalendarPositiveDays": "Up Days",
+    "pnlCalendarNegativeDays": "Down Days",
+    "weekdaySun": "Sun",
+    "weekdayMon": "Mon",
+    "weekdayTue": "Tue",
+    "weekdayWed": "Wed",
+    "weekdayThu": "Thu",
+    "weekdayFri": "Fri",
+    "weekdaySat": "Sat"
   },
   "profile": {
     "title": "Profile",
@@ -738,66 +838,66 @@
     "saveExposureEstimate": "Estimated Exposure",
     "copySummaryHint": "Start with 0.5x or 1.0x first, then increase only after confirming the trader matches your risk tolerance.",
     "optionalField": "Optional",
-    "imageFallback": "Image"
-    ,"newGroupChat": "New Group"
-    ,"groupNameAuto": "{{first}} and {{count}} more"
-    ,"createGroupTitle": "Create Group"
-    ,"groupMembersCountWithYou": "{{count}} members total including you"
-    ,"groupName": "Group Name"
-    ,"groupNamePlaceholder": "Enter group name"
-    ,"groupNameHint": "Leave blank to use the default group name. Clear, recognizable names work best."
-    ,"searchFriends": "Search friends..."
-    ,"selectedMembers": "Selected Members"
-    ,"chooseMembersCount": "Choose Members ({{count}} selected)"
-    ,"chooseMembersMin": "Choose Members (select at least 2 friends)"
-    ,"noFriends": "No friends yet"
-    ,"createGroupAction": "Create {{count}}-member group"
-    ,"groupChatFallback": "Group Chat"
-    ,"groupMembersLabel": "Members: {{count}}"
-    ,"noGroupAnnouncement": "No group announcement yet"
-    ,"groupOwner": "Owner"
-    ,"groupAdmin": "Admin"
-    ,"groupMember": "Member"
-    ,"editGroupInfo": "Edit Group Info"
-    ,"addGroupMembers": "Add Members"
-    ,"groupMembersTitle": "Members"
-    ,"groupManageHintOwner": "Right-click, long-press, or tap ⋯ to manage members and admin roles"
-    ,"groupManageHintAdmin": "Right-click, long-press, or tap ⋯ to manage members"
-    ,"noMemberInfo": "No member info yet"
-    ,"dissolveGroup": "Dissolve Group"
-    ,"editGroupTitle": "Edit Group Info"
-    ,"inputGroupName": "Enter group name"
-    ,"saveGroup": "Save"
-    ,"addGroupMembersTitle": "Add Group Members"
-    ,"addMembersCount": "Add Members ({{count}})"
-    ,"memberManagement": "Member Management"
-    ,"memberLabel": "Member"
-    ,"removeAdmin": "Remove Admin"
-    ,"setAdmin": "Make Admin"
-    ,"removeMember": "Remove Member"
-    ,"voiceCallUnavailableTitle": "Cannot start voice call"
-    ,"voiceCallUnavailableBody": "Open a direct conversation first."
-    ,"voiceCallPendingTitle": "Voice state unavailable"
-    ,"voiceCallPendingBody": "The request was sent, but no local call state arrived. Please try again."
-    ,"voiceCallStartFailedTitle": "Start failed"
-    ,"voiceCallStartFailedBody": "Could not start the voice call"
-    ,"incomingCall": "Incoming Call"
-    ,"incomingCallInvite": "Voice call invitation"
-    ,"callConversationId": "Conversation ID: {{id}}"
-    ,"rejectCall": "Decline"
-    ,"acceptCall": "Accept"
-    ,"acceptCallFailedTitle": "Accept failed"
-    ,"acceptCallFailedBody": "No local call state was available. Please try again."
-    ,"acceptVoiceCallFailed": "Could not accept the voice call"
-    ,"callActive": "Voice call active"
-    ,"callRinging": "Calling..."
-    ,"callRoom": "Room: {{room}}"
-    ,"openCall": "Open Call"
-    ,"endCallFailedTitle": "End failed"
-    ,"endCallFailedBody": "Could not end the call"
-    ,"endCall": "End Call"
-    ,"currentConversation": "Current Conversation"
-    ,"noConversationSettings": "No additional settings are available for this conversation."
+    "imageFallback": "Image",
+    "newGroupChat": "New Group",
+    "groupNameAuto": "{{first}} and {{count}} more",
+    "createGroupTitle": "Create Group",
+    "groupMembersCountWithYou": "{{count}} members total including you",
+    "groupName": "Group Name",
+    "groupNamePlaceholder": "Enter group name",
+    "groupNameHint": "Leave blank to use the default group name. Clear, recognizable names work best.",
+    "searchFriends": "Search friends...",
+    "selectedMembers": "Selected Members",
+    "chooseMembersCount": "Choose Members ({{count}} selected)",
+    "chooseMembersMin": "Choose Members (select at least 2 friends)",
+    "noFriends": "No friends yet",
+    "createGroupAction": "Create {{count}}-member group",
+    "groupChatFallback": "Group Chat",
+    "groupMembersLabel": "Members: {{count}}",
+    "noGroupAnnouncement": "No group announcement yet",
+    "groupOwner": "Owner",
+    "groupAdmin": "Admin",
+    "groupMember": "Member",
+    "editGroupInfo": "Edit Group Info",
+    "addGroupMembers": "Add Members",
+    "groupMembersTitle": "Members",
+    "groupManageHintOwner": "Right-click, long-press, or tap ⋯ to manage members and admin roles",
+    "groupManageHintAdmin": "Right-click, long-press, or tap ⋯ to manage members",
+    "noMemberInfo": "No member info yet",
+    "dissolveGroup": "Dissolve Group",
+    "editGroupTitle": "Edit Group Info",
+    "inputGroupName": "Enter group name",
+    "saveGroup": "Save",
+    "addGroupMembersTitle": "Add Group Members",
+    "addMembersCount": "Add Members ({{count}})",
+    "memberManagement": "Member Management",
+    "memberLabel": "Member",
+    "removeAdmin": "Remove Admin",
+    "setAdmin": "Make Admin",
+    "removeMember": "Remove Member",
+    "voiceCallUnavailableTitle": "Cannot start voice call",
+    "voiceCallUnavailableBody": "Open a direct conversation first.",
+    "voiceCallPendingTitle": "Voice state unavailable",
+    "voiceCallPendingBody": "The request was sent, but no local call state arrived. Please try again.",
+    "voiceCallStartFailedTitle": "Start failed",
+    "voiceCallStartFailedBody": "Could not start the voice call",
+    "incomingCall": "Incoming Call",
+    "incomingCallInvite": "Voice call invitation",
+    "callConversationId": "Conversation ID: {{id}}",
+    "rejectCall": "Decline",
+    "acceptCall": "Accept",
+    "acceptCallFailedTitle": "Accept failed",
+    "acceptCallFailedBody": "No local call state was available. Please try again.",
+    "acceptVoiceCallFailed": "Could not accept the voice call",
+    "callActive": "Voice call active",
+    "callRinging": "Calling...",
+    "callRoom": "Room: {{room}}",
+    "openCall": "Open Call",
+    "endCallFailedTitle": "End failed",
+    "endCallFailedBody": "Could not end the call",
+    "endCall": "End Call",
+    "currentConversation": "Current Conversation",
+    "noConversationSettings": "No additional settings are available for this conversation."
   },
   "contacts": {
     "title": "Contacts",
@@ -1256,6 +1356,7 @@
     "noInvitees": "No invitees yet",
     "direct": "Direct Commission",
     "override": "Team Override",
+    "self": "Self-Rebate",
     "settled": "Settled",
     "pending": "Pending",
     "capped": "Capped",
@@ -1275,6 +1376,7 @@
     "kpiLifetime": "Lifetime Earnings",
     "kpiDirectThisMonth": "Direct This Month",
     "kpiOverrideThisMonth": "Override This Month",
+    "kpiSelfThisMonth": "Self-rebate This Month",
     "kpiSubAgents": "Sub-agents",
     "kpiSubAgentsUnit": "agents",
     "thisMonthDirect": "Direct This Month",

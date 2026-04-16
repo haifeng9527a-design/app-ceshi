@@ -136,7 +136,7 @@ export default function AgentDashboardScreen() {
         <Text style={styles.rateValue}>{(rate * 100).toFixed(1)}%</Text>
       </View>
 
-      {/* KPI cards — 2x2 grid */}
+      {/* KPI cards — 2x3 grid (本月自返 = migration 034) */}
       <View style={[styles.kpiGrid, isDesktop && styles.kpiGridDesktop]}>
         <View style={styles.kpiCard}>
           <Text style={styles.kpiLabel}>{t('agent.kpiLifetime')}</Text>
@@ -145,7 +145,7 @@ export default function AgentDashboardScreen() {
         </View>
         <View style={styles.kpiCard}>
           <Text style={styles.kpiLabel}>{t('agent.kpiDirectThisMonth')}</Text>
-          <Text style={styles.kpiValue}>{fmtUsdt(dashboard?.this_month_commission ?? 0)}</Text>
+          <Text style={styles.kpiValue}>{fmtUsdt(dashboard?.this_month_direct ?? 0)}</Text>
           <Text style={styles.kpiUnit}>USDT</Text>
         </View>
         <View style={styles.kpiCard}>
@@ -154,9 +154,14 @@ export default function AgentDashboardScreen() {
           <Text style={styles.kpiUnit}>USDT</Text>
         </View>
         <View style={styles.kpiCard}>
+          <Text style={styles.kpiLabel}>{t('agent.kpiSelfThisMonth')}</Text>
+          <Text style={styles.kpiValue}>{fmtUsdt(dashboard?.this_month_self ?? 0)}</Text>
+          <Text style={styles.kpiUnit}>USDT</Text>
+        </View>
+        <View style={styles.kpiCard}>
           <Text style={styles.kpiLabel}>{t('agent.kpiSubAgents')}</Text>
           <Text style={[styles.kpiValue, { color: Colors.textActive }]}>
-            {dashboard?.sub_agent_count ?? 0}
+            {dashboard?.sub_agents_count ?? 0}
           </Text>
           <Text style={styles.kpiUnit}>{t('agent.kpiSubAgentsUnit')}</Text>
         </View>
@@ -281,7 +286,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
 
-  // KPI grid
+  // KPI grid（mobile 2 列；desktop 5 列单行）
   kpiGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -291,7 +296,7 @@ const styles = StyleSheet.create({
     flexWrap: 'nowrap',
   },
   kpiCard: {
-    flexBasis: '47%',
+    flexBasis: '30%',
     flexGrow: 1,
     minWidth: 140,
     backgroundColor: Colors.surface,

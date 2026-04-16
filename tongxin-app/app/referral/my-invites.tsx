@@ -257,7 +257,11 @@ export default function MyInvitesScreen() {
                 <View style={{ flex: 1 }}>
                   <Text style={styles.recordTime}>{fmtDate(r.created_at)}</Text>
                   <Text style={styles.recordSub}>
-                    {r.kind === 'direct' ? t('referral.direct') : t('referral.override')}
+                    {r.kind === 'direct'
+                      ? t('referral.direct')
+                      : r.kind === 'self'
+                        ? t('referral.self')
+                        : t('referral.override')}
                     {'  '}
                     {r.status === 'settled'
                       ? t('referral.settled')
