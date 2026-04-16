@@ -121,9 +121,22 @@ function schedulePersistQuotes(quotes: Record<string, MarketQuote>) {
   }, QUOTE_PERSIST_DEBOUNCE_MS);
 }
 
+// ─── Watchlist persistence ────────────────────────────────────────
+// 自选列表持久化：之前只存在内存，刷新/重启后会回到默认，导致用户添加的币种消失。
+const WATCHLIST_KEY = 'tongxin_watchlist_v1';
+const DEFAULT_WATCHLIST = ['BTC/USD', 'ETH/USD', 'AAPL', 'EUR/USD'];
+
+function persistWatchlist(list: string[]) {
+  try {
+    AsyncStorage.setItem(WATCHLIST_KEY, JSON.stringify(list)).catch(() => {});
+  } catch {
+    // 序列化失败忽略
+  }
+}
+
 export const useMarketStore = create<MarketState>((set, get) => ({
   quotes: {},
-  watchlist: ['BTC/USD', 'ETH/USD', 'AAPL', 'EUR/USD'],
+  watchlist: DEFAULT_WATCHLIST,
   indices: [],
   indicesLoading: false,
   klines: [],
@@ -329,11 +342,14 @@ export const useMarketStore = create<MarketState>((set, get) => ({
     if (!wl.includes(symbol)) {
       wl.push(symbol);
       set({ watchlist: wl });
+      persistWatchlist(wl);
     }
   },
 
   removeWatchlist: (symbol) => {
-    set({ watchlist: get().watchlist.filter((s) => s !== symbol) });
+    const wl = get().watchlist.filter((s) => s !== symbol);
+    set({ watchlist: wl });
+    persistWatchlist(wl);
   },
 
   isInWatchlist: (symbol) => get().watchlist.includes(symbol),
@@ -359,5 +375,21 @@ export const useMarketStore = create<MarketState>((set, get) => ({
   } catch {
     // Corrupt payload — drop it so next write starts fresh
     AsyncStorage.removeItem(QUOTE_CACHE_KEY).catch(() => {});
+  }
+})();
+
+// ─── Hydrate persisted watchlist on module load ───────────────────
+// 读取用户自选列表；若存在则用它替换默认值。非阻塞。
+(async () => {
+  try {
+    const raw = await AsyncStorage.getItem(WATCHLIST_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return;
+    const list = parsed.filter((s): s is string => typeof s === 'string' && s.trim().length > 0);
+    if (list.length === 0) return;
+    useMarketStore.setState({ watchlist: list });
+  } catch {
+    AsyncStorage.removeItem(WATCHLIST_KEY).catch(() => {});
   }
 })();

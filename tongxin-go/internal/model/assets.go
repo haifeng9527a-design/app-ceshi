@@ -57,16 +57,22 @@ type CopySummaryResponse struct {
 	TotalAllocated    float64           `json:"total_allocated"`
 	TotalAvailable    float64           `json:"total_available"`
 	TotalFrozen       float64           `json:"total_frozen"`
+	// TotalUnrealizedPnl 聚合所有跟单仓位（is_copy_trade=true, status=open）的未实现盈亏。
+	// 不再被错误地计入合约账户，而是单独展示在跟单账户视图。
+	TotalUnrealizedPnl float64          `json:"total_unrealized_pnl"`
 	ActiveTraderCount int               `json:"active_trader_count"`
 	OpenPositionCount int               `json:"open_position_count"`
 	Items             []CopySummaryItem `json:"items"`
 }
 
 type CopyAccountOverviewResponse struct {
+	// TotalEquity = TotalAvailable + TotalFrozen + UnrealizedPnl。
 	TotalEquity       float64 `json:"total_equity"`
 	TotalAllocated    float64 `json:"total_allocated"`
 	TotalAvailable    float64 `json:"total_available"`
 	TotalFrozen       float64 `json:"total_frozen"`
+	// UnrealizedPnl 当前所有跟单未平仓的浮盈浮亏之和（原本错误地归到合约账户）。
+	UnrealizedPnl     float64 `json:"unrealized_pnl"`
 	ActivePoolCount   int     `json:"active_pool_count"`
 	CurrentPoolCount  int     `json:"current_pool_count"`
 	OpenPositionCount int     `json:"open_position_count"`

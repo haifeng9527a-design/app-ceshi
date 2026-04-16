@@ -10,14 +10,16 @@ import {
   ActivityIndicator,
   Image,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { Colors, Shadows } from '../../theme/colors';
 import { Config } from '../../services/config';
 import { getTraderRankings, TraderRankingItem } from '../../services/api/traderApi';
 import TraderDetailPanel from '../../components/trader/TraderDetailPanel';
+import { FollowingWorkbench } from './following';
 
 type SortBy = 'pnl' | 'win_rate' | 'followers' | 'trades';
+type RankingsTab = 'leaderboard' | 'following';
 
 // ─── Avatar Component ────────────────────────────────
 function AvatarCircle({ name, size = 40, borderColor, certified, imageUrl }: { name: string; size?: number; borderColor?: string; certified?: boolean; imageUrl?: string | null }) {
@@ -340,8 +342,11 @@ const mobileRowStyles = StyleSheet.create({
 export default function RankingsScreen() {
   const { t } = useTranslation();
   const router = useRouter();
+  const params = useLocalSearchParams<{ tab?: string; trader?: string }>();
   const { width } = useWindowDimensions();
   const isDesktop = width >= 768;
+  const resolvedTab: RankingsTab = params.tab === 'following' ? 'following' : 'leaderboard';
+  const [activeTab, setActiveTab] = useState<RankingsTab>(resolvedTab);
   const [sortBy, setSortBy] = useState<SortBy>('pnl');
   const [traders, setTraders] = useState<TraderRankingItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -349,6 +354,10 @@ export default function RankingsScreen() {
   const [selectedTrader, setSelectedTrader] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
+    if (activeTab !== 'leaderboard') {
+      setLoading(false);
+      return;
+    }
     try {
       const res = await getTraderRankings(sortBy, 50, 0);
       setTraders(res.traders || []);
@@ -357,20 +366,43 @@ export default function RankingsScreen() {
     } finally {
       setLoading(false);
     }
-  }, [sortBy]);
+  }, [activeTab, sortBy]);
+
+  useEffect(() => {
+    setActiveTab(resolvedTab);
+  }, [resolvedTab]);
+
+  useEffect(() => {
+    setSelectedTrader(typeof params.trader === 'string' ? params.trader : null);
+  }, [params.trader]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
 
   const onRefresh = async () => {
+    if (activeTab !== 'leaderboard') return;
     setRefreshing(true);
     await fetchData();
     setRefreshing(false);
   };
 
+  const baseRoute = activeTab === 'following' ? '/(tabs)/rankings?tab=following' : '/(tabs)/rankings';
+
+  const handleTabChange = (tab: RankingsTab) => {
+    if (tab === activeTab) return;
+    setActiveTab(tab);
+    setSelectedTrader(null);
+    router.replace((tab === 'following' ? '/(tabs)/rankings?tab=following' : '/(tabs)/rankings') as any);
+  };
+
   const navigateToTrader = (uid: string) => {
     setSelectedTrader(uid);
+    router.push(
+      (activeTab === 'following'
+        ? `/(tabs)/rankings?tab=following&trader=${uid}`
+        : `/(tabs)/rankings?trader=${uid}`) as any,
+    );
   };
 
   const SORT_OPTIONS: { key: SortBy; label: string }[] = [
@@ -383,15 +415,64 @@ export default function RankingsScreen() {
   const top3 = traders.slice(0, 3);
   const rest = traders.slice(3);
 
-  if (loading) {
-    return (
-      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
-        <ActivityIndicator size="large" color={Colors.primary} />
+  const renderHeader = () => (
+    <View style={[styles.header, isDesktop && styles.headerDesktop]}>
+      <View style={styles.headerIntro}>
+        {activeTab === 'leaderboard' ? (
+          <>
+            <Text style={styles.title}>{t('rankings.title')}</Text>
+            <Text style={styles.subtitle}>{t('rankings.subtitle')}</Text>
+          </>
+        ) : (
+          <Text style={styles.titleCompact}>{t('following.title')}</Text>
+        )}
       </View>
-    );
-  }
 
-  // Show trader detail (full page within tab)
+      <View style={styles.headerControls}>
+        <View style={styles.modeRail}>
+          <TouchableOpacity
+            style={[styles.modeBtn, activeTab === 'leaderboard' && styles.modeBtnActive]}
+            activeOpacity={0.75}
+            onPress={() => handleTabChange('leaderboard')}
+          >
+            <Text style={[styles.modeText, activeTab === 'leaderboard' && styles.modeTextActive]}>
+              {t('rankings.title')}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.modeBtn, activeTab === 'following' && styles.modeBtnActive]}
+            activeOpacity={0.75}
+            onPress={() => handleTabChange('following')}
+          >
+            <Text style={[styles.modeText, activeTab === 'following' && styles.modeTextActive]}>
+              {t('following.title')}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {activeTab === 'leaderboard' ? (
+          <View style={styles.filterBar}>
+            {SORT_OPTIONS.map((f) => (
+              <TouchableOpacity
+                key={f.key}
+                style={[styles.filterBtn, sortBy === f.key && styles.filterBtnActive]}
+                onPress={() => setSortBy(f.key)}
+              >
+                <Text style={[styles.filterText, sortBy === f.key && styles.filterTextActive]}>
+                  {f.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        ) : (
+          <View style={styles.followingHint}>
+            <Text style={styles.followingHintText}>{t('following.emptyTitle')}</Text>
+          </View>
+        )}
+      </View>
+    </View>
+  );
+
   if (selectedTrader) {
     return (
       <View style={styles.container}>
@@ -399,8 +480,30 @@ export default function RankingsScreen() {
           key={selectedTrader}
           uid={selectedTrader}
           embedded
-          onClose={() => setSelectedTrader(null)}
+          onClose={() => {
+            setSelectedTrader(null);
+            router.replace(baseRoute as any);
+          }}
         />
+      </View>
+    );
+  }
+
+  if (activeTab === 'following') {
+    return (
+      <View style={styles.container}>
+        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+          {renderHeader()}
+          <FollowingWorkbench embedded />
+        </ScrollView>
+      </View>
+    );
+  }
+
+  if (loading) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color={Colors.primary} />
       </View>
     );
   }
@@ -415,26 +518,7 @@ export default function RankingsScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />
         }
       >
-        {/* Header */}
-        <View style={[styles.header, isDesktop && styles.headerDesktop]}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.title}>{t('rankings.title')}</Text>
-            <Text style={styles.subtitle}>{t('rankings.subtitle')}</Text>
-          </View>
-          <View style={styles.filterBar}>
-            {SORT_OPTIONS.map((f) => (
-              <TouchableOpacity
-                key={f.key}
-                style={[styles.filterBtn, sortBy === f.key && styles.filterBtnActive]}
-                onPress={() => setSortBy(f.key)}
-              >
-                <Text style={[styles.filterText, sortBy === f.key && styles.filterTextActive]}>
-                  {f.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
+        {renderHeader()}
 
         {/* Top 3 Spotlight */}
         {top3.length >= 3 ? (
@@ -506,12 +590,50 @@ const styles = StyleSheet.create({
   header: { marginBottom: 24 },
   headerDesktop: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
     marginBottom: 32,
+    gap: 24,
+  },
+  headerIntro: { flex: 1, maxWidth: 520 },
+  headerControls: {
+    alignItems: 'flex-end',
+    gap: 14,
   },
   title: { fontSize: 32, fontWeight: '800', color: Colors.textActive, letterSpacing: -0.5, marginBottom: 6 },
+  titleCompact: { fontSize: 24, fontWeight: '800', color: Colors.textActive, letterSpacing: -0.3 },
   subtitle: { fontSize: 14, color: Colors.textSecondary, maxWidth: 400, lineHeight: 20 },
+  modeRail: {
+    flexDirection: 'row',
+    backgroundColor: '#171717',
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(77,70,53,0.24)',
+    padding: 6,
+    minWidth: 340,
+  },
+  modeBtn: {
+    flex: 1,
+    minHeight: 52,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  modeBtnActive: {
+    backgroundColor: 'rgba(242,202,80,0.14)',
+    borderColor: 'rgba(242,202,80,0.38)',
+  },
+  modeText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+  },
+  modeTextActive: {
+    color: Colors.primaryLight,
+  },
   filterBar: {
     flexDirection: 'row',
     backgroundColor: '#1c1b1b',
@@ -519,7 +641,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(77,70,53,0.2)',
     padding: 5,
-    marginTop: 12,
+    minHeight: 54,
   },
   filterBtn: { paddingHorizontal: 18, paddingVertical: 8, borderRadius: 8 },
   filterBtnActive: {
@@ -532,6 +654,21 @@ const styles = StyleSheet.create({
   },
   filterText: { fontSize: 12, fontWeight: '600', color: Colors.textSecondary },
   filterTextActive: { color: Colors.primaryLight, fontWeight: '700' },
+  followingHint: {
+    minHeight: 54,
+    minWidth: 340,
+    paddingHorizontal: 18,
+    justifyContent: 'center',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(77,70,53,0.2)',
+    backgroundColor: '#171717',
+  },
+  followingHintText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Colors.textMuted,
+  },
   spotlightGrid: { flexDirection: 'row', gap: 16, marginBottom: 32, alignItems: 'flex-end' },
   spotlightMobile: { gap: 12, marginBottom: 24 },
   spotlightMobileRow: { flexDirection: 'row', gap: 12 },

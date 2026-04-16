@@ -1,83 +1,140 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
-  FlatList,
+  ScrollView,
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
   RefreshControl,
-  Alert,
   useWindowDimensions,
 } from 'react-native';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { Redirect, useFocusEffect, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { Colors, Shadows } from '../../theme/colors';
 import { useAuthStore } from '../../services/store/authStore';
 import AppIcon from '../../components/ui/AppIcon';
+import { showAlert, showConfirm } from '../../services/utils/dialog';
 import {
   getMyWatchedTraders,
   unwatchTrader,
   FollowedTrader,
 } from '../../services/api/traderApi';
+import {
+  getTraderStrategies,
+  TraderStrategy,
+} from '../../services/api/traderStrategyApi';
 
-export default function FollowingScreen() {
+interface FollowingWorkbenchProps {
+  embedded?: boolean;
+}
+
+const STRATEGY_CATEGORY_LABELS: Record<string, string> = {
+  technical: 'strategy.categoryTechnical',
+  fundamental: 'strategy.categoryFundamental',
+  macro: 'strategy.categoryMacro',
+  news: 'strategy.categoryNews',
+  education: 'strategy.categoryEducation',
+  other: 'strategy.categoryOther',
+};
+
+export function FollowingWorkbench({ embedded = false }: FollowingWorkbenchProps) {
   const { t } = useTranslation();
   const router = useRouter();
   const { width } = useWindowDimensions();
-  const isDesktop = width >= 768;
+  const isDesktop = width >= 1080;
   const user = useAuthStore((s) => s.user);
 
   const [traders, setTraders] = useState<FollowedTrader[]>([]);
+  const [strategyMap, setStrategyMap] = useState<Record<string, TraderStrategy | null>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  const loadLatestStrategies = useCallback(async (items: FollowedTrader[]) => {
+    if (items.length === 0) {
+      setStrategyMap({});
+      return;
+    }
+
+    const results = await Promise.allSettled(
+      items.map(async (trader) => {
+        const res = await getTraderStrategies(trader.uid, 1, 0);
+        return [trader.uid, res.strategies?.[0] ?? null] as const;
+      }),
+    );
+
+    const next: Record<string, TraderStrategy | null> = {};
+    results.forEach((result) => {
+      if (result.status === 'fulfilled') {
+        const [uid, strategy] = result.value;
+        next[uid] = strategy;
+      }
+    });
+    setStrategyMap(next);
+  }, []);
+
   const loadData = useCallback(async () => {
-    if (!user) { setLoading(false); return; }
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+
     try {
       const data = await getMyWatchedTraders();
-      setTraders(data || []);
+      const list = data || [];
+      setTraders(list);
+      setStrategyMap({});
+      void loadLatestStrategies(list);
     } catch {
-      // ignore
+      setTraders([]);
+      setStrategyMap({});
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [user]);
+  }, [loadLatestStrategies, user]);
 
   useFocusEffect(
     useCallback(() => {
       setLoading(true);
-      loadData();
-    }, [loadData])
+      void loadData();
+    }, [loadData]),
   );
 
   const handleRefresh = () => {
     setRefreshing(true);
-    loadData();
+    void loadData();
   };
 
   const handleUnwatch = async (traderUid: string, name: string) => {
-    Alert.alert(
-      t('following.unwatchTitle'),
+    const confirmed = await showConfirm(
       t('following.unwatchBody', { name }),
-      [
-        { text: t('common.cancel'), style: 'cancel' },
-        {
-          text: t('common.confirm'),
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await unwatchTrader(traderUid);
-              setTraders((prev) => prev.filter((t) => t.uid !== traderUid));
-            } catch (e: any) {
-              Alert.alert('Error', e.response?.data?.error || e.message);
-            }
-          },
-        },
-      ]
+      t('following.unwatchTitle'),
     );
+    if (!confirmed) return;
+
+    try {
+      await unwatchTrader(traderUid);
+      setTraders((prev) => prev.filter((trader) => trader.uid !== traderUid));
+      setStrategyMap((prev) => {
+        const next = { ...prev };
+        delete next[traderUid];
+        return next;
+      });
+    } catch (e: any) {
+      showAlert(
+        e?.response?.data?.error || e?.message || t('following.unwatchFailed'),
+        t('following.unwatchTitle'),
+      );
+    }
   };
+
+  const summary = useMemo(() => {
+    const copyingCount = traders.filter((item) => item.is_copying && item.copy_status === 'active').length;
+    const withStrategyCount = traders.filter((item) => !!strategyMap[item.uid]).length;
+    const positiveCount = traders.filter((item) => (item.stats?.total_pnl || 0) > 0).length;
+    return { copyingCount, withStrategyCount, positiveCount };
+  }, [strategyMap, traders]);
 
   if (!user) {
     return (
@@ -86,10 +143,10 @@ export default function FollowingScreen() {
         <Text style={styles.emptyTitle}>{t('following.loginTitle')}</Text>
         <Text style={styles.emptySubtitle}>{t('following.loginSubtitle')}</Text>
         <TouchableOpacity
-          style={styles.loginBtn}
+          style={styles.primaryBtn}
           onPress={() => router.push('/(auth)/login' as any)}
         >
-          <Text style={styles.loginBtnText}>{t('following.goLogin')}</Text>
+          <Text style={styles.primaryBtnText}>{t('following.goLogin')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -103,142 +160,239 @@ export default function FollowingScreen() {
     );
   }
 
-  const renderTrader = ({ item }: { item: FollowedTrader }) => {
+  if (traders.length === 0) {
+    return (
+      <View style={styles.centered}>
+        <AppIcon name="eye" size={28} color={Colors.textMuted} />
+        <Text style={styles.emptyTitle}>{t('following.emptyTitle')}</Text>
+        <Text style={styles.emptySubtitle}>{t('following.emptySubtitle')}</Text>
+        <TouchableOpacity
+          style={styles.primaryBtn}
+          onPress={() => router.push('/(tabs)/rankings' as any)}
+        >
+          <Text style={styles.primaryBtnText}>{t('following.goRankings')}</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  const renderTraderCard = (item: FollowedTrader) => {
     const stats = item.stats;
     const pnl = stats?.total_pnl || 0;
     const winRate = stats?.win_rate || 0;
     const followers = stats?.followers_count || 0;
+    const latestStrategy = strategyMap[item.uid];
+    const traderRoute = embedded
+      ? `/(tabs)/rankings?tab=following&trader=${item.uid}`
+      : `/(tabs)/rankings?trader=${item.uid}`;
 
     let statusLabel = t('following.statusWatchOnly');
-    let statusColor = Colors.textMuted;
-    let statusBg = Colors.surfaceAlt;
+    let statusColor: string = Colors.textMuted;
+    let statusBg: string = Colors.surfaceAlt;
     if (item.is_copying && item.copy_status === 'active') {
       statusLabel = t('following.statusCopying');
       statusColor = Colors.up;
       statusBg = Colors.upDim;
     } else if (item.is_copying && item.copy_status === 'paused') {
       statusLabel = t('following.statusPaused');
-      statusColor = '#F0B90B';
-      statusBg = 'rgba(240, 185, 11, 0.12)';
+      statusColor = Colors.primary;
+      statusBg = 'rgba(242, 202, 80, 0.12)';
     }
 
+    const strategyDate = latestStrategy
+      ? new Date(latestStrategy.created_at).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })
+      : null;
+
     return (
-      <TouchableOpacity
-        style={[styles.traderCard, isDesktop && styles.traderCardDesktop]}
-        activeOpacity={0.7}
-        onPress={() => router.push(`/(tabs)/rankings?trader=${item.uid}` as any)}
-      >
-        {/* Header: Avatar + Name + Status */}
-        <View style={styles.cardHeader}>
-          <View style={styles.cardLeft}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>
-                {(item.display_name || '?')[0].toUpperCase()}
-              </Text>
-            </View>
-            <View style={styles.nameCol}>
-              <View style={styles.nameRow}>
-                <Text style={styles.traderName} numberOfLines={1}>{item.display_name}</Text>
-                {item.is_trader && (
-                  <View style={styles.eliteBadge}>
-                    <Text style={styles.eliteBadgeText}>ELITE</Text>
-                  </View>
-                )}
-              </View>
-              <Text style={styles.followDate}>
-                {t('following.followedOn', { date: new Date(item.followed_at).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' }) })}
-              </Text>
-            </View>
-          </View>
-          <View style={[styles.statusTag, { backgroundColor: statusBg }]}>
-            <Text style={[styles.statusTagText, { color: statusColor }]}>{statusLabel}</Text>
-          </View>
-        </View>
-
-        {/* Stats Row */}
-        <View style={styles.statsRow}>
-          <View style={styles.statItem}>
-            <Text style={styles.statLabel}>{t('following.totalPnl')}</Text>
-            <Text style={[styles.statValue, { color: pnl >= 0 ? Colors.up : Colors.down }]}>
-              {pnl >= 0 ? '+' : ''}${formatMoney(pnl)}
-            </Text>
-          </View>
-          <View style={styles.statItem}>
-            <Text style={styles.statLabel}>{t('following.winRate')}</Text>
-            <Text style={[styles.statValue, { color: winRate >= 50 ? Colors.up : Colors.down }]}>
-              {winRate.toFixed(1)}%
-            </Text>
-          </View>
-          <View style={styles.statItem}>
-            <Text style={styles.statLabel}>{t('following.followers')}</Text>
-            <Text style={styles.statValue}>{followers}</Text>
-          </View>
-        </View>
-
-        {/* Action Row */}
-        <View style={styles.actionRow}>
-          <TouchableOpacity
-            style={styles.unwatchBtn}
-            onPress={() => handleUnwatch(item.uid, item.display_name)}
-          >
-            <Text style={styles.unwatchBtnText}>{t('following.unwatch')}</Text>
-          </TouchableOpacity>
-          {!item.is_copying && item.allow_copy_trading && (
+      <View key={item.uid} style={styles.cardShell}>
+        <View style={styles.traderCard}>
+          <View style={[styles.cardTopRow, isDesktop && styles.cardTopRowDesktop]}>
             <TouchableOpacity
-              style={styles.copyBtn}
-              onPress={() => router.push(`/(tabs)/rankings?trader=${item.uid}` as any)}
+              style={styles.identityRow}
+              activeOpacity={0.85}
+              onPress={() => router.push(traderRoute as any)}
             >
-              <Text style={styles.copyBtnText}>{t('following.copyNow')}</Text>
+              <View style={styles.avatar}>
+                <Text style={styles.avatarText}>
+                  {(item.display_name || '?').charAt(0).toUpperCase()}
+                </Text>
+              </View>
+              <View style={styles.identityText}>
+                <View style={styles.nameRow}>
+                  <Text style={styles.traderName} numberOfLines={1}>
+                    {item.display_name}
+                  </Text>
+                  <View style={[styles.statusTag, { backgroundColor: statusBg }]}>
+                    <Text style={[styles.statusTagText, { color: statusColor }]}>{statusLabel}</Text>
+                  </View>
+                </View>
+                <Text style={styles.followDate}>
+                  {t('following.followedOn', {
+                    date: new Date(item.followed_at).toLocaleDateString('zh-CN', {
+                      month: '2-digit',
+                      day: '2-digit',
+                    }),
+                  })}
+                </Text>
+              </View>
             </TouchableOpacity>
-          )}
+
+            <View style={styles.headerActions}>
+              <View style={[styles.statusTag, { backgroundColor: statusBg }]}>
+                <Text style={[styles.statusTagText, { color: statusColor }]}>{statusLabel}</Text>
+              </View>
+              <TouchableOpacity
+                style={[styles.primaryBtnInline, isDesktop && styles.primaryBtnInlineDesktop]}
+                onPress={() => router.push(traderRoute as any)}
+              >
+                <Text style={styles.primaryBtnInlineText}>
+                  {item.is_copying ? t('following.manageCopy') : t('following.copyNow')}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={[styles.metricStrip, isDesktop && styles.metricStripDesktop]}>
+            <View style={styles.metricItem}>
+              <Text style={styles.metricLabel}>{t('following.totalPnl')}</Text>
+              <Text style={[styles.metricValue, { color: pnl >= 0 ? Colors.up : Colors.down }]}>
+                {pnl >= 0 ? '+' : '-'}${formatMoney(pnl)}
+              </Text>
+            </View>
+            <View style={styles.metricDivider} />
+            <View style={styles.metricItem}>
+              <Text style={styles.metricLabel}>{t('following.winRate')}</Text>
+              <Text style={styles.metricValuePlain}>{winRate.toFixed(1)}%</Text>
+            </View>
+            <View style={styles.metricDivider} />
+            <View style={styles.metricItem}>
+              <Text style={styles.metricLabel}>{t('following.followers')}</Text>
+              <Text style={styles.metricValuePlain}>{followers}</Text>
+            </View>
+          </View>
+
+          <TouchableOpacity
+            style={styles.strategyPanel}
+            activeOpacity={latestStrategy ? 0.86 : 1}
+            onPress={() => {
+              if (latestStrategy) {
+                router.push(`/strategy/${latestStrategy.id}` as any);
+              }
+            }}
+          >
+            <View style={styles.strategyHead}>
+              <Text style={styles.strategyEyebrow}>{t('following.latestStrategy')}</Text>
+              {latestStrategy && strategyDate ? (
+                <Text style={styles.strategyDate}>{strategyDate}</Text>
+              ) : null}
+            </View>
+
+            {latestStrategy ? (
+              <View style={[styles.strategyBody, isDesktop && styles.strategyBodyDesktop]}>
+                <View style={styles.strategyMain}>
+                  <Text style={styles.strategyTitle} numberOfLines={1}>
+                    {latestStrategy.title}
+                  </Text>
+                  <Text style={styles.strategySummary} numberOfLines={1}>
+                    {latestStrategy.summary || t('following.strategyPlaceholder')}
+                  </Text>
+                </View>
+                <View style={styles.strategyFoot}>
+                  <View style={styles.strategyMetaTag}>
+                    <Text style={styles.strategyMetaTagText}>
+                      {t(STRATEGY_CATEGORY_LABELS[latestStrategy.category] || 'strategy.categoryOther')}
+                    </Text>
+                  </View>
+                  <Text style={styles.strategyLink}>{t('strategy.viewStrategy')}</Text>
+                </View>
+              </View>
+            ) : (
+              <View style={styles.strategyEmpty}>
+                <Text style={styles.strategyEmptyTitle}>{t('following.noStrategy')}</Text>
+                <Text style={styles.strategyEmptySub} numberOfLines={1}>
+                  {t('following.strategyPlaceholder')}
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
+
+          <View style={[styles.actionRow, isDesktop && styles.actionRowDesktop]}>
+            <TouchableOpacity
+              style={styles.ghostBtn}
+              onPress={() => router.push(traderRoute as any)}
+            >
+              <Text style={styles.ghostBtnText}>{t('following.viewDetails')}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.ghostBtn}
+              onPress={() => {
+                if (latestStrategy) {
+                  router.push(`/strategy/${latestStrategy.id}` as any);
+                } else {
+                  router.push(traderRoute as any);
+                }
+              }}
+            >
+              <Text style={styles.ghostBtnText}>{t('strategy.viewStrategy')}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.textBtn}
+              onPress={() => void handleUnwatch(item.uid, item.display_name)}
+            >
+              <Text style={styles.textBtnText}>{t('following.unwatch')}</Text>
+            </TouchableOpacity>
+          </View>
         </View>
-      </TouchableOpacity>
+      </View>
     );
   };
 
   return (
-    <View style={styles.container}>
-      {/* Page Header */}
-      <View style={styles.pageHeader}>
-        <Text style={styles.pageTitle}>{t('following.title')}</Text>
-        <Text style={styles.pageSubtitle}>
-          {traders.length > 0 ? t('following.subtitle', { count: traders.length }) : ''}
-        </Text>
+    <ScrollView
+      style={[styles.container, embedded && styles.containerEmbedded]}
+      contentContainerStyle={styles.scrollContent}
+      showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={handleRefresh}
+          tintColor={Colors.primary}
+        />
+      }
+    >
+      <View style={[styles.summaryRail, embedded && styles.summaryRailEmbedded]}>
+        <View style={styles.summaryBar}>
+          <View style={styles.summaryItem}>
+            <Text style={styles.summaryValue}>{traders.length}</Text>
+            <Text style={styles.summaryLabel}>{t('following.summaryFollowed')}</Text>
+          </View>
+          <View style={styles.summaryDivider} />
+          <View style={styles.summaryItem}>
+            <Text style={styles.summaryValue}>{summary.copyingCount}</Text>
+            <Text style={styles.summaryLabel}>{t('following.summaryCopying')}</Text>
+          </View>
+          <View style={styles.summaryDivider} />
+          <View style={styles.summaryItem}>
+            <Text style={styles.summaryValue}>{summary.withStrategyCount}</Text>
+            <Text style={styles.summaryLabel}>{t('following.summaryWithStrategy')}</Text>
+          </View>
+          <View style={styles.summaryDivider} />
+          <View style={styles.summaryItem}>
+            <Text style={styles.summaryValue}>{summary.positiveCount}</Text>
+            <Text style={styles.summaryLabel}>{t('following.summaryPositive')}</Text>
+          </View>
+        </View>
       </View>
 
-      {traders.length === 0 ? (
-        <View style={styles.centered}>
-          <AppIcon name="eye" size={28} color={Colors.textMuted} />
-          <Text style={styles.emptyTitle}>{t('following.emptyTitle')}</Text>
-          <Text style={styles.emptySubtitle}>{t('following.emptySubtitle')}</Text>
-          <TouchableOpacity
-            style={styles.loginBtn}
-            onPress={() => router.push('/(tabs)/rankings' as any)}
-          >
-            <Text style={styles.loginBtnText}>{t('following.goRankings')}</Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <FlatList
-          data={traders}
-          keyExtractor={(item) => item.uid}
-          renderItem={renderTrader}
-          contentContainerStyle={[
-            styles.listContent,
-            isDesktop && { maxWidth: 800, alignSelf: 'center', width: '100%' },
-          ]}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={handleRefresh}
-              tintColor={Colors.primary}
-            />
-          }
-          showsVerticalScrollIndicator={false}
-        />
-      )}
-    </View>
+      <View style={styles.grid}>
+        {traders.map(renderTraderCard)}
+      </View>
+    </ScrollView>
   );
+}
+
+export default function FollowingRoute() {
+  return <Redirect href="/(tabs)/rankings?tab=following" />;
 }
 
 function formatMoney(n: number): string {
@@ -250,203 +404,326 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.background,
   },
+  containerEmbedded: {
+    marginTop: 8,
+  },
   centered: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 40,
   },
-
-  // Page Header
-  pageHeader: {
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-    backgroundColor: Colors.topBarBg,
+  scrollContent: {
+    paddingBottom: 40,
   },
-  pageTitle: {
-    color: Colors.textActive,
-    fontSize: 24,
-    fontWeight: '800',
-    letterSpacing: -0.5,
+  summaryRail: {
+    marginBottom: 18,
   },
-  pageSubtitle: {
-    color: Colors.textMuted,
-    fontSize: 13,
-    marginTop: 4,
+  summaryRailEmbedded: {
+    marginBottom: 16,
   },
-
-  // List
-  listContent: {
-    padding: 16,
-    gap: 12,
-  },
-
-  // Trader Card
-  traderCard: {
-    backgroundColor: Colors.surface,
-    borderRadius: 14,
-    padding: 16,
+  summaryBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    borderRadius: 16,
+    backgroundColor: Colors.surfaceAlt,
     borderWidth: 1,
     borderColor: Colors.glassBorder,
-    ...Shadows.card,
   },
-  traderCardDesktop: {
-    padding: 20,
+  summaryItem: {
+    flex: 1,
   },
-
-  // Card Header
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+  summaryDivider: {
+    width: 1,
+    height: 26,
+    backgroundColor: Colors.glassBorder,
+    marginHorizontal: 8,
+  },
+  summaryValue: {
+    color: Colors.textActive,
+    fontSize: 22,
+    fontWeight: '800',
+    marginBottom: 2,
+  },
+  summaryLabel: {
+    color: Colors.textMuted,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  grid: {
+    gap: 16,
+  },
+  cardShell: {
+    width: '100%',
+  },
+  traderCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: Colors.glassBorder,
+    padding: 18,
+  },
+  cardTopRow: {
+    gap: 14,
     marginBottom: 14,
   },
-  cardLeft: {
+  cardTopRowDesktop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  identityRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
     flex: 1,
   },
   avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
+    width: 50,
+    height: 50,
+    borderRadius: 16,
     backgroundColor: Colors.surfaceAlt,
-    justifyContent: 'center',
-    alignItems: 'center',
     borderWidth: 1,
     borderColor: Colors.primaryBorder,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   avatarText: {
-    color: Colors.primary,
+    color: Colors.primaryLight,
     fontSize: 20,
     fontWeight: '800',
   },
-  nameCol: {
+  identityText: {
     flex: 1,
+    gap: 4,
   },
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    flexWrap: 'wrap',
   },
   traderName: {
     color: Colors.textActive,
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  eliteBadge: {
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  eliteBadgeText: {
-    color: Colors.textOnPrimary,
-    fontSize: 8,
+    fontSize: 18,
     fontWeight: '800',
-    letterSpacing: 1,
   },
   followDate: {
     color: Colors.textMuted,
-    fontSize: 11,
-    marginTop: 2,
+    fontSize: 12,
   },
-
-  // Status Tag
   statusTag: {
     paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
+    paddingVertical: 6,
+    borderRadius: 999,
   },
   statusTagText: {
     fontSize: 11,
     fontWeight: '700',
   },
-
-  // Stats Row
-  statsRow: {
+  headerActions: {
     flexDirection: 'row',
-    gap: 16,
-    paddingVertical: 12,
-    borderTopWidth: 1,
-    borderTopColor: Colors.border,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-    marginBottom: 12,
+    alignItems: 'center',
+    gap: 10,
   },
-  statItem: {
+  metricStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 14,
+    backgroundColor: Colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: Colors.glassBorder,
+  },
+  metricStripDesktop: {
+    paddingHorizontal: 16,
+  },
+  metricItem: {
     flex: 1,
   },
-  statLabel: {
-    color: Colors.textMuted,
-    fontSize: 10,
-    fontWeight: '600',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-    marginBottom: 4,
+  metricDivider: {
+    width: 1,
+    height: 30,
+    backgroundColor: Colors.glassBorder,
+    marginHorizontal: 10,
   },
-  statValue: {
-    color: Colors.textActive,
-    fontSize: 16,
+  metricLabel: {
+    color: Colors.textMuted,
+    fontSize: 11,
+    marginBottom: 6,
+  },
+  metricValue: {
+    fontSize: 18,
     fontWeight: '800',
   },
-
-  // Action Row
+  metricValuePlain: {
+    color: Colors.textActive,
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  strategyPanel: {
+    borderRadius: 14,
+    backgroundColor: Colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: Colors.glassBorder,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 14,
+  },
+  strategyHead: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  strategyEyebrow: {
+    color: Colors.primaryLight,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  strategyDate: {
+    color: Colors.textMuted,
+    fontSize: 11,
+  },
+  strategyTitle: {
+    color: Colors.textActive,
+    fontSize: 15,
+    fontWeight: '700',
+    marginBottom: 6,
+  },
+  strategyBody: {
+    gap: 10,
+  },
+  strategyBodyDesktop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 16,
+  },
+  strategyMain: {
+    flex: 1,
+  },
+  strategySummary: {
+    color: Colors.textSecondary,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  strategyFoot: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  strategyMetaTag: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: Colors.primaryDim,
+  },
+  strategyMetaTagText: {
+    color: Colors.primaryLight,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  strategyLink: {
+    color: Colors.primaryLight,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  strategyEmpty: {
+    minHeight: 44,
+    justifyContent: 'center',
+  },
+  strategyEmptyTitle: {
+    color: Colors.textActive,
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  strategyEmptySub: {
+    color: Colors.textMuted,
+    fontSize: 12,
+  },
   actionRow: {
     flexDirection: 'row',
     gap: 10,
   },
-  unwatchBtn: {
-    borderWidth: 1,
-    borderColor: Colors.border,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 10,
+  actionRowDesktop: {
+    justifyContent: 'flex-end',
   },
-  unwatchBtnText: {
+  ghostBtn: {
+    flex: 1,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: Colors.glassBorder,
+  },
+  ghostBtnText: {
     color: Colors.textSecondary,
     fontSize: 13,
-    fontWeight: '600',
-  },
-  copyBtn: {
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 10,
-    ...Shadows.glow,
-  },
-  copyBtnText: {
-    color: Colors.textOnPrimary,
-    fontSize: 13,
     fontWeight: '700',
   },
-
-  // Empty State
+  primaryBtnInline: {
+    minWidth: 160,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.primaryLight,
+  },
+  primaryBtnInlineDesktop: {
+    alignSelf: 'flex-start',
+  },
+  primaryBtnInlineText: {
+    color: Colors.background,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  textBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  textBtnText: {
+    color: Colors.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+  },
   emptyTitle: {
     color: Colors.textActive,
-    fontSize: 18,
-    fontWeight: '700',
-    marginBottom: 8,
+    fontSize: 22,
+    fontWeight: '800',
+    marginTop: 16,
   },
   emptySubtitle: {
     color: Colors.textMuted,
     fontSize: 14,
-    marginBottom: 20,
+    lineHeight: 22,
+    textAlign: 'center',
+    marginTop: 8,
+    marginBottom: 16,
+    maxWidth: 360,
   },
-  loginBtn: {
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 24,
+  primaryBtn: {
+    backgroundColor: Colors.primaryLight,
+    borderRadius: 12,
+    paddingHorizontal: 20,
     paddingVertical: 12,
-    borderRadius: 10,
     ...Shadows.glow,
   },
-  loginBtnText: {
-    color: Colors.textOnPrimary,
+  primaryBtnText: {
+    color: Colors.background,
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: '800',
   },
 });

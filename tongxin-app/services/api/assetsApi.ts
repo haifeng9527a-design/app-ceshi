@@ -106,16 +106,21 @@ export interface CopySummaryResponse {
   total_allocated: number;
   total_available: number;
   total_frozen: number;
+  /** 所有跟单未平仓仓位的浮盈浮亏之和（后端 total_unrealized_pnl）。 */
+  total_unrealized_pnl?: number;
   active_trader_count: number;
   open_position_count: number;
   items: CopySummaryItem[];
 }
 
 export interface CopyAccountOverviewResponse {
+  /** total_equity = total_available + total_frozen + unrealized_pnl */
   total_equity: number;
   total_allocated: number;
   total_available: number;
   total_frozen: number;
+  /** 当前所有跟单未平仓的浮盈浮亏（原本错误地计入合约账户）。 */
+  unrealized_pnl?: number;
   active_pool_count: number;
   current_pool_count: number;
   open_position_count: number;

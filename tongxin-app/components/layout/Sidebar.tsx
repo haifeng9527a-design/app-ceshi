@@ -47,7 +47,6 @@ export default function Sidebar() {
   const navItems: NavItem[] = [
     { key: 'market', label: t('nav.market'), icon: 'market', route: '/(tabs)/market' },
     { key: 'watchlist', label: t('nav.watchlist'), icon: 'watchlist', route: '/(tabs)/watchlist' },
-    { key: 'following', label: t('nav.following'), icon: 'eye', route: '/(tabs)/following' },
     { key: 'trading', label: t('nav.trading'), icon: 'trading', route: '/(tabs)/trading' },
     { key: 'spot', label: t('nav.spot'), icon: 'bitcoin', route: '/(tabs)/spot' },
     { key: 'assets', label: t('nav.assets'), icon: 'wallet', route: '/(tabs)/portfolio' },

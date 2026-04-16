@@ -1503,6 +1503,9 @@ func (s *TradingService) CancelOrder(ctx context.Context, userID, orderID string
 }
 
 // GetAccountInfo returns the user's account overview.
+// 口径：全仓（包含跟单仓位），供下单前风险校验 / 强平估算 / 内部推送等场景使用。
+// 若你需要"资产模块"展示用的合约账户（不含跟单），请改用 GetSelfTradeAccountInfo
+// 或 GetAccountInfoSplit。
 func (s *TradingService) GetAccountInfo(ctx context.Context, userID string) (*model.AccountInfo, error) {
 	wallet, err := s.walletRepo.EnsureWallet(ctx, userID)
 	if err != nil {
@@ -1539,6 +1542,91 @@ func (s *TradingService) GetAccountInfo(ctx context.Context, userID string) (*mo
 		Available:     wallet.Balance,
 		UnrealizedPnl: totalUnrealizedPnl,
 	}, nil
+}
+
+// GetAccountInfoSplit returns the合约账户 (self-trade only) 和 跟单仓位未实现盈亏 分开的两个口径。
+// 设计目的：
+//   - 资产模块的"合约账户"卡片只反映用户自交易（is_copy_trade=false）的资金与浮盈浮亏；
+//   - 跟单仓位的浮盈浮亏独立返回，用于累计到"跟单账户"的实时净值。
+//
+// 实现策略（防数据污染）：
+//   - Frozen 不读 wallets.frozen，改成遍历 positions 中 is_copy_trade=false 的
+//     margin_amount 现场累加。这样即便 wallets.frozen 因历史 bug（早期版本可能
+//     把跟单保证金错写进了 wallets.frozen，或穿仓结算残留）被污染，也不会影响
+//     合约账户的展示口径。
+//   - Equity = Balance + self_margin + self_unrealized_pnl。
+//     = 自由资金 + 自交易已用保证金 + 自交易浮盈。
+//   - 共享同一次 ListOpen，避免重复查询。
+func (s *TradingService) GetAccountInfoSplit(ctx context.Context, userID string) (*model.AccountInfo, float64, error) {
+	wallet, err := s.walletRepo.EnsureWallet(ctx, userID)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	positions, err := s.positionRepo.ListOpen(ctx, userID)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	var (
+		selfUnrealized float64
+		selfMargin     float64
+		copyUnrealized float64
+	)
+	for _, p := range positions {
+		price, err := s.getPrice(p.Symbol)
+		if err != nil {
+			continue
+		}
+		var pnl float64
+		if p.Side == "long" {
+			pnl = (price - p.EntryPrice) * p.Qty
+		} else {
+			pnl = (p.EntryPrice - price) * p.Qty
+		}
+		if p.IsCopyTrade {
+			// 跟单仓位的保证金落在 copy_trading.available_capital/frozen_capital，
+			// 不在 wallets.balance 里，因此不计入合约账户的 MarginUsed。
+			copyUnrealized += pnl
+			continue
+		}
+		selfUnrealized += pnl
+		selfMargin += p.MarginAmount
+	}
+
+	// 诊断日志：如果 wallet.frozen 与现场累加的 selfMargin 对不上，说明钱包表
+	// 可能被历史数据污染，提醒排查；但计算仍以 selfMargin 为准。
+	if math.Abs(wallet.Frozen-selfMargin) > 0.01 {
+		log.Printf("[trading] account info: wallet.frozen(%.4f) != sum(self position margin)(%.4f) for user=%s — taking self-trade positions as source of truth",
+			wallet.Frozen, selfMargin, userID)
+	}
+
+	equity := wallet.Balance + selfMargin + selfUnrealized
+	if equity < 0 {
+		// 合约账户真实 Equity 为负，提示可能是：
+		//  1) 数据库 wallets.balance 被历史穿仓结算(SettleTrade)扣成负值；
+		//  2) 早期版本跟单平仓误走 SettleTrade；
+		//  3) 人工调整。
+		// 为帮助定位，把关键中间值都打印出来。
+		log.Printf("[trading][WARN] self-trade account equity<0 for user=%s: equity=%.4f wallet.balance=%.4f wallet.frozen=%.4f selfMargin=%.4f selfUnrealized=%.4f self_positions=%d copy_unrealized=%.4f",
+			userID, equity, wallet.Balance, wallet.Frozen, selfMargin, selfUnrealized, len(positions), copyUnrealized)
+	}
+
+	selfInfo := &model.AccountInfo{
+		Balance:       wallet.Balance,
+		Frozen:        selfMargin,
+		Equity:        equity,
+		MarginUsed:    selfMargin,
+		Available:     wallet.Balance,
+		UnrealizedPnl: selfUnrealized,
+	}
+	return selfInfo, copyUnrealized, nil
+}
+
+// GetSelfTradeAccountInfo 仅返回合约账户（自交易口径）。是 GetAccountInfoSplit 的便捷封装。
+func (s *TradingService) GetSelfTradeAccountInfo(ctx context.Context, userID string) (*model.AccountInfo, error) {
+	info, _, err := s.GetAccountInfoSplit(ctx, userID)
+	return info, err
 }
 
 // ListPositionsWithPnL returns open positions enriched with unrealized PnL.
@@ -1686,9 +1774,14 @@ func (s *TradingService) pushBalanceUpdate(userID string, w *model.Wallet) {
 	s.pushAccountUpdate(userID)
 }
 
+// pushAccountUpdate 推送"合约账户"实时信息给前端。
+// 注意：前端"资产模块 > 合约账户"卡片展示的是**自交易口径**，因此这里必须用
+// GetSelfTradeAccountInfo（即 GetAccountInfoSplit 的 self 部分），不能用
+// GetAccountInfo（全口径，含跟单仓位浮盈浮亏）。否则 WebSocket 推送会把跟单
+// 浮亏灌回合约账户，让用户看到负数。
 func (s *TradingService) pushAccountUpdate(userID string) {
 	ctx := context.Background()
-	info, err := s.GetAccountInfo(ctx, userID)
+	info, err := s.GetSelfTradeAccountInfo(ctx, userID)
 	if err != nil {
 		log.Printf("[trading] pushAccountUpdate error for %s: %v", userID, err)
 		return

@@ -168,6 +168,7 @@ export default function TabLayout() {
             name="following"
             options={{
               title: t('following.title'),
+              href: null,
               tabBarIcon: ({ color }) => null,
             }}
           />

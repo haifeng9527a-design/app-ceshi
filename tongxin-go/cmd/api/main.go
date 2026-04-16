@@ -530,6 +530,16 @@ func main() {
 	if pool != nil && referralSvc != nil && notificationSvc != nil {
 		referralRepoForAgent := repository.NewReferralRepo(pool)
 
+		// Sprint 1/4 dashboard 附加：风险雷达 / 团队树 / 自定义偏好。
+		// 这三个逻辑只读 referralRepo，独立于 threshold/touch/weekly，所以先注册。
+		agentDashH := handler.NewAgentDashboardHandler(referralRepoForAgent)
+		mux.Handle("GET /api/agent/risk-radar", authMw.Authenticate(http.HandlerFunc(agentDashH.RiskRadar)))
+		mux.Handle("GET /api/agent/team-tree", authMw.Authenticate(http.HandlerFunc(agentDashH.TeamTree)))
+		mux.Handle("GET /api/agent/dashboard-prefs", authMw.Authenticate(http.HandlerFunc(agentDashH.GetDashboardPrefs)))
+		mux.Handle("PUT /api/agent/dashboard-prefs", authMw.Authenticate(http.HandlerFunc(agentDashH.PutDashboardPrefs)))
+		mux.Handle("GET /api/agent/commission-events", authMw.Authenticate(http.HandlerFunc(agentDashH.ListCommissionEvents)))
+		log.Println("[OK] Agent dashboard extras (risk-radar / team-tree / dashboard-prefs / commission-events) registered")
+
 		// Sprint 2: thresholds
 		thresholdRepo := repository.NewThresholdRepo(pool)
 		thresholdSvc := service.NewThresholdService(thresholdRepo, referralRepoForAgent, notificationSvc)

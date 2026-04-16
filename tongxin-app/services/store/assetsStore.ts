@@ -88,13 +88,23 @@ function buildLiveOverview(
     return overview;
   }
 
-  const liveUnrealizedPnl = positions.reduce((sum, item) => sum + (item.unrealized_pnl || 0), 0);
-  const liveMarginUsed = positions.reduce((sum, item) => sum + (item.margin_amount || 0), 0);
+  // 合约账户卡片只反映"自交易"（is_copy_trade=false）的浮动盈亏与已用保证金。
+  // 跟单仓位的浮亏/保证金独立归入"跟单账户"卡片，绝对不能再叠到合约账户上，
+  // 否则会把跟单的亏损算进合约账户，显示出异常的负权益。
+  const selfPositions = positions.filter((item) => !item.is_copy_trade);
+  const copyPositions = positions.filter((item) => item.is_copy_trade);
+  const liveUnrealizedPnl = selfPositions.reduce((sum, item) => sum + (item.unrealized_pnl || 0), 0);
+  const liveMarginUsed = selfPositions.reduce((sum, item) => sum + (item.margin_amount || 0), 0);
+  const liveCopyUnrealizedPnl = copyPositions.reduce((sum, item) => sum + (item.unrealized_pnl || 0), 0);
   const baseUnrealizedPnl = futuresAccount.unrealized_pnl || 0;
+  const baseCopyUnrealizedPnl = overview.copy_summary?.total_unrealized_pnl || 0;
   const unrealizedDelta = liveUnrealizedPnl - baseUnrealizedPnl;
+  const copyUnrealizedDelta = liveCopyUnrealizedPnl - baseCopyUnrealizedPnl;
   const liveFuturesEquity = futuresAccount.equity + unrealizedDelta;
-  const totalEquity = overview.total_equity + unrealizedDelta;
-  const todayPnl = overview.today_pnl + liveUnrealizedPnl;
+  // 总权益 = 原 total_equity + 自交易浮盈变化 + 跟单浮盈变化。
+  // 跟单浮亏只通过这一项进入总权益，绝对不从 futures 侧叠加。
+  const totalEquity = overview.total_equity + unrealizedDelta + copyUnrealizedDelta;
+  const todayPnl = overview.today_pnl + liveUnrealizedPnl + liveCopyUnrealizedPnl;
 
   return {
     ...overview,
@@ -111,6 +121,9 @@ function buildLiveOverview(
           }
         : item,
     ),
+    copy_summary: overview.copy_summary
+      ? { ...overview.copy_summary, total_unrealized_pnl: liveCopyUnrealizedPnl }
+      : overview.copy_summary,
     change_series: patchChangeSeries(overview.change_series || [], totalEquity),
   };
 }

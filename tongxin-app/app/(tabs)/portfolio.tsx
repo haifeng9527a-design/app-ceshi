@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -252,6 +252,29 @@ const DEFAULT_SPOT_DEPOSIT_OPTIONS: AssetDepositAssetOption[] = [
   },
 ];
 
+const DEFAULT_ASSET_CATEGORY: 'all' | 'crypto' | 'stock' = 'all';
+const DEFAULT_OWNED_ONLY = true;
+const DEFAULT_HIDE_DUST = false;
+const DEFAULT_ASSET_SEARCH = '';
+
+const spotHoldingsCache = new Map<string, SpotHoldingItem[]>();
+
+function buildSpotHoldingsCacheKey(
+  userID: string | undefined,
+  category: 'all' | 'crypto' | 'stock',
+  ownedOnly: boolean,
+  hideDust: boolean,
+  query: string,
+) {
+  return [
+    userID || 'guest',
+    category,
+    ownedOnly ? 'owned' : 'all',
+    hideDust ? 'hide-dust' : 'show-dust',
+    query.trim().toLowerCase(),
+  ].join('::');
+}
+
 function depositStatusLabel(status: string | undefined, t: (key: string) => string) {
   const keyMap: Record<string, string> = {
     pending_confirm: 'assets.depositStatusPending',
@@ -314,14 +337,32 @@ export default function AssetsScreen() {
   const [showRealtimeDriversModal, setShowRealtimeDriversModal] = useState(false);
   const [showPnlCalendarModal, setShowPnlCalendarModal] = useState(false);
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<string | null>(null);
-  const [assetCategory, setAssetCategory] = useState<'all' | 'crypto' | 'stock'>('all');
-  const [assetSearch, setAssetSearch] = useState('');
-  const [assetSearchDebounced, setAssetSearchDebounced] = useState('');
-  const [ownedOnly, setOwnedOnly] = useState(true);
-  const [hideDust, setHideDust] = useState(false);
+  const [assetCategory, setAssetCategory] = useState<'all' | 'crypto' | 'stock'>(DEFAULT_ASSET_CATEGORY);
+  const [assetSearch, setAssetSearch] = useState(DEFAULT_ASSET_SEARCH);
+  const [assetSearchDebounced, setAssetSearchDebounced] = useState(DEFAULT_ASSET_SEARCH);
+  const [ownedOnly, setOwnedOnly] = useState(DEFAULT_OWNED_ONLY);
+  const [hideDust, setHideDust] = useState(DEFAULT_HIDE_DUST);
   const [workspaceView, setWorkspaceView] = useState<'assets' | 'accounts' | 'copy'>('assets');
-  const [spotHoldings, setSpotHoldings] = useState<SpotHoldingItem[]>([]);
-  const [spotHoldingsLoading, setSpotHoldingsLoading] = useState(false);
+  const [spotHoldings, setSpotHoldings] = useState<SpotHoldingItem[]>(() => {
+    const defaultCacheKey = buildSpotHoldingsCacheKey(
+      user?.uid,
+      DEFAULT_ASSET_CATEGORY,
+      DEFAULT_OWNED_ONLY,
+      DEFAULT_HIDE_DUST,
+      DEFAULT_ASSET_SEARCH,
+    );
+    return spotHoldingsCache.get(defaultCacheKey) || [];
+  });
+  const [spotHoldingsLoading, setSpotHoldingsLoading] = useState(() => {
+    const defaultCacheKey = buildSpotHoldingsCacheKey(
+      user?.uid,
+      DEFAULT_ASSET_CATEGORY,
+      DEFAULT_OWNED_ONLY,
+      DEFAULT_HIDE_DUST,
+      DEFAULT_ASSET_SEARCH,
+    );
+    return !spotHoldingsCache.has(defaultCacheKey);
+  });
   const [copyAccountOverview, setCopyAccountOverview] = useState<CopyAccountOverviewResponse | null>(null);
   const [copyAccountPools, setCopyAccountPools] = useState<CopyAccountPoolItem[]>([]);
   const [copyAccountPositions, setCopyAccountPositions] = useState<CopyAccountOpenPositionItem[]>([]);
@@ -329,7 +370,6 @@ export default function AssetsScreen() {
   const [copyAccountHistoryTotal, setCopyAccountHistoryTotal] = useState(0);
   const [copyAccountLoading, setCopyAccountLoading] = useState(false);
   const [copyActivityTab, setCopyActivityTab] = useState<'positions' | 'history'>('positions');
-  const hasAutoFocusedCopyWorkspace = useRef(false);
 
   useEffect(() => {
     if (!user?.uid) {
@@ -384,6 +424,73 @@ export default function AssetsScreen() {
     : 0;
   const copyCurrentNetPnl =
     (copyAccountOverview?.total_equity || 0) - (copyAccountOverview?.total_allocated || 0);
+
+  // 把 useAssetsStore.positions（由 tradingWs 实时推送）合并进当前选中池子的跟单仓位：
+  // - REST `getCopyAccountOpenPositions` 提供初始 snapshot（含 trader_name、opened_at 等元数据）
+  // - WebSocket 推送 position_update 持续更新 current_price / unrealized_pnl / roe / margin_amount
+  // - 如果 WS 先于 REST 拿到新开仓，用 snapshot 字段补全后插入到列表头
+  const liveCopyPositions = useMemo<CopyAccountOpenPositionItem[]>(() => {
+    if (!selectedCopyPool) return copyAccountPositions;
+    const liveMap = new Map<string, (typeof positions)[number]>();
+    for (const p of positions) {
+      if (!p.is_copy_trade) continue;
+      if (p.copy_trading_id !== selectedCopyPool.copy_trading_id) continue;
+      liveMap.set(p.id, p);
+    }
+    const merged = copyAccountPositions.map((item) => {
+      const live = liveMap.get(item.position_id);
+      if (!live) return item;
+      return {
+        ...item,
+        current_price: live.current_price ?? item.current_price,
+        unrealized_pnl: live.unrealized_pnl ?? item.unrealized_pnl,
+        margin_amount: live.margin_amount ?? item.margin_amount,
+        roe: live.roe ?? item.roe,
+      };
+    });
+    const known = new Set(copyAccountPositions.map((i) => i.position_id));
+    for (const [id, p] of liveMap) {
+      if (known.has(id)) continue;
+      merged.unshift({
+        position_id: id,
+        copy_trading_id: p.copy_trading_id || selectedCopyPool.copy_trading_id,
+        trader_uid: p.source_trader_id || selectedCopyPool.trader_uid,
+        trader_name: selectedCopyPool.trader_name,
+        symbol: p.symbol,
+        side: p.side,
+        qty: p.qty,
+        entry_price: p.entry_price,
+        current_price: p.current_price || 0,
+        margin_amount: p.margin_amount,
+        unrealized_pnl: p.unrealized_pnl || 0,
+        roe: p.roe || 0,
+        leverage: p.leverage,
+        opened_at: p.created_at,
+      });
+    }
+    return merged;
+  }, [copyAccountPositions, positions, selectedCopyPool]);
+
+  // 所有跟单仓位的浮盈浮亏合计（跨池子），用于顶部"未实现盈亏"卡片的实时展示，
+  // 避免依赖 REST overview 的快照值（会与仓位列表合计出现短暂不一致）。
+  const liveCopyUnrealizedPnlAll = useMemo(
+    () =>
+      positions
+        .filter((p) => p.is_copy_trade)
+        .reduce((sum, p) => sum + (p.unrealized_pnl || 0), 0),
+    [positions],
+  );
+
+  // "跟单资金"侧栏展示 PNL / ROI 时需要的池子详情来自 copyAccountPools（由
+  // loadCopyAccountOverviewAndPools 加载）。用 trader_uid 建 map 做 O(1) 查询，
+  // 避免每次渲染都 find。
+  const copyPoolByTrader = useMemo(() => {
+    const map = new Map<string, CopyAccountPoolItem>();
+    for (const pool of copyAccountPools) {
+      map.set(pool.trader_uid, pool);
+    }
+    return map;
+  }, [copyAccountPools]);
   const withdrawValue = Number.parseFloat(withdrawAmount || '0');
   const canSubmitWithdraw =
     Number.isFinite(withdrawValue) &&
@@ -533,6 +640,10 @@ export default function AssetsScreen() {
   const withdrawNetworks = withdrawAsset?.networks || [];
   const withdrawEstimatedReceive = Number.isFinite(withdrawValue) && withdrawValue > 0 ? withdrawValue : 0;
   const withdrawAvailableAfter = Math.max(spotAvailable - withdrawEstimatedReceive, 0);
+  const spotHoldingsCacheKey = useMemo(
+    () => buildSpotHoldingsCacheKey(user?.uid, assetCategory, ownedOnly, hideDust, assetSearchDebounced),
+    [assetCategory, assetSearchDebounced, hideDust, ownedOnly, user?.uid],
+  );
   const depositAddressPreview = useMemo(() => {
     const address = depositAddressRecord?.address || '';
     if (!address) {
@@ -591,21 +702,37 @@ export default function AssetsScreen() {
     );
   }, [accountCards]);
 
+  useEffect(() => {
+    if (!user?.uid) {
+      setSpotHoldings([]);
+      return;
+    }
+    const cached = spotHoldingsCache.get(spotHoldingsCacheKey);
+    if (cached?.length) {
+      setSpotHoldings(cached);
+    }
+  }, [spotHoldingsCacheKey, user?.uid]);
+
   const loadSpotHoldings = useCallback(async () => {
     if (!user?.uid) {
       setSpotHoldings([]);
       return;
     }
-    setSpotHoldingsLoading(true);
+    const cached = spotHoldingsCache.get(spotHoldingsCacheKey);
+    if (!cached?.length) {
+      setSpotHoldingsLoading(true);
+    }
     try {
       const resp = await getSpotHoldings(assetCategory, ownedOnly, hideDust, assetSearchDebounced);
-      setSpotHoldings(resp.items || []);
+      const items = resp.items || [];
+      setSpotHoldings(items);
+      spotHoldingsCache.set(spotHoldingsCacheKey, items);
     } catch {
-      setSpotHoldings([]);
+      // Keep the last successful holdings snapshot so the asset tab does not flash empty.
     } finally {
       setSpotHoldingsLoading(false);
     }
-  }, [assetCategory, assetSearchDebounced, hideDust, ownedOnly, user?.uid]);
+  }, [assetCategory, assetSearchDebounced, hideDust, ownedOnly, spotHoldingsCacheKey, user?.uid]);
 
   useEffect(() => {
     void loadSpotHoldings();
@@ -682,15 +809,8 @@ export default function AssetsScreen() {
       current && copyAccountPools.some((item) => item.trader_uid === current)
         ? current
         : copyAccountPools[0].trader_uid,
-    );
+      );
   }, [copyAccountPools]);
-
-  useEffect(() => {
-    if (hasAutoFocusedCopyWorkspace.current) return;
-    if (!copyAccountPools.length) return;
-    setWorkspaceView('copy');
-    hasAutoFocusedCopyWorkspace.current = true;
-  }, [copyAccountPools.length]);
 
   useEffect(() => {
     if (!selectedCopyTraderUid) {
@@ -1466,6 +1586,23 @@ export default function AssetsScreen() {
                   </Text>
                 </View>
                 <View style={styles.copyOverviewCard}>
+                  <Text style={styles.metricLabel}>{t('assets.copyOverviewUnrealizedPnl')}</Text>
+                  <Text
+                    style={[
+                      styles.copyOverviewValue,
+                      {
+                        color: liveCopyUnrealizedPnlAll >= 0 ? Colors.up : Colors.down,
+                      },
+                    ]}
+                  >
+                    {liveCopyUnrealizedPnlAll >= 0 ? '+' : ''}
+                    {formatUsd(liveCopyUnrealizedPnlAll)} USDT
+                  </Text>
+                  <Text style={styles.copyOverviewSub}>
+                    {t('assets.copyOverviewUnrealizedPnlHint')}
+                  </Text>
+                </View>
+                <View style={styles.copyOverviewCard}>
                   <Text style={styles.metricLabel}>{t('assets.copyOverviewTodayNet')}</Text>
                   <Text style={[styles.copyOverviewValue, { color: (copyAccountOverview?.today_net_pnl || 0) >= 0 ? Colors.up : Colors.down }]}>
                     {(copyAccountOverview?.today_net_pnl || 0) >= 0 ? '+' : ''}{formatUsd(copyAccountOverview?.today_net_pnl)} USDT
@@ -1563,27 +1700,8 @@ export default function AssetsScreen() {
 
                   {selectedCopyPool ? (
                     <>
-                      <View style={styles.copySelectedSummaryLine}>
-                        <Text style={styles.copySelectedSummaryText}>
-                          {t('assets.copyOverviewCurrentEquity')} {formatUsd(selectedCopyPool.current_equity)} USDT
-                        </Text>
-                        <Text
-                          style={[
-                            styles.copySelectedSummaryText,
-                            { color: (selectedCopyPool.current_net_pnl || 0) >= 0 ? Colors.up : Colors.down },
-                          ]}
-                        >
-                          {t('assets.copyOverviewCurrentNet')} {(selectedCopyPool.current_net_pnl || 0) >= 0 ? '+' : ''}{formatUsd(selectedCopyPool.current_net_pnl)} USDT
-                        </Text>
-                        <Text
-                          style={[
-                            styles.copySelectedSummaryText,
-                            { color: (selectedCopyPool.lifetime_net_pnl || 0) >= 0 ? Colors.up : Colors.down },
-                          ]}
-                        >
-                          {t('assets.copyOverviewLifetimeRealizedNet')} {(selectedCopyPool.lifetime_net_pnl || 0) >= 0 ? '+' : ''}{formatUsd(selectedCopyPool.lifetime_net_pnl)} USDT
-                        </Text>
-                      </View>
+                      {/* 注：原先这里还有一行重复展示"当前权益 / 当前总收益"的 summary line，
+                          左侧池子卡片里已经显示过，故去除避免冗余；"累计已实现净收益"并入下方 meta 网格。 */}
                       <View style={styles.copyPoolMetaGrid}>
                         <View style={styles.copyPoolMetaCard}>
                           <Text style={styles.metricLabel}>{t('assets.copyAvailable')}</Text>
@@ -1597,12 +1715,27 @@ export default function AssetsScreen() {
                           <Text style={styles.metricLabel}>{t('assets.detailUtilization')}</Text>
                           <Text style={styles.copyPoolMetaValue}>{formatPercent(copyPoolUtilization)}</Text>
                         </View>
+                        <View style={styles.copyPoolMetaCard}>
+                          <Text style={styles.metricLabel}>{t('assets.copyOverviewLifetimeRealizedNet')}</Text>
+                          <Text
+                            style={[
+                              styles.copyPoolMetaValue,
+                              {
+                                color:
+                                  (selectedCopyPool.lifetime_net_pnl || 0) >= 0 ? Colors.up : Colors.down,
+                              },
+                            ]}
+                          >
+                            {(selectedCopyPool.lifetime_net_pnl || 0) >= 0 ? '+' : ''}
+                            {formatUsd(selectedCopyPool.lifetime_net_pnl)} USDT
+                          </Text>
+                        </View>
                       </View>
 
                       {copyActivityTab === 'positions' ? (
-                        copyAccountPositions.length ? (
+                        liveCopyPositions.length ? (
                           <View style={styles.copyActivityList}>
-                            {copyAccountPositions.map((position) => {
+                            {liveCopyPositions.map((position) => {
                               const positive = (position.unrealized_pnl || 0) >= 0;
                               return (
                                 <View key={position.position_id} style={styles.copyActivityItem}>
@@ -1813,71 +1946,119 @@ export default function AssetsScreen() {
 
       <View style={topGridStyle}>
         <View style={[styles.panelCard, styles.flexCard]}>
-          <View style={styles.sectionHead}>
-            <Text style={styles.sectionTitle}>{t('assets.accountsTitle')}</Text>
-            <Text style={styles.sectionHint}>{t('assets.accountsHint')}</Text>
+          <View style={styles.sectionHeadRow}>
+            <View style={styles.sectionHeadText}>
+              <Text style={styles.sectionTitle}>{t('assets.accountsTitle')}</Text>
+              <Text style={styles.sectionHint}>{t('assets.accountsHint')}</Text>
+            </View>
+            {accountCards.length ? (
+              <View style={styles.accountTotalBadge}>
+                <Text style={styles.accountTotalLabel}>{t('assets.accountsTotalEquity')}</Text>
+                <Text style={styles.accountTotalValue}>
+                  {formatUsd(accountCards.reduce((sum, a) => sum + (a.equity || 0), 0))}
+                  <Text style={styles.accountTotalUnit}> USDT</Text>
+                </Text>
+              </View>
+            ) : null}
           </View>
 
           {accountCards.length ? (
-            <View style={styles.accountList}>
-              {accountCards.map((account) => (
-                <TouchableOpacity
-                  key={account.account_type}
-                  activeOpacity={0.88}
-                  onPress={() => setSelectedAccountType(account.account_type)}
-                  style={[
-                    styles.accountItem,
-                    selectedAccount?.account_type === account.account_type && styles.accountItemActive,
-                  ]}
-                >
-                  <View style={styles.accountTopRow}>
-                    <View style={styles.accountNameRow}>
-                      <View style={styles.accountIconWrap}>
-                        <AppIcon name={account.account_type === 'futures' ? 'futures' : 'wallet'} size={16} color={account.account_type === 'futures' ? Colors.primary : Colors.textSecondary} />
+            <View style={styles.accountListV2}>
+              {accountCards.map((account) => {
+                const isActive = selectedAccount?.account_type === account.account_type;
+                const isFutures = account.account_type === 'futures';
+                const pnl = account.unrealized_pnl || 0;
+                const margin = account.margin_used || 0;
+                return (
+                  <TouchableOpacity
+                    key={account.account_type}
+                    activeOpacity={0.9}
+                    onPress={() => setSelectedAccountType(account.account_type)}
+                    style={[styles.accountItemV2, isActive && styles.accountItemV2Active]}
+                  >
+                    {isActive ? <View style={styles.accountActiveBar} /> : null}
+                    <View style={styles.accountRowV2}>
+                      <View
+                        style={[
+                          styles.accountIconV2,
+                          isFutures && styles.accountIconV2Futures,
+                        ]}
+                      >
+                        <AppIcon
+                          name={isFutures ? 'futures' : 'wallet'}
+                          size={18}
+                          color={isFutures ? Colors.primary : Colors.textSecondary}
+                        />
                       </View>
-                      <View>
-                        <Text style={styles.accountName}>{accountDisplayLabel(account.account_type, account.display_name, t)}</Text>
-                        <Text style={styles.accountType}>{account.account_type.toUpperCase()}</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.accountNameV2} numberOfLines={1}>
+                          {accountDisplayLabel(account.account_type, account.display_name, t)}
+                        </Text>
+                        <Text style={styles.accountTypeV2}>{account.account_type.toUpperCase()}</Text>
                       </View>
+                      {account.is_virtual ? (
+                        <View style={styles.virtualBadge}>
+                          <Text style={styles.virtualBadgeText}>{t('assets.virtualTag')}</Text>
+                        </View>
+                      ) : null}
                     </View>
+
+                    <View style={styles.accountEquityRow}>
+                      <Text style={styles.accountEquityValue}>
+                        {formatUsd(account.equity)}
+                        <Text style={styles.accountEquityUnit}> USDT</Text>
+                      </Text>
+                      {pnl !== 0 ? (
+                        <View
+                          style={[
+                            styles.accountPnlChip,
+                            { backgroundColor: pnl >= 0 ? Colors.upDim : Colors.downDim },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.accountPnlChipText,
+                              { color: pnl >= 0 ? Colors.up : Colors.down },
+                            ]}
+                          >
+                            {pnl >= 0 ? '+' : ''}
+                            {formatUsd(pnl)}
+                          </Text>
+                        </View>
+                      ) : null}
+                    </View>
+
+                    <View style={styles.accountMetaRowV2}>
+                      <View style={styles.accountMetaItem}>
+                        <Text style={styles.metricLabel}>{t('assets.available')}</Text>
+                        <Text style={styles.accountMetaValue}>
+                          {formatUsd(account.available)}
+                        </Text>
+                      </View>
+                      <View style={styles.accountMetaDivider} />
+                      <View style={styles.accountMetaItem}>
+                        <Text style={styles.metricLabel}>{t('assets.frozen')}</Text>
+                        <Text style={styles.accountMetaValue}>
+                          {formatUsd(account.frozen)}
+                        </Text>
+                      </View>
+                      {margin ? (
+                        <>
+                          <View style={styles.accountMetaDivider} />
+                          <View style={styles.accountMetaItem}>
+                            <Text style={styles.metricLabel}>{t('assets.marginUsed')}</Text>
+                            <Text style={styles.accountMetaValue}>{formatUsd(margin)}</Text>
+                          </View>
+                        </>
+                      ) : null}
+                    </View>
+
                     {account.is_virtual ? (
-                      <View style={styles.virtualBadge}>
-                        <Text style={styles.virtualBadgeText}>{t('assets.virtualTag')}</Text>
-                      </View>
+                      <Text style={styles.accountVirtualHint}>{t('assets.virtualAccountHint')}</Text>
                     ) : null}
-                  </View>
-
-                  <View style={styles.accountMetricsRow}>
-                    <View style={styles.metricBlock}>
-                      <Text style={styles.metricLabel}>{t('assets.equity')}</Text>
-                      <Text style={styles.metricValue}>{formatUsd(account.equity)} USDT</Text>
-                    </View>
-                    <View style={styles.metricBlock}>
-                      <Text style={styles.metricLabel}>{t('assets.available')}</Text>
-                      <Text style={styles.metricValue}>{formatUsd(account.available)} USDT</Text>
-                    </View>
-                    <View style={styles.metricBlock}>
-                      <Text style={styles.metricLabel}>{t('assets.frozen')}</Text>
-                      <Text style={styles.metricValue}>{formatUsd(account.frozen)} USDT</Text>
-                    </View>
-                  </View>
-
-                  {(account.unrealized_pnl || account.margin_used) ? (
-                    <View style={styles.accountSubRow}>
-                      <Text style={styles.accountSubText}>
-                        {t('assets.unrealizedPnl')}: {formatUsd(account.unrealized_pnl)} USDT
-                      </Text>
-                      <Text style={styles.accountSubText}>
-                        {t('assets.marginUsed')}: {formatUsd(account.margin_used)} USDT
-                      </Text>
-                    </View>
-                  ) : null}
-
-                  {account.is_virtual ? (
-                    <Text style={styles.accountVirtualHint}>{t('assets.virtualAccountHint')}</Text>
-                  ) : null}
-                </TouchableOpacity>
-              ))}
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           ) : (
             <Text style={styles.emptyText}>{t('assets.noAccountData')}</Text>
@@ -1896,52 +2077,119 @@ export default function AssetsScreen() {
             <Text style={styles.sectionHint}>{t('assets.copySummaryHint')}</Text>
           </View>
 
-          <View style={styles.copySummaryTotals}>
-            <View style={styles.copySummaryMetric}>
-              <Text style={styles.metricLabel}>{t('assets.copyAllocated')}</Text>
-              <Text style={styles.metricValue}>{formatUsd(copySummary?.total_allocated)} USDT</Text>
-            </View>
-            <View style={styles.copySummaryMetric}>
-              <Text style={styles.metricLabel}>{t('assets.copyAvailable')}</Text>
-              <Text style={styles.metricValue}>{formatUsd(copySummary?.total_available)} USDT</Text>
-            </View>
-            <View style={styles.copySummaryMetric}>
-              <Text style={styles.metricLabel}>{t('assets.copyFrozen')}</Text>
-              <Text style={styles.metricValue}>{formatUsd(copySummary?.total_frozen)} USDT</Text>
-            </View>
-          </View>
-
-          <View style={styles.copyStatsRow}>
-            <View style={styles.copyStatChip}>
-              <Text style={styles.copyStatValue}>{copySummary?.active_trader_count || 0}</Text>
-              <Text style={styles.copyStatLabel}>{t('assets.activeTraders')}</Text>
-            </View>
-            <View style={styles.copyStatChip}>
-              <Text style={styles.copyStatValue}>{copySummary?.open_position_count || 0}</Text>
-              <Text style={styles.copyStatLabel}>{t('assets.openPositions')}</Text>
+          {/* 池子总权益主卡：数字聚焦 + 交易员/持仓数即时反馈 + 可用/冻结/累计分配三列明细 */}
+          <View style={styles.copyHeroCard}>
+            <Text style={styles.copyHeroLabel}>{t('assets.copySummaryPoolEquity')}</Text>
+            <Text style={styles.copyHeroValue}>
+              {formatUsd((copySummary?.total_available || 0) + (copySummary?.total_frozen || 0))}
+              <Text style={styles.copyHeroUnit}> USDT</Text>
+            </Text>
+            <Text style={styles.copyHeroHint}>
+              {t('assets.copySummaryPoolEquityHint', {
+                count: copySummary?.active_trader_count || 0,
+                positions: copySummary?.open_position_count || 0,
+              })}
+            </Text>
+            <View style={styles.copyHeroMetaRow}>
+              <View style={styles.copyHeroMetaItem}>
+                <Text style={styles.metricLabel}>{t('assets.copyAvailable')}</Text>
+                <Text style={styles.copyHeroMetaValue}>{formatUsd(copySummary?.total_available)}</Text>
+              </View>
+              <View style={styles.copyHeroDivider} />
+              <View style={styles.copyHeroMetaItem}>
+                <Text style={styles.metricLabel}>{t('assets.copyFrozen')}</Text>
+                <Text style={styles.copyHeroMetaValue}>{formatUsd(copySummary?.total_frozen)}</Text>
+              </View>
+              <View style={styles.copyHeroDivider} />
+              <View style={styles.copyHeroMetaItem}>
+                <Text style={styles.metricLabel}>{t('assets.copyAllocated')}</Text>
+                <Text style={styles.copyHeroMetaValue}>{formatUsd(copySummary?.total_allocated)}</Text>
+              </View>
             </View>
           </View>
 
           {copySummary?.items?.length ? (
-            <View style={styles.copyItems}>
-              {copySummary.items.map((item) => (
-                <TouchableOpacity
-                  key={item.trader_uid}
-                  activeOpacity={0.88}
-                  onPress={() => setSelectedCopyTraderUid(item.trader_uid)}
-                  style={[
-                    styles.copyItem,
-                    selectedCopyItem?.trader_uid === item.trader_uid && styles.copyItemActive,
-                  ]}
-                >
-                  <View style={styles.copyItemTop}>
-                    <Text style={styles.copyTraderName}>{item.trader_name}</Text>
-                    <Text style={styles.copyTraderStatus}>{copyStatusLabel(item.status, t)}</Text>
-                  </View>
-                  <Text style={styles.copyTraderMeta}>{t('assets.copyTraderAllocated', { amount: formatUsd(item.allocated_capital) })}</Text>
-                  <Text style={styles.copyTraderMeta}>{t('assets.copyTraderAvailable', { amount: formatUsd(item.available_capital), frozen: formatUsd(item.frozen_capital) })}</Text>
-                </TouchableOpacity>
-              ))}
+            <View style={styles.copyItemsV2}>
+              {copySummary.items.map((item) => {
+                const active = selectedCopyItem?.trader_uid === item.trader_uid;
+                // 从 copyAccountPools（富字段）里取 PNL / ROI；若尚未加载成功则退化到 0。
+                const pool = copyPoolByTrader.get(item.trader_uid);
+                const pnl = pool?.current_net_pnl || 0;
+                const roi = pool?.current_return_rate || 0;
+                const pnlPositive = pnl >= 0;
+                const roiPositive = roi >= 0;
+                return (
+                  <TouchableOpacity
+                    key={item.trader_uid}
+                    activeOpacity={0.9}
+                    onPress={() => {
+                      // 点击池子直接跳到跟单账户详情 tab，避免用户还要再切换一次
+                      setSelectedCopyTraderUid(item.trader_uid);
+                      setWorkspaceView('copy');
+                    }}
+                    style={[styles.copyItemV2, active && styles.copyItemV2Active]}
+                  >
+                    <View style={styles.copyItemV2Head}>
+                      <View style={styles.copyItemV2NameRow}>
+                        <Text style={styles.copyTraderName} numberOfLines={1}>
+                          {item.trader_name}
+                        </Text>
+                        <View style={styles.copyStatusPill}>
+                          <View style={styles.copyStatusDot} />
+                          <Text style={styles.copyStatusPillText}>
+                            {copyStatusLabel(item.status, t)}
+                          </Text>
+                        </View>
+                      </View>
+                      {pool ? (
+                        <View style={styles.copyItemV2PnlCol}>
+                          <Text
+                            style={[
+                              styles.copyItemV2Pnl,
+                              { color: pnlPositive ? Colors.up : Colors.down },
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {pnlPositive ? '+' : ''}
+                            {formatUsd(pnl)} USDT
+                          </Text>
+                          <Text
+                            style={[
+                              styles.copyItemV2Roi,
+                              { color: roiPositive ? Colors.up : Colors.down },
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {roiPositive ? '+' : ''}
+                            {formatPercent(roi)}
+                          </Text>
+                        </View>
+                      ) : null}
+                      <Text style={styles.copyItemV2Chevron}>›</Text>
+                    </View>
+                    <View style={styles.copyItemV2MetaRow}>
+                      <View style={styles.copyItemV2MetaCell}>
+                        <Text style={styles.metricLabel}>{t('assets.copyAllocated')}</Text>
+                        <Text style={styles.copyItemV2MetaValue}>
+                          {formatUsd(item.allocated_capital)}
+                        </Text>
+                      </View>
+                      <View style={styles.copyItemV2MetaCell}>
+                        <Text style={styles.metricLabel}>{t('assets.copyAvailable')}</Text>
+                        <Text style={styles.copyItemV2MetaValue}>
+                          {formatUsd(item.available_capital)}
+                        </Text>
+                      </View>
+                      <View style={styles.copyItemV2MetaCell}>
+                        <Text style={styles.metricLabel}>{t('assets.copyFrozen')}</Text>
+                        <Text style={styles.copyItemV2MetaValue}>
+                          {formatUsd(item.frozen_capital)}
+                        </Text>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           ) : (
             <Text style={styles.emptyText}>{t('assets.copySummaryEmpty')}</Text>
@@ -3994,6 +4242,285 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 14,
     flexWrap: 'wrap',
+  },
+  // ── 账户概览 v2 ────────────────────────────────────────────────
+  sectionHeadText: {
+    flex: 1,
+    minWidth: 180,
+    gap: 6,
+  },
+  accountTotalBadge: {
+    backgroundColor: Colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    alignItems: 'flex-end',
+    gap: 4,
+  },
+  accountTotalLabel: {
+    color: Colors.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  accountTotalValue: {
+    color: Colors.textActive,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  accountTotalUnit: {
+    color: Colors.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  accountListV2: {
+    gap: 12,
+  },
+  accountItemV2: {
+    position: 'relative',
+    backgroundColor: Colors.surfaceAlt,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 12,
+    overflow: 'hidden',
+  },
+  accountItemV2Active: {
+    borderColor: Colors.primaryBorder,
+    backgroundColor: Colors.primaryDim,
+  },
+  accountActiveBar: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    width: 3,
+    backgroundColor: Colors.primary,
+  },
+  accountRowV2: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  accountIconV2: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: Colors.background,
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  accountIconV2Futures: {
+    backgroundColor: Colors.primaryDim,
+    borderColor: Colors.primaryBorder,
+  },
+  accountNameV2: {
+    color: Colors.textActive,
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  accountTypeV2: {
+    color: Colors.textMuted,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+    marginTop: 2,
+  },
+  accountEquityRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  accountEquityValue: {
+    color: Colors.textActive,
+    fontSize: 24,
+    fontWeight: '900',
+    letterSpacing: -0.3,
+  },
+  accountEquityUnit: {
+    color: Colors.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  accountPnlChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  accountPnlChipText: {
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  accountMetaRowV2: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  accountMetaItem: {
+    flex: 1,
+    gap: 4,
+  },
+  accountMetaValue: {
+    color: Colors.textSecondary,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  accountMetaDivider: {
+    width: 1,
+    alignSelf: 'stretch',
+    backgroundColor: Colors.border,
+    opacity: 0.7,
+  },
+  // ── 跟单资金 v2 ────────────────────────────────────────────────
+  copyHeroCard: {
+    backgroundColor: Colors.primaryDim,
+    borderWidth: 1,
+    borderColor: Colors.primaryBorder,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    gap: 8,
+    marginBottom: 14,
+  },
+  copyHeroLabel: {
+    color: Colors.textMuted,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+  copyHeroValue: {
+    color: Colors.textActive,
+    fontSize: 28,
+    fontWeight: '900',
+    letterSpacing: -0.4,
+  },
+  copyHeroUnit: {
+    color: Colors.textMuted,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  copyHeroHint: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  copyHeroMetaRow: {
+    marginTop: 6,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  copyHeroMetaItem: {
+    flex: 1,
+    gap: 4,
+  },
+  copyHeroMetaValue: {
+    color: Colors.textActive,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  copyHeroDivider: {
+    width: 1,
+    height: 22,
+    backgroundColor: Colors.border,
+  },
+  copyItemsV2: {
+    gap: 10,
+  },
+  copyItemV2: {
+    backgroundColor: Colors.surfaceAlt,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 10,
+  },
+  copyItemV2Active: {
+    borderColor: Colors.primaryBorder,
+    backgroundColor: Colors.primaryDim,
+  },
+  copyItemV2Head: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  copyItemV2NameRow: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    minWidth: 0,
+  },
+  copyItemV2Chevron: {
+    color: Colors.textMuted,
+    fontSize: 22,
+    fontWeight: '800',
+    lineHeight: 22,
+    marginLeft: 4,
+  },
+  copyItemV2PnlCol: {
+    alignItems: 'flex-end',
+    gap: 2,
+  },
+  copyItemV2Pnl: {
+    fontSize: 14,
+    fontWeight: '900',
+    letterSpacing: -0.2,
+  },
+  copyItemV2Roi: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  copyStatusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: Colors.background,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+  },
+  copyStatusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: Colors.up,
+  },
+  copyStatusPillText: {
+    color: Colors.textSecondary,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+  },
+  copyItemV2MetaRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  copyItemV2MetaCell: {
+    flex: 1,
+    gap: 3,
+  },
+  copyItemV2MetaValue: {
+    color: Colors.textActive,
+    fontSize: 13,
+    fontWeight: '800',
   },
   metricBlock: {
     minWidth: 120,

@@ -68,7 +68,19 @@ func (s *AssetsService) GetCopySummary(ctx context.Context, userID string) (*mod
 }
 
 func (s *AssetsService) GetCopyAccountOverview(ctx context.Context, userID string) (*model.CopyAccountOverviewResponse, error) {
-	return s.repo.GetCopyAccountOverview(ctx, userID)
+	resp, err := s.repo.GetCopyAccountOverview(ctx, userID)
+	if err != nil || resp == nil {
+		return resp, err
+	}
+
+	// 把跟单未实现盈亏计入跟单账户总权益（原先错误地计入合约账户）。
+	if s.tradingSvc != nil {
+		if _, copyUnrealized, splitErr := s.tradingSvc.GetAccountInfoSplit(ctx, userID); splitErr == nil {
+			resp.UnrealizedPnl = copyUnrealized
+			resp.TotalEquity = resp.TotalAvailable + resp.TotalFrozen + copyUnrealized
+		}
+	}
+	return resp, nil
 }
 
 func (s *AssetsService) GetCopyAccountPools(ctx context.Context, userID, status string) (*model.CopyAccountPoolsResponse, error) {
@@ -143,8 +155,11 @@ func (s *AssetsService) GetOverview(ctx context.Context, userID string, changeDa
 		}
 	}
 
+	// 合约账户使用"自交易口径"：仅包含 is_copy_trade=false 的仓位浮盈 / 保证金。
+	// 跟单仓位的未实现盈亏独立返回，后文累加到 CopySummary 与 TotalEquity。
+	var copyUnrealized float64
 	if s.tradingSvc != nil {
-		if futures, err := s.tradingSvc.GetAccountInfo(ctx, userID); err == nil && futures != nil {
+		if futures, copyPnl, err := s.tradingSvc.GetAccountInfoSplit(ctx, userID); err == nil && futures != nil {
 			resp.Accounts = append(resp.Accounts, model.AssetOverviewAccount{
 				AccountType:   "futures",
 				DisplayName:   "合约账户",
@@ -155,12 +170,14 @@ func (s *AssetsService) GetOverview(ctx context.Context, userID string, changeDa
 				MarginUsed:    futures.MarginUsed,
 			})
 			resp.TotalEquity += futures.Equity
+			copyUnrealized = copyPnl
 		}
 	}
 
 	if copySummary, err := s.GetCopySummary(ctx, userID); err == nil && copySummary != nil {
+		copySummary.TotalUnrealizedPnl = copyUnrealized
 		resp.CopySummary = copySummary
-		resp.TotalEquity += copySummary.TotalAvailable + copySummary.TotalFrozen
+		resp.TotalEquity += copySummary.TotalAvailable + copySummary.TotalFrozen + copyUnrealized
 	}
 
 	if s.repo != nil {
@@ -246,6 +263,16 @@ func (s *AssetsService) GetSpotHoldings(ctx context.Context, userID, category, q
 		}
 		update(item)
 	}
+
+	// 现货资产页至少保留一个默认的 USDT 入口：
+	// - 新用户没有任何资产时，不至于出现完全空白的资产列表
+	// - 作为充值/划转/提现的默认资金入口，保持在列表第一位
+	upsertAsset("USDT", func(item *assetDescriptor) {
+		item.AssetName = "USDT"
+		item.Category = "crypto"
+		item.Price = 1
+		item.CanDeposit = true
+	})
 
 	for _, option := range options {
 		assetCode := strings.ToUpper(strings.TrimSpace(option.AssetCode))
@@ -381,13 +408,14 @@ func (s *AssetsService) GetSpotHoldings(ctx context.Context, userID, category, q
 
 	filtered := make([]model.SpotHoldingItem, 0, len(allItems))
 	for _, item := range allItems {
+		isDefaultUSDT := strings.EqualFold(item.AssetCode, "USDT") && item.Category == "crypto"
 		if normalizedCategory != "" && normalizedCategory != "all" && item.Category != normalizedCategory {
 			continue
 		}
-		if ownedOnly && item.BalanceTotal <= 0 && item.BalanceFrozen <= 0 && item.Valuation <= 0 {
+		if ownedOnly && !isDefaultUSDT && item.BalanceTotal <= 0 && item.BalanceFrozen <= 0 && item.Valuation <= 0 {
 			continue
 		}
-		if hideDust && item.IsDust {
+		if hideDust && !isDefaultUSDT && item.IsDust {
 			continue
 		}
 		if searchQuery != "" {
@@ -400,6 +428,12 @@ func (s *AssetsService) GetSpotHoldings(ctx context.Context, userID, category, q
 	}
 
 	sort.Slice(filtered, func(i, j int) bool {
+		if strings.EqualFold(filtered[i].AssetCode, "USDT") && filtered[i].Category == "crypto" {
+			return true
+		}
+		if strings.EqualFold(filtered[j].AssetCode, "USDT") && filtered[j].Category == "crypto" {
+			return false
+		}
 		if filtered[i].Valuation == filtered[j].Valuation {
 			return filtered[i].AssetCode < filtered[j].AssetCode
 		}
