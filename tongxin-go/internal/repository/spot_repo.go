@@ -188,6 +188,51 @@ func (r *SpotRepo) ListUserOrders(ctx context.Context, userID, status, symbol st
 	return out, total, rows.Err()
 }
 
+// ListAllOrdersFiltered admin 端跨用户查询。
+func (r *SpotRepo) ListAllOrdersFiltered(ctx context.Context, status, symbol, userID string, limit, offset int) ([]*model.SpotOrder, int, error) {
+	var total int
+	if err := r.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM spot_orders
+		WHERE ($1 = '' OR status = $1)
+		  AND ($2 = '' OR symbol = $2)
+		  AND ($3 = '' OR user_id::text = $3)
+	`, status, symbol, userID).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	rows, err := r.pool.Query(ctx, `
+		SELECT id::text, user_id, symbol, base_asset, quote_asset, side, order_type,
+		       qty, price, filled_price, filled_qty, quote_qty, frozen_amount,
+		       status, fee, fee_asset, fee_rate, is_maker,
+		       COALESCE(reject_reason,''), client_order_id,
+		       created_at, filled_at, cancelled_at
+		FROM spot_orders
+		WHERE ($1 = '' OR status = $1)
+		  AND ($2 = '' OR symbol = $2)
+		  AND ($3 = '' OR user_id::text = $3)
+		ORDER BY created_at DESC
+		LIMIT $4 OFFSET $5
+	`, status, symbol, userID, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	out := make([]*model.SpotOrder, 0, limit)
+	for rows.Next() {
+		o := &model.SpotOrder{}
+		if err := rows.Scan(&o.ID, &o.UserID, &o.Symbol, &o.BaseAsset, &o.QuoteAsset,
+			&o.Side, &o.OrderType, &o.Qty, &o.Price, &o.FilledPrice, &o.FilledQty,
+			&o.QuoteQty, &o.FrozenAmount, &o.Status, &o.Fee, &o.FeeAsset,
+			&o.FeeRate, &o.IsMaker, &o.RejectReason, &o.ClientOrderID,
+			&o.CreatedAt, &o.FilledAt, &o.CancelledAt); err != nil {
+			return nil, 0, err
+		}
+		out = append(out, o)
+	}
+	return out, total, rows.Err()
+}
+
 // ListPendingOrdersForSymbol 内存加载用：所有 pending 限价单。
 func (r *SpotRepo) ListPendingOrdersForSymbol(ctx context.Context, symbol string) ([]*model.SpotOrder, error) {
 	rows, err := r.pool.Query(ctx, `

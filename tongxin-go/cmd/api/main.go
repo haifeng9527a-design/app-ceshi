@@ -518,8 +518,9 @@ func main() {
 
 	// ── Spot Trading ──
 	var spotSvc *service.SpotService
+	var spotRepo *repository.SpotRepo
 	if pool != nil && tradingHub != nil {
-		spotRepo := repository.NewSpotRepo(pool)
+		spotRepo = repository.NewSpotRepo(pool)
 		spotSvc = service.NewSpotService(spotRepo, userRepo, binance, polygonClient, tradingHub)
 		if referralSvc != nil {
 			spotSvc.SetReferralService(referralSvc)
@@ -796,6 +797,15 @@ func main() {
 			mux.Handle("POST /api/admin/asset-withdrawals/{id}/reject", adminAuth(adminTradingH.RejectAssetWithdrawal))
 
 			log.Println("[OK] Admin trading & financial routes registered")
+		}
+
+		// ── Admin Spot ──
+		if spotRepo != nil {
+			adminSpotH := handler.NewAdminSpotHandler(spotRepo)
+			mux.Handle("GET /api/admin/spot-orders", adminAuth(adminSpotH.ListAllOrders))
+			mux.Handle("GET /api/admin/spot-fee-tiers", adminAuth(adminSpotH.ListFeeTiers))
+			mux.Handle("PUT /api/admin/spot-fee-tiers/{vipLevel}", adminAuth(adminSpotH.UpdateFeeTier))
+			log.Println("[OK] Admin spot routes registered")
 		}
 	}
 
