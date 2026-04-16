@@ -421,7 +421,6 @@ func main() {
 		// Load pending limit orders into memory and hook price updates
 		tradingSvc.LoadPendingOrders(context.Background())
 		tradingSvc.LoadOpenPositions(context.Background())
-		marketHub.SetOnPriceUpdate(tradingSvc.OnPriceUpdate)
 
 		tradingH := handler.NewTradingHandler(tradingSvc)
 		walletH := handler.NewWalletHandler(walletRepo, tradingHub)
@@ -517,6 +516,46 @@ func main() {
 		log.Println("[OK] Admin referral routes registered")
 	}
 
+	// ── Spot Trading ──
+	var spotSvc *service.SpotService
+	if pool != nil && tradingHub != nil {
+		spotRepo := repository.NewSpotRepo(pool)
+		spotSvc = service.NewSpotService(spotRepo, userRepo, binance, polygonClient, tradingHub)
+		if referralSvc != nil {
+			spotSvc.SetReferralService(referralSvc)
+		}
+		if err := spotSvc.LoadSymbolMeta(context.Background()); err != nil {
+			log.Printf("[WARN] spot LoadSymbolMeta: %v", err)
+		}
+		if err := spotSvc.LoadPendingOrders(context.Background()); err != nil {
+			log.Printf("[WARN] spot LoadPendingOrders: %v", err)
+		}
+
+		spotH := handler.NewSpotHandler(spotSvc)
+		// Public — symbol catalog + fee schedule
+		mux.HandleFunc("GET /api/spot/symbols", spotH.ListSymbols)
+		mux.HandleFunc("GET /api/spot/fee-schedule", spotH.GetFeeSchedule)
+		// Authenticated
+		mux.Handle("POST /api/spot/orders", authMw.Authenticate(http.HandlerFunc(spotH.PlaceOrder)))
+		mux.Handle("GET /api/spot/orders", authMw.Authenticate(http.HandlerFunc(spotH.ListOrders)))
+		mux.Handle("DELETE /api/spot/orders/{id}", authMw.Authenticate(http.HandlerFunc(spotH.CancelOrder)))
+		mux.Handle("GET /api/spot/orders/history", authMw.Authenticate(http.HandlerFunc(spotH.OrderHistory)))
+		mux.Handle("GET /api/spot/account", authMw.Authenticate(http.HandlerFunc(spotH.GetAccount)))
+		log.Println("[OK] Spot trading routes registered")
+	}
+
+	// Chain MarketHub price updates: trading + spot both react
+	if tradingSvc != nil && spotSvc != nil {
+		marketHub.SetOnPriceUpdate(func(symbol string, price float64) {
+			tradingSvc.OnPriceUpdate(symbol, price)
+			spotSvc.OnPriceUpdate(symbol, price)
+		})
+	} else if tradingSvc != nil {
+		marketHub.SetOnPriceUpdate(tradingSvc.OnPriceUpdate)
+	} else if spotSvc != nil {
+		marketHub.SetOnPriceUpdate(spotSvc.OnPriceUpdate)
+	}
+
 	var assetsSvc *service.AssetsService
 
 	// Assets (read-only aggregation first; no copy bucket writes here)
@@ -531,7 +570,12 @@ func main() {
 		mux.HandleFunc("POST /api/integrations/udun/callback/deposit", udunCallbackH.Deposit)
 		mux.HandleFunc("POST /api/integrations/udun/callback/withdraw", udunCallbackH.Withdraw)
 		mux.Handle("GET /api/assets/overview", authMw.Authenticate(http.HandlerFunc(assetsH.GetOverview)))
+		mux.Handle("GET /api/assets/spot-holdings", authMw.Authenticate(http.HandlerFunc(assetsH.GetSpotHoldings)))
 		mux.Handle("GET /api/assets/copy-summary", authMw.Authenticate(http.HandlerFunc(assetsH.GetCopySummary)))
+		mux.Handle("GET /api/assets/copy-account/overview", authMw.Authenticate(http.HandlerFunc(assetsH.GetCopyAccountOverview)))
+		mux.Handle("GET /api/assets/copy-account/pools", authMw.Authenticate(http.HandlerFunc(assetsH.GetCopyAccountPools)))
+		mux.Handle("GET /api/assets/copy-account/open-positions", authMw.Authenticate(http.HandlerFunc(assetsH.GetCopyAccountOpenPositions)))
+		mux.Handle("GET /api/assets/copy-account/history", authMw.Authenticate(http.HandlerFunc(assetsH.GetCopyAccountHistory)))
 		mux.Handle("GET /api/assets/transactions", authMw.Authenticate(http.HandlerFunc(assetsH.GetTransactions)))
 		mux.Handle("GET /api/assets/deposits", authMw.Authenticate(http.HandlerFunc(assetsH.GetDepositRecords)))
 		mux.Handle("GET /api/assets/deposit-options", authMw.Authenticate(http.HandlerFunc(assetsH.GetDepositOptions)))
