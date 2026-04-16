@@ -144,7 +144,7 @@ type ReferralOverview struct {
 	LifetimeCommissionEarned float64 `json:"lifetime_commission_earned"`
 	ThisMonthCommission      float64 `json:"this_month_commission"`
 	TotalInvitees            int     `json:"total_invitees"`
-	DefaultInviteCode        string  `json:"default_invite_code"` // 用户注册时就有的那一条
+	DefaultInviteCode        string  `json:"invite_code"` // 用户注册时就有的那一条
 	// Feature flag 透传给前端决定是否显示入口
 	FeatureFlagReferralEnabled bool `json:"feature_flag_referral_enabled"`
 }
