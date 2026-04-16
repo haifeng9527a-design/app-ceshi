@@ -140,8 +140,15 @@ func (s *SpotService) mapIncomingSymbol(incoming string) []string {
 	return out
 }
 
-// checkPendingFor 对指定 DB symbol 的 pending 限价单做一次撮合检查。
-// 可由两条路径触发：OnPriceUpdate 的 WS tick，或 placeLimit 下单后的主动 snap。
+// checkPendingFor 对指定 DB symbol 的 pending 限价单做一次行情触发检查。
+//
+// 业务模型（非订单簿撮合）：股票 / 外汇 / 加密币现货走的都是单边报价模式，
+// 平台按最新行情价成交，不需要对手盘。limit price 只作为触发阈值：
+//   - buy  限价：行情 <= limit 时触发
+//   - sell 限价：行情 >= limit 时触发
+// 一旦触发，实际成交价使用当前 tick 的行情价（对用户更有利、也贴合真实撮合语义）。
+//
+// 触发路径：OnPriceUpdate 的 WS tick，或 placeLimit 下单后的主动 snap。
 func (s *SpotService) checkPendingFor(dbSym string, price float64) {
 	s.pendingMu.RLock()
 	pending, ok := s.pendingBySymbol[dbSym]
@@ -174,8 +181,8 @@ func (s *SpotService) checkPendingFor(dbSym string, price float64) {
 
 	ctx := context.Background()
 	for _, o := range toFill {
-		fillPrice := *o.Price
-		if err := s.FillPendingSpotOrder(ctx, o, fillPrice); err != nil {
+		// 按当前行情价成交（而非 limit price），避免虚拟撮合语义。
+		if err := s.FillPendingSpotOrder(ctx, o, price); err != nil {
 			log.Printf("[spot] fill failed order=%s err=%v", o.ID, err)
 			// 失败放回队列，等待下次价格触发
 			s.pendingMu.Lock()
