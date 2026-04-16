@@ -588,6 +588,10 @@ func (s *TradingService) placeMarketOrder(ctx context.Context, userID string, re
 			s.walletRepo.UnfreezeMargin(ctx, userID, margin)
 			return nil, fmt.Errorf("insufficient balance for fee: %w", err)
 		}
+		// 邀请返佣埋点：合约开仓 taker fee
+		if s.ReferralSvc != nil {
+			s.ReferralSvc.RecordCommissionEventAsync(userID, openFee, model.ProductTypeFuturesOpen, "")
+		}
 	}
 
 	// Calculate liquidation price.
@@ -887,6 +891,15 @@ func (s *TradingService) ClosePosition(ctx context.Context, userID, positionID s
 		}
 	}
 
+	// 邀请返佣埋点：合约平仓 close fee
+	if closeFee > 0 && s.ReferralSvc != nil {
+		pt := model.ProductTypeFuturesClose
+		if pos.IsCopyTrade {
+			pt = model.ProductTypeCopyClose
+		}
+		s.ReferralSvc.RecordCommissionEventAsync(userID, closeFee, pt, "")
+	}
+
 	pos.Status = "closed"
 	pos.RealizedPnl = pnl
 	pos.CloseFee += closeFee
@@ -1032,6 +1045,15 @@ func (s *TradingService) PartialClosePosition(ctx context.Context, userID, posit
 			return nil, fmt.Errorf("settle partial close: %w", err)
 		}
 	}
+	// 邀请返佣埋点：部分平仓 close fee
+	if closeFee > 0 && s.ReferralSvc != nil {
+		pt := model.ProductTypeFuturesPartial
+		if pos.IsCopyTrade {
+			pt = model.ProductTypeCopyClose
+		}
+		s.ReferralSvc.RecordCommissionEventAsync(userID, closeFee, pt, "")
+	}
+
 	// 部分平仓也推分润事件（即使 share=0 也会更新 follower 的 hwm/bucket 余额）
 	if psResult != nil {
 		s.pushProfitShareEvents(ctx, pos, psResult)
@@ -1204,6 +1226,15 @@ func (s *TradingService) closePositionByTPSL(ctx context.Context, cp cachedPosit
 			log.Printf("[trading] CRITICAL: position %s TP/SL closed but settle failed: %v", cp.PositionID, err)
 			return
 		}
+	}
+
+	// 邀请返佣埋点：TP/SL 自动平仓 close fee
+	if closeFee > 0 && s.ReferralSvc != nil {
+		pt := model.ProductTypeFuturesTpsl
+		if cp.IsCopyTrade {
+			pt = model.ProductTypeCopyClose
+		}
+		s.ReferralSvc.RecordCommissionEventAsync(cp.UserID, closeFee, pt, "")
 	}
 
 	s.removePositionFromCache(cp.Symbol, cp.PositionID)
@@ -1918,6 +1949,11 @@ func (s *TradingService) placeCopyOrder(
 	// 2. 一次性原子扣 (margin + openFee)：margin 进 frozen，fee 是损耗
 	if err := s.traderRepo.FreezeFromBucket(ctx, ct.ID, margin, openFee); err != nil {
 		return nil, nil, fmt.Errorf("freeze from bucket: %w", err)
+	}
+
+	// 邀请返佣埋点：跟单开仓 open fee（profit_share 不计入返佣基数）
+	if openFee > 0 && s.ReferralSvc != nil {
+		s.ReferralSvc.RecordCommissionEventAsync(followerID, openFee, model.ProductTypeCopyOpen, "")
 	}
 
 	// Calculate liq price
