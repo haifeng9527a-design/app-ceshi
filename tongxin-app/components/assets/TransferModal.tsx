@@ -12,13 +12,12 @@
  *   - onSuccess(amount, direction) is called after a successful transfer so
  *     the parent can refresh its own state (e.g. spot.getAccount, portfolio
  *     overview).
- *   - Errors surface through Alert.alert; callers can override by passing
+ *   - Errors surface through the shared app dialog; callers can override by passing
  *     onError.
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Modal,
   StyleSheet,
   Text,
@@ -36,6 +35,7 @@ import {
   transferAssets,
 } from '../../services/api/assetsApi';
 import { Colors, Shadows } from '../../theme/colors';
+import { showAlert } from '../../services/utils/dialog';
 
 export type TransferDirection = 'spot_to_futures' | 'futures_to_spot';
 
@@ -44,7 +44,7 @@ export interface TransferModalProps {
   onClose: () => void;
   /** Fired after a successful transfer. Receives the confirmed amount and direction. */
   onSuccess?: (amount: number, direction: TransferDirection) => void | Promise<void>;
-  /** Optional custom error surfacer. Defaults to Alert.alert. */
+  /** Optional custom error surfacer. Defaults to the shared app dialog. */
   onError?: (title: string, message: string) => void;
   /** Initial direction when opening. Defaults to spot_to_futures. */
   defaultDirection?: TransferDirection;
@@ -89,7 +89,7 @@ export function TransferModal({
   const showError = useCallback(
     (title: string, message: string) => {
       if (onError) onError(title, message);
-      else Alert.alert(title, message);
+      else showAlert(message, title, 'danger');
     },
     [onError],
   );

@@ -3,9 +3,17 @@ import { useRouter } from 'expo-router';
 import { Colors, Sizes } from '../../theme/colors';
 import { useMarketStore } from '../../services/store/marketStore';
 import type { SearchResult } from '../../services/api/client';
+import AssetSymbolIcon from '../ui/AssetSymbolIcon';
 
 interface SearchDropdownProps {
   onSelect?: () => void;
+}
+
+function iconCategoryForMarket(market?: string): 'crypto' | 'stock' | undefined {
+  const normalized = (market || '').trim().toLowerCase();
+  if (normalized === 'crypto') return 'crypto';
+  if (normalized === 'stocks' || normalized === 'stock') return 'stock';
+  return undefined;
 }
 
 export default function SearchDropdown({ onSelect }: SearchDropdownProps) {
@@ -35,6 +43,12 @@ export default function SearchDropdown({ onSelect }: SearchDropdownProps) {
               onSelect?.();
             }}
           >
+            <AssetSymbolIcon
+              symbol={item.symbol}
+              category={iconCategoryForMarket(item.market)}
+              size={30}
+              style={styles.icon}
+            />
             <View style={styles.left}>
               <Text style={styles.symbol}>{item.symbol}</Text>
               {item.name ? (
@@ -88,6 +102,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
+  },
+  icon: {
+    marginRight: 12,
   },
   left: {
     flex: 1,

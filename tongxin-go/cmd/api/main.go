@@ -564,7 +564,7 @@ func main() {
 
 	// Assets (read-only aggregation first; no copy bucket writes here)
 	if assetsRepo != nil {
-		assetsSvc = service.NewAssetsService(assetsRepo, walletRepo, tradingSvc, udunClient, udunStatus)
+		assetsSvc = service.NewAssetsService(assetsRepo, walletRepo, tradingSvc, spotSvc, udunClient, udunStatus)
 		assetsH := handler.NewAssetsHandler(assetsSvc)
 		callbackSecret := strings.TrimSpace(cfg.UdunSignSecret)
 		if callbackSecret == "" {
@@ -574,6 +574,8 @@ func main() {
 		mux.HandleFunc("POST /api/integrations/udun/callback/deposit", udunCallbackH.Deposit)
 		mux.HandleFunc("POST /api/integrations/udun/callback/withdraw", udunCallbackH.Withdraw)
 		mux.Handle("GET /api/assets/overview", authMw.Authenticate(http.HandlerFunc(assetsH.GetOverview)))
+		mux.Handle("GET /api/assets/pnl-calendar", authMw.Authenticate(http.HandlerFunc(assetsH.GetPnlCalendar)))
+		mux.Handle("GET /api/assets/icon-map", authMw.Authenticate(http.HandlerFunc(assetsH.GetAssetIconMap)))
 		mux.Handle("GET /api/assets/spot-holdings", authMw.Authenticate(http.HandlerFunc(assetsH.GetSpotHoldings)))
 		mux.Handle("GET /api/assets/copy-summary", authMw.Authenticate(http.HandlerFunc(assetsH.GetCopySummary)))
 		mux.Handle("GET /api/assets/copy-account/overview", authMw.Authenticate(http.HandlerFunc(assetsH.GetCopyAccountOverview)))

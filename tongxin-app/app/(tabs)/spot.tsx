@@ -30,7 +30,6 @@ import {
   StyleSheet,
   ScrollView,
   useWindowDimensions,
-  Alert,
   Platform,
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
@@ -43,6 +42,8 @@ import SymbolDropdown, {
   type SymbolTab,
   type SymbolMeta,
 } from '../../components/trading/SymbolDropdown';
+import SpotFillReceiptModal from '../../components/trading/SpotFillReceiptModal';
+import AssetSymbolIcon from '../../components/ui/AssetSymbolIcon';
 import { useMarketStore } from '../../services/store/marketStore';
 import {
   spotApi,
@@ -54,7 +55,12 @@ import {
 import { useAuthStore } from '../../services/store/authStore';
 import { fetchCryptoDepth } from '../../services/api/client';
 import { tradingWs } from '../../services/websocket/tradingWs';
+import {
+  getSpotFillReceiptMuted,
+  setSpotFillReceiptMuted,
+} from '../../services/storage/preferences';
 import { Colors, Shadows } from '../../theme/colors';
+import { showAlert as showDialogAlert } from '../../services/utils/dialog';
 
 /* ════════════════════════════════════════════
    Helpers
@@ -86,6 +92,18 @@ const formatPrice = (n: number | null | undefined, precision = 2): string => {
     maximumFractionDigits: precision,
   });
 };
+
+const showAlert = (title: string, message?: string) => {
+  showDialogAlert(message ?? title, message ? title : undefined);
+};
+
+/**
+ * 现货手续费率（展示 + 滑块预留）。
+ * 后端冻结时按 qty*price*(1+fee) 扣，若前端滑块 100% 把全部 quote 余额都填进 amount，
+ * 冻结量 = amount*(1+fee) 就会超出可用余额，返回 "insufficient balance"。
+ * 所以买单方向的滑块必须基于 availableBalance/(1+fee) 计算，给手续费留位置。
+ */
+const SPOT_FEE_RATE = 0.001; // 0.1%
 
 const formatCompact = (n: number | null | undefined): string => {
   if (n == null || !isFinite(n)) return '--';
@@ -226,6 +244,17 @@ export default function SpotPage() {
     for (const s of symbols) m.set(s.symbol, s);
     return m;
   }, [symbols]);
+  const assetCategoryMap = useMemo(() => {
+    const m = new Map<string, 'crypto' | 'stock'>();
+    for (const s of symbols) {
+      const category = s.category === 'stocks' ? 'stock' : 'crypto';
+      m.set(s.base_asset, category);
+      if (s.category === 'crypto') {
+        m.set(s.quote_asset, 'crypto');
+      }
+    }
+    return m;
+  }, [symbols]);
   const getSymbolMeta = useCallback(
     (sym: string): SymbolMeta | undefined => {
       const meta = symbolMetaMap.get(sym);
@@ -235,6 +264,7 @@ export default function SpotPage() {
         displaySymbol: toDisplaySymbol(meta.symbol),
         quoteSymbol: toMarketSymbol(meta.symbol, meta.category),
         pricePrecision: meta.price_precision,
+        category: meta.category === 'stocks' ? 'stock' : 'crypto',
       };
     },
     [symbolMetaMap],
@@ -285,6 +315,28 @@ export default function SpotPage() {
   // own direction swap after opening.
   const [showTransferModal, setShowTransferModal] = useState(false);
   const transferDefaultDirection: TransferDirection = 'futures_to_spot';
+
+  /* ── Market fill receipt modal ──
+     市价成交后的回执弹窗：告诉用户「买/卖了多少币」并展示手续费、总额等关键信息。
+     限价单不弹（限价要等撮合，弹了也没数据）。用户可勾选「下次不再提示」，
+     偏好用 AsyncStorage 持久化（key: tongxin_spot_fill_receipt_muted）。 */
+  const [showFillReceipt, setShowFillReceipt] = useState(false);
+  const [fillReceiptOrder, setFillReceiptOrder] = useState<SpotOrder | null>(null);
+  const [fillReceiptMuted, setFillReceiptMutedState] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    getSpotFillReceiptMuted().then((v) => {
+      if (!cancelled) setFillReceiptMutedState(v);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const handleFillReceiptMutedChange = useCallback((muted: boolean) => {
+    setFillReceiptMutedState(muted);
+    // 持久化失败静默（preferences.ts 内部已 try/catch），不影响 UX
+    setSpotFillReceiptMuted(muted);
+  }, []);
 
   /* ── Orders / account ── */
   const [pendingOrders, setPendingOrders] = useState<SpotOrder[]>([]);
@@ -564,19 +616,62 @@ export default function SpotPage() {
         return;
       }
       if (availableBalance <= 0 || effectivePrice <= 0) return;
+      // 限价单：若用户未输入价格，自动用当前市价回填 priceInput
+      // 否则 handlePlaceOrder 会因为 priceInput 为空而 Alert 拦截，
+      // 而 RN Web 的 Alert.alert 是 no-op，用户看到的就是「点了没反应」。
+      if (orderType === 'limit' && !priceInput && currentPrice > 0) {
+        setPriceInput(currentPrice.toFixed(pricePrecision));
+      }
       if (side === 'buy') {
-        // 买：滑块百分比作用于可用 quote 资金
-        const amt = (availableBalance * pct) / 100;
-        setAmountInput(amt.toFixed(2));
-        setQtyInput((amt / effectivePrice).toFixed(qtyPrecision));
+        // 后端严格用 needed = qty × price × (1 + fee) 冻结（见 spot_repo.go ExecuteSpotLimitPlace / MarketOrder）
+        // 所以必须：先算「扣完 fee 的 quoteCost 上限」，再求 qty 并向下截断精度，保证反推 needed ≤ availableBalance。
+        // 反过来（先算 amount 再除价格）会因为 qty 精度截断丢精度 → qty*price 变小、但加 fee 后可能仍超 availableBalance。
+        const maxQuoteCost = availableBalance / (1 + SPOT_FEE_RATE);
+        const rawQty = ((maxQuoteCost * pct) / 100) / effectivePrice;
+        const factor = Math.pow(10, qtyPrecision);
+        // 向下截断到 qtyPrecision，和后端 roundDown 对齐
+        let qty = Math.floor(rawQty * factor) / factor;
+        if (qty <= 0) {
+          setQtyInput('');
+          setAmountInput('');
+          return;
+        }
+        // 余额刷新有 WS 延迟，100% 时再退一档精度做安全垫，避免边界浮点尾数翻车
+        if (pct === 100) {
+          qty = Math.max(0, qty - 1 / factor);
+          qty = Math.floor(qty * factor) / factor;
+        }
+        if (qty <= 0) {
+          setQtyInput('');
+          setAmountInput('');
+          return;
+        }
+        const quoteCost = qty * effectivePrice;
+        setQtyInput(qty.toFixed(qtyPrecision));
+        setAmountInput(quoteCost.toFixed(2));
       } else {
-        // 卖：滑块百分比作用于可用 base 持仓
-        const qty = (availableBalance * pct) / 100;
+        // 卖：滑块百分比作用于可用 base 持仓，同样向下截断精度
+        const factor = Math.pow(10, qtyPrecision);
+        let qty = Math.floor(((availableBalance * pct) / 100) * factor) / factor;
+        if (qty <= 0) {
+          setQtyInput('');
+          setAmountInput('');
+          return;
+        }
+        if (pct === 100) {
+          qty = Math.max(0, qty - 1 / factor);
+          qty = Math.floor(qty * factor) / factor;
+        }
+        if (qty <= 0) {
+          setQtyInput('');
+          setAmountInput('');
+          return;
+        }
         setQtyInput(qty.toFixed(qtyPrecision));
         setAmountInput((qty * effectivePrice).toFixed(2));
       }
     },
-    [availableBalance, effectivePrice, side, qtyPrecision],
+    [availableBalance, effectivePrice, side, qtyPrecision, orderType, priceInput, currentPrice, pricePrecision],
   );
 
   /* ═════════════════════════════════════════
@@ -584,12 +679,15 @@ export default function SpotPage() {
      ═════════════════════════════════════════ */
   const handlePlaceOrder = async () => {
     if (!user) {
-      Alert.alert(t('auth.notLoggedIn'));
+      showAlert(t('auth.notLoggedIn'));
       return;
     }
     const qtyNum = parseFloat(qtyInput);
-    if (!qtyInput || !isFinite(qtyNum) || qtyNum <= 0) {
-      Alert.alert(t('trading.enterQuantity') || '请输入数量');
+    const amtNum = parseFloat(amountInput);
+    const hasQty = qtyInput && isFinite(qtyNum) && qtyNum > 0;
+    const hasAmt = amountInput && isFinite(amtNum) && amtNum > 0;
+    if (!hasQty && !hasAmt) {
+      showAlert(t('trading.enterQuantity') || '请输入数量');
       return;
     }
 
@@ -597,13 +695,25 @@ export default function SpotPage() {
       symbol: selectedSymbol,
       side,
       order_type: orderType,
-      qty: qtyNum,
     };
+
+    // 市价买单：传 quote_qty（要花多少 USDT），让后端按实时成交价反推 qty。
+    // 如果前端自己先按 currentPrice 算 qty 再传过去，后端实时取价时行情如果微涨，
+    // qty × backendPrice × (1+fee) 会超出 availableBalance 触发 insufficient balance。
+    if (orderType === 'market' && side === 'buy' && hasAmt) {
+      req.quote_qty = amtNum;
+    } else if (hasQty) {
+      req.qty = qtyNum;
+    } else {
+      // 限价单必须有 qty；市价卖单也必须有 qty
+      showAlert(t('trading.enterQuantity') || '请输入数量');
+      return;
+    }
 
     if (orderType === 'limit') {
       const p = parseFloat(priceInput);
       if (!priceInput || !isFinite(p) || p <= 0) {
-        Alert.alert(t('trading.enterLimitPrice') || '请输入限价');
+        showAlert(t('trading.enterLimitPrice') || '请输入限价');
         return;
       }
       req.price = p;
@@ -611,8 +721,16 @@ export default function SpotPage() {
 
     setPlacing(true);
     try {
-      await spotApi.placeOrder(req);
-      Alert.alert(t('trading.spotOrderPlaced'));
+      const placed = await spotApi.placeOrder(req);
+      // 市价成交 + 用户没 mute → 弹回执（限价单走 alert，因为此刻还没成交，弹回执没数据）
+      const isMarketFilled =
+        placed && placed.order_type === 'market' && placed.status === 'filled';
+      if (isMarketFilled && !fillReceiptMuted) {
+        setFillReceiptOrder(placed);
+        setShowFillReceipt(true);
+      } else {
+        showAlert(t('trading.spotOrderPlaced'));
+      }
       setQtyInput('');
       setAmountInput('');
       setSliderPct(0);
@@ -620,7 +738,7 @@ export default function SpotPage() {
       refreshAccount();
     } catch (e: any) {
       const msg = e?.response?.data?.error || e?.message || t('trading.spotInsufficientBalance');
-      Alert.alert(msg);
+      showAlert(msg);
     } finally {
       setPlacing(false);
     }
@@ -632,7 +750,7 @@ export default function SpotPage() {
   const handleTransferSuccess = useCallback(
     (amount: number) => {
       refreshAccount();
-      Alert.alert(
+      showAlert(
         t('assets.transferSuccessTitle'),
         t('assets.transferSuccessBody', { amount: amount.toFixed(2) }),
       );
@@ -646,7 +764,7 @@ export default function SpotPage() {
       refreshPending();
       refreshAccount();
     } catch (e: any) {
-      Alert.alert(e?.response?.data?.error || e?.message || t('common.error') || '撤单失败');
+      showAlert(e?.response?.data?.error || e?.message || t('common.error') || '撤单失败');
     }
   };
 
@@ -943,7 +1061,7 @@ export default function SpotPage() {
     const estQty = parseFloat(qtyInput || '0');
     const estAmount =
       parseFloat(amountInput || '0') || (estQty && effectivePrice ? estQty * effectivePrice : 0);
-    const feeRate = 0.001; // 展示性估算：0.1%
+    const feeRate = SPOT_FEE_RATE; // 展示性估算；与滑块预留保持一致
     const estFee = estAmount * feeRate;
     const receiveQty = side === 'buy' ? estQty : 0;
     const receiveAmt = side === 'sell' ? estAmount - estFee : 0;
@@ -1020,7 +1138,7 @@ export default function SpotPage() {
             activeOpacity={0.7}
             onPress={() => {
               if (!user) {
-                Alert.alert(t('auth.notLoggedIn'));
+                showAlert(t('auth.notLoggedIn'));
                 return;
               }
               setShowTransferModal(true);
@@ -1431,14 +1549,18 @@ export default function SpotPage() {
         {account.holdings.map((h) => {
           const pnl = h.unrealized_pnl ?? null;
           const pnlUp = pnl != null && pnl >= 0;
+          const holdingCategory = assetCategoryMap.get(h.asset);
           return (
             <View key={h.asset} style={styles.tableRow}>
               {/* Asset + symbol stacked */}
               <View style={[styles.rowSymbolCol, { flex: 1.5 }]}>
                 <View style={styles.rowSymbolLine}>
-                  <View style={styles.holdingAssetBadge}>
-                    <Text style={styles.holdingAssetBadgeText}>{h.asset.slice(0, 3)}</Text>
-                  </View>
+                  <AssetSymbolIcon
+                    symbol={h.asset}
+                    category={holdingCategory}
+                    size={30}
+                    style={styles.holdingAssetIcon}
+                  />
                   <Text style={styles.rowSymbolText}>{h.asset}</Text>
                 </View>
               </View>
@@ -1503,6 +1625,17 @@ export default function SpotPage() {
     />
   );
 
+  /* ── Market fill receipt modal ── */
+  const fillReceiptModal = (
+    <SpotFillReceiptModal
+      visible={showFillReceipt}
+      order={fillReceiptOrder}
+      muted={fillReceiptMuted}
+      onMutedChange={handleFillReceiptMutedChange}
+      onClose={() => setShowFillReceipt(false)}
+    />
+  );
+
   if (isDesktop) {
     return (
       <>
@@ -1524,6 +1657,7 @@ export default function SpotPage() {
           {renderBottomTable()}
         </ScrollView>
         {transferModal}
+        {fillReceiptModal}
         <SymbolDropdown
           visible={showSymbolDropdown}
           selectedSymbol={selectedSymbol}
@@ -1563,6 +1697,7 @@ export default function SpotPage() {
         {renderOrderPanel()}
       </ScrollView>
       {transferModal}
+      {fillReceiptModal}
       <SymbolDropdown
         visible={showSymbolDropdown}
         selectedSymbol={selectedSymbol}
@@ -2405,6 +2540,9 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 0.3,
+  },
+  holdingAssetIcon: {
+    marginRight: 2,
   },
   pnlPill: {
     alignSelf: 'flex-start',

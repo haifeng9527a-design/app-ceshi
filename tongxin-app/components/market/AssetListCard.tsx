@@ -7,6 +7,7 @@ import { useMarketStore } from '../../services/store/marketStore';
 import { usePriceFlash } from '../../hooks/usePriceFlash';
 import type { MarketQuote } from '../../services/api/client';
 import AppIcon from '../ui/AppIcon';
+import AssetSymbolIcon from '../ui/AssetSymbolIcon';
 
 interface AssetListCardProps {
   title: string;
@@ -18,21 +19,11 @@ interface AssetListCardProps {
   showWatchlistToggle?: boolean;
 }
 
-const AVATAR_COLORS: Record<string, string> = {
-  BTC: '#F7931A', ETH: '#627EEA', SOL: '#9945FF', XRP: '#23292F',
-  BNB: '#F0B90B', DOGE: '#C2A633', EUR: '#003399', GBP: '#CF142B',
-  USD: '#3C7843', JPY: '#BC002D', AUD: '#00008B', AAPL: '#A2AAAD',
-  GOOGL: '#4285F4', MSFT: '#00A4EF', TSLA: '#CC0000', AMZN: '#FF9900',
-  NVDA: '#76B900', META: '#0081FB',
-};
-
-function getAvatarColor(symbol: string): string {
-  const base = symbol.split('/')[0].replace('.', '');
-  return AVATAR_COLORS[base] || Colors.primaryDim;
-}
-
-function getAvatarLetter(symbol: string): string {
-  return symbol.split('/')[0].charAt(0).toUpperCase();
+function iconCategoryForMarket(market?: string): 'crypto' | 'stock' | undefined {
+  const normalized = (market || '').trim().toLowerCase();
+  if (normalized === 'crypto') return 'crypto';
+  if (normalized === 'stocks' || normalized === 'stock') return 'stock';
+  return undefined;
 }
 
 function formatPrice(price: number): string {
@@ -49,7 +40,6 @@ function AssetRow({ item, showWatchlistToggle }: { item: MarketQuote; showWatchl
   const pct = item.percent_change ?? 0;
   const isUp = pct >= 0;
   const color = isUp ? Colors.up : Colors.down;
-  const bgColor = getAvatarColor(item.symbol);
   const flashBg = usePriceFlash(item.price);
 
   return (
@@ -64,12 +54,12 @@ function AssetRow({ item, showWatchlistToggle }: { item: MarketQuote; showWatchl
         })
       }
     >
-      {/* Avatar */}
-      <View style={[styles.avatar, { backgroundColor: bgColor + '20', borderColor: bgColor + '40' }]}>
-        <Text style={[styles.avatarText, { color: bgColor }]}>
-          {getAvatarLetter(item.symbol)}
-        </Text>
-      </View>
+      <AssetSymbolIcon
+        symbol={item.symbol}
+        category={iconCategoryForMarket(item.market)}
+        size={36}
+        style={styles.avatar}
+      />
 
       {/* Symbol & Name */}
       <View style={styles.info}>

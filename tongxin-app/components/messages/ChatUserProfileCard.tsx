@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Image,
-  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -24,6 +22,7 @@ import {
 import { useAuthStore } from '../../services/store/authStore';
 import { useMessagesStore } from '../../services/store/messagesStore';
 import { Colors, Sizes } from '../../theme/colors';
+import { showAlert } from '../../services/utils/dialog';
 
 type SeedProfile = Partial<PeerProfile> | null | undefined;
 
@@ -237,11 +236,7 @@ export default function ChatUserProfileCard({
       await loadProfile();
     } catch (error: any) {
       const message = error?.response?.data?.error || error?.message || t('messages.profileActionFailed');
-      if (Platform.OS === 'web' && typeof window !== 'undefined' && window.alert) {
-        window.alert(message);
-      } else {
-        Alert.alert('', message);
-      }
+      showAlert(message);
     } finally {
       setActionLoading(false);
     }
@@ -256,11 +251,7 @@ export default function ChatUserProfileCard({
       await loadProfile();
     } catch (error: any) {
       const message = error?.response?.data?.error || error?.message || t('messages.profileActionFailed');
-      if (Platform.OS === 'web' && typeof window !== 'undefined' && window.alert) {
-        window.alert(message);
-      } else {
-        Alert.alert('', message);
-      }
+      showAlert(message);
     } finally {
       setActionLoading(false);
     }

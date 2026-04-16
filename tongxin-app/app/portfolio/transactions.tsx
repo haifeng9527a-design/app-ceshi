@@ -40,6 +40,26 @@ function formatTransactionTime(value?: string) {
   });
 }
 
+function resolveSignedTransactionAmount(tx: { direction: 'credit' | 'debit' | 'internal'; amount: number; net_amount: number; type: string }) {
+  if (tx.type === 'spot_buy') return -Math.abs(tx.amount);
+  if (tx.type === 'spot_sell') return Math.abs(tx.amount);
+  if (tx.type === 'spot_fee') return -Math.abs(tx.amount);
+  if (Number.isFinite(tx.net_amount) && tx.net_amount !== 0) {
+    return Number(tx.net_amount);
+  }
+  if (tx.direction === 'credit') return Math.abs(tx.amount);
+  if (tx.direction === 'debit') return -Math.abs(tx.amount);
+  if (tx.type === 'transfer_to_futures') return -Math.abs(tx.amount);
+  if (tx.type === 'transfer_to_main') return Math.abs(tx.amount);
+  return Number(tx.amount) || 0;
+}
+
+function transactionAmountColor(value: number) {
+  if (value > 0) return Colors.up;
+  if (value < 0) return Colors.down;
+  return Colors.primary;
+}
+
 function transactionLabel(type: string, t: (key: string) => string) {
   const keyMap: Record<string, string> = {
     deposit: 'assets.txDeposit',
@@ -51,6 +71,11 @@ function transactionLabel(type: string, t: (key: string) => string) {
     copy_allocate: 'assets.txCopyAllocate',
     copy_withdraw: 'assets.txCopyWithdraw',
     copy_pnl_settle: 'assets.txCopyPnlSettle',
+    copy_profit_share_in: 'assets.txCopyProfitShareIn',
+    copy_profit_share_out: 'assets.txCopyProfitShareOut',
+    spot_buy: 'assets.txSpotBuy',
+    spot_sell: 'assets.txSpotSell',
+    spot_fee: 'assets.txSpotFee',
     transfer_to_futures: 'assets.txTransferToFutures',
     transfer_to_main: 'assets.txTransferToMain',
     referral_commission_in: 'assets.txReferralCommission',
@@ -62,6 +87,9 @@ function transactionLabel(type: string, t: (key: string) => string) {
 function transactionIconName(type: string): 'wallet' | 'send' | 'chart' | 'paper' {
   if (type === 'deposit') return 'wallet';
   if (type === 'withdraw') return 'send';
+  if (type === 'copy_profit_share_in' || type === 'copy_profit_share_out') return 'chart';
+  if (type === 'spot_buy' || type === 'spot_sell') return 'chart';
+  if (type === 'spot_fee') return 'send';
   if (type.startsWith('transfer_')) return 'chart';
   return 'paper';
 }
@@ -153,10 +181,11 @@ export default function AssetTransactionsScreen() {
   const summary = useMemo(() => {
     return items.reduce(
       (acc, item) => {
-        if (item.direction === 'credit') {
-          acc.inflow += item.net_amount;
-        } else if (item.direction === 'debit') {
-          acc.outflow += Math.abs(item.net_amount);
+        const signedAmount = resolveSignedTransactionAmount(item);
+        if (signedAmount > 0) {
+          acc.inflow += signedAmount;
+        } else if (signedAmount < 0) {
+          acc.outflow += Math.abs(signedAmount);
         }
         return acc;
       },
@@ -242,7 +271,9 @@ export default function AssetTransactionsScreen() {
         ) : items.length ? (
           <View style={styles.txList}>
             {items.map((tx) => {
-              const positive = tx.direction === 'credit';
+              const signedAmount = resolveSignedTransactionAmount(tx);
+              const positive = signedAmount > 0;
+              const negative = signedAmount < 0;
               const internal = tx.direction === 'internal';
               return (
                 <View key={tx.id} style={styles.txItem}>
@@ -252,14 +283,14 @@ export default function AssetTransactionsScreen() {
                         style={[
                           styles.txIconWrap,
                           positive && styles.txIconWrapSuccess,
-                          !positive && !internal && styles.txIconWrapDanger,
+                          negative && styles.txIconWrapDanger,
                           internal && styles.txIconWrapInfo,
                         ]}
                       >
                         <AppIcon
                           name={transactionIconName(tx.type)}
                           size={16}
-                          color={internal ? Colors.primary : positive ? Colors.up : Colors.down}
+                          color={transactionAmountColor(signedAmount)}
                         />
                       </View>
                       <View style={styles.txTitleBlock}>
@@ -283,8 +314,8 @@ export default function AssetTransactionsScreen() {
                         <Text style={styles.txTime}>{formatTransactionTime(tx.created_at)}</Text>
                       </View>
                     </View>
-                    <Text style={[styles.txAmountHero, { color: internal ? Colors.primary : positive ? Colors.up : Colors.down }]}>
-                      {internal ? '' : positive ? '+' : '-'}{formatUsd(tx.amount)} USDT
+                    <Text style={[styles.txAmountHero, { color: transactionAmountColor(signedAmount) }]}>
+                      {signedAmount > 0 ? '+' : signedAmount < 0 ? '-' : ''}{formatUsd(Math.abs(signedAmount))} USDT
                     </Text>
                   </View>
 

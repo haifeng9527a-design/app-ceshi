@@ -2968,11 +2968,7 @@ export default function MessagesScreen() {
   const [selectedProfileSeed, setSelectedProfileSeed] = useState<PeerProfile | null>(null);
 
   const showCallFeedback = useCallback((title: string, message: string) => {
-    if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      window.alert(`${title}\n\n${message}`);
-      return;
-    }
-    Alert.alert(title, message);
+    showAlert(message, title);
   }, []);
 
   // Initialize on mount

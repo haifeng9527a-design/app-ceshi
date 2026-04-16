@@ -7,6 +7,8 @@ export type AppIconName =
   | 'search'
   | 'close'
   | 'check'
+  | 'wallet'
+  | 'calendar'
   | 'market'
   | 'watchlist'
   | 'eye'
@@ -91,6 +93,24 @@ export default function AppIcon({
         );
       case 'check':
         return <Polyline points="6.8,12.4 10.1,15.4 17.2,8.6" {...common} />;
+      case 'wallet':
+        return (
+          <>
+            <Rect x="4.8" y="7.4" width="14.4" height="9.8" rx="2.4" {...common} />
+            <Path d="M16 10.2h3.2v4H16a2 2 0 0 1 0-4Z" {...common} />
+            <Circle cx="16.7" cy="12.2" r="0.8" fill={color} stroke="none" />
+          </>
+        );
+      case 'calendar':
+        return (
+          <>
+            <Rect x="4.8" y="6.2" width="14.4" height="13" rx="2.4" {...common} />
+            <Line x1="4.8" y1="9.6" x2="19.2" y2="9.6" {...common} />
+            <Line x1="8.4" y1="4.8" x2="8.4" y2="8.1" {...common} />
+            <Line x1="15.6" y1="4.8" x2="15.6" y2="8.1" {...common} />
+            <Rect x="8" y="12.3" width="3.4" height="3.1" rx="0.9" fill={color} stroke="none" />
+          </>
+        );
       case 'market':
         return (
           <>

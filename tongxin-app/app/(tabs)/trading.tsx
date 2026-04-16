@@ -33,6 +33,7 @@ import DrawingToolsSidebar, { DrawingToolsSettings, DEFAULT_ENABLED_TOOLS, type 
 import type { IndicatorType } from '../../components/chart/indicators';
 import SymbolDropdown, { type SymbolTab, type SymbolMeta } from '../../components/trading/SymbolDropdown';
 import { toDisplaySymbol } from '../../services/utils/symbolFormat';
+import { showAlert, showConfirm } from '../../services/utils/dialog';
 
 /* ════════════════════════════════════════
    Constants
@@ -688,12 +689,12 @@ export default function TradingScreen() {
 
   const handlePlaceOrder = useCallback(async (side: 'long' | 'short') => {
     if (!user) {
-      if (Platform.OS === 'web') window.alert(t('trading.loginFirst'));
+      showAlert(t('trading.loginFirst'));
       return;
     }
     const qty = getActualQty();
     if (!qty || qty <= 0) {
-      if (Platform.OS === 'web') window.alert(t('trading.enterQuantity'));
+      showAlert(t('trading.enterQuantity'));
       return;
     }
 
@@ -714,7 +715,7 @@ export default function TradingScreen() {
     if (orderType === 'limit') {
       const price = parseInputNumber(priceInput);
       if (!price || price <= 0) {
-        if (Platform.OS === 'web') window.alert(t('trading.enterLimitPrice'));
+        showAlert(t('trading.enterLimitPrice'));
         return;
       }
       req.price = price;
@@ -726,7 +727,7 @@ export default function TradingScreen() {
       setSliderPct(0);
     } catch (e: any) {
       const msg = e?.response?.data?.error || e?.message || t('trading.orderFailed');
-      if (Platform.OS === 'web') window.alert(msg);
+      showAlert(msg, t('trading.orderFailed'), 'danger');
     } finally {
       setOrderLoading(false);
     }
@@ -736,9 +737,8 @@ export default function TradingScreen() {
     const openPositions = positions.filter(p => !p.is_copy_trade);
     if (openPositions.length === 0) return;
     const msg = t('trading.closeAllConfirm', { count: openPositions.length });
-    if (Platform.OS === 'web') {
-      if (!window.confirm(msg)) return;
-    }
+    const confirmed = await showConfirm(msg);
+    if (!confirmed) return;
     setCloseAllLoading(true);
     try {
       await Promise.allSettled(openPositions.map(p => closePosition(p.id)));
@@ -754,7 +754,7 @@ export default function TradingScreen() {
 
   const handleDeposit = useCallback(async (amount: number) => {
     if (!user) {
-      if (Platform.OS === 'web') window.alert(t('trading.loginFirst'));
+      showAlert(t('trading.loginFirst'));
       return;
     }
     try {
@@ -763,7 +763,7 @@ export default function TradingScreen() {
       setShowDepositModal(false);
       setDepositAmount('');
     } catch (e: any) {
-      if (Platform.OS === 'web') window.alert(t('trading.depositFailed'));
+      showAlert(e?.response?.data?.error || e?.message || t('trading.depositFailed'), t('trading.depositFailed'), 'danger');
     }
   }, [doDeposit, user, fetchAccount, t]);
 

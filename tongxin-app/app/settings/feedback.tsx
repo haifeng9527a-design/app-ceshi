@@ -17,6 +17,7 @@ import { useTranslation } from 'react-i18next';
 import { Colors } from '../../theme/colors';
 import { submitFeedback, uploadImage } from '../../services/api/feedbackApi';
 import AppIcon, { type AppIconName } from '../../components/ui/AppIcon';
+import { showAlert } from '../../services/utils/dialog';
 
 type Category = 'complaint' | 'suggestion' | 'bug' | 'other';
 
@@ -37,17 +38,9 @@ export default function FeedbackScreen() {
     { value: 'other', label: t('feedback.categoryOther'), icon: 'paper' },
   ];
 
-  // 跨平台提示（Web 上 Alert.alert 静默无效，需要走 window.alert）
   const notify = (title: string, body: string, onOk?: () => void) => {
-    if (Platform.OS === 'web') {
-      if (typeof window !== 'undefined') {
-        // eslint-disable-next-line no-alert
-        window.alert(`${title}\n\n${body}`);
-      }
-      onOk?.();
-    } else {
-      Alert.alert(title, body, [{ text: t('common.confirm'), onPress: onOk }]);
-    }
+    showAlert(body, title);
+    onOk?.();
   };
 
   const pickImage = async () => {

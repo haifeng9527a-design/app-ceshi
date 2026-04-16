@@ -99,8 +99,8 @@ func (s *SpotService) LoadPendingOrders(ctx context.Context) error {
 //
 // 而 pendingBySymbol / priceCache / symbolMeta 都按 DB 原值 ("BTC/USDT", "AAPL/USDT") 做 key。
 // 不做映射会导致：
-//   1) priceCache 永远命不中 getPrice(db_sym)
-//   2) pending 限价单永远撮合不上
+//  1. priceCache 永远命不中 getPrice(db_sym)
+//  2. pending 限价单永远撮合不上
 func (s *SpotService) OnPriceUpdate(incomingSym string, price float64) {
 	for _, dbSym := range s.mapIncomingSymbol(incomingSym) {
 		s.priceMu.Lock()
@@ -146,6 +146,7 @@ func (s *SpotService) mapIncomingSymbol(incoming string) []string {
 // 平台按最新行情价成交，不需要对手盘。limit price 只作为触发阈值：
 //   - buy  限价：行情 <= limit 时触发
 //   - sell 限价：行情 >= limit 时触发
+//
 // 一旦触发，实际成交价使用当前 tick 的行情价（对用户更有利、也贴合真实撮合语义）。
 //
 // 触发路径：OnPriceUpdate 的 WS tick，或 placeLimit 下单后的主动 snap。
@@ -473,6 +474,57 @@ func (s *SpotService) GetSpotAccount(ctx context.Context, userID string) (*model
 // ListSupportedSymbols 公开端点：上架交易对。
 func (s *SpotService) ListSupportedSymbols(ctx context.Context, category string) ([]model.SpotSupportedSymbol, error) {
 	return s.repo.ListSupportedSymbols(ctx, category, true)
+}
+
+func (s *SpotService) GetAssetSnapshots(ctx context.Context) (map[string]model.SpotAssetSnapshot, error) {
+	syms, err := s.repo.ListSupportedSymbols(ctx, "", true)
+	if err != nil {
+		return nil, err
+	}
+
+	snapshots := make(map[string]model.SpotAssetSnapshot)
+	priorityForQuote := func(quote string) int {
+		switch strings.ToUpper(strings.TrimSpace(quote)) {
+		case "USDT":
+			return 0
+		case "USD":
+			return 1
+		default:
+			return 2
+		}
+	}
+
+	for _, sm := range syms {
+		price, _ := s.getPrice(sm.Symbol)
+		category := "crypto"
+		if strings.EqualFold(sm.Category, model.SpotCategoryStocks) {
+			category = "stock"
+		}
+
+		name := strings.TrimSpace(sm.DisplayName)
+		if name == "" {
+			name = sm.BaseAsset
+		}
+
+		next := model.SpotAssetSnapshot{
+			AssetCode:       strings.ToUpper(strings.TrimSpace(sm.BaseAsset)),
+			AssetName:       name,
+			Category:        category,
+			Symbol:          sm.Symbol,
+			QuoteAsset:      strings.ToUpper(strings.TrimSpace(sm.QuoteAsset)),
+			Price:           price,
+			DailyChangeRate: 0,
+		}
+
+		current, exists := snapshots[next.AssetCode]
+		if !exists ||
+			(priorityForQuote(next.QuoteAsset) < priorityForQuote(current.QuoteAsset)) ||
+			(current.Price <= 0 && next.Price > 0) {
+			snapshots[next.AssetCode] = next
+		}
+	}
+
+	return snapshots, nil
 }
 
 // GetFeeSchedule 公开端点：所有 VIP 等级的现货费率。

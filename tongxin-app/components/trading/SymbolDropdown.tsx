@@ -11,7 +11,7 @@
  * categories they want (e.g. crypto + stocks, dropping forex + futures).
  */
 
-import { memo, useCallback, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -37,6 +37,8 @@ export type SymbolMeta = {
   quoteSymbol?: string;
   /** Override price precision for this row. */
   pricePrecision?: number;
+  /** Explicit icon category when row lives in synthetic tabs like watchlist. */
+  category?: 'stock' | 'crypto';
 };
 
 export type SymbolTab = { key: string; label: string };
@@ -114,7 +116,15 @@ const QuoteRow = memo(function QuoteRow({
   onPress: (sym: string) => void;
 }) {
   const q = useMarketStore((s) => s.quotes[lookupKey]);
+  const watchlist = useMarketStore((s) => s.watchlist);
+  const addWatchlist = useMarketStore((s) => s.addWatchlist);
+  const removeWatchlist = useMarketStore((s) => s.removeWatchlist);
   const pct = q?.percent_change;
+  const isWatched = watchlist.includes(lookupKey);
+  const toggleWatchlist = useCallback(() => {
+    if (isWatched) removeWatchlist(lookupKey);
+    else addWatchlist(lookupKey);
+  }, [isWatched, removeWatchlist, addWatchlist, lookupKey]);
   return (
     <TouchableOpacity
       style={[styles.row, isActive && styles.rowActive]}
@@ -146,6 +156,20 @@ const QuoteRow = memo(function QuoteRow({
       <Text style={[styles.rowChange, { color: changeColor(pct) }]}>
         {formatChange(pct)}
       </Text>
+      <TouchableOpacity
+        style={styles.starBtn}
+        onPress={(e) => {
+          e?.stopPropagation?.();
+          toggleWatchlist();
+        }}
+        activeOpacity={0.7}
+      >
+        <AppIcon
+          name="watchlist"
+          size={15}
+          color={isWatched ? Colors.primary : Colors.textMuted}
+        />
+      </TouchableOpacity>
     </TouchableOpacity>
   );
 });
@@ -161,6 +185,7 @@ export default function SymbolDropdown({
   getMeta,
 }: SymbolDropdownProps) {
   const { t } = useTranslation();
+  const watchlist = useMarketStore((s) => s.watchlist);
 
   // Auto-pick the tab that contains the currently selected symbol on open.
   const resolveTab = (): string => {
@@ -173,6 +198,37 @@ export default function SymbolDropdown({
 
   const [activeTab, setActiveTab] = useState<string>(resolveTab);
   const [filter, setFilter] = useState('');
+
+  const symbolLookupByWatchKey = useCallback(
+    (watchKey: string): string | null => {
+      for (const [, symbolList] of Object.entries(symbolsByTab)) {
+        for (const sym of symbolList) {
+          const meta = getMeta?.(sym);
+          if ((meta?.quoteSymbol ?? sym) === watchKey) return sym;
+        }
+      }
+      return null;
+    },
+    [symbolsByTab, getMeta],
+  );
+
+  const watchlistSymbols = useMemo(() => {
+    const deduped: string[] = [];
+    const seen = new Set<string>();
+    for (const watchKey of watchlist) {
+      const sym = symbolLookupByWatchKey(watchKey);
+      if (sym && !seen.has(sym)) {
+        seen.add(sym);
+        deduped.push(sym);
+      }
+    }
+    return deduped;
+  }, [watchlist, symbolLookupByWatchKey]);
+
+  const effectiveTabs = useMemo<SymbolTab[]>(() => {
+    if (watchlistSymbols.length === 0) return tabs;
+    return [{ key: 'watchlist', label: t('market.watchlist') }, ...tabs];
+  }, [tabs, watchlistSymbols.length, t]);
 
   // Stable row-press handler so <QuoteRow memo> doesn't reset on every parent render.
   const handleRowPress = useCallback(
@@ -192,9 +248,16 @@ export default function SymbolDropdown({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, selectedSymbol]);
 
+  useEffect(() => {
+    if (activeTab === 'watchlist' && watchlistSymbols.length === 0) {
+      setActiveTab(resolveTab());
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, watchlistSymbols.length]);
+
   if (!visible) return null;
 
-  const list = symbolsByTab[activeTab] ?? [];
+  const list = activeTab === 'watchlist' ? watchlistSymbols : symbolsByTab[activeTab] ?? [];
   const filtered = filter
     ? list.filter((sym) => {
         const lower = filter.toLowerCase();
@@ -226,7 +289,7 @@ export default function SymbolDropdown({
 
         {/* Tabs */}
         <View style={styles.tabRow}>
-          {tabs.map((tab) => (
+          {effectiveTabs.map((tab) => (
             <TouchableOpacity
               key={tab.key}
               style={[styles.tab, activeTab === tab.key && styles.tabActive]}
@@ -278,7 +341,7 @@ export default function SymbolDropdown({
                       ? 'stock'
                       : activeTab === 'crypto'
                         ? 'crypto'
-                        : undefined
+                        : meta?.category
                   }
                   isActive={selectedSymbol === sym}
                   onPress={handleRowPress}
@@ -420,6 +483,15 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textAlign: 'right',
     fontFamily: 'monospace',
+  },
+  starBtn: {
+    marginLeft: 10,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.02)',
   },
   empty: {
     paddingVertical: 40,

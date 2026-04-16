@@ -9,6 +9,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { Colors } from '../../theme/colors';
+import { showPrompt } from '../../services/utils/dialog';
 import apiClient from '../../services/api/client';
 
 interface RichTextEditorProps {
@@ -113,8 +114,20 @@ export default function RichTextEditor({
               <ToolbarBtn
                 label={t('strategy.toolbarLink')}
                 onPress={() => {
-                  const url = prompt(t('strategy.linkPrompt'));
-                  if (url) document.execCommand('createLink', false, url);
+                  void (async () => {
+                    const url = await showPrompt({
+                      title: t('strategy.toolbarLink'),
+                      message: t('strategy.linkPrompt'),
+                      placeholder: 'https://',
+                      keyboardType: 'url',
+                      validator: (value) => {
+                        const trimmed = value.trim();
+                        if (!trimmed) return t('strategy.linkPrompt');
+                        return undefined;
+                      },
+                    });
+                    if (url) document.execCommand('createLink', false, url.trim());
+                  })();
                 }}
               />
               <ToolbarBtn

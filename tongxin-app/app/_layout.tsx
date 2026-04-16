@@ -9,6 +9,8 @@ import { useAuthStore } from '../services/store/authStore';
 import { loadLanguagePreference } from '../services/storage/preferences';
 import i18n from '../i18n';
 import '../i18n';
+import DialogHost from '../components/ui/DialogHost';
+import { installDialogAlertBridge } from '../services/utils/dialog';
 
 let livekitGlobalsReady = false;
 
@@ -41,6 +43,10 @@ export default function RootLayout() {
     };
   }, []);
 
+  useEffect(() => {
+    installDialogAlertBridge();
+  }, []);
+
   // Initialize Firebase auth listener
   useEffect(() => {
     const unsubscribe = initialize();
@@ -70,6 +76,7 @@ export default function RootLayout() {
           contentStyle: { backgroundColor: Colors.background },
         }}
       />
+      <DialogHost />
     </>
   );
 }

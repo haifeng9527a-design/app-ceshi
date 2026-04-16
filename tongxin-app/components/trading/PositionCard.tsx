@@ -1,9 +1,10 @@
 import { memo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, StyleSheet, Alert, Platform, Modal, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, StyleSheet, Modal, ScrollView } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import type { PositionResponse } from '../../services/api/tradingApi';
 import { updateTPSL, partialClosePosition } from '../../services/api/tradingApi';
 import { toDisplaySymbol } from '../../services/utils/symbolFormat';
+import { showAlert } from '../../services/utils/dialog';
 
 interface Props {
   position: PositionResponse;
@@ -169,8 +170,7 @@ function PositionCard({ position, onClose, onUpdated }: Props) {
       onUpdated?.();
     } catch (e: any) {
       const msg = e?.response?.data?.error || e?.message || t('trading.setFailed');
-      if (Platform.OS === 'web') window.alert(msg);
-      else Alert.alert(t('trading.setFailed'), msg);
+      showAlert(msg, t('trading.setFailed'), 'danger');
     } finally {
       setTpslLoading(false);
     }
@@ -186,8 +186,7 @@ function PositionCard({ position, onClose, onUpdated }: Props) {
       onUpdated?.();
     } catch (e: any) {
       const msg = e?.response?.data?.error || e?.message || t('trading.closeFailed');
-      if (Platform.OS === 'web') window.alert(msg);
-      else Alert.alert(t('trading.closeFailed'), msg);
+      showAlert(msg, t('trading.closeFailed'), 'danger');
     } finally {
       setPartialLoading(false);
     }

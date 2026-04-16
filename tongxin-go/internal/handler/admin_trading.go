@@ -11,8 +11,10 @@ import (
 
 type AdminTradingHandler struct {
 	tradingSvc  *service.TradingService
+	assetsSvc   *service.AssetsService
 	feeRepo     *repository.FeeRepo
 	walletRepo  *repository.WalletRepo
+	assetsRepo  *repository.AssetsRepo
 	posRepo     *repository.PositionRepo
 	orderRepo   *repository.OrderRepo
 	userRepo    *repository.UserRepo
@@ -22,8 +24,10 @@ type AdminTradingHandler struct {
 
 func NewAdminTradingHandler(
 	tradingSvc *service.TradingService,
+	assetsSvc *service.AssetsService,
 	feeRepo *repository.FeeRepo,
 	walletRepo *repository.WalletRepo,
+	assetsRepo *repository.AssetsRepo,
 	posRepo *repository.PositionRepo,
 	orderRepo *repository.OrderRepo,
 	userRepo *repository.UserRepo,
@@ -32,8 +36,10 @@ func NewAdminTradingHandler(
 ) *AdminTradingHandler {
 	return &AdminTradingHandler{
 		tradingSvc:  tradingSvc,
+		assetsSvc:   assetsSvc,
 		feeRepo:     feeRepo,
 		walletRepo:  walletRepo,
+		assetsRepo:  assetsRepo,
 		posRepo:     posRepo,
 		orderRepo:   orderRepo,
 		userRepo:    userRepo,
@@ -442,4 +448,57 @@ func (h *AdminTradingHandler) ListAllTransactions(w http.ResponseWriter, r *http
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"transactions": txs, "total": total})
+}
+
+// GET /api/admin/asset-withdrawals
+func (h *AdminTradingHandler) ListAssetWithdrawals(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	offset, _ := strconv.Atoi(q.Get("offset"))
+	if limit <= 0 {
+		limit = 50
+	}
+	items, total, err := h.assetsRepo.ListAdminWithdrawals(r.Context(), q.Get("status"), limit, offset)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list asset withdrawals")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"withdrawals": items, "total": total})
+}
+
+// POST /api/admin/asset-withdrawals/{id}/approve
+func (h *AdminTradingHandler) ApproveAssetWithdrawal(w http.ResponseWriter, r *http.Request) {
+	adminUID := middleware.GetUserUID(r.Context())
+	if h.assetsSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, "asset withdrawal service unavailable")
+		return
+	}
+	if err := decodeJSON(r, &struct{}{}); err != nil && r.ContentLength > 0 {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	item, err := h.assetsSvc.ApproveWithdrawal(r.Context(), r.PathValue("id"), adminUID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+// POST /api/admin/asset-withdrawals/{id}/reject
+func (h *AdminTradingHandler) RejectAssetWithdrawal(w http.ResponseWriter, r *http.Request) {
+	adminUID := middleware.GetUserUID(r.Context())
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	item, err := h.assetsRepo.RejectWithdrawal(r.Context(), r.PathValue("id"), adminUID, req.Reason)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
 }
