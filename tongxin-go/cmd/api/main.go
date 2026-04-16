@@ -15,9 +15,11 @@ import (
 
 	"tongxin-go/internal/config"
 	"tongxin-go/internal/handler"
+	"tongxin-go/internal/integrations/udun"
 	"tongxin-go/internal/market"
 	mw "tongxin-go/internal/middleware"
 	"tongxin-go/internal/repository"
+	"tongxin-go/internal/scheduler"
 	"tongxin-go/internal/service"
 	"tongxin-go/internal/ws"
 )
@@ -39,6 +41,7 @@ func main() {
 	var watchlistRepo *repository.WatchlistRepo
 	var callRepo *repository.CallRepo
 	var supportRepo *repository.SupportRepo
+	var assetsRepo *repository.AssetsRepo
 
 	var dbCloser func()
 	var pool *pgxpool.Pool
@@ -58,6 +61,7 @@ func main() {
 			teacherRepo = repository.NewTeacherRepo(pool)
 			watchlistRepo = repository.NewWatchlistRepo(pool)
 			supportRepo = repository.NewSupportRepo(pool)
+			assetsRepo = repository.NewAssetsRepo(pool)
 			log.Println("[OK] Database connected")
 		}
 	} else {
@@ -81,6 +85,8 @@ func main() {
 	var callSvc *service.CallService
 	var supportSvc *service.SupportService
 	var chatProfileSvc *service.ChatProfileService
+	var udunClient *udun.Client
+	var udunStatus string
 
 	if userRepo != nil {
 		userSvc = service.NewUserService(userRepo)
@@ -99,6 +105,19 @@ func main() {
 	}
 	if teacherRepo != nil {
 		teacherSvc = service.NewTeacherService(teacherRepo)
+	}
+	if cfg.UdunEnabled {
+		client, err := udun.NewFromAppConfig(cfg)
+		if err != nil {
+			udunStatus = err.Error()
+			log.Printf("[WARN] Udun client unavailable: %v", err)
+		} else {
+			udunClient = client
+			udunStatus = "ready"
+			log.Println("[OK] Udun client initialized")
+		}
+	} else {
+		udunStatus = "UDUN_ENABLED=false"
 	}
 
 	// ── Market Data ──
@@ -427,6 +446,48 @@ func main() {
 		log.Println("[OK] Native trading + wallet routes registered")
 	}
 
+	// ── Referral / Agent program ──
+	var referralSvc *service.ReferralService
+	var commissionScheduler *scheduler.Scheduler
+	if pool != nil {
+		referralRepo := repository.NewReferralRepo(pool)
+		referralSvc = service.NewReferralService(cfg, referralRepo)
+
+		commissionScheduler = scheduler.NewScheduler(cfg, referralSvc)
+		commissionScheduler.Start()
+	}
+
+	// Wire referral into trading service for fee instrumentation (commit 6)
+	if tradingSvc != nil && referralSvc != nil {
+		tradingSvc.ReferralSvc = referralSvc
+	}
+
+	var assetsSvc *service.AssetsService
+
+	// Assets (read-only aggregation first; no copy bucket writes here)
+	if assetsRepo != nil {
+		assetsSvc = service.NewAssetsService(assetsRepo, walletRepo, tradingSvc, udunClient, udunStatus)
+		assetsH := handler.NewAssetsHandler(assetsSvc)
+		callbackSecret := strings.TrimSpace(cfg.UdunSignSecret)
+		if callbackSecret == "" {
+			callbackSecret = strings.TrimSpace(cfg.UdunAPIKey)
+		}
+		udunCallbackH := handler.NewUdunCallbackHandler(assetsSvc, callbackSecret)
+		mux.HandleFunc("POST /api/integrations/udun/callback/deposit", udunCallbackH.Deposit)
+		mux.HandleFunc("POST /api/integrations/udun/callback/withdraw", udunCallbackH.Withdraw)
+		mux.Handle("GET /api/assets/overview", authMw.Authenticate(http.HandlerFunc(assetsH.GetOverview)))
+		mux.Handle("GET /api/assets/copy-summary", authMw.Authenticate(http.HandlerFunc(assetsH.GetCopySummary)))
+		mux.Handle("GET /api/assets/transactions", authMw.Authenticate(http.HandlerFunc(assetsH.GetTransactions)))
+		mux.Handle("GET /api/assets/deposits", authMw.Authenticate(http.HandlerFunc(assetsH.GetDepositRecords)))
+		mux.Handle("GET /api/assets/deposit-options", authMw.Authenticate(http.HandlerFunc(assetsH.GetDepositOptions)))
+		mux.Handle("GET /api/assets/deposit-addresses", authMw.Authenticate(http.HandlerFunc(assetsH.GetDepositAddresses)))
+		mux.Handle("POST /api/assets/deposit-addresses", authMw.Authenticate(http.HandlerFunc(assetsH.CreateDepositAddress)))
+		mux.Handle("POST /api/assets/deposit", authMw.Authenticate(http.HandlerFunc(assetsH.Deposit)))
+		mux.Handle("POST /api/assets/withdraw", authMw.Authenticate(http.HandlerFunc(assetsH.Withdraw)))
+		mux.Handle("POST /api/assets/transfer", authMw.Authenticate(http.HandlerFunc(assetsH.Transfer)))
+		log.Println("[OK] Assets routes registered")
+	}
+
 	// Trading WebSocket (authenticated)
 	if tradingHub != nil {
 		mux.HandleFunc("GET /ws/trading", func(w http.ResponseWriter, r *http.Request) {
@@ -594,7 +655,7 @@ func main() {
 			revenueRepo := repository.NewRevenueRepo(pool)
 			tpaRepo := repository.NewThirdPartyApiRepo(pool)
 			adminTradingH := handler.NewAdminTradingHandler(
-				tradingSvc, feeRepo, walletRepo, positionRepo, orderRepo, userRepo, revenueRepo, tpaRepo,
+				tradingSvc, assetsSvc, feeRepo, walletRepo, assetsRepo, positionRepo, orderRepo, userRepo, revenueRepo, tpaRepo,
 			)
 
 			// Fee management
@@ -631,6 +692,9 @@ func main() {
 			mux.Handle("GET /api/admin/orders", adminAuth(adminTradingH.ListAllOrders))
 			mux.Handle("GET /api/admin/wallets", adminAuth(adminTradingH.ListWallets))
 			mux.Handle("GET /api/admin/wallet-transactions", adminAuth(adminTradingH.ListAllTransactions))
+			mux.Handle("GET /api/admin/asset-withdrawals", adminAuth(adminTradingH.ListAssetWithdrawals))
+			mux.Handle("POST /api/admin/asset-withdrawals/{id}/approve", adminAuth(adminTradingH.ApproveAssetWithdrawal))
+			mux.Handle("POST /api/admin/asset-withdrawals/{id}/reject", adminAuth(adminTradingH.RejectAssetWithdrawal))
 
 			log.Println("[OK] Admin trading & financial routes registered")
 		}
@@ -666,6 +730,9 @@ func main() {
 		<-sigCh
 		log.Println("Shutting down...")
 
+		if commissionScheduler != nil {
+			commissionScheduler.Stop()
+		}
 		if chatRedisCancel != nil {
 			chatRedisCancel()
 		}

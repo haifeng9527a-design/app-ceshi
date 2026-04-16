@@ -58,6 +58,10 @@ type TradingService struct {
 	// 关闭时跟单平仓行为与本 commit 之前完全等价，便于灰度回滚。
 	ProfitShareEnabled bool
 
+	// ReferralSvc 用于交易扣费后异步发送邀请返佣事件（commit 6 埋点）。
+	// 当 ReferralSvc 为 nil 或 cfg.ReferralEnabled = false 时，所有调用立即返回。
+	ReferralSvc *ReferralService
+
 	// In-memory pending limit orders cache for instant trigger
 	pendingMu       sync.RWMutex
 	pendingBySymbol map[string][]model.Order
