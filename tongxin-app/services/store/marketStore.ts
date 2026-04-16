@@ -33,6 +33,11 @@ interface MarketState {
   quotes: Record<string, MarketQuote>;
   watchlist: string[];
 
+  // 用户在现货 / 合约页选择的 K 线周期（例如 '1min' / '15min' / '1h' / '1day'）。
+  // 单独按场景存，避免合约切回现货时被覆盖。两者都走 persist，刷新不会丢。
+  spotTimeframe: string;
+  futuresTimeframe: string;
+
   // K-line
   klines: KlineBar[];
   klinesLoading: boolean;
@@ -74,6 +79,8 @@ interface MarketState {
   addWatchlist: (symbol: string) => void;
   removeWatchlist: (symbol: string) => void;
   isInWatchlist: (symbol: string) => boolean;
+  setSpotTimeframe: (tf: string) => void;
+  setFuturesTimeframe: (tf: string) => void;
 }
 
 // Map backend interval names to API format
@@ -121,22 +128,48 @@ function schedulePersistQuotes(quotes: Record<string, MarketQuote>) {
   }, QUOTE_PERSIST_DEBOUNCE_MS);
 }
 
-// ─── Watchlist persistence ────────────────────────────────────────
-// 自选列表持久化：之前只存在内存，刷新/重启后会回到默认，导致用户添加的币种消失。
-const WATCHLIST_KEY = 'tongxin_watchlist_v1';
+// ─── Watchlist + timeframe persistence ────────────────────────────
+// 不能用 zustand/middleware 的 persist：它的 devtools 路径里用到了 import.meta，
+// Metro 把整个 web bundle 作为 <script> 加载，遇到 import.meta 会直接 SyntaxError
+// 让整个 bundle 挂掉（白屏）。因此自己做手动 hydrate + 写时落盘。
+// 存储字段：watchlist / spotTimeframe / futuresTimeframe。
 const DEFAULT_WATCHLIST = ['BTC/USD', 'ETH/USD', 'AAPL', 'EUR/USD'];
+const WATCHLIST_STORAGE_KEY = 'tongxin_market_v2';
+const LEGACY_WATCHLIST_KEY = 'tongxin_watchlist_v1'; // 旧版只存纯数组 JSON
 
-function persistWatchlist(list: string[]) {
-  try {
-    AsyncStorage.setItem(WATCHLIST_KEY, JSON.stringify(list)).catch(() => {});
-  } catch {
-    // 序列化失败忽略
-  }
+interface PersistedMarketShape {
+  watchlist?: unknown;
+  spotTimeframe?: unknown;
+  futuresTimeframe?: unknown;
+}
+
+// 落盘防抖：多个 setXxx 连续触发时合并一次写。
+let persistStateTimer: ReturnType<typeof setTimeout> | null = null;
+function schedulePersistState() {
+  if (persistStateTimer) return;
+  persistStateTimer = setTimeout(() => {
+    persistStateTimer = null;
+    try {
+      const s = useMarketStore.getState();
+      const payload = JSON.stringify({
+        watchlist: s.watchlist,
+        spotTimeframe: s.spotTimeframe,
+        futuresTimeframe: s.futuresTimeframe,
+      });
+      AsyncStorage.setItem(WATCHLIST_STORAGE_KEY, payload).catch((e) => {
+        console.warn('[marketStore] persist state failed:', e);
+      });
+    } catch (e) {
+      console.warn('[marketStore] persist state serialize failed:', e);
+    }
+  }, 200);
 }
 
 export const useMarketStore = create<MarketState>((set, get) => ({
   quotes: {},
   watchlist: DEFAULT_WATCHLIST,
+  spotTimeframe: '1h',
+  futuresTimeframe: '1h',
   indices: [],
   indicesLoading: false,
   klines: [],
@@ -338,22 +371,83 @@ export const useMarketStore = create<MarketState>((set, get) => ({
   setWsConnected: (connected) => set({ wsConnected: connected }),
 
   addWatchlist: (symbol) => {
-    const wl = [...get().watchlist];
-    if (!wl.includes(symbol)) {
-      wl.push(symbol);
-      set({ watchlist: wl });
-      persistWatchlist(wl);
-    }
+    if (!symbol || typeof symbol !== 'string') return;
+    const wl = get().watchlist;
+    if (wl.includes(symbol)) return;
+    set({ watchlist: [...wl, symbol] });
+    schedulePersistState();
   },
 
   removeWatchlist: (symbol) => {
-    const wl = get().watchlist.filter((s) => s !== symbol);
-    set({ watchlist: wl });
-    persistWatchlist(wl);
+    const wl = get().watchlist;
+    if (!wl.includes(symbol)) return;
+    set({ watchlist: wl.filter((s) => s !== symbol) });
+    schedulePersistState();
   },
 
   isInWatchlist: (symbol) => get().watchlist.includes(symbol),
+
+  setSpotTimeframe: (tf) => {
+    if (!tf || typeof tf !== 'string') return;
+    if (get().spotTimeframe === tf) return;
+    set({ spotTimeframe: tf });
+    schedulePersistState();
+  },
+
+  setFuturesTimeframe: (tf) => {
+    if (!tf || typeof tf !== 'string') return;
+    if (get().futuresTimeframe === tf) return;
+    set({ futuresTimeframe: tf });
+    schedulePersistState();
+  },
 }));
+
+// ─── Hydrate persisted state on module load ───────────────────────
+// 异步读 AsyncStorage，把 watchlist / spotTimeframe / futuresTimeframe 恢复进 store。
+// 合并策略：只有 persisted 有有效值才覆盖默认；空数组 / 空串 走默认。
+// 同时兼容老 key tongxin_watchlist_v1（纯数组 JSON）。
+(async () => {
+  try {
+    const raw = await AsyncStorage.getItem(WATCHLIST_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as PersistedMarketShape;
+      const patch: Partial<MarketState> = {};
+      if (Array.isArray(parsed.watchlist)) {
+        const valid = (parsed.watchlist as unknown[]).filter(
+          (s): s is string => typeof s === 'string' && s.trim().length > 0,
+        );
+        if (valid.length > 0) patch.watchlist = valid;
+      }
+      if (typeof parsed.spotTimeframe === 'string' && parsed.spotTimeframe) {
+        patch.spotTimeframe = parsed.spotTimeframe;
+      }
+      if (typeof parsed.futuresTimeframe === 'string' && parsed.futuresTimeframe) {
+        patch.futuresTimeframe = parsed.futuresTimeframe;
+      }
+      if (Object.keys(patch).length > 0) {
+        useMarketStore.setState(patch);
+      }
+    } else {
+      // 迁移：老版本把 watchlist 单独存在 tongxin_watchlist_v1 里（纯数组）
+      const legacy = await AsyncStorage.getItem(LEGACY_WATCHLIST_KEY);
+      if (legacy) {
+        const arr = JSON.parse(legacy);
+        if (Array.isArray(arr)) {
+          const valid = arr.filter(
+            (s: unknown): s is string => typeof s === 'string' && s.trim().length > 0,
+          );
+          if (valid.length > 0) {
+            useMarketStore.setState({ watchlist: valid });
+            schedulePersistState();
+            AsyncStorage.removeItem(LEGACY_WATCHLIST_KEY).catch(() => {});
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[marketStore] hydrate failed:', e);
+  }
+})();
 
 // ─── Hydrate persisted quotes on module load ──────────────────────
 // Non-blocking. Live values (from REST/WS after app start) always win;
@@ -378,18 +472,3 @@ export const useMarketStore = create<MarketState>((set, get) => ({
   }
 })();
 
-// ─── Hydrate persisted watchlist on module load ───────────────────
-// 读取用户自选列表；若存在则用它替换默认值。非阻塞。
-(async () => {
-  try {
-    const raw = await AsyncStorage.getItem(WATCHLIST_KEY);
-    if (!raw) return;
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return;
-    const list = parsed.filter((s): s is string => typeof s === 'string' && s.trim().length > 0);
-    if (list.length === 0) return;
-    useMarketStore.setState({ watchlist: list });
-  } catch {
-    AsyncStorage.removeItem(WATCHLIST_KEY).catch(() => {});
-  }
-})();
