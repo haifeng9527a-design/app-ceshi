@@ -281,7 +281,21 @@
     "cancelled": "Cancelled",
     "rejected": "Rejected",
     "cancelOrder": "Cancel",
-    "time": "Time"
+    "time": "Time",
+    "totalValue": "Total Value"
+  },
+  "spot":   {
+    "orderBook": "Order Book",
+    "recentTrades": "Recent Trades",
+    "price": "Price",
+    "qty": "Amount",
+    "amount": "Total",
+    "availableBalance": "Available",
+    "currentOrders": "Open Orders",
+    "orderHistory": "Order History",
+    "holdings": "Holdings",
+    "noOrders": "No orders",
+    "cancelOrder": "Cancel"
   },
   "assets": {
     "title": "Assets Overview",

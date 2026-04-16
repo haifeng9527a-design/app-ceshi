@@ -281,7 +281,21 @@
     "cancelled": "已撤销",
     "rejected": "已拒绝",
     "cancelOrder": "撤单",
-    "time": "时间"
+    "time": "时间",
+    "totalValue": "总估值"
+  },
+  "spot":   {
+    "orderBook": "订单簿",
+    "recentTrades": "最近成交",
+    "price": "价格",
+    "qty": "数量",
+    "amount": "金额",
+    "availableBalance": "可用",
+    "currentOrders": "当前委托",
+    "orderHistory": "历史委托",
+    "holdings": "资产持仓",
+    "noOrders": "暂无委托",
+    "cancelOrder": "撤单"
   },
   "assets": {
     "title": "资产总览",
