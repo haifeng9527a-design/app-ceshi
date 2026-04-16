@@ -77,7 +77,29 @@ type TradingService struct {
 	// In-memory latest price cache (updated by market WS pushQuote → OnPriceUpdate)
 	priceMu    sync.RWMutex
 	priceCache map[string]float64
+
+	// Per-bucket equity snapshot cache. The tick loop reads every touched
+	// bucket's (available + frozen) capital on every price update to recompute
+	// cross-margin liq prices — raw DB queries at 50ms cadence × N buckets
+	// hammers Postgres. This cache serves reads within `bucketCacheTTL` of the
+	// last DB fetch; writes (FreezeFromBucket, SettleToBucket, allocate,
+	// liquidate) invalidate the relevant bucket so stale data can't persist
+	// past the next tick.
+	bucketMu    sync.RWMutex
+	bucketCache map[string]cachedBucketSnapshot
 }
+
+type cachedBucketSnapshot struct {
+	available float64
+	frozen    float64
+	ts        time.Time
+}
+
+// bucketCacheTTL bounds how stale a cached bucket equity may be. 200ms is
+// ~4 tick cycles — short enough that a sudden settle/liq gets refreshed
+// before it could mis-drive a liquidation decision, long enough to collapse
+// the usual burst of same-bucket reads within one tick.
+const bucketCacheTTL = 200 * time.Millisecond
 
 // Default VIP fee schedule (fallback when DB is unavailable)
 var defaultFeeSchedule = []model.VipFeeRate{
@@ -187,7 +209,54 @@ func NewTradingService(
 		openBySymbol:    make(map[string][]cachedPosition),
 		feeCache:        defaultFeeSchedule,
 		priceCache:      make(map[string]float64),
+		bucketCache:     make(map[string]cachedBucketSnapshot),
 	}
+}
+
+// getBucketEquity returns (available + frozen) for a copy_trading bucket,
+// served from cache if the last fetch is within bucketCacheTTL. On miss or
+// DB error the function returns (0, false) so callers can fall back to the
+// safe default (zero equity ⇒ maintenance-margin-only liq; the old behaviour
+// before this cache existed). Safe for concurrent callers.
+func (s *TradingService) getBucketEquity(ctx context.Context, bucketID string) (float64, bool) {
+	if bucketID == "" || s.traderRepo == nil {
+		return 0, false
+	}
+	s.bucketMu.RLock()
+	snap, ok := s.bucketCache[bucketID]
+	s.bucketMu.RUnlock()
+	if ok && time.Since(snap.ts) < bucketCacheTTL {
+		return snap.available + snap.frozen, true
+	}
+
+	ct, err := s.traderRepo.GetCopyTradingByID(ctx, bucketID)
+	if err != nil || ct == nil {
+		return 0, false
+	}
+	s.bucketMu.Lock()
+	s.bucketCache[bucketID] = cachedBucketSnapshot{
+		available: ct.AvailableCapital,
+		frozen:    ct.FrozenCapital,
+		ts:        time.Now(),
+	}
+	s.bucketMu.Unlock()
+	return ct.AvailableCapital + ct.FrozenCapital, true
+}
+
+// invalidateBucketCache drops the cached snapshot for a bucket so the next
+// reader falls through to a fresh DB fetch. Call this after any write that
+// changes (available + frozen): FreezeFromBucket, UnfreezeBucket,
+// SettleToBucket, AdjustAllocatedCapital, and the settle path inside
+// liquidatePosition / ClosePosition for copy positions. Missing an
+// invalidation is bounded by bucketCacheTTL, so the worst case is a single
+// tick processing with slightly-stale equity.
+func (s *TradingService) invalidateBucketCache(bucketID string) {
+	if bucketID == "" {
+		return
+	}
+	s.bucketMu.Lock()
+	delete(s.bucketCache, bucketID)
+	s.bucketMu.Unlock()
 }
 
 // LoadPendingOrders loads all pending limit orders from DB into memory cache on startup.
@@ -245,6 +314,46 @@ func (s *TradingService) LoadOpenPositions(ctx context.Context) {
 		s.openBySymbol[p.Symbol] = append(s.openBySymbol[p.Symbol], cp)
 	}
 	log.Printf("[trading] loaded %d open positions into cache", len(positions))
+}
+
+// ReconcileOrphanedCopyPositions closes copy positions whose source (trader)
+// position was already closed/liquidated. `triggerCopyClose` now fires
+// synchronously inside `liquidatePosition`/`ClosePosition`/`closePositionByTPSL`
+// so the crash window is tiny, but a few edge cases can still produce orphans:
+//   - kill -9 between the trader's DB status flip and the cascade completing
+//   - a panic mid-loop caught by `triggerCopyClose`'s `defer recover()` that
+//     unwinds before later followers in the same cascade are processed
+//   - historical rows from when the cascade was still a goroutine
+// Startup reconciliation is a cheap belt-and-suspenders catch-all for those.
+//
+// Runs after `LoadOpenPositions` so the cache is populated — each close goes
+// through `ClosePosition`, which removes from cache and settles to the bucket.
+// Safe to run repeatedly: ClosePosition's atomic status check means a position
+// already closed on a concurrent path just returns an error which we log.
+func (s *TradingService) ReconcileOrphanedCopyPositions(ctx context.Context) {
+	if s.traderRepo == nil {
+		return
+	}
+	orphans, err := s.positionRepo.ListOrphanedCopyPositions(ctx)
+	if err != nil {
+		log.Printf("[trading] reconcile orphaned copy positions: list error: %v", err)
+		return
+	}
+	if len(orphans) == 0 {
+		log.Printf("[trading] reconcile orphaned copy positions: 0 orphans")
+		return
+	}
+	log.Printf("[trading] reconciling %d orphaned copy positions (trader liquidated/closed but follower still open)", len(orphans))
+	for _, p := range orphans {
+		closed, cerr := s.ClosePosition(ctx, p.UserID, p.ID)
+		if cerr != nil {
+			log.Printf("[trading] reconcile orphan close failed: follower=%s pos=%s source=%v err=%v",
+				p.UserID, p.ID, p.SourcePositionID, cerr)
+			continue
+		}
+		log.Printf("[trading] reconciled orphan copy position: follower=%s pos=%s symbol=%s side=%s pnl=%.4f",
+			p.UserID, p.ID, closed.Symbol, closed.Side, closed.RealizedPnl)
+	}
 }
 
 // addPositionToCache adds or updates a position in the in-memory cache.
@@ -345,35 +454,57 @@ func (s *TradingService) OnPriceUpdate(symbol string, price float64) {
 	openPositions := make([]cachedPosition, len(s.openBySymbol[symbol]))
 	copy(openPositions, s.openBySymbol[symbol])
 
-	// For cross margin: pre-compute total equity per user
-	// totalEquity = balance + frozen + all unrealized PnL from ALL cross positions (all symbols)
+	// For cross margin: pre-compute total equity per *equity scope*.
+	// Two disjoint equity pools are tracked:
+	//   - "wallet": one per user, covers their non-copy cross positions.
+	//               base equity = wallets.balance + wallets.frozen
+	//   - "bucket": one per copy_trading row, covers all copy cross positions
+	//               sharing that bucket.
+	//               base equity = copy_trading.available + copy_trading.frozen
+	// They MUST stay disjoint: if we mixed a copy position into the wallet
+	// scope (the pre-fix behaviour), an empty-wallet follower got equity ≈ 0
+	// and `calcLiqPrice` computed a liq_price on the wrong side of entry,
+	// instantly liquidating copy positions the moment the tick loop ran.
 	type userEquityInfo struct {
 		totalEquity float64
 		allCross    []cachedPosition
 	}
-	equityCache := make(map[string]*userEquityInfo)
+	walletEquity := make(map[string]*userEquityInfo) // key: UserID
+	bucketEquity := make(map[string]*userEquityInfo) // key: CopyTradingID
 	mmr := 0.005
 
-	// Collect users with cross positions in current symbol
-	crossUsers := make(map[string]bool)
+	// Figure out which scopes are touched by cross positions in this symbol.
+	touchedWallets := make(map[string]bool)
+	touchedBuckets := make(map[string]bool)
 	for _, cp := range openPositions {
-		if cp.MarginMode == "cross" {
-			crossUsers[cp.UserID] = true
+		if cp.MarginMode != "cross" {
+			continue
+		}
+		if cp.IsCopyTrade && cp.CopyTradingID != nil && *cp.CopyTradingID != "" {
+			touchedBuckets[*cp.CopyTradingID] = true
+		} else {
+			touchedWallets[cp.UserID] = true
 		}
 	}
 
-	// For each user with cross positions, gather ALL their cross positions across all symbols
-	for uid := range crossUsers {
-		info := &userEquityInfo{}
+	// For each touched scope, collect ALL sibling cross positions (across
+	// symbols) and accumulate their unrealized PnL. Copy and non-copy
+	// positions are routed into separate scopes so their equity never mixes.
+	collect := func(matches func(p cachedPosition) *userEquityInfo) {
 		for sym, positions := range s.openBySymbol {
+			var symPrice float64
+			if sym == symbol {
+				symPrice = price
+			}
 			for _, p := range positions {
-				if p.UserID != uid || p.MarginMode != "cross" {
+				if p.MarginMode != "cross" {
 					continue
 				}
-				var symPrice float64
-				if sym == symbol {
-					symPrice = price
-				} else {
+				info := matches(p)
+				if info == nil {
+					continue
+				}
+				if symPrice == 0 && sym != symbol {
 					symPrice, _ = s.getPrice(sym)
 				}
 				var pnl float64
@@ -388,25 +519,50 @@ func (s *TradingService) OnPriceUpdate(symbol string, price float64) {
 				info.allCross = append(info.allCross, p)
 			}
 		}
-		equityCache[uid] = info
 	}
+	for uid := range touchedWallets {
+		walletEquity[uid] = &userEquityInfo{}
+	}
+	for bid := range touchedBuckets {
+		bucketEquity[bid] = &userEquityInfo{}
+	}
+	collect(func(p cachedPosition) *userEquityInfo {
+		if p.IsCopyTrade && p.CopyTradingID != nil && *p.CopyTradingID != "" {
+			return bucketEquity[*p.CopyTradingID]
+		}
+		return walletEquity[p.UserID]
+	})
 	s.posMu.RUnlock()
 
 	var toLiquidate []cachedPosition
 	var toTPSL []cachedPosition
 	ctx := context.Background()
 
-	// Now fetch wallet balances (outside of posMu lock to avoid deadlock)
-	for uid, info := range equityCache {
-		if w, wErr := s.walletRepo.GetWallet(ctx, uid); wErr == nil {
+	// Fetch base equity for each scope (outside posMu to avoid deadlock):
+	// wallets come from WalletRepo; buckets come from TraderRepo.
+	for uid, info := range walletEquity {
+		if w, wErr := s.walletRepo.GetWallet(ctx, uid); wErr == nil && w != nil {
 			info.totalEquity += w.Balance + w.Frozen
 		}
+	}
+	for bid, info := range bucketEquity {
+		if eq, ok := s.getBucketEquity(ctx, bid); ok {
+			info.totalEquity += eq
+		}
+	}
+
+	// Resolve each position to its equity scope.
+	scopeFor := func(cp cachedPosition) *userEquityInfo {
+		if cp.IsCopyTrade && cp.CopyTradingID != nil && *cp.CopyTradingID != "" {
+			return bucketEquity[*cp.CopyTradingID]
+		}
+		return walletEquity[cp.UserID]
 	}
 
 	for _, cp := range openPositions {
 		// For cross margin, recalculate liq price using total equity
 		if cp.MarginMode == "cross" {
-			if info, ok := equityCache[cp.UserID]; ok {
+			if info := scopeFor(cp); info != nil {
 				// Available for this position = totalEquity - other positions' maintenance margin
 				var otherMM float64
 				for _, other := range info.allCross {
@@ -683,7 +839,15 @@ func (s *TradingService) placeMarketOrder(ctx context.Context, userID string, re
 		s.pushBalanceUpdate(userID, wallet)
 	}
 
-	// Trigger copy trading for followers (async, non-blocking)
+	// Trigger copy open for followers asynchronously — deliberately different
+	// from the close/partial-close paths (which are synchronous). Rationale:
+	//   1. A missed open is "safe-side" — the follower simply didn't get a
+	//      position, so their risk exposure is 0 instead of `trader × ratio`.
+	//      A missed close is "unsafe-side" — follower is over-exposed relative
+	//      to the trader.
+	//   2. This runs in the user's HTTP request path; blocking on N followers
+	//      would add seconds of latency to the trader's order-placement UX.
+	//   3. No reconciler can recreate a historical fill price after the fact.
 	if !order.IsCopyTrade {
 		log.Printf("[copy-trading] market order filled, triggering copy open: user=%s isCopyTrade=%v", userID, order.IsCopyTrade)
 		go s.triggerCopyOpen(context.Background(), userID, order, pos)
@@ -812,7 +976,9 @@ func (s *TradingService) fillLimitOrder(ctx context.Context, o *model.Order, fil
 
 	log.Printf("[trading] limit order filled: %s %s %s @ %.2f", o.ID, o.Side, o.Symbol, fillPrice)
 
-	// Trigger copy trading for followers (async, non-blocking)
+	// Async on purpose — see PlaceOrder's copy-open call for the rationale.
+	// (A missed open is safe-side; close/partial-close are the unsafe-side paths
+	// that were made synchronous.)
 	if !o.IsCopyTrade {
 		go s.triggerCopyOpen(context.Background(), o.UserID, o, pos)
 	}
@@ -878,11 +1044,13 @@ func (s *TradingService) ClosePosition(ctx context.Context, userID, positionID s
 				return nil, fmt.Errorf("settle to bucket commission: %w", sErr)
 			}
 			psResult = res
+			s.invalidateBucketCache(*pos.CopyTradingID)
 		} else {
 			if err := s.traderRepo.SettleToBucket(ctx, *pos.CopyTradingID, pos.MarginAmount, pnl, closeFee); err != nil {
 				log.Printf("[trading] CRITICAL: copy position %s closed but bucket settle failed: %v", positionID, err)
 				return nil, fmt.Errorf("settle to bucket: %w", err)
 			}
+			s.invalidateBucketCache(*pos.CopyTradingID)
 		}
 	} else {
 		if err := s.walletRepo.SettleTrade(ctx, userID, pos.MarginAmount, pnl, closeFee); err != nil {
@@ -925,9 +1093,13 @@ func (s *TradingService) ClosePosition(ctx context.Context, userID, positionID s
 		s.pushProfitShareEvents(ctx, pos, psResult)
 	}
 
-	// Trigger copy close for followers
+	// Cascade the close to followers synchronously so the caller only returns
+	// after every follower has been closed (or logged). Async-fire-and-forget
+	// here would leave a crash window: if the process died between the trader
+	// close DB commit and the goroutine completing, followers would be orphaned
+	// (see ReconcileOrphanedCopyPositions for the startup safety net).
 	if !pos.IsCopyTrade {
-		go s.triggerCopyClose(context.Background(), userID, positionID)
+		s.triggerCopyClose(ctx, userID, positionID)
 	}
 
 	return pos, nil
@@ -1033,11 +1205,13 @@ func (s *TradingService) PartialClosePosition(ctx context.Context, userID, posit
 				return nil, fmt.Errorf("settle partial close commission: %w", sErr)
 			}
 			psResult = res
+			s.invalidateBucketCache(*pos.CopyTradingID)
 		} else {
 			if err := s.traderRepo.SettleToBucket(ctx, *pos.CopyTradingID, releasedMargin, pnl, closeFee); err != nil {
 				log.Printf("[trading] CRITICAL: copy position %s reduced but bucket settle failed: %v", positionID, err)
 				return nil, fmt.Errorf("settle partial close to bucket: %w", err)
 			}
+			s.invalidateBucketCache(*pos.CopyTradingID)
 		}
 	} else {
 		if err := s.walletRepo.SettleTrade(ctx, userID, releasedMargin, pnl, closeFee); err != nil {
@@ -1093,9 +1267,15 @@ func (s *TradingService) PartialClosePosition(ctx context.Context, userID, posit
 		s.pushBalanceUpdate(userID, wallet)
 	}
 
-	// Trigger copy partial close for followers
+	// Cascade synchronously. Unlike copy-close (where the startup reconciler can
+	// find orphans via `source.status != 'open'`), a partial close leaves the
+	// source status='open' — the reconciler can't detect a missed partial close
+	// after the fact without comparing remaining qty ratios. Making this sync
+	// is therefore the real fix, not a belt-and-suspenders. Accepts the API
+	// latency cost (~50ms × followers) in exchange for keeping follower qty
+	// proportional to trader qty, which is the whole point of copy trading.
 	if !pos.IsCopyTrade {
-		go s.triggerCopyPartialClose(context.Background(), userID, positionID, closeFraction)
+		s.triggerCopyPartialClose(ctx, userID, positionID, closeFraction)
 	}
 
 	return pos, nil
@@ -1123,6 +1303,7 @@ func (s *TradingService) liquidatePosition(ctx context.Context, cp cachedPositio
 			log.Printf("[trading] CRITICAL: copy position %s liquidated but bucket settle failed: %v", cp.PositionID, err)
 			return
 		}
+		s.invalidateBucketCache(*cp.CopyTradingID)
 	} else {
 		if err := s.walletRepo.SettleTrade(ctx, cp.UserID, cp.MarginAmount, pnl, 0); err != nil {
 			log.Printf("[trading] CRITICAL: position %s liquidated but settle failed: %v", cp.PositionID, err)
@@ -1169,9 +1350,11 @@ func (s *TradingService) liquidatePosition(ctx context.Context, cp cachedPositio
 	log.Printf("[trading] LIQUIDATED: user=%s pos=%s %s %s, margin=%.2f lost",
 		cp.UserID, cp.PositionID, cp.Side, cp.Symbol, cp.MarginAmount)
 
-	// Trigger copy close for followers
+	// Cascade synchronously — see ClosePosition for why we no longer fire this
+	// in a goroutine. Blocks the ingestor goroutine for ~50ms per follower,
+	// which is acceptable for rare liquidation events.
 	if !cp.IsCopyTrade {
-		go s.triggerCopyClose(context.Background(), cp.UserID, cp.PositionID)
+		s.triggerCopyClose(ctx, cp.UserID, cp.PositionID)
 	}
 }
 
@@ -1215,11 +1398,13 @@ func (s *TradingService) closePositionByTPSL(ctx context.Context, cp cachedPosit
 				return
 			}
 			psResult = res
+			s.invalidateBucketCache(*cp.CopyTradingID)
 		} else {
 			if err := s.traderRepo.SettleToBucket(ctx, *cp.CopyTradingID, cp.MarginAmount, pnl, closeFee); err != nil {
 				log.Printf("[trading] CRITICAL: copy position %s TP/SL closed but bucket settle failed: %v", cp.PositionID, err)
 				return
 			}
+			s.invalidateBucketCache(*cp.CopyTradingID)
 		}
 	} else {
 		if err := s.walletRepo.SettleTrade(ctx, cp.UserID, cp.MarginAmount, pnl, closeFee); err != nil {
@@ -1277,9 +1462,11 @@ func (s *TradingService) closePositionByTPSL(ctx context.Context, cp cachedPosit
 	log.Printf("[trading] TP/SL CLOSED: user=%s pos=%s %s %s @ %.4f, pnl=%.2f",
 		cp.UserID, cp.PositionID, cp.Side, cp.Symbol, currentPrice, pnl)
 
-	// Trigger copy close for followers
+	// Cascade synchronously — see ClosePosition for why we no longer fire this
+	// in a goroutine. Blocks the ingestor goroutine for ~50ms per follower,
+	// which is acceptable for rare TP/SL auto-close events.
 	if !cp.IsCopyTrade {
-		go s.triggerCopyClose(context.Background(), cp.UserID, cp.PositionID)
+		s.triggerCopyClose(ctx, cp.UserID, cp.PositionID)
 	}
 }
 
@@ -1671,36 +1858,78 @@ func calcLiqPrice(entryPrice float64, side string, qty float64, marginAmount flo
 }
 
 // calcCrossEquityForPosition calculates the available equity for a specific cross-margin position.
-// totalEquity = balance + frozen + sum(all unrealized PnL)
-// availableForPos = totalEquity - sum(other positions' maintenance margin)
+// totalEquity = base equity + sum(same-scope positions' unrealized PnL)
+// availableForPos = totalEquity - sum(other same-scope positions' maintenance margin)
+//
+// Scope matters: a copy position's base equity is the bucket
+// (`copy_trading.available_capital + frozen_capital`), NOT the follower's main
+// wallet. Mixing scopes was the original bug — an empty-wallet follower got
+// equity ≈ 0 and `calcLiqPrice` returned a liq on the wrong side of entry.
+// Sibling PnL / maintenance margin only aggregates across same-scope positions.
 func (s *TradingService) calcCrossEquityForPosition(ctx context.Context, userID string, positionID string, allPositions []model.Position) float64 {
-	w, err := s.walletRepo.GetWallet(ctx, userID)
-	if err != nil {
+	// Locate the target position to determine its scope.
+	var target *model.Position
+	for i := range allPositions {
+		if allPositions[i].ID == positionID {
+			target = &allPositions[i]
+			break
+		}
+	}
+	if target == nil {
 		return 0
 	}
-	totalEquity := w.Balance + w.Frozen
+
+	isCopy := target.IsCopyTrade && target.CopyTradingID != nil && *target.CopyTradingID != ""
+
+	var totalEquity float64
+	if isCopy {
+		if s.traderRepo == nil {
+			return 0
+		}
+		ct, err := s.traderRepo.GetCopyTradingByID(ctx, *target.CopyTradingID)
+		if err != nil || ct == nil {
+			return 0
+		}
+		totalEquity = ct.AvailableCapital + ct.FrozenCapital
+	} else {
+		w, err := s.walletRepo.GetWallet(ctx, userID)
+		if err != nil || w == nil {
+			return 0
+		}
+		totalEquity = w.Balance + w.Frozen
+	}
+
+	// Same-scope predicate: copy positions share a scope iff they point at
+	// the same copy_trading bucket; non-copy positions all share the wallet.
+	sameScope := func(p *model.Position) bool {
+		pIsCopy := p.IsCopyTrade && p.CopyTradingID != nil && *p.CopyTradingID != ""
+		if isCopy != pIsCopy {
+			return false
+		}
+		if isCopy {
+			return p.CopyTradingID != nil && target.CopyTradingID != nil &&
+				*p.CopyTradingID == *target.CopyTradingID
+		}
+		return true // non-copy positions on the same user share the wallet scope
+	}
 
 	mmr := 0.005
 	var otherMM float64
-	for _, p := range allPositions {
+	for i := range allPositions {
+		p := &allPositions[i]
+		if !sameScope(p) {
+			continue
+		}
+		totalEquity += p.UnrealizedPnl
 		if p.ID == positionID {
 			continue
 		}
-		// Add unrealized PnL of all positions to equity
-		totalEquity += p.UnrealizedPnl
-		// Subtract maintenance margin of other positions
+		// Subtract maintenance margin of other same-scope positions
 		price, _ := s.getPrice(p.Symbol)
 		if price <= 0 {
 			price = p.EntryPrice
 		}
 		otherMM += price * p.Qty * mmr
-	}
-	// Also add this position's unrealized PnL
-	for _, p := range allPositions {
-		if p.ID == positionID {
-			totalEquity += p.UnrealizedPnl
-			break
-		}
 	}
 
 	return totalEquity - otherMM
@@ -1950,14 +2179,31 @@ func (s *TradingService) placeCopyOrder(
 	if err := s.traderRepo.FreezeFromBucket(ctx, ct.ID, margin, openFee); err != nil {
 		return nil, nil, fmt.Errorf("freeze from bucket: %w", err)
 	}
+	s.invalidateBucketCache(ct.ID)
 
 	// 邀请返佣埋点：跟单开仓 open fee（profit_share 不计入返佣基数）
 	if openFee > 0 && s.ReferralSvc != nil {
 		s.ReferralSvc.RecordCommissionEventAsync(followerID, openFee, model.ProductTypeCopyOpen, "")
 	}
 
-	// Calculate liq price
-	liqPrice := calcLiqPrice(sourcePos.EntryPrice, sourceOrder.Side, qty, margin, sourceOrder.MarginMode, 0)
+	// Calculate liq price. For cross-margin copy positions, equity comes from
+	// the bucket (the follower's dedicated sub-account), NOT the main wallet.
+	// Passing 0 here (the old behavior) made `calcLiqPrice` compute
+	//   liq = entry ± entry*mmr/(1±mmr)  (≈ entry × 0.995 for short, × 1.005 for long)
+	// which is on the *wrong side* of entry — any normal price then satisfies
+	// the liquidation condition and the position gets force-closed on the next
+	// tick. This was masked historically because the tick loop recomputed
+	// `liq_price` from the follower's main wallet equity; the moment a
+	// follower drained their wallet into the bucket (`copy_allocate`), that
+	// safety net disappeared and cross-copy positions got wrongly liquidated.
+	// Using (available + frozen) gives the total bucket equity — identical
+	// before/after this call's FreezeFromBucket since freezing just moves
+	// money from available to frozen.
+	liqEquity := 0.0
+	if sourceOrder.MarginMode == "cross" {
+		liqEquity = ct.AvailableCapital + ct.FrozenCapital
+	}
+	liqPrice := calcLiqPrice(sourcePos.EntryPrice, sourceOrder.Side, qty, margin, sourceOrder.MarginMode, liqEquity)
 
 	// Create order
 	copyOrderID := sourceOrder.ID
@@ -1984,6 +2230,7 @@ func (s *TradingService) placeCopyOrder(
 
 	if err := s.orderRepo.Create(ctx, order); err != nil {
 		_ = s.traderRepo.UnfreezeBucket(ctx, ct.ID, margin, openFee)
+		s.invalidateBucketCache(ct.ID)
 		return nil, nil, fmt.Errorf("create order: %w", err)
 	}
 
@@ -2011,6 +2258,7 @@ func (s *TradingService) placeCopyOrder(
 	pos, err := s.positionRepo.CreateCopyPosition(ctx, pos)
 	if err != nil {
 		_ = s.traderRepo.UnfreezeBucket(ctx, ct.ID, margin, openFee)
+		s.invalidateBucketCache(ct.ID)
 		log.Printf("[copy-trade] position creation failed, unfroze bucket margin=%.4f fee=%.4f for follower=%s: %v",
 			margin, openFee, followerID, err)
 		return nil, nil, fmt.Errorf("create position: %w", err)
@@ -2018,7 +2266,20 @@ func (s *TradingService) placeCopyOrder(
 
 	// Recalculate liq_price against the merged position so adds get a correct
 	// liquidation price (CreateCopyPosition leaves liq_price untouched on merge).
-	newLiq := calcLiqPrice(pos.EntryPrice, pos.Side, pos.Qty, pos.MarginAmount, pos.MarginMode, 0)
+	// Re-read the bucket after FreezeFromBucket: available dropped by margin+fee,
+	// frozen grew by margin, so (available+frozen) — the total bucket equity —
+	// only changed by -fee. Using the same total equity here keeps the initial
+	// and merged calcs consistent (see the earlier rationale).
+	mergedLiqEquity := 0.0
+	if pos.MarginMode == "cross" {
+		if updatedBucket, gerr := s.traderRepo.GetCopyTradingByID(ctx, ct.ID); gerr == nil && updatedBucket != nil {
+			mergedLiqEquity = updatedBucket.AvailableCapital + updatedBucket.FrozenCapital
+		} else {
+			// Fallback: pre-freeze snapshot minus the fee we just paid.
+			mergedLiqEquity = ct.AvailableCapital + ct.FrozenCapital - openFee
+		}
+	}
+	newLiq := calcLiqPrice(pos.EntryPrice, pos.Side, pos.Qty, pos.MarginAmount, pos.MarginMode, mergedLiqEquity)
 	pos.LiqPrice = &newLiq
 	s.positionRepo.UpdateLiqPrice(ctx, pos.ID, newLiq)
 

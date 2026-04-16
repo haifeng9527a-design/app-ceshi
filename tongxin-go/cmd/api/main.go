@@ -421,6 +421,9 @@ func main() {
 		// Load pending limit orders into memory and hook price updates
 		tradingSvc.LoadPendingOrders(context.Background())
 		tradingSvc.LoadOpenPositions(context.Background())
+		// Close any copy positions orphaned by a crash mid-cascade (trader
+		// liquidated/closed but triggerCopyClose goroutine didn't complete).
+		tradingSvc.ReconcileOrphanedCopyPositions(context.Background())
 
 		tradingH := handler.NewTradingHandler(tradingSvc)
 		walletH := handler.NewWalletHandler(walletRepo, tradingHub)

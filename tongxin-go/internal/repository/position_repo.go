@@ -350,6 +350,35 @@ func (r *PositionRepo) ListBySourcePosition(ctx context.Context, sourcePositionI
 	return scanPositions(rows)
 }
 
+// ListOrphanedCopyPositions returns open copy positions whose source (trader)
+// position has already been closed/liquidated/deleted. These indicate a
+// cascade was missed — typically because the server crashed (or a goroutine
+// panicked) between the trader's status flip and `triggerCopyClose`
+// completing. Used on startup to reconcile; safe to run repeatedly.
+//
+// The LEFT JOIN catches both cases:
+//   - source row exists but is closed/liquidated (src.status != 'open')
+//   - source row was deleted (src.id IS NULL)
+func (r *PositionRepo) ListOrphanedCopyPositions(ctx context.Context) ([]model.Position, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT p.id, p.user_id, p.symbol, p.side, p.qty, p.entry_price, p.leverage,
+		 p.margin_mode, p.margin_amount, p.liq_price, p.tp_price, p.sl_price,
+		 p.status, p.realized_pnl, p.open_fee, p.close_fee,
+		 p.is_copy_trade, p.source_position_id, p.source_trader_id, p.copy_trading_id,
+		 p.created_at, p.updated_at
+		 FROM positions p
+		 LEFT JOIN positions src ON src.id = p.source_position_id
+		 WHERE p.is_copy_trade = true
+		   AND p.status = 'open'
+		   AND p.source_position_id IS NOT NULL
+		   AND (src.id IS NULL OR src.status <> 'open')`)
+	if err != nil {
+		return nil, fmt.Errorf("list orphaned copy positions: %w", err)
+	}
+	defer rows.Close()
+	return scanPositions(rows)
+}
+
 // ListOpenByCopyTrading returns all open follower positions belonging to a
 // specific copy_trading subscription. Used when force-unfollowing — we walk
 // this list and close each position back to the subscription's bucket.
