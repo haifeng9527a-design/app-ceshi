@@ -298,12 +298,17 @@ func (s *SpotService) placeMarket(ctx context.Context, userID string, meta *mode
 		s.referralSvc.RecordCommissionEventAsync(userID, res.Fee, model.ProductTypeSpot, res.OrderID)
 	}
 
-	// 推 WS
-	s.pushOrderUpdate(userID, "spot_order_filled", res.OrderID, meta, side, qty, price, res.Fee)
+	// 拿完整订单（带 filled_price / status / filled_at），既给 WS 推送用、也作为 HTTP 响应返回
+	order, err := s.repo.GetOrder(ctx, res.OrderID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 推 WS：完整 SpotOrder 对象 + 余额更新
+	s.pushSpotOrderEvent(userID, "spot_order_filled", order)
 	s.pushBalanceUpdate(userID, meta, res.BaseAvailable, res.QuoteAvailable)
 
-	// 返回完整订单
-	return s.repo.GetOrder(ctx, res.OrderID)
+	return order, nil
 }
 
 func (s *SpotService) placeLimit(ctx context.Context, userID string, meta *model.SpotSupportedSymbol, side string, qty, price, feeRate float64, clientOrderID *string) (*model.SpotOrder, error) {
@@ -325,25 +330,20 @@ func (s *SpotService) placeLimit(ctx context.Context, userID string, meta *model
 	s.pendingBySymbol[meta.Symbol] = append(s.pendingBySymbol[meta.Symbol], order)
 	s.pendingMu.Unlock()
 
-	// 推 WS
-	if s.pusher != nil {
-		s.pusher.PushToUser(userID, map[string]any{
-			"type":     "spot_order_placed",
-			"order_id": order.ID,
-			"symbol":   order.Symbol,
-			"side":     order.Side,
-			"qty":      order.Qty,
-			"price":    order.Price,
-			"time":     time.Now().Unix(),
-		})
-	}
+	// 推 WS：完整 SpotOrder，前端 tradingWs 订阅 spot_order_placed 直接 merge
+	s.pushSpotOrderEvent(userID, "spot_order_placed", order)
 
 	// 主动撮合一次：股票市场 tick 稀疏（尤其非交易时段），若不 snap 一次，
 	// 即使 limitPrice 已被当前价穿越也会一直挂着。
+	// 若 snap 触发成交，checkPendingFor 会调 FillPendingSpotOrder，里面会再推 spot_order_filled。
 	if px, err := s.getPrice(meta.Symbol); err == nil && px > 0 {
 		s.checkPendingFor(meta.Symbol, px)
 	}
 
+	// 重拉最新状态（snap 可能已经把它 filled）—— 保证 HTTP 响应和 WS 推送语义一致
+	if latest, err2 := s.repo.GetOrder(ctx, order.ID); err2 == nil {
+		return latest, nil
+	}
 	return order, nil
 }
 
@@ -366,13 +366,9 @@ func (s *SpotService) CancelSpotOrder(ctx context.Context, userID, orderID strin
 	}
 	s.pendingMu.Unlock()
 
-	// WS
-	if s.pusher != nil {
-		s.pusher.PushToUser(userID, map[string]any{
-			"type":     "spot_order_cancelled",
-			"order_id": orderID,
-			"time":     time.Now().Unix(),
-		})
+	// 推 WS：拉一次订单最新状态（status='cancelled'），前端直接 merge
+	if cancelled, err := s.repo.GetOrder(ctx, orderID); err == nil {
+		s.pushSpotOrderEvent(userID, "spot_order_cancelled", cancelled)
 	}
 
 	return nil
@@ -389,9 +385,12 @@ func (s *SpotService) FillPendingSpotOrder(ctx context.Context, order *model.Spo
 		s.referralSvc.RecordCommissionEventAsync(order.UserID, res.Fee, model.ProductTypeSpot, res.OrderID)
 	}
 
-	meta, _ := s.getSymbolMeta(ctx, order.Symbol)
-	if meta != nil {
-		s.pushOrderUpdate(order.UserID, "spot_order_filled", res.OrderID, meta, order.Side, order.Qty, fillPrice, res.Fee)
+	// 拉最新订单（status='filled' / filled_price / filled_at）并推 WS
+	if filled, err := s.repo.GetOrder(ctx, res.OrderID); err == nil {
+		s.pushSpotOrderEvent(order.UserID, "spot_order_filled", filled)
+	}
+
+	if meta, _ := s.getSymbolMeta(ctx, order.Symbol); meta != nil {
 		s.pushBalanceUpdate(order.UserID, meta, res.BaseAvailable, res.QuoteAvailable)
 	}
 
@@ -542,33 +541,34 @@ func (s *SpotService) getPrice(symbol string) (float64, error) {
 	return 0, fmt.Errorf("price unavailable for %s", symbol)
 }
 
-func (s *SpotService) pushOrderUpdate(userID, eventType, orderID string, meta *model.SpotSupportedSymbol, side string, qty, price, fee float64) {
-	if s.pusher == nil {
+// pushSpotOrderEvent 把完整 SpotOrder 对象包在 {"type","data"} 结构里推到 trading hub。
+// 结构对齐 trading_service 的 pushOrder*（前端 tradingWs.handleMessage 用 data.data）。
+// eventType: "spot_order_placed" / "spot_order_filled" / "spot_order_cancelled"
+func (s *SpotService) pushSpotOrderEvent(userID, eventType string, order *model.SpotOrder) {
+	if s.pusher == nil || order == nil {
 		return
 	}
 	s.pusher.PushToUser(userID, map[string]any{
-		"type":     eventType,
-		"order_id": orderID,
-		"symbol":   meta.Symbol,
-		"side":     side,
-		"qty":      qty,
-		"price":    price,
-		"fee":      fee,
-		"time":     time.Now().Unix(),
+		"type": eventType,
+		"data": order,
 	})
 }
 
+// pushBalanceUpdate 推现货相关 asset 的最新可用/冻结余额。
+// data.balances 是 asset_code → available，前端据此就地合并 spot account 状态。
 func (s *SpotService) pushBalanceUpdate(userID string, meta *model.SpotSupportedSymbol, baseAvail, quoteAvail float64) {
 	if s.pusher == nil {
 		return
 	}
 	s.pusher.PushToUser(userID, map[string]any{
 		"type": "spot_balance_update",
-		"balances": map[string]float64{
-			meta.BaseAsset:  baseAvail,
-			meta.QuoteAsset: quoteAvail,
+		"data": map[string]any{
+			"balances": map[string]float64{
+				meta.BaseAsset:  baseAvail,
+				meta.QuoteAsset: quoteAvail,
+			},
+			"time": time.Now().Unix(),
 		},
-		"time": time.Now().Unix(),
 	})
 }
 
