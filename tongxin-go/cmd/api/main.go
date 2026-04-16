@@ -271,8 +271,10 @@ func main() {
 	mux.HandleFunc("GET /ws/market", marketHub.HandleWS)
 
 	// ── Auth routes (register/login are PUBLIC) ──
+	// Note: referralSvc is injected into authH later, after it's initialized.
+	var authH *handler.AuthHandler
 	if userSvc != nil {
-		authH := handler.NewAuthHandler(userSvc)
+		authH = handler.NewAuthHandler(userSvc)
 		usersH := handler.NewUsersHandler(userSvc)
 
 		// Public — no token needed
@@ -460,6 +462,25 @@ func main() {
 	// Wire referral into trading service for fee instrumentation (commit 6)
 	if tradingSvc != nil && referralSvc != nil {
 		tradingSvc.ReferralSvc = referralSvc
+	}
+
+	// ── Referral routes (all users can see their invite overview) ──
+	if referralSvc != nil {
+		// Inject referral into auth handler for invite-code binding on register
+		if authH != nil {
+			authH.SetReferralSvc(referralSvc)
+		}
+		referralH := handler.NewReferralHandler(referralSvc)
+
+		// Public — validate invite code before registration
+		mux.HandleFunc("GET /api/referral/validate-code", referralH.ValidateCode)
+
+		// Protected — token needed
+		mux.Handle("GET /api/referral/me", authMw.Authenticate(http.HandlerFunc(referralH.GetOverview)))
+		mux.Handle("GET /api/referral/commission-records", authMw.Authenticate(http.HandlerFunc(referralH.ListCommissionRecords)))
+		mux.Handle("GET /api/referral/invitees", authMw.Authenticate(http.HandlerFunc(referralH.ListInvitees)))
+
+		log.Println("[OK] Referral routes registered")
 	}
 
 	var assetsSvc *service.AssetsService

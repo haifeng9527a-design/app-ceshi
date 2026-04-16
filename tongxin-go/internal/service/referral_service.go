@@ -344,6 +344,26 @@ func (s *ReferralService) ValidateInviteCode(ctx context.Context, code string) e
 	return nil
 }
 
+// ValidateInviteCodeFull 校验邀请码并返回 owner display_name（注册前使用）。
+func (s *ReferralService) ValidateInviteCodeFull(ctx context.Context, code string) (bool, string, error) {
+	if !s.cfg.ReferralEnabled {
+		return false, "", nil
+	}
+	link, err := s.repo.GetLinkByCode(ctx, code)
+	if err != nil {
+		return false, "", nil // code 不存在 → valid=false，不报 error
+	}
+	if !link.IsActive {
+		return false, "", nil
+	}
+	// 查 owner 的 display_name
+	owner, err := s.repo.GetUserBasic(ctx, link.OwnerUID)
+	if err != nil {
+		return true, "", nil // owner 查不到但 code 有效
+	}
+	return true, owner.DisplayName, nil
+}
+
 // ══════════════════════════════════════════════════════════════
 // Agent application flow
 // ══════════════════════════════════════════════════════════════

@@ -989,3 +989,25 @@ func (r *ReferralRepo) ListSubAgents(ctx context.Context, parentUID string) ([]m
 	}
 	return out, rows.Err()
 }
+
+// ══════════════════════════════════════════════════════════════
+// Misc helpers
+// ══════════════════════════════════════════════════════════════
+
+// UserBasic holds minimal user info for display purposes.
+type UserBasic struct {
+	UID         string
+	DisplayName string
+}
+
+// GetUserBasic returns minimal user info by UID.
+func (r *ReferralRepo) GetUserBasic(ctx context.Context, uid string) (*UserBasic, error) {
+	var u UserBasic
+	err := r.pool.QueryRow(ctx,
+		`SELECT uid, display_name FROM users WHERE uid = $1`, uid,
+	).Scan(&u.UID, &u.DisplayName)
+	if err != nil {
+		return nil, fmt.Errorf("get user basic: %w", err)
+	}
+	return &u, nil
+}

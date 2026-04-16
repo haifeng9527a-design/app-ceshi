@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"log"
 	"net/http"
 
 	"tongxin-go/internal/middleware"
@@ -9,11 +10,17 @@ import (
 )
 
 type AuthHandler struct {
-	userSvc *service.UserService
+	userSvc     *service.UserService
+	referralSvc *service.ReferralService // nil when REFERRAL_ENABLED=false or pool==nil
 }
 
 func NewAuthHandler(userSvc *service.UserService) *AuthHandler {
 	return &AuthHandler{userSvc: userSvc}
+}
+
+// SetReferralSvc injects the referral service for invite-code binding on register.
+func (h *AuthHandler) SetReferralSvc(svc *service.ReferralService) {
+	h.referralSvc = svc
 }
 
 // POST /api/auth/register (public — no token needed)
@@ -43,6 +50,14 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		}
 		writeError(w, http.StatusInternalServerError, "registration failed")
 		return
+	}
+
+	// 邀请码绑定：注册成功后异步绑定 inviter。
+	// 绑定失败只记 warn 不阻断注册——新用户因邀请码问题无法注册是不可接受的。
+	if h.referralSvc != nil && req.InviteCode != nil && *req.InviteCode != "" {
+		if bindErr := h.referralSvc.BindReferrer(r.Context(), resp.User.UID, *req.InviteCode); bindErr != nil {
+			log.Printf("[auth] invite-code bind failed for user %s code=%s: %v", resp.User.UID, *req.InviteCode, bindErr)
+		}
 	}
 
 	writeJSON(w, http.StatusCreated, resp)
