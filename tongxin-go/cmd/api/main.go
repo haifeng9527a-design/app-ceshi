@@ -545,8 +545,12 @@ func main() {
 		thresholdRepo := repository.NewThresholdRepo(pool)
 		thresholdSvc := service.NewThresholdService(thresholdRepo, referralRepoForAgent, notificationSvc)
 		thresholdH := handler.NewThresholdHandler(thresholdSvc)
+		// 路径对齐前端契约（agent-web/src/lib/api.ts）：嵌套 /thresholds/metrics + POST upsert。
+		// 老路径 (threshold-metrics / PUT /thresholds) 作为 alias 保留。
+		mux.Handle("GET /api/agent/thresholds/metrics", authMw.Authenticate(http.HandlerFunc(thresholdH.ListMetrics)))
 		mux.Handle("GET /api/agent/threshold-metrics", authMw.Authenticate(http.HandlerFunc(thresholdH.ListMetrics)))
 		mux.Handle("GET /api/agent/thresholds", authMw.Authenticate(http.HandlerFunc(thresholdH.List)))
+		mux.Handle("POST /api/agent/thresholds", authMw.Authenticate(http.HandlerFunc(thresholdH.Upsert)))
 		mux.Handle("PUT /api/agent/thresholds", authMw.Authenticate(http.HandlerFunc(thresholdH.Upsert)))
 		mux.Handle("DELETE /api/agent/thresholds/{id}", authMw.Authenticate(http.HandlerFunc(thresholdH.Delete)))
 		mux.Handle("POST /api/agent/_dev/scan-thresholds", authMw.Authenticate(http.HandlerFunc(thresholdH.DevScan)))
@@ -557,14 +561,24 @@ func main() {
 		touchRepo := repository.NewTouchRepo(pool)
 		touchSvc := service.NewTouchService(touchRepo, notificationSvc, referralRepoForAgent)
 		touchH := handler.NewTouchHandler(touchSvc)
+		// 路径对齐前端契约（agent-web/src/lib/api.ts）：嵌套 /touch/templates|send|history。
+		// 老路径 (touch-templates / POST touch / touch-history) 作为 alias 保留。
+		mux.Handle("GET /api/agent/touch/templates", authMw.Authenticate(http.HandlerFunc(touchH.ListTemplates)))
 		mux.Handle("GET /api/agent/touch-templates", authMw.Authenticate(http.HandlerFunc(touchH.ListTemplates)))
+		mux.Handle("POST /api/agent/touch/send", authMw.Authenticate(http.HandlerFunc(touchH.Send)))
 		mux.Handle("POST /api/agent/touch", authMw.Authenticate(http.HandlerFunc(touchH.Send)))
+		mux.Handle("GET /api/agent/touch/history", authMw.Authenticate(http.HandlerFunc(touchH.History)))
 		mux.Handle("GET /api/agent/touch-history", authMw.Authenticate(http.HandlerFunc(touchH.History)))
 
 		// Sprint 4: time-series (risk radar / team tree / metrics)
 		tsRepo := repository.NewTimeSeriesRepo(pool)
 		tsSvc := service.NewTimeSeriesService(tsRepo)
 		tsH := handler.NewTimeSeriesHandler(tsSvc)
+		// 路径对齐前端契约（agent-web/src/lib/api.ts）与 PRD。
+		// 保留老路径 (metrics-available / metrics-timeseries) 作为 alias，避免任何
+		// 已部署 / 测试脚本突然 404；新代码请只用 time-series 版本。
+		mux.Handle("GET /api/agent/time-series/metrics", authMw.Authenticate(http.HandlerFunc(tsH.ListMetrics)))
+		mux.Handle("GET /api/agent/time-series", authMw.Authenticate(http.HandlerFunc(tsH.Query)))
 		mux.Handle("GET /api/agent/metrics-available", authMw.Authenticate(http.HandlerFunc(tsH.ListMetrics)))
 		mux.Handle("GET /api/agent/metrics-timeseries", authMw.Authenticate(http.HandlerFunc(tsH.Query)))
 
@@ -687,6 +701,20 @@ func main() {
 		mux.Handle("POST /api/assets/withdraw", authMw.Authenticate(http.HandlerFunc(assetsH.Withdraw)))
 		mux.Handle("POST /api/assets/transfer", authMw.Authenticate(http.HandlerFunc(assetsH.Transfer)))
 		log.Println("[OK] Assets routes registered")
+
+		// ── Internal Transfer (站内划转) ──
+		// PRD: docs/internal_transfer_prd.md §6.1
+		// preview_token 用 JWT secret 派生的 HMAC 直接签，避免强依赖 Redis。
+		if userRepo != nil {
+			itrRepo := repository.NewInternalTransferRepo(pool)
+			itrSvc := service.NewInternalTransferService(itrRepo, userRepo, binance, []byte(jwtSecret+":itr"))
+			itrH := handler.NewInternalTransferHandler(itrSvc)
+			mux.Handle("POST /api/assets/internal-transfer/preview", authMw.Authenticate(http.HandlerFunc(itrH.Preview)))
+			mux.Handle("POST /api/assets/internal-transfer/submit", authMw.Authenticate(http.HandlerFunc(itrH.Submit)))
+			mux.Handle("GET /api/assets/internal-transfer/records", authMw.Authenticate(http.HandlerFunc(itrH.Records)))
+			mux.Handle("GET /api/assets/internal-transfer/limits", authMw.Authenticate(http.HandlerFunc(itrH.Limits)))
+			log.Println("[OK] Internal transfer routes registered")
+		}
 	}
 
 	// Trading WebSocket (authenticated)
