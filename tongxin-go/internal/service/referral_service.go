@@ -555,6 +555,56 @@ func (s *ReferralService) DisableMyInviteLink(ctx context.Context, ownerUID, lin
 }
 
 // ══════════════════════════════════════════════════════════════
+// Admin read APIs (stubs — will be backed by real queries)
+// ══════════════════════════════════════════════════════════════
+
+// AdminListApplications returns agent applications filtered by status, with pagination.
+func (s *ReferralService) AdminListApplications(
+	ctx context.Context, status string, limit, offset int,
+) ([]*model.AgentApplication, int, error) {
+	apps, err := s.repo.ListAgentApplications(ctx, status, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	// TODO: add a COUNT query to repo for accurate total; for now return len
+	return apps, len(apps), nil
+}
+
+// AdminListAgents returns all users with is_agent=true, paginated.
+func (s *ReferralService) AdminListAgents(
+	ctx context.Context, limit, offset int,
+) ([]model.SubAgentRow, int, error) {
+	// Stub: returns empty data until a dedicated repo query is added.
+	return []model.SubAgentRow{}, 0, nil
+}
+
+// AdminDailyReport returns a summary report for the given UTC date.
+func (s *ReferralService) AdminDailyReport(
+	ctx context.Context, date time.Time,
+) (any, error) {
+	// Stub: returns placeholder until the aggregation query is added.
+	return map[string]any{
+		"date":               date.Format("2006-01-02"),
+		"total_settled":      0,
+		"total_capped":       0,
+		"total_events":       0,
+		"total_commission":   0.0,
+		"unique_inviters":    0,
+	}, nil
+}
+
+// GetPlatformConfig returns the current referral-related platform configuration.
+func (s *ReferralService) GetPlatformConfig() map[string]any {
+	return map[string]any{
+		"referral_enabled":          s.cfg.ReferralEnabled,
+		"platform_user_default_rate": s.cfg.PlatformUserDefaultRate,
+		"platform_user_max_rate":     s.cfg.PlatformUserMaxRate,
+		"platform_agent_max_rate":    s.cfg.PlatformAgentMaxRate,
+		"daily_commission_cap_usd":   s.cfg.DailyCommissionCapUSD,
+	}
+}
+
+// ══════════════════════════════════════════════════════════════
 // helpers
 // ══════════════════════════════════════════════════════════════
 

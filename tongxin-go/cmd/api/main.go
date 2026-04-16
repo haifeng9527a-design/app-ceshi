@@ -483,6 +483,40 @@ func main() {
 		log.Println("[OK] Referral routes registered")
 	}
 
+	// ── Agent routes (agent-only, is_agent check in service layer) ──
+	if referralSvc != nil {
+		agentH := handler.NewAgentHandler(referralSvc)
+		mux.Handle("POST /api/agent/apply", authMw.Authenticate(http.HandlerFunc(agentH.Apply)))
+		mux.Handle("GET /api/agent/application-status", authMw.Authenticate(http.HandlerFunc(agentH.ApplicationStatus)))
+		mux.Handle("GET /api/agent/dashboard-summary", authMw.Authenticate(http.HandlerFunc(agentH.DashboardSummary)))
+		mux.Handle("GET /api/agent/invite-links", authMw.Authenticate(http.HandlerFunc(agentH.ListInviteLinks)))
+		mux.Handle("POST /api/agent/invite-links", authMw.Authenticate(http.HandlerFunc(agentH.CreateInviteLink)))
+		mux.Handle("DELETE /api/agent/invite-links/{id}", authMw.Authenticate(http.HandlerFunc(agentH.DisableInviteLink)))
+		mux.Handle("GET /api/agent/sub-agents", authMw.Authenticate(http.HandlerFunc(agentH.ListSubAgents)))
+		mux.Handle("POST /api/agent/sub-agents/{uid}/promote", authMw.Authenticate(http.HandlerFunc(agentH.PromoteSubAgent)))
+		mux.Handle("PUT /api/agent/sub-agents/{uid}/rate", authMw.Authenticate(http.HandlerFunc(agentH.SetSubAgentRate)))
+		log.Println("[OK] Agent routes registered")
+	}
+
+	// ── Admin referral routes (require auth + admin role) ──
+	if referralSvc != nil && pool != nil {
+		adminReferralH := handler.NewAdminReferralHandler(referralSvc)
+		adminRefAuth := func(h http.HandlerFunc) http.Handler {
+			return authMw.Authenticate(mw.RequireAdmin(pool)(http.HandlerFunc(h)))
+		}
+		mux.Handle("GET /api/admin/agent-applications", adminRefAuth(adminReferralH.ListApplications))
+		mux.Handle("POST /api/admin/agent-applications/{id}/approve", adminRefAuth(adminReferralH.ApproveApplication))
+		mux.Handle("POST /api/admin/agent-applications/{id}/reject", adminRefAuth(adminReferralH.RejectApplication))
+		mux.Handle("GET /api/admin/agents", adminRefAuth(adminReferralH.ListAgents))
+		mux.Handle("PUT /api/admin/agents/{uid}/set-rate", adminRefAuth(adminReferralH.SetAgentRate))
+		mux.Handle("POST /api/admin/agents/{uid}/freeze", adminRefAuth(adminReferralH.FreezeAgent))
+		mux.Handle("POST /api/admin/agents/{uid}/unfreeze", adminRefAuth(adminReferralH.UnfreezeAgent))
+		mux.Handle("GET /api/admin/commission/daily-report", adminRefAuth(adminReferralH.DailyReport))
+		mux.Handle("GET /api/admin/platform-config", adminRefAuth(adminReferralH.GetPlatformConfig))
+		mux.Handle("PATCH /api/admin/platform-config", adminRefAuth(adminReferralH.UpdatePlatformConfig))
+		log.Println("[OK] Admin referral routes registered")
+	}
+
 	var assetsSvc *service.AssetsService
 
 	// Assets (read-only aggregation first; no copy bucket writes here)
