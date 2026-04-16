@@ -266,16 +266,29 @@ func (r *ReferralRepo) EnsureDefaultLink(ctx context.Context, ownerUID string) (
 		}
 		// fall through to random
 	}
-	// 随机 code：REF + 后 8 位 uid hex（简易，够 unique）
-	randomCode := fmt.Sprintf("REF_%s", ownerUIDTail(ownerUID))
+	// 随机 code：8位大写字母+数字（类似 Bitget/Bybit 风格）
+	randomCode := generateInviteCode(ownerUID)
 	return r.CreateInviteLink(ctx, ownerUID, randomCode, "Default", nil)
 }
 
-func ownerUIDTail(uid string) string {
-	if len(uid) <= 8 {
-		return uid
+// generateInviteCode 生成 8 位大写字母+数字的邀请码。
+// 基于 UID 做确定性 hash，同一用户每次生成结果一致。
+func generateInviteCode(uid string) string {
+	const charset = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // 去掉易混淆的 I/O/0/1
+	// 用 UID 的 hash 作为种子，确保同 UID 生成同码
+	h := uint64(0)
+	for _, c := range uid {
+		h = h*31 + uint64(c)
 	}
-	return uid[len(uid)-8:]
+	code := make([]byte, 8)
+	for i := range code {
+		code[i] = charset[h%uint64(len(charset))]
+		h = h / uint64(len(charset))
+		if h == 0 {
+			h = uint64(i+1)*7 + 42 // fallback entropy
+		}
+	}
+	return string(code)
 }
 
 // ══════════════════════════════════════════════════════════════
