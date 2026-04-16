@@ -71,6 +71,9 @@ func (r *UserRepo) GetByUID(ctx context.Context, uid string) (*model.User, error
 		       COALESCE(bio,''), COALESCE(is_trader, false), COALESCE(is_support_agent, false), COALESCE(allow_copy_trading, false),
 		       trader_approved_at, COALESCE(vip_level, 0),
 		       COALESCE(default_profit_share_rate, 0), COALESCE(lifetime_profit_shared_in, 0),
+		       inviter_uid, COALESCE(my_rebate_rate, 0),
+		       COALESCE(is_agent, false), agent_approved_at,
+		       COALESCE(lifetime_commission_earned, 0), COALESCE(is_frozen_referral, false),
 		       created_at, updated_at
 		FROM users WHERE uid = $1
 	`, uid).Scan(
@@ -78,6 +81,9 @@ func (r *UserRepo) GetByUID(ctx context.Context, uid string) (*model.User, error
 		&u.Status, &u.ShortID, &u.Phone, &u.Bio, &u.IsTrader, &u.IsSupportAgent, &u.AllowCopyTrading,
 		&u.TraderApprovedAt, &u.VipLevel,
 		&u.DefaultProfitShareRate, &u.LifetimeProfitSharedIn,
+		&u.InviterUID, &u.MyRebateRate,
+		&u.IsAgent, &u.AgentApprovedAt,
+		&u.LifetimeCommissionEarned, &u.IsFrozenReferral,
 		&u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
@@ -94,6 +100,9 @@ func (r *UserRepo) GetByEmail(ctx context.Context, email string) (*model.User, e
 		       COALESCE(bio,''), COALESCE(is_trader, false), COALESCE(is_support_agent, false), COALESCE(allow_copy_trading, false),
 		       trader_approved_at, COALESCE(vip_level, 0),
 		       COALESCE(default_profit_share_rate, 0), COALESCE(lifetime_profit_shared_in, 0),
+		       inviter_uid, COALESCE(my_rebate_rate, 0),
+		       COALESCE(is_agent, false), agent_approved_at,
+		       COALESCE(lifetime_commission_earned, 0), COALESCE(is_frozen_referral, false),
 		       created_at, updated_at
 		FROM users WHERE email = $1
 	`, email).Scan(
@@ -101,6 +110,9 @@ func (r *UserRepo) GetByEmail(ctx context.Context, email string) (*model.User, e
 		&u.Status, &u.ShortID, &u.Phone, &u.Bio, &u.IsTrader, &u.IsSupportAgent, &u.AllowCopyTrading,
 		&u.TraderApprovedAt, &u.VipLevel,
 		&u.DefaultProfitShareRate, &u.LifetimeProfitSharedIn,
+		&u.InviterUID, &u.MyRebateRate,
+		&u.IsAgent, &u.AgentApprovedAt,
+		&u.LifetimeCommissionEarned, &u.IsFrozenReferral,
 		&u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {

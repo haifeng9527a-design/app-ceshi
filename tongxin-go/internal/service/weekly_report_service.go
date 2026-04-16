@@ -35,7 +35,7 @@ import (
 //     前端周报点开就只显示文字摘要，不崩溃。
 //
 // 可配置：
-//   - WEEKLY_REPORT_FRONTEND_URL：chromedp 打开的前端 URL（默认 http://localhost:3005）
+//   - WEEKLY_REPORT_FRONTEND_URL：chromedp 打开的前端 URL（默认 http://localhost:3030）
 //   - WEEKLY_REPORT_STORAGE_DIR：PNG 输出目录（默认 {StoragePath}/weekly-reports）
 type WeeklyReportService struct {
 	repo            *repository.WeeklyReportRepo
@@ -72,7 +72,7 @@ func NewWeeklyReportService(
 		staticBaseURL = "/uploads/weekly-reports"
 	}
 	if frontendURL == "" {
-		frontendURL = "http://localhost:3005"
+		frontendURL = "http://localhost:3030"
 	}
 	return &WeeklyReportService{
 		repo:            repo,
@@ -280,7 +280,9 @@ func (s *WeeklyReportService) renderPNG(
 		chromedp.Navigate(renderURL),
 		// 等到 data-render-ready="1" 才说明前端 fetch 完数据
 		chromedp.WaitVisible(`[data-render-ready="1"]`, chromedp.ByQuery),
-		chromedp.FullScreenshot(&buf, 95),
+		// CaptureScreenshot 输出 PNG（viewport 已 1080×1920）。
+		// 不用 FullScreenshot：它的 quality 参数会强制 JPEG，和文件名 .png 不匹配。
+		chromedp.CaptureScreenshot(&buf),
 	); err != nil {
 		return "", fmt.Errorf("chromedp run: %w", err)
 	}

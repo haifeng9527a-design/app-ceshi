@@ -1151,3 +1151,275 @@ func (r *ReferralRepo) FilterDirectInvitees(
 	}
 	return out, rows.Err()
 }
+
+// ── Commission Events listing (Sprint 1/4 dashboard 实时 pending 展示) ──
+
+// CommissionEventRow 给 agent 看的一行 commission_event（比 InsertableEvent 多 event_id、时间戳）。
+type CommissionEventRow struct {
+	EventID             string     `json:"event_id"`
+	InviteeUID          string     `json:"invitee_uid"`
+	InviterUID          string     `json:"inviter_uid"`
+	SourceInviterUID    *string    `json:"source_inviter_uid,omitempty"`
+	Kind                string     `json:"kind"`
+	ProductType         string     `json:"product_type"`
+	FeeBase             float64    `json:"fee_base"`
+	RateSnapshot        float64    `json:"rate_snapshot"`
+	CommissionAmount    float64    `json:"commission_amount"`
+	SourceTransactionID *string    `json:"source_transaction_id,omitempty"`
+	Status              string     `json:"status"`
+	CreatedAt           time.Time  `json:"created_at"`
+	SettledAt           *time.Time `json:"settled_at,omitempty"`
+}
+
+// ListCommissionEventsForAgent 返回指定 inviter_uid 的 events，可按 kind/status 过滤。
+// 支持 limit/offset 分页 + 返回总数（用于前端 pagination）。
+//
+// 注意：inviter_uid 固定 = agentUID，防越权；不暴露给其他 inviter 的 event。
+func (r *ReferralRepo) ListCommissionEventsForAgent(
+	ctx context.Context,
+	agentUID string,
+	kind, status string,
+	limit, offset int,
+) ([]CommissionEventRow, int, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	// where 子句按传入参数拼装，使用 $N 占位避免 SQL 注入
+	where := "inviter_uid = $1"
+	args := []any{agentUID}
+	argN := 1
+	if kind != "" {
+		argN++
+		where += fmt.Sprintf(" AND kind = $%d", argN)
+		args = append(args, kind)
+	}
+	if status != "" {
+		argN++
+		where += fmt.Sprintf(" AND status = $%d", argN)
+		args = append(args, status)
+	}
+
+	var total int
+	if err := r.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM commission_events WHERE `+where, args...,
+	).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count commission events: %w", err)
+	}
+
+	argN++
+	limitIdx := argN
+	argN++
+	offsetIdx := argN
+	args = append(args, limit, offset)
+
+	rows, err := r.pool.Query(ctx,
+		`SELECT event_id::text, invitee_uid, inviter_uid, source_inviter_uid, kind, product_type,
+		        fee_base::float8, rate_snapshot::float8, commission_amount::float8,
+		        source_transaction_id, status, created_at, settled_at
+		   FROM commission_events
+		  WHERE `+where+`
+		  ORDER BY created_at DESC
+		  LIMIT $`+fmt.Sprintf("%d", limitIdx)+` OFFSET $`+fmt.Sprintf("%d", offsetIdx),
+		args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("query commission events: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]CommissionEventRow, 0, limit)
+	for rows.Next() {
+		var row CommissionEventRow
+		if err := rows.Scan(
+			&row.EventID, &row.InviteeUID, &row.InviterUID, &row.SourceInviterUID,
+			&row.Kind, &row.ProductType,
+			&row.FeeBase, &row.RateSnapshot, &row.CommissionAmount,
+			&row.SourceTransactionID, &row.Status, &row.CreatedAt, &row.SettledAt,
+		); err != nil {
+			return nil, 0, fmt.Errorf("scan commission event: %w", err)
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("iter commission events: %w", err)
+	}
+	return out, total, nil
+}
+
+// ── Team Tree (Sprint 4) ─────────────────────────────────────────────────
+
+// teamTreeRow 是一次 CTE 查询里的一行，嵌套树的构建在 Go 侧完成。
+type teamTreeRow struct {
+	UID          string
+	InviterUID   string
+	DisplayName  string
+	Email        string
+	Depth        int
+	IsAgent      bool
+	MyRebateRate float64
+	Contribution float64
+	Commission   float64
+}
+
+// GetTeamTree 返回 agentUID 的 3 层团队树（1=直推 / 2=L2 / 3=L3）。
+// - contribution = invitee 本月 commission_events.fee_base 之和（决定 Treemap 矩形大小）
+// - commission   = 该节点给 agentUID 带来的本月返佣金额
+// 一次 CTE + Go 侧组树；N 控制在团队规模内，递归不会爆。
+func (r *ReferralRepo) GetTeamTree(ctx context.Context, agentUID string) (*model.TeamTreeResponse, error) {
+	rows, err := r.pool.Query(ctx, `
+		WITH RECURSIVE tree AS (
+		  SELECT uid, COALESCE(inviter_uid,'') AS inviter_uid, display_name, email,
+		         COALESCE(is_agent, false) AS is_agent,
+		         COALESCE(my_rebate_rate, 0)::float8 AS my_rebate_rate,
+		         1 AS depth
+		  FROM users
+		  WHERE inviter_uid = $1
+		  UNION ALL
+		  SELECT u.uid, COALESCE(u.inviter_uid,''), u.display_name, u.email,
+		         COALESCE(u.is_agent, false),
+		         COALESCE(u.my_rebate_rate, 0)::float8,
+		         t.depth + 1
+		  FROM users u
+		  JOIN tree t ON u.inviter_uid = t.uid
+		  WHERE t.depth < 3
+		)
+		SELECT t.uid, t.inviter_uid, t.display_name, t.email,
+		       t.depth, t.is_agent, t.my_rebate_rate,
+		       COALESCE((
+		         SELECT SUM(fee_base)::float8 FROM commission_events
+		         WHERE invitee_uid = t.uid
+		           AND created_at >= date_trunc('month', NOW() AT TIME ZONE 'UTC')
+		       ), 0) AS contribution,
+		       COALESCE((
+		         SELECT SUM(commission_amount)::float8 FROM commission_events
+		         WHERE invitee_uid = t.uid AND inviter_uid = $1
+		           AND status IN ('pending','settled')
+		           AND created_at >= date_trunc('month', NOW() AT TIME ZONE 'UTC')
+		       ), 0) AS commission
+		FROM tree t
+		ORDER BY t.depth, t.display_name
+	`, agentUID)
+	if err != nil {
+		return nil, fmt.Errorf("query team tree: %w", err)
+	}
+	defer rows.Close()
+
+	flat := make([]teamTreeRow, 0, 32)
+	for rows.Next() {
+		var row teamTreeRow
+		if err := rows.Scan(
+			&row.UID, &row.InviterUID, &row.DisplayName, &row.Email,
+			&row.Depth, &row.IsAgent, &row.MyRebateRate,
+			&row.Contribution, &row.Commission,
+		); err != nil {
+			return nil, fmt.Errorf("scan team tree row: %w", err)
+		}
+		flat = append(flat, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iter team tree rows: %w", err)
+	}
+
+	// 构树：先把每行做成 node，再按 inviter_uid 挂到对应父（root=agentUID 时挂到 Nodes）。
+	nodesByUID := make(map[string]*model.TeamTreeNode, len(flat))
+	for i := range flat {
+		f := flat[i]
+		nodesByUID[f.UID] = &model.TeamTreeNode{
+			UID:          f.UID,
+			DisplayName:  f.DisplayName,
+			Email:        f.Email,
+			Depth:        f.Depth,
+			IsAgent:      f.IsAgent,
+			MyRebateRate: f.MyRebateRate,
+			Contribution: f.Contribution,
+			Commission:   f.Commission,
+		}
+	}
+	var topLevel []model.TeamTreeNode
+	totalVolume := 0.0
+	for _, f := range flat {
+		totalVolume += f.Contribution
+		node := nodesByUID[f.UID]
+		if f.InviterUID == agentUID {
+			topLevel = append(topLevel, *node)
+		} else if parent, ok := nodesByUID[f.InviterUID]; ok {
+			parent.Children = append(parent.Children, *node)
+		}
+	}
+
+	// 注：nodesByUID 里的 node 在拷贝到父/顶层前可能还没添加 children；
+	// 上面一遍直接按 Depth 升序处理，子节点要在父节点 *后* 才 Append，否则父节点的 Children 不含后加入的孙。
+	// 因此重建一次：按 depth desc 挂回父节点。
+	topLevel = topLevel[:0]
+	// 重新走一次：先 L3 挂 L2，再 L2 挂 L1，最后 L1 进 topLevel
+	for depth := 3; depth >= 1; depth-- {
+		for _, f := range flat {
+			if f.Depth != depth {
+				continue
+			}
+			node := nodesByUID[f.UID]
+			if depth == 1 {
+				topLevel = append(topLevel, *node)
+				continue
+			}
+			if parent, ok := nodesByUID[f.InviterUID]; ok {
+				parent.Children = append(parent.Children, *node)
+			}
+		}
+	}
+
+	return &model.TeamTreeResponse{
+		RootUID:     agentUID,
+		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+		Nodes:       topLevel,
+		TotalNodes:  len(flat),
+		TotalVolume: totalVolume,
+	}, nil
+}
+
+// ── Dashboard Prefs (Sprint 4) ───────────────────────────────────────────
+
+// GetDashboardPrefs 读 users.dashboard_prefs jsonb。空字段 → 空 DashboardPrefs。
+func (r *ReferralRepo) GetDashboardPrefs(ctx context.Context, uid string) (*model.DashboardPrefs, error) {
+	var raw []byte
+	err := r.pool.QueryRow(ctx,
+		`SELECT COALESCE(dashboard_prefs, '{}'::jsonb) FROM users WHERE uid = $1`, uid,
+	).Scan(&raw)
+	if err != nil {
+		return nil, fmt.Errorf("get dashboard prefs: %w", err)
+	}
+	var prefs model.DashboardPrefs
+	if len(raw) > 0 {
+		// 容错：旧数据可能不是预期结构（如 jsonb '{}'），Unmarshal 到 zero value 即可。
+		_ = json.Unmarshal(raw, &prefs)
+	}
+	if prefs.Modules == nil {
+		prefs.Modules = []model.DashboardModulePref{}
+	}
+	return &prefs, nil
+}
+
+// PutDashboardPrefs 整体覆盖 users.dashboard_prefs；前端拖拽完发完整数组。
+func (r *ReferralRepo) PutDashboardPrefs(ctx context.Context, uid string, prefs *model.DashboardPrefs) error {
+	if prefs == nil {
+		prefs = &model.DashboardPrefs{Modules: []model.DashboardModulePref{}}
+	}
+	raw, err := json.Marshal(prefs)
+	if err != nil {
+		return fmt.Errorf("marshal prefs: %w", err)
+	}
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE users SET dashboard_prefs = $2::jsonb, updated_at = NOW() WHERE uid = $1`,
+		uid, string(raw),
+	)
+	if err != nil {
+		return fmt.Errorf("put dashboard prefs: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return errors.New("user not found")
+	}
+	return nil
+}

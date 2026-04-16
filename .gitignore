@@ -6,6 +6,8 @@ scripts/git-auto-pull.log
 *.db-shm
 tongxin-go/tongxin-go
 tongxin-go/tongxin-server
+tongxin-go/.run/
+tongxin-go/uploads/weekly-reports/
 tongxin-app/dist/
 .worktree_*/
 _archive_*/
