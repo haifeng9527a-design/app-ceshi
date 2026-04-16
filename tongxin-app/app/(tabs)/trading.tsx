@@ -24,6 +24,7 @@ import AppIcon from '../../components/ui/AppIcon';
 import OrderCard from '../../components/trading/OrderCard';
 import { usePriceFlash } from '../../hooks/usePriceFlash';
 import { fetchFundingRate, fetchVipInfo, type VipInfo } from '../../services/api/client';
+import { spotApi, type SpotPlaceOrderRequest } from '../../services/api/spotApi';
 import { Skeleton, SkeletonChart, SkeletonPosition } from '../../components/Skeleton';
 import type { MarketQuote, KlineBar } from '../../services/api/client';
 import TradingViewChart, { type CrosshairData, MA_COLORS, type ChartType, type ActiveIndicator } from '../../components/chart/TradingViewChart';
@@ -199,6 +200,30 @@ function getAssetType(symbol: string): AssetType {
   if (symbol.includes('/')) return 'forex';
   if (FUTURES_SYMBOLS.includes(symbol)) return 'futures';
   return 'stocks';
+}
+
+/**
+ * Spot 模式仅支持 crypto 与 stocks。
+ * 显示用 `BTC/USD` / `AAPL` → 后端用 `BTC/USDT` / `AAPL/USD`
+ */
+function isSpotEligible(symbol: string): boolean {
+  const at = getAssetType(symbol);
+  return at === 'crypto' || at === 'stocks';
+}
+
+function toSpotSymbol(displaySymbol: string): string {
+  const at = getAssetType(displaySymbol);
+  if (at === 'crypto') {
+    // BTC/USD → BTC/USDT
+    return displaySymbol.includes('/USD')
+      ? displaySymbol.replace('/USD', '/USDT')
+      : displaySymbol;
+  }
+  if (at === 'stocks') {
+    // AAPL → AAPL/USD
+    return displaySymbol.includes('/') ? displaySymbol : `${displaySymbol}/USD`;
+  }
+  return displaySymbol;
 }
 
 const LEVERAGE_CONFIG: Record<AssetType, { steps: number[]; max: number }> = {
@@ -750,7 +775,7 @@ export default function TradingScreen() {
   const [depositAmount, setDepositAmount] = useState('');
   const [orderLoading, setOrderLoading] = useState(false);
   const [closeAllLoading, setCloseAllLoading] = useState(false);
-  const [panelMode, setPanelMode] = useState<'open' | 'close'>('open');
+  const [panelMode, setPanelMode] = useState<'open' | 'close' | 'spot'>('open');
 
   const quotes = useMarketStore((s) => s.quotes);
   const klines = useMarketStore((s) => s.klines);
@@ -902,7 +927,17 @@ export default function TradingScreen() {
   const currentPrice = selectedQuote?.price ?? 0;
   const baseAsset = selectedSymbol.includes('/') ? selectedSymbol.split('/')[0] : selectedSymbol;
 
+  // 现货模式：仅 crypto / stocks 可切到 spot；切到不支持的标的自动跳回 open
+  const spotEligible = isSpotEligible(selectedSymbol);
+  const isSpotMode = panelMode === 'spot';
+  useEffect(() => {
+    if (panelMode === 'spot' && !spotEligible) {
+      setPanelMode('open');
+    }
+  }, [spotEligible, panelMode]);
+
   // Convert input to actual coin qty based on qtyMode
+  // 现货模式下没有 leverage：margin 视为 notional
   const getActualQty = useCallback(() => {
     const val = parseInputNumber(qtyInput) || 0;
     if (val <= 0) return 0;
@@ -910,9 +945,12 @@ export default function TradingScreen() {
     if (!price || price <= 0) return 0;
     if (qtyMode === 'coin') return val;
     if (qtyMode === 'notional') return val / price;
-    if (qtyMode === 'margin') return (val * leverage) / price;
+    if (qtyMode === 'margin') {
+      const lev = panelMode === 'spot' ? 1 : leverage;
+      return (val * lev) / price;
+    }
     return val;
-  }, [qtyInput, qtyMode, orderType, priceInput, currentPrice, leverage]);
+  }, [qtyInput, qtyMode, orderType, priceInput, currentPrice, leverage, panelMode]);
 
   const qtyModeLabel = qtyMode === 'coin' ? baseAsset : 'USDT';
 
@@ -926,6 +964,39 @@ export default function TradingScreen() {
       if (Platform.OS === 'web') window.alert(t('trading.enterQuantity'));
       return;
     }
+
+    // ── Spot Mode: 直接打到 /api/spot/orders ──
+    if (isSpotMode) {
+      const spotReq: SpotPlaceOrderRequest = {
+        symbol: toSpotSymbol(selectedSymbol),
+        side: side === 'long' ? 'buy' : 'sell',
+        order_type: orderType,
+        qty: parseFloat(qty.toFixed(8)),
+      };
+      if (orderType === 'limit') {
+        const price = parseInputNumber(priceInput);
+        if (!price || price <= 0) {
+          if (Platform.OS === 'web') window.alert(t('trading.enterLimitPrice'));
+          return;
+        }
+        spotReq.price = price;
+      }
+      setOrderLoading(true);
+      try {
+        await spotApi.placeOrder(spotReq);
+        setQtyInput('');
+        setSliderPct(0);
+        if (Platform.OS === 'web') window.alert(t('trading.spotOrderPlaced'));
+      } catch (e: any) {
+        const msg = e?.response?.data?.error || e?.message || t('trading.orderFailed');
+        if (Platform.OS === 'web') window.alert(msg);
+      } finally {
+        setOrderLoading(false);
+      }
+      return;
+    }
+
+    // ── Futures / CFD path ──
     const req: any = {
       symbol: selectedSymbol,
       side,
@@ -959,7 +1030,7 @@ export default function TradingScreen() {
     } finally {
       setOrderLoading(false);
     }
-  }, [user, getActualQty, selectedSymbol, orderType, leverage, marginMode, placeOrder, showTPSL, tpInput, slInput, priceInput, t]);
+  }, [user, getActualQty, selectedSymbol, orderType, leverage, marginMode, placeOrder, showTPSL, tpInput, slInput, priceInput, t, isSpotMode]);
 
   const handleCloseAll = useCallback(async () => {
     const openPositions = positions.filter(p => !p.is_copy_trade);
@@ -1545,9 +1616,13 @@ export default function TradingScreen() {
 
             {/* Execution Panel */}
             <View style={s.execPanel}>
-              {/* Top bar: margin mode + leverage */}
+              {/* Top bar: margin mode + leverage (现货模式仅显示 现货 chip) */}
               <View style={s.execTopBar}>
-                {getAssetType(selectedSymbol) === 'crypto' ? (
+                {isSpotMode ? (
+                  <View style={s.execTopChip}>
+                    <Text style={s.execTopChipText}>{t('trading.spot')}</Text>
+                  </View>
+                ) : getAssetType(selectedSymbol) === 'crypto' ? (
                   <TouchableOpacity style={s.execTopChip} onPress={() => setMarginMode(marginMode === 'cross' ? 'isolated' : 'cross')} activeOpacity={0.7}>
                     <Text style={s.execTopChipText}>{marginMode === 'cross' ? t('trading.cross') : t('trading.isolated')}</Text>
                   </TouchableOpacity>
@@ -1556,12 +1631,14 @@ export default function TradingScreen() {
                     <Text style={s.execTopChipText}>{getAssetType(selectedSymbol) === 'forex' ? t('trading.forex') : getAssetType(selectedSymbol) === 'futures' ? t('trading.futures') : t('trading.stock')}</Text>
                   </View>
                 )}
-                <TouchableOpacity style={s.execTopChip} onPress={() => setShowLeverageModal(true)} activeOpacity={0.7}>
-                  <Text style={s.execTopChipText}>{leverage}X</Text>
-                </TouchableOpacity>
+                {!isSpotMode && (
+                  <TouchableOpacity style={s.execTopChip} onPress={() => setShowLeverageModal(true)} activeOpacity={0.7}>
+                    <Text style={s.execTopChipText}>{leverage}X</Text>
+                  </TouchableOpacity>
+                )}
               </View>
 
-              {/* Open / Close */}
+              {/* Open / Close / Spot */}
               <View style={s.openCloseRow}>
                 <TouchableOpacity style={[s.openBtn, panelMode === 'open' && s.openBtnActive]} activeOpacity={0.7} onPress={() => setPanelMode('open')}>
                   <Text style={[s.openBtnText, panelMode === 'open' && s.openBtnTextActive]}>{t('trading.open')}</Text>
@@ -1569,9 +1646,14 @@ export default function TradingScreen() {
                 <TouchableOpacity style={[s.closeBtn, panelMode === 'close' && s.closeBtnActive]} activeOpacity={0.7} onPress={() => setPanelMode('close')}>
                   <Text style={[s.closeBtnText, panelMode === 'close' && s.closeBtnTextActive]}>{t('trading.close')}</Text>
                 </TouchableOpacity>
+                {spotEligible && (
+                  <TouchableOpacity style={[s.openBtn, panelMode === 'spot' && s.openBtnActive]} activeOpacity={0.7} onPress={() => setPanelMode('spot')}>
+                    <Text style={[s.openBtnText, panelMode === 'spot' && s.openBtnTextActive]}>{t('trading.spot')}</Text>
+                  </TouchableOpacity>
+                )}
               </View>
 
-              {panelMode === 'open' ? (<>
+              {(panelMode === 'open' || panelMode === 'spot') ? (<>
               {/* Limit / Market */}
               <View style={s.execTabRow}>
                 <TouchableOpacity onPress={() => setOrderType('limit')} activeOpacity={0.7}>
@@ -1632,11 +1714,13 @@ export default function TradingScreen() {
                 </View>
               </View>
 
-              <TouchableOpacity style={s.checkRow} activeOpacity={0.7} onPress={() => setShowTPSL(!showTPSL)}>
-                <View style={[s.checkbox, showTPSL && s.checkboxActive]} />
-                <Text style={s.checkLabel}>{t('trading.tpsl')}</Text>
-              </TouchableOpacity>
-              {showTPSL && (
+              {!isSpotMode && (
+                <TouchableOpacity style={s.checkRow} activeOpacity={0.7} onPress={() => setShowTPSL(!showTPSL)}>
+                  <View style={[s.checkbox, showTPSL && s.checkboxActive]} />
+                  <Text style={s.checkLabel}>{t('trading.tpsl')}</Text>
+                </TouchableOpacity>
+              )}
+              {!isSpotMode && showTPSL && (
                 <>
                   <View style={s.execInputRow}>
                     <Text style={s.execInputLabel}>{t('trading.takeProfit')}</Text>
@@ -1653,21 +1737,25 @@ export default function TradingScreen() {
 
               <View style={s.actionRow}>
                 <TouchableOpacity style={s.longBtn} activeOpacity={0.8} onPress={() => handlePlaceOrder('long')} disabled={orderLoading}>
-                  <Text style={s.longBtnText}>{orderLoading ? '...' : t('trading.longAction')}</Text>
+                  <Text style={s.longBtnText}>{orderLoading ? '...' : (isSpotMode ? t('trading.spotBuy') : t('trading.longAction'))}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={s.shortBtn} activeOpacity={0.8} onPress={() => handlePlaceOrder('short')} disabled={orderLoading}>
-                  <Text style={s.shortBtnText}>{orderLoading ? '...' : t('trading.shortAction')}</Text>
+                  <Text style={s.shortBtnText}>{orderLoading ? '...' : (isSpotMode ? t('trading.spotSell') : t('trading.shortAction'))}</Text>
                 </TouchableOpacity>
               </View>
 
-              <View style={s.infoRow}>
-                <Text style={s.infoLabel}>{t('trading.cost')}</Text>
-                <Text style={s.infoValue}>{calcMargin().toFixed(2)} USDT</Text>
-              </View>
-              <View style={s.infoRow}>
-                <Text style={s.infoLabel}>{t('trading.estLiqPrice')}</Text>
-                <Text style={s.infoValue}>{calcLiqPrice('long').toFixed(2)} / {calcLiqPrice('short').toFixed(2)}</Text>
-              </View>
+              {!isSpotMode && (
+                <>
+                  <View style={s.infoRow}>
+                    <Text style={s.infoLabel}>{t('trading.cost')}</Text>
+                    <Text style={s.infoValue}>{calcMargin().toFixed(2)} USDT</Text>
+                  </View>
+                  <View style={s.infoRow}>
+                    <Text style={s.infoLabel}>{t('trading.estLiqPrice')}</Text>
+                    <Text style={s.infoValue}>{calcLiqPrice('long').toFixed(2)} / {calcLiqPrice('short').toFixed(2)}</Text>
+                  </View>
+                </>
+              )}
 
               {/* VIP & Fee Info */}
               {vipInfo && (
@@ -2091,7 +2179,11 @@ export default function TradingScreen() {
         <View style={[s.execPanel, { marginTop: 12 }]}>
           {/* Top bar */}
           <View style={s.execTopBar}>
-            {getAssetType(selectedSymbol) === 'crypto' ? (
+            {isSpotMode ? (
+              <View style={s.execTopChip}>
+                <Text style={s.execTopChipText}>{t('trading.spot')}</Text>
+              </View>
+            ) : getAssetType(selectedSymbol) === 'crypto' ? (
               <TouchableOpacity style={s.execTopChip} onPress={() => setMarginMode(marginMode === 'cross' ? 'isolated' : 'cross')} activeOpacity={0.7}>
                 <Text style={s.execTopChipText}>{marginMode === 'cross' ? t('trading.cross') : t('trading.isolated')}</Text>
               </TouchableOpacity>
@@ -2100,12 +2192,14 @@ export default function TradingScreen() {
                 <Text style={s.execTopChipText}>{getAssetType(selectedSymbol) === 'forex' ? t('trading.forex') : getAssetType(selectedSymbol) === 'futures' ? t('trading.futures') : t('trading.stock')}</Text>
               </View>
             )}
-            <TouchableOpacity style={s.execTopChip} onPress={() => setShowLeverageModal(true)} activeOpacity={0.7}>
-              <Text style={s.execTopChipText}>{leverage}X</Text>
-            </TouchableOpacity>
+            {!isSpotMode && (
+              <TouchableOpacity style={s.execTopChip} onPress={() => setShowLeverageModal(true)} activeOpacity={0.7}>
+                <Text style={s.execTopChipText}>{leverage}X</Text>
+              </TouchableOpacity>
+            )}
           </View>
 
-          {/* Open / Close */}
+          {/* Open / Close / Spot */}
           <View style={s.openCloseRow}>
             <TouchableOpacity style={[s.openBtn, panelMode === 'open' && s.openBtnActive]} activeOpacity={0.7} onPress={() => setPanelMode('open')}>
               <Text style={[s.openBtnText, panelMode === 'open' && s.openBtnTextActive]}>{t('trading.open')}</Text>
@@ -2113,9 +2207,14 @@ export default function TradingScreen() {
             <TouchableOpacity style={[s.closeBtn, panelMode === 'close' && s.closeBtnActive]} activeOpacity={0.7} onPress={() => setPanelMode('close')}>
               <Text style={[s.closeBtnText, panelMode === 'close' && s.closeBtnTextActive]}>{t('trading.close')}</Text>
             </TouchableOpacity>
+            {spotEligible && (
+              <TouchableOpacity style={[s.openBtn, panelMode === 'spot' && s.openBtnActive]} activeOpacity={0.7} onPress={() => setPanelMode('spot')}>
+                <Text style={[s.openBtnText, panelMode === 'spot' && s.openBtnTextActive]}>{t('trading.spot')}</Text>
+              </TouchableOpacity>
+            )}
           </View>
 
-          {panelMode === 'open' ? (<>
+          {(panelMode === 'open' || panelMode === 'spot') ? (<>
           {/* Order type tabs */}
           <View style={s.execTabRow}>
             <TouchableOpacity onPress={() => setOrderType('limit')} activeOpacity={0.7}>
@@ -2180,31 +2279,37 @@ export default function TradingScreen() {
             </View>
           </View>
 
-          {/* TP/SL */}
-          <TouchableOpacity style={s.checkRow} activeOpacity={0.7}>
-            <View style={s.checkbox} />
-            <Text style={s.checkLabel}>{t('trading.tpsl')}</Text>
-          </TouchableOpacity>
+          {/* TP/SL — 现货模式不显示 */}
+          {!isSpotMode && (
+            <TouchableOpacity style={s.checkRow} activeOpacity={0.7}>
+              <View style={s.checkbox} />
+              <Text style={s.checkLabel}>{t('trading.tpsl')}</Text>
+            </TouchableOpacity>
+          )}
 
-          {/* Long / Short */}
+          {/* Long / Short / Buy / Sell */}
           <View style={s.actionRow}>
             <TouchableOpacity style={s.longBtn} activeOpacity={0.8} onPress={() => handlePlaceOrder('long')} disabled={orderLoading}>
-              <Text style={s.longBtnText}>{orderLoading ? '...' : t('trading.longAction')}</Text>
+              <Text style={s.longBtnText}>{orderLoading ? '...' : (isSpotMode ? t('trading.spotBuy') : t('trading.longAction'))}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={s.shortBtn} activeOpacity={0.8} onPress={() => handlePlaceOrder('short')} disabled={orderLoading}>
-              <Text style={s.shortBtnText}>{orderLoading ? '...' : t('trading.shortAction')}</Text>
+              <Text style={s.shortBtnText}>{orderLoading ? '...' : (isSpotMode ? t('trading.spotSell') : t('trading.shortAction'))}</Text>
             </TouchableOpacity>
           </View>
 
-          {/* Info */}
-          <View style={s.infoRow}>
-            <Text style={s.infoLabel}>{t('trading.cost')}</Text>
-            <Text style={s.infoValue}>{calcMargin().toFixed(2)} USDT</Text>
-          </View>
-          <View style={s.infoRow}>
-            <Text style={s.infoLabel}>{t('trading.estLiqPrice')}</Text>
-            <Text style={s.infoValue}>{calcLiqPrice('long').toFixed(2)} / {calcLiqPrice('short').toFixed(2)}</Text>
-          </View>
+          {/* Info — 现货模式不显示 cost / liq */}
+          {!isSpotMode && (
+            <>
+              <View style={s.infoRow}>
+                <Text style={s.infoLabel}>{t('trading.cost')}</Text>
+                <Text style={s.infoValue}>{calcMargin().toFixed(2)} USDT</Text>
+              </View>
+              <View style={s.infoRow}>
+                <Text style={s.infoLabel}>{t('trading.estLiqPrice')}</Text>
+                <Text style={s.infoValue}>{calcLiqPrice('long').toFixed(2)} / {calcLiqPrice('short').toFixed(2)}</Text>
+              </View>
+            </>
+          )}
 
           {/* VIP & Fee Info */}
           {vipInfo && (
