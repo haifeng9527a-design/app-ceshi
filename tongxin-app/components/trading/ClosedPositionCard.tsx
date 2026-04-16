@@ -2,6 +2,7 @@ import { memo } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import type { PositionResponse } from '../../services/api/tradingApi';
+import { toDisplaySymbol } from '../../services/utils/symbolFormat';
 
 interface Props {
   position: PositionResponse;
@@ -45,7 +46,7 @@ function ClosedPositionCard({ position }: Props) {
           <View style={[st.sideBadge, { backgroundColor: sideColor }]}>
             <Text style={st.sideBadgeText}>{sideLabel}</Text>
           </View>
-          <Text style={st.symbol}>{position.symbol}</Text>
+          <Text style={st.symbol}>{toDisplaySymbol(position.symbol)}</Text>
           <View style={st.leverageBadge}>
             <Text style={st.leverageText}>{position.leverage ?? '--'}x</Text>
           </View>

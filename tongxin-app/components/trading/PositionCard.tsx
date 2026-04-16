@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, TextInput, StyleSheet, Alert, Platform, M
 import { useTranslation } from 'react-i18next';
 import type { PositionResponse } from '../../services/api/tradingApi';
 import { updateTPSL, partialClosePosition } from '../../services/api/tradingApi';
+import { toDisplaySymbol } from '../../services/utils/symbolFormat';
 
 interface Props {
   position: PositionResponse;
@@ -200,7 +201,7 @@ function PositionCard({ position, onClose, onUpdated }: Props) {
           <View style={[st.sideBadge, { backgroundColor: sideColor }]}>
             <Text style={st.sideBadgeText}>{sideLabel}</Text>
           </View>
-          <Text style={st.symbol}>{position.symbol}</Text>
+          <Text style={st.symbol}>{toDisplaySymbol(position.symbol)}</Text>
           {position.is_copy_trade && (
             <View style={st.copyBadge}>
               <Text style={st.copyBadgeText}>{t('trading.copyTrade')}</Text>
@@ -349,7 +350,7 @@ function PositionCard({ position, onClose, onUpdated }: Props) {
             <ScrollView style={{ maxHeight: 500 }} showsVerticalScrollIndicator={false}>
               {/* Position info bar */}
               <View style={st.posInfoBar}>
-                <Text style={st.posInfoSymbol}>{position.symbol}</Text>
+                <Text style={st.posInfoSymbol}>{toDisplaySymbol(position.symbol)}</Text>
                 <View style={[st.posInfoBadge, { borderColor: sideColor }]}>
                   <Text style={[st.posInfoBadgeText, { color: sideColor }]}>{isLong ? 'Long' : 'Short'}</Text>
                 </View>

@@ -56,6 +56,7 @@ import {
 import { getMyStrategies, type TraderStrategy } from '../../services/api/traderStrategyApi';
 import { chatWs } from '../../services/websocket/chatWs';
 import { showAlert, showConfirm } from '../../services/utils/dialog';
+import { toDisplaySymbol } from '../../services/utils/symbolFormat';
 
 /* ════════════════════════════════════════
    UI-layer types (unchanged from design)
@@ -745,7 +746,7 @@ function StrategyCardBubble({
   const title =
     card.title ||
     (card.symbol
-      ? `${card.symbol}${card.leverage ? ` · ${card.leverage}${t('messages.leverage')}` : ''}`
+      ? `${toDisplaySymbol(card.symbol)}${card.leverage ? ` · ${card.leverage}${t('messages.leverage')}` : ''}`
       : t('messages.strategyShare'));
   const barPct = Math.min(100, Math.max(8, 50 + (pct ?? 0) * 2));
 
@@ -2222,7 +2223,7 @@ function PeerSidebar({
                   return (
                     <View key={pos.id} style={styles.traderDetailRow}>
                       <View>
-                        <Text style={styles.traderDetailValue}>{pos.symbol}</Text>
+                        <Text style={styles.traderDetailValue}>{toDisplaySymbol(pos.symbol)}</Text>
                         <Text style={styles.traderDetailLabel}>
                           {pos.side.toUpperCase()} · {pos.leverage}x
                         </Text>

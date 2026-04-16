@@ -19,6 +19,7 @@ import { useAuthStore } from '../../services/store/authStore';
 import { useMarketStore } from '../../services/store/marketStore';
 import { marketWs } from '../../services/websocket/marketWs';
 import AppIcon from '../ui/AppIcon';
+import { toDisplaySymbol } from '../../services/utils/symbolFormat';
 import {
   getTraderProfile,
   getTraderPositions,
@@ -665,7 +666,7 @@ export default function TraderDetailPanel({ uid, onClose, embedded }: Props) {
                           <Text style={styles.pairIconText}>{pos.symbol[0]}</Text>
                         </View>
                         <View>
-                          <Text style={styles.pairName}>{pos.symbol}</Text>
+                          <Text style={styles.pairName}>{toDisplaySymbol(pos.symbol)}</Text>
                           <Text style={[styles.pairSide, { color: pos.side === 'long' ? Colors.up : Colors.down }]}>
                             {pos.side.toUpperCase()} {pos.leverage}x
                           </Text>
@@ -713,7 +714,7 @@ export default function TraderDetailPanel({ uid, onClose, embedded }: Props) {
                       <View style={{ flex: 2 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                           <View style={[styles.tradeDot, { backgroundColor: rpnl >= 0 ? Colors.up : Colors.down }]} />
-                          <Text style={styles.tradeAction}>{trade.side === 'long' ? 'SELL' : 'BUY'} {trade.symbol}</Text>
+                          <Text style={styles.tradeAction}>{trade.side === 'long' ? 'SELL' : 'BUY'} {toDisplaySymbol(trade.symbol)}</Text>
                         </View>
                         <Text style={styles.tradeType}>{closeType}</Text>
                       </View>

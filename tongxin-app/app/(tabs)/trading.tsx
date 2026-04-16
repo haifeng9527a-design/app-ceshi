@@ -31,7 +31,8 @@ import IndicatorsPanel from '../../components/chart/IndicatorsPanel';
 import ChartTypeDropdown, { getChartTypeIcon } from '../../components/chart/ChartTypeDropdown';
 import DrawingToolsSidebar, { DrawingToolsSettings, DEFAULT_ENABLED_TOOLS, type DrawingTool } from '../../components/chart/DrawingToolsSidebar';
 import type { IndicatorType } from '../../components/chart/indicators';
-import SymbolDropdown, { type SymbolTab } from '../../components/trading/SymbolDropdown';
+import SymbolDropdown, { type SymbolTab, type SymbolMeta } from '../../components/trading/SymbolDropdown';
+import { toDisplaySymbol } from '../../services/utils/symbolFormat';
 
 /* ════════════════════════════════════════
    Constants
@@ -530,6 +531,9 @@ export default function TradingScreen() {
 
   // Local state
   const [selectedSymbol, setSelectedSymbol] = useState('BTC/USD');
+  // UI-only display form (crypto BTC/USD → BTC/USDT; forex/stocks/futures unchanged).
+  // `selectedSymbol` keeps the backend/market-store format — only display uses this.
+  const displaySymbol = toDisplaySymbol(selectedSymbol);
   const [timeframe, setTimeframe] = useState<string>('1h');
   const [bottomTab, setBottomTab] = useState<BottomTab>('positions');
   const [orderType, setOrderType] = useState<OrderType>('limit');
@@ -931,6 +935,10 @@ export default function TradingScreen() {
     { key: 'forex', label: t('trading.forex') },
     { key: 'futures', label: t('trading.futures') },
   ];
+  /** Dropdown rows show `BTC/USDT` for crypto; leaves forex/stocks/futures alone. */
+  const getSymbolDropdownMeta = useCallback((sym: string): SymbolMeta => ({
+    displaySymbol: toDisplaySymbol(sym),
+  }), []);
 
   /* ═══════ Desktop Layout ═══════ */
   if (isDesktop) {
@@ -945,6 +953,7 @@ export default function TradingScreen() {
           onSelect={handleSelectSymbol}
           onClose={() => setShowDropdown(false)}
           quotes={quotes}
+          getMeta={getSymbolDropdownMeta}
         />
 
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ minHeight: '100%' }} showsVerticalScrollIndicator={false}>
@@ -959,7 +968,7 @@ export default function TradingScreen() {
                 onPress={() => setShowDropdown(true)}
                 activeOpacity={0.7}
               >
-                <Text style={s.symbolTriggerText}>{selectedSymbol}</Text>
+                <Text style={s.symbolTriggerText}>{displaySymbol}</Text>
                 <Text style={s.symbolTriggerArrow}>▼</Text>
               </TouchableOpacity>
 
@@ -1161,7 +1170,7 @@ export default function TradingScreen() {
 
                 {/* Chart */}
                 <View style={{ flex: 1, position: 'relative' }}>
-                  <OhlcOverlay data={crosshairData} symbol={selectedSymbol} />
+                  <OhlcOverlay data={crosshairData} symbol={displaySymbol} />
                   {klinesLoading && klines.length === 0 ? (
                     <SkeletonChart />
                   ) : klines.length > 0 ? (
@@ -1526,7 +1535,7 @@ export default function TradingScreen() {
                 <View style={s.acctDivider} />
                 <View style={s.acctRow}>
                   <Text style={s.acctRowLabel}>{t('trading.contract')}</Text>
-                  <Text style={s.acctRowValue}>{selectedSymbol.replace('/', '')}</Text>
+                  <Text style={s.acctRowValue}>{displaySymbol.replace('/', '')}</Text>
                 </View>
                 <View style={s.acctRow}>
                   <Text style={s.acctRowLabel}>{t('trading.settlementType')}</Text>
@@ -1534,7 +1543,7 @@ export default function TradingScreen() {
                 </View>
                 <View style={s.acctRow}>
                   <Text style={s.acctRowLabel}>{t('trading.underlyingAsset')}</Text>
-                  <Text style={s.acctRowValue}>{selectedSymbol.replace('/', '')} {t('trading.indexSuffix')}</Text>
+                  <Text style={s.acctRowValue}>{displaySymbol.replace('/', '')} {t('trading.indexSuffix')}</Text>
                 </View>
                 <View style={s.acctRow}>
                   <Text style={s.acctRowLabel}>{t('trading.marginAsset')}</Text>
@@ -1695,6 +1704,7 @@ export default function TradingScreen() {
         onSelect={handleSelectSymbol}
         onClose={() => setShowDropdown(false)}
         quotes={quotes}
+        getMeta={getSymbolDropdownMeta}
       />
 
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 100 }} showsVerticalScrollIndicator={false}>
@@ -1704,7 +1714,7 @@ export default function TradingScreen() {
           onPress={() => setShowDropdown(true)}
           activeOpacity={0.7}
         >
-          <Text style={s.mobileSymTriggerText}>{selectedSymbol}</Text>
+          <Text style={s.mobileSymTriggerText}>{displaySymbol}</Text>
           <Text style={s.symbolTriggerArrow}>▼</Text>
         </TouchableOpacity>
 
@@ -1812,7 +1822,7 @@ export default function TradingScreen() {
 
         {/* Chart */}
         <View style={s.mobileChart}>
-          <OhlcOverlay data={crosshairData} symbol={selectedSymbol} />
+          <OhlcOverlay data={crosshairData} symbol={displaySymbol} />
           {klinesLoading && klines.length === 0 ? (
             <SkeletonChart />
           ) : klines.length > 0 ? (

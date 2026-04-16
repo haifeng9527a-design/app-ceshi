@@ -2,6 +2,7 @@ import { memo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import type { OrderResponse } from '../../services/api/tradingApi';
+import { toDisplaySymbol } from '../../services/utils/symbolFormat';
 
 interface Props {
   order: OrderResponse;
@@ -54,7 +55,7 @@ function OrderCard({ order, onCancel }: Props) {
           <View style={[st.sideBadge, { backgroundColor: sideColor }]}>
             <Text style={st.sideBadgeText}>{sideLabel}</Text>
           </View>
-          <Text style={st.symbol}>{order.symbol}</Text>
+          <Text style={st.symbol}>{toDisplaySymbol(order.symbol)}</Text>
           <View style={st.typeBadge}>
             <Text style={st.typeText}>{order.order_type === 'limit' ? t('trading.limit') : t('trading.marketOrder')}</Text>
           </View>
