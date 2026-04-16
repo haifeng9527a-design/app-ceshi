@@ -11,7 +11,7 @@
  * categories they want (e.g. crypto + stocks, dropping forex + futures).
  */
 
-import { useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -23,8 +23,10 @@ import {
 import { useTranslation } from 'react-i18next';
 
 import AppIcon from '../ui/AppIcon';
+import AssetSymbolIcon from '../ui/AssetSymbolIcon';
 import { Colors } from '../../theme/colors';
 import type { MarketQuote } from '../../services/api/client';
+import { useMarketStore } from '../../services/store/marketStore';
 
 export type SymbolMeta = {
   /** Optional sub-label shown below the symbol (e.g. company name for stocks). */
@@ -45,7 +47,12 @@ export type SymbolDropdownProps = {
   tabs: SymbolTab[];
   /** Symbol lists keyed by tab. Caller filters to just the tabs they want. */
   symbolsByTab: Record<string, string[]>;
-  quotes: Record<string, MarketQuote>;
+  /**
+   * Optional quote snapshot. Kept for backward compatibility; rows now subscribe
+   * to the market store directly so only symbols whose quote actually changed
+   * re-render (prevents flicker from 50ms global flushes hitting 100+ rows).
+   */
+  quotes?: Record<string, MarketQuote>;
   /** Defaults to the first tab whose list contains `selectedSymbol`. */
   initialTab?: string;
   onSelect: (symbol: string) => void;
@@ -84,12 +91,70 @@ function changeColor(pct: number | undefined): string {
 
 /* ── Component ────────────────────────────────────────── */
 
+/** Per-row subscriber: only rerenders when THIS symbol's quote changes.
+ *  Zustand's `===` equality means unchanged symbols (the common case during a
+ *  50ms batch flush) skip their render entirely. */
+const QuoteRow = memo(function QuoteRow({
+  sym,
+  displaySymbol,
+  lookupKey,
+  subLabel,
+  pricePrecision,
+  category,
+  isActive,
+  onPress,
+}: {
+  sym: string;
+  displaySymbol: string;
+  lookupKey: string;
+  subLabel?: string;
+  pricePrecision?: number;
+  category?: 'stock' | 'crypto';
+  isActive: boolean;
+  onPress: (sym: string) => void;
+}) {
+  const q = useMarketStore((s) => s.quotes[lookupKey]);
+  const pct = q?.percent_change;
+  return (
+    <TouchableOpacity
+      style={[styles.row, isActive && styles.rowActive]}
+      onPress={() => onPress(sym)}
+      activeOpacity={0.6}
+    >
+      <AssetSymbolIcon
+        symbol={displaySymbol}
+        category={category}
+        size={28}
+        style={styles.rowIcon}
+      />
+      <View style={styles.rowLeft}>
+        <Text
+          style={[styles.rowSymbol, isActive && { color: Colors.primary }]}
+          numberOfLines={1}
+        >
+          {displaySymbol}
+        </Text>
+        {subLabel ? (
+          <Text style={styles.rowSubLabel} numberOfLines={1}>
+            {subLabel}
+          </Text>
+        ) : null}
+      </View>
+      <Text style={styles.rowPrice} numberOfLines={1}>
+        {defaultFormatPrice(q?.price ?? 0, pricePrecision)}
+      </Text>
+      <Text style={[styles.rowChange, { color: changeColor(pct) }]}>
+        {formatChange(pct)}
+      </Text>
+    </TouchableOpacity>
+  );
+});
+
 export default function SymbolDropdown({
   visible,
   selectedSymbol,
   tabs,
   symbolsByTab,
-  quotes,
   initialTab,
   onSelect,
   onClose,
@@ -108,6 +173,15 @@ export default function SymbolDropdown({
 
   const [activeTab, setActiveTab] = useState<string>(resolveTab);
   const [filter, setFilter] = useState('');
+
+  // Stable row-press handler so <QuoteRow memo> doesn't reset on every parent render.
+  const handleRowPress = useCallback(
+    (s: string) => {
+      onSelect(s);
+      onClose();
+    },
+    [onSelect, onClose],
+  );
 
   // Reset tab + search each time the panel becomes visible.
   useEffect(() => {
@@ -191,44 +265,24 @@ export default function SymbolDropdown({
           ) : (
             filtered.map((sym) => {
               const meta = getMeta?.(sym);
-              const displaySymbol = meta?.displaySymbol ?? sym;
-              const lookupKey = meta?.quoteSymbol ?? sym;
-              const q = quotes[lookupKey];
-              const isActive = selectedSymbol === sym;
-              const pct = q?.percent_change;
               return (
-                <TouchableOpacity
+                <QuoteRow
                   key={sym}
-                  style={[styles.row, isActive && styles.rowActive]}
-                  onPress={() => {
-                    onSelect(sym);
-                    onClose();
-                  }}
-                  activeOpacity={0.6}
-                >
-                  <View style={styles.rowLeft}>
-                    <Text
-                      style={[
-                        styles.rowSymbol,
-                        isActive && { color: Colors.primary },
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {displaySymbol}
-                    </Text>
-                    {meta?.subLabel ? (
-                      <Text style={styles.rowSubLabel} numberOfLines={1}>
-                        {meta.subLabel}
-                      </Text>
-                    ) : null}
-                  </View>
-                  <Text style={styles.rowPrice} numberOfLines={1}>
-                    {defaultFormatPrice(q?.price ?? 0, meta?.pricePrecision)}
-                  </Text>
-                  <Text style={[styles.rowChange, { color: changeColor(pct) }]}>
-                    {formatChange(pct)}
-                  </Text>
-                </TouchableOpacity>
+                  sym={sym}
+                  displaySymbol={meta?.displaySymbol ?? sym}
+                  lookupKey={meta?.quoteSymbol ?? sym}
+                  subLabel={meta?.subLabel}
+                  pricePrecision={meta?.pricePrecision}
+                  category={
+                    activeTab === 'stocks'
+                      ? 'stock'
+                      : activeTab === 'crypto'
+                        ? 'crypto'
+                        : undefined
+                  }
+                  isActive={selectedSymbol === sym}
+                  onPress={handleRowPress}
+                />
               );
             })
           )}
@@ -335,6 +389,9 @@ const styles = StyleSheet.create({
   },
   rowActive: {
     backgroundColor: 'rgba(42,42,42,0.3)',
+  },
+  rowIcon: {
+    marginRight: 10,
   },
   rowLeft: {
     flex: 1,

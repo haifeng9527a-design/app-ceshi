@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { MarketQuote, KlineBar, SearchResult, IndexQuote } from '../api/client';
 import {
   fetchQuotes,
@@ -96,6 +97,30 @@ const QUOTE_FLUSH_MS = 50;
 const pendingQuoteUpdates: Record<string, Partial<MarketQuote>> = {};
 let quoteFlushTimer: ReturnType<typeof setTimeout> | null = null;
 
+// ─── Persistent quote cache ───────────────────────────────────────
+// Persists the current quote map to AsyncStorage so the symbol dropdown
+// (and other surfaces) show prices immediately on next app launch instead
+// of flashing `--` until REST responds. Writes are debounced; reads happen
+// once at module load and live values always win over cache.
+const QUOTE_CACHE_KEY = 'tongxin_quotes_v1';
+const QUOTE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const QUOTE_PERSIST_DEBOUNCE_MS = 2000;
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+
+function schedulePersistQuotes(quotes: Record<string, MarketQuote>) {
+  // Debounce: one pending timer at a time. Captures the quotes ref at fire time.
+  if (persistTimer) return;
+  persistTimer = setTimeout(() => {
+    persistTimer = null;
+    try {
+      const payload = JSON.stringify({ quotes, ts: Date.now() });
+      AsyncStorage.setItem(QUOTE_CACHE_KEY, payload).catch(() => {});
+    } catch {
+      // JSON serialize failure (circular etc.) — non-fatal, skip this persist
+    }
+  }, QUOTE_PERSIST_DEBOUNCE_MS);
+}
+
 export const useMarketStore = create<MarketState>((set, get) => ({
   quotes: {},
   watchlist: ['BTC/USD', 'ETH/USD', 'AAPL', 'EUR/USD'],
@@ -120,6 +145,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
         quotes[sym] = q;
       }
       set({ quotes });
+      schedulePersistQuotes(quotes);
     } catch (e) {
       console.error('[Store] loadQuotes error:', e);
     }
@@ -133,6 +159,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
         quotes[sym] = q;
       }
       set({ quotes });
+      schedulePersistQuotes(quotes);
     } catch (e) {
       console.error('[Store] loadCryptoQuotes error:', e);
     }
@@ -146,6 +173,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
         quotes[sym] = q;
       }
       set({ quotes });
+      schedulePersistQuotes(quotes);
     } catch (e) {
       console.error('[Store] loadForexQuotes error:', e);
     }
@@ -159,6 +187,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
         quotes[sym] = q;
       }
       set({ quotes });
+      schedulePersistQuotes(quotes);
     } catch (e) {
       console.error('[Store] loadFuturesQuotes error:', e);
     }
@@ -275,6 +304,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
         quotes[sym] = merged;
       }
       set({ quotes });
+      schedulePersistQuotes(quotes);
     }, QUOTE_FLUSH_MS);
   },
 
@@ -308,3 +338,26 @@ export const useMarketStore = create<MarketState>((set, get) => ({
 
   isInWatchlist: (symbol) => get().watchlist.includes(symbol),
 }));
+
+// ─── Hydrate persisted quotes on module load ──────────────────────
+// Non-blocking. Live values (from REST/WS after app start) always win;
+// we only fill in symbols that haven't been refreshed yet. Expired
+// cache is discarded silently.
+(async () => {
+  try {
+    const raw = await AsyncStorage.getItem(QUOTE_CACHE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as { quotes?: Record<string, MarketQuote>; ts?: number };
+    if (!parsed?.quotes || !parsed.ts) return;
+    if (Date.now() - parsed.ts > QUOTE_CACHE_TTL_MS) {
+      AsyncStorage.removeItem(QUOTE_CACHE_KEY).catch(() => {});
+      return;
+    }
+    useMarketStore.setState((s) => ({
+      quotes: { ...parsed.quotes, ...s.quotes },
+    }));
+  } catch {
+    // Corrupt payload — drop it so next write starts fresh
+    AsyncStorage.removeItem(QUOTE_CACHE_KEY).catch(() => {});
+  }
+})();
