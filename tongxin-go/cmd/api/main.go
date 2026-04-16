@@ -516,8 +516,13 @@ func main() {
 	// ── Notifications (Sprint 1, all authenticated users) ──
 	if notificationSvc != nil {
 		notificationH := handler.NewNotificationHandler(notificationSvc)
+		// 前端 (agent-web/src/lib/api.ts) 用 /api/agent/notifications/* 命名空间 +
+		// POST mark-read。保留 /api/notifications/* + PATCH 作为 alias，兼容老调用方。
+		mux.Handle("GET /api/agent/notifications", authMw.Authenticate(http.HandlerFunc(notificationH.List)))
 		mux.Handle("GET /api/notifications", authMw.Authenticate(http.HandlerFunc(notificationH.List)))
+		mux.Handle("POST /api/agent/notifications/{id}/read", authMw.Authenticate(http.HandlerFunc(notificationH.MarkRead)))
 		mux.Handle("PATCH /api/notifications/{id}/read", authMw.Authenticate(http.HandlerFunc(notificationH.MarkRead)))
+		mux.Handle("POST /api/agent/notifications/read-all", authMw.Authenticate(http.HandlerFunc(notificationH.MarkAllRead)))
 		mux.Handle("POST /api/notifications/read-all", authMw.Authenticate(http.HandlerFunc(notificationH.MarkAllRead)))
 		mux.Handle("POST /api/agent/_dev/create-notification", authMw.Authenticate(http.HandlerFunc(notificationH.DevCreate)))
 		log.Println("[OK] Notification routes registered")

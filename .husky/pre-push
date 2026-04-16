@@ -68,10 +68,17 @@ printf '%s\n' "$CHANGED" | awk 'NR<=20 {print "  " $0} END {if (NR > 20) print "
 
 need_go=0
 need_app=0
+need_contract=0
 while IFS= read -r f; do
   case "$f" in
     tongxin-go/*) need_go=1 ;;
     tongxin-app/*) need_app=1 ;;
+  esac
+  # 前后端 API 契约：动 cmd/api/main.go、handler 路由注册、或契约脚本本身就跑 smoke。
+  # 前端 api.ts 是独立仓，不会出现在这里的 diff；但本地脚本仍能读它做静态比对。
+  case "$f" in
+    tongxin-go/cmd/api/main.go|tongxin-go/internal/handler/*.go|tongxin-go/scripts/api-contract-smoke.mjs)
+      need_contract=1 ;;
   esac
 done <<< "$CHANGED"
 
@@ -89,7 +96,19 @@ if [ "$need_app" = 1 ]; then
   echo "[pre-push] tongxin-app ✓"
 fi
 
-if [ "$need_go" = 0 ] && [ "$need_app" = 0 ]; then
+if [ "$need_contract" = 1 ]; then
+  echo ""
+  echo "[pre-push] agent API routes changed → frontend contract smoke"
+  # 脚本位置稳定，缺失就跳过（极端情况下 agent-web 被删）
+  if [ -f tongxin-go/scripts/api-contract-smoke.mjs ] && [ -f tongxin-agent-web/src/lib/api.ts ]; then
+    node tongxin-go/scripts/api-contract-smoke.mjs
+    echo "[pre-push] api-contract ✓"
+  else
+    echo "[pre-push] api-contract skipped (script or frontend api.ts missing)"
+  fi
+fi
+
+if [ "$need_go" = 0 ] && [ "$need_app" = 0 ] && [ "$need_contract" = 0 ]; then
   echo "[pre-push] no checks needed for these paths — skipping"
 fi
 

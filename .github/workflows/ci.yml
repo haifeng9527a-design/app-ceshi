@@ -96,3 +96,38 @@ jobs:
       - name: Skip notice
         if: steps.filter.outputs.app != 'true'
         run: echo "No tongxin-app changes — skipping"
+
+  # ─── 前后端 API 契约 smoke ─────────────────────────────────────────
+  # tongxin-go handler/routes 和 tongxin-agent-web api.ts 分处两个 git repo，
+  # 历史上多次出现前端调的路径后端没注册 → 404 的事故（Sprint 1 notifications /
+  # Sprint 2/3 thresholds + touch / Sprint 4 time-series）。
+  # 这个 job 做纯静态比对，~1 秒跑完。
+  api-contract:
+    name: agent-web <-> tongxin-go / contract smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect API surface changes
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            api:
+              - 'tongxin-go/cmd/api/main.go'
+              - 'tongxin-go/internal/handler/**'
+              - 'tongxin-agent-web/src/lib/api.ts'
+
+      - name: Setup Node
+        if: steps.filter.outputs.api == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run contract smoke
+        if: steps.filter.outputs.api == 'true'
+        run: node tongxin-go/scripts/api-contract-smoke.mjs
+
+      - name: Skip notice
+        if: steps.filter.outputs.api != 'true'
+        run: echo "No API surface changes — skipping"
