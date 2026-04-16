@@ -441,6 +441,20 @@ export default function ProfileScreen() {
             onPress={() => router.push('/settings/feedback-history' as any)}
           />
           <MenuItem
+            icon="users"
+            label={t('profile.referralEntry')}
+            description={t('profile.referralEntryDesc')}
+            onPress={() => router.push('/referral/my-invites' as any)}
+          />
+          {user.isAgent && (
+            <MenuItem
+              icon="building"
+              label={t('profile.agentCenter')}
+              description={t('profile.agentCenterDesc')}
+              onPress={() => router.push('/agent/dashboard' as any)}
+            />
+          )}
+          <MenuItem
             icon="globe"
             label={t('profile.language')}
             description={t('profile.languageDesc')}

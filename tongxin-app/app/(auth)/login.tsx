@@ -48,6 +48,7 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
+  const [inviteCode, setInviteCode] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [localError, setLocalError] = useState('');
 
@@ -79,11 +80,11 @@ export default function LoginScreen() {
         setLocalError('Passwords do not match');
         return;
       }
-      await registerWithEmail(email.trim(), password, displayName.trim());
+      await registerWithEmail(email.trim(), password, displayName.trim(), inviteCode.trim() || undefined);
     } else {
       await signInWithEmail(email.trim(), password);
     }
-  }, [mode, email, password, confirmPassword, displayName]);
+  }, [mode, email, password, confirmPassword, displayName, inviteCode]);
 
   const displayError = localError || error;
 
@@ -267,6 +268,24 @@ export default function LoginScreen() {
                         value={confirmPassword}
                         onChangeText={setConfirmPassword}
                         secureTextEntry
+                      />
+                    </View>
+                  </View>
+                )}
+
+                {/* Invite Code (register only) */}
+                {mode === 'register' && (
+                  <View style={styles.fieldGroup}>
+                    <Text style={styles.fieldLabel}>{t('auth.inviteCodeLabel')}</Text>
+                    <View style={styles.inputWrap}>
+                      <AppIcon name="key" size={16} color={Colors.textMuted} />
+                      <TextInput
+                        style={styles.input}
+                        placeholder={t('auth.inviteCodeHint')}
+                        placeholderTextColor="rgba(107,107,128,0.6)"
+                        value={inviteCode}
+                        onChangeText={setInviteCode}
+                        autoCapitalize="none"
                       />
                     </View>
                   </View>

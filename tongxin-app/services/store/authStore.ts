@@ -14,6 +14,7 @@ export interface UserProfile {
   signature?: string;
   phone?: string;
   isTrader?: boolean;
+  isAgent?: boolean;
   isSupportAgent?: boolean;
   allowCopyTrading?: boolean;
   vipLevel?: number;
@@ -29,7 +30,7 @@ interface AuthState {
   // Actions
   initialize: () => () => void; // returns unsubscribe
   signInWithEmail: (email: string, password: string) => Promise<void>;
-  registerWithEmail: (email: string, password: string, displayName: string) => Promise<void>;
+  registerWithEmail: (email: string, password: string, displayName: string, inviteCode?: string) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
   signInWithApple: () => Promise<void>;
   signOut: () => Promise<void>;
@@ -83,14 +84,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  registerWithEmail: async (email, password, displayName) => {
+  registerWithEmail: async (email, password, displayName, inviteCode?) => {
     set({ loading: true, error: null });
     try {
-      const { data } = await apiClient.post('/api/auth/register', {
+      const body: Record<string, string> = {
         email,
         password,
         display_name: displayName,
-      });
+      };
+      if (inviteCode) {
+        body.invite_code = inviteCode;
+      }
+      const { data } = await apiClient.post('/api/auth/register', body);
       // data: { token, user }
       await saveToken(data.token);
       const profile = backendUserToProfile(data.user);
@@ -160,6 +165,7 @@ function backendUserToProfile(user: any): UserProfile {
     signature: user.bio || user.signature,
     phone: user.phone || null,
     isTrader: user.is_trader || false,
+    isAgent: user.is_agent || false,
     isSupportAgent: user.is_support_agent || false,
     allowCopyTrading: user.allow_copy_trading || false,
     vipLevel: user.vip_level || 0,
