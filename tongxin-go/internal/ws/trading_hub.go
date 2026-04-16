@@ -61,6 +61,11 @@ func (h *TradingHub) PushToUser(userID string, payload any) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	if c, ok := h.clients[userID]; ok {
+		if m, ok := payload.(map[string]any); ok {
+			if t, _ := m["type"].(string); t != "" {
+				log.Printf("[trading-ws] push → user=%s type=%s", userID, t)
+			}
+		}
 		c.SendJSON(payload)
 	}
 }
