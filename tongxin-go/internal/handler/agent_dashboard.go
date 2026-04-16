@@ -124,6 +124,23 @@ func (h *AgentDashboardHandler) GetDashboardPrefs(w http.ResponseWriter, r *http
 	writeJSON(w, http.StatusOK, prefs)
 }
 
+// GET /api/agent/business-stats
+// 业务统计页：本月 / 累计 入金出金交易量 + 活跃度。
+// 范围：仅直接下级，和仪表盘口径一致。
+func (h *AgentDashboardHandler) BusinessStats(w http.ResponseWriter, r *http.Request) {
+	uid := middleware.GetUserUID(r.Context())
+	if uid == "" {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	stats, err := h.repo.GetAgentBusinessStats(r.Context(), uid)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load business stats")
+		return
+	}
+	writeJSON(w, http.StatusOK, stats)
+}
+
 // GET /api/agent/commission-events?kind=&status=&limit=&offset=
 // 给前端 CommissionSettlementBanner + 实时事件流复用。
 // 默认按 created_at DESC 排序；status=pending 可以抓所有未结算的。

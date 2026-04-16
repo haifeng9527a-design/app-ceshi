@@ -899,6 +899,99 @@ func (r *ReferralRepo) GetAgentDashboard(ctx context.Context, uid string) (*mode
 	return &s, nil
 }
 
+// GetAgentBusinessStats 业务统计页：本月 / 累计 入金 出金 交易量 + 24h / 30d 活跃。
+// 范围：仅直接下级（users.inviter_uid = agent），和 GetAgentDashboard.DirectInvitees 口径一致。
+//
+// 单次 round-trip，subquery 全部带索引：
+//   - users(inviter_uid) 索引
+//   - wallet_transactions(user_id, created_at) 索引
+//   - orders/spot_orders(user_id, status, filled_at)
+//
+// 口径：
+//   - deposit / withdraw 从 wallet_transactions 取；withdraw 存负数，取 -amount 归正
+//   - volume futures = orders.filled_price × qty（status='filled'）
+//   - volume spot    = spot_orders.quote_qty（status='filled'）
+//   - dau_24h / active_30d 基于 users.last_login_at（migration 035）
+func (r *ReferralRepo) GetAgentBusinessStats(ctx context.Context, agentUID string) (*model.AgentBusinessStats, error) {
+	var s model.AgentBusinessStats
+	s.UID = agentUID
+	s.GeneratedAt = time.Now().UTC()
+
+	err := r.pool.QueryRow(ctx, `
+		WITH direct AS (
+			SELECT uid, last_login_at FROM users WHERE inviter_uid = $1
+		), m AS (
+			SELECT date_trunc('month', NOW() AT TIME ZONE 'UTC') AS ts
+		)
+		SELECT
+		  (SELECT COUNT(*) FROM direct)::int AS direct_count,
+		  COALESCE((
+		    SELECT SUM(wt.amount)::float8
+		    FROM wallet_transactions wt
+		    WHERE wt.user_id IN (SELECT uid FROM direct)
+		      AND wt.type = 'deposit'
+		      AND wt.created_at >= (SELECT ts FROM m)
+		  ), 0) AS month_deposit,
+		  COALESCE((
+		    SELECT SUM(-wt.amount)::float8
+		    FROM wallet_transactions wt
+		    WHERE wt.user_id IN (SELECT uid FROM direct)
+		      AND wt.type = 'withdraw'
+		      AND wt.created_at >= (SELECT ts FROM m)
+		  ), 0) AS month_withdraw,
+		  COALESCE((
+		    SELECT SUM(o.filled_price * o.qty)::float8
+		    FROM orders o
+		    WHERE o.user_id IN (SELECT uid FROM direct)
+		      AND o.status = 'filled'
+		      AND o.filled_at IS NOT NULL
+		      AND o.filled_at >= (SELECT ts FROM m)
+		  ), 0) AS month_vol_futures,
+		  COALESCE((
+		    SELECT SUM(so.quote_qty)::float8
+		    FROM spot_orders so
+		    WHERE so.user_id IN (SELECT uid FROM direct)
+		      AND so.status = 'filled'
+		      AND so.filled_at IS NOT NULL
+		      AND so.filled_at >= (SELECT ts FROM m)
+		  ), 0) AS month_vol_spot,
+		  COALESCE((
+		    SELECT SUM(wt.amount)::float8
+		    FROM wallet_transactions wt
+		    WHERE wt.user_id IN (SELECT uid FROM direct)
+		      AND wt.type = 'deposit'
+		  ), 0) AS life_deposit,
+		  COALESCE((
+		    SELECT SUM(-wt.amount)::float8
+		    FROM wallet_transactions wt
+		    WHERE wt.user_id IN (SELECT uid FROM direct)
+		      AND wt.type = 'withdraw'
+		  ), 0) AS life_withdraw,
+		  (SELECT COUNT(*) FROM direct
+		   WHERE last_login_at >= (NOW() AT TIME ZONE 'UTC') - INTERVAL '24 hours'
+		  )::int AS dau_24h,
+		  (SELECT COUNT(*) FROM direct
+		   WHERE last_login_at >= (NOW() AT TIME ZONE 'UTC') - INTERVAL '30 days'
+		  )::int AS active_30d
+	`, agentUID).Scan(
+		&s.DirectInviteesCount,
+		&s.ThisMonthDeposit,
+		&s.ThisMonthWithdraw,
+		&s.ThisMonthVolumeFutures,
+		&s.ThisMonthVolumeSpot,
+		&s.LifetimeDeposit,
+		&s.LifetimeWithdraw,
+		&s.DAU24h,
+		&s.Active30dCount,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get agent business stats: %w", err)
+	}
+	s.ThisMonthNetFlow = s.ThisMonthDeposit - s.ThisMonthWithdraw
+	s.LifetimeNetFlow = s.LifetimeDeposit - s.LifetimeWithdraw
+	return &s, nil
+}
+
 func (r *ReferralRepo) ListInvitees(ctx context.Context, inviterUID string, limit, offset int) ([]InviteeRow, int, error) {
 	var total int
 	if err := r.pool.QueryRow(ctx, `

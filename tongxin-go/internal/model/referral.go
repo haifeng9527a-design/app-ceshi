@@ -163,6 +163,32 @@ type AgentDashboardSummary struct {
 	IsFrozen                 bool    `json:"is_frozen"`
 }
 
+// AgentBusinessStats 代理后台「业务统计」页面数据。
+// 范围：仅直接下级（users.inviter_uid = agent）。和 AgentDashboardSummary.DirectInvitees 口径一致。
+// 所有金额字段单位 USDT；volume 为估算（非 USDT 计价对按报价货币原值累加）。
+type AgentBusinessStats struct {
+	UID                 string `json:"uid"`
+	DirectInviteesCount int    `json:"direct_invitees_count"`
+
+	// 本月（UTC 月初至今）
+	ThisMonthDeposit       float64 `json:"this_month_deposit"`
+	ThisMonthWithdraw      float64 `json:"this_month_withdraw"`
+	ThisMonthNetFlow       float64 `json:"this_month_net_flow"` // deposit - withdraw
+	ThisMonthVolumeFutures float64 `json:"this_month_volume_futures"`
+	ThisMonthVolumeSpot    float64 `json:"this_month_volume_spot"`
+
+	// 累计（全期）
+	LifetimeDeposit  float64 `json:"lifetime_deposit"`
+	LifetimeWithdraw float64 `json:"lifetime_withdraw"`
+	LifetimeNetFlow  float64 `json:"lifetime_net_flow"`
+
+	// 活跃度：基于 users.last_login_at（migration 035）
+	DAU24h        int `json:"dau_24h"`
+	Active30dCount int `json:"active_30d_count"`
+
+	GeneratedAt time.Time `json:"generated_at"`
+}
+
 // SubAgentRow 代理的子代理列表一行。
 type SubAgentRow struct {
 	UID              string  `json:"uid"`

@@ -538,7 +538,8 @@ func main() {
 		mux.Handle("GET /api/agent/dashboard-prefs", authMw.Authenticate(http.HandlerFunc(agentDashH.GetDashboardPrefs)))
 		mux.Handle("PUT /api/agent/dashboard-prefs", authMw.Authenticate(http.HandlerFunc(agentDashH.PutDashboardPrefs)))
 		mux.Handle("GET /api/agent/commission-events", authMw.Authenticate(http.HandlerFunc(agentDashH.ListCommissionEvents)))
-		log.Println("[OK] Agent dashboard extras (risk-radar / team-tree / dashboard-prefs / commission-events) registered")
+		mux.Handle("GET /api/agent/business-stats", authMw.Authenticate(http.HandlerFunc(agentDashH.BusinessStats)))
+		log.Println("[OK] Agent dashboard extras (risk-radar / team-tree / dashboard-prefs / commission-events / business-stats) registered")
 
 		// Sprint 2: thresholds
 		thresholdRepo := repository.NewThresholdRepo(pool)
